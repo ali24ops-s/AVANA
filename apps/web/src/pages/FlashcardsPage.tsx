@@ -12,6 +12,7 @@ import {
   Flame,
   Info,
   Sliders,
+  BookOpen,
 } from "lucide-react";
 import { Card, Button, LoadingState, Badge } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
@@ -207,13 +208,23 @@ export function FlashcardsPage() {
     return new Set(validCourses.map((c) => c.id));
   }, [validCourses]);
 
+  const modulelessCourseIds = useMemo(() => {
+    return validCourses
+      .filter((c) => c.modules.length === 0)
+      .map((c) => c.id);
+  }, [validCourses]);
+
   const isAllSelected = useMemo(() => {
-    if (allModuleIds.size === 0 && allCourseIds.size === 0) return false;
-    if (allModuleIds.size > 0) {
-      return selectedModules.size === allModuleIds.size;
-    }
-    return selectedCourses.size === allCourseIds.size;
-  }, [selectedModules, selectedCourses, allModuleIds, allCourseIds]);
+    if (validCourses.length === 0) return false;
+
+    const allModulesSelected =
+      allModuleIds.size === 0 || selectedModules.size === allModuleIds.size;
+    const allModulelessCoursesSelected =
+      modulelessCourseIds.length === 0 ||
+      modulelessCourseIds.every((id) => selectedCourses.has(id));
+
+    return allModulesSelected && allModulelessCoursesSelected;
+  }, [selectedModules, selectedCourses, allModuleIds, modulelessCourseIds, validCourses.length]);
 
   // Compute scoped stats for the 4 insight tiles based on taxonomy selection
   const scopedStats = useMemo(() => {
@@ -298,31 +309,45 @@ export function FlashcardsPage() {
     if (isAllSelected) {
       setSelectedCourses(new Set());
       setSelectedModules(new Set());
+      setSelectedLessons(new Set());
     } else {
       setSelectedCourses(new Set(allCourseIds));
       setSelectedModules(new Set(allModuleIds));
+      const allLessons = new Set<string>();
+      for (const c of validCourses) {
+        for (const m of c.modules) {
+          if (m.lessons) {
+            for (const l of m.lessons) allLessons.add(l.id);
+          }
+        }
+      }
+      setSelectedLessons(allLessons);
     }
   };
+
+  // List of courses that have at least one selected module or are directly selected
+  const selectedCoursesList = useMemo(() => {
+    return validCourses.filter(
+      (c) =>
+        selectedCourses.has(c.id) ||
+        c.modules.some((m) => selectedModules.has(m.id)),
+    );
+  }, [validCourses, selectedCourses, selectedModules]);
 
   // Compute active selected card count
   const activeSelectedCardCount = useMemo(() => {
     if (!summary) return 0;
-    if (selectedModules.size > 0) {
-      let count = 0;
-      for (const course of validCourses) {
-        for (const module of course.modules) {
-          if (selectedModules.has(module.id)) {
-            count += module.itemCount || 0;
-          }
-        }
-      }
-      return count;
-    }
-    if (selectedCourses.size > 0) {
+    if (selectedModules.size > 0 || selectedCourses.size > 0) {
       let count = 0;
       for (const course of validCourses) {
         if (selectedCourses.has(course.id)) {
           count += course.itemCount || 0;
+        } else {
+          for (const module of course.modules) {
+            if (selectedModules.has(module.id)) {
+              count += module.itemCount || 0;
+            }
+          }
         }
       }
       return count;
@@ -504,10 +529,10 @@ export function FlashcardsPage() {
           </div>
         </header>
 
-        {/* Bento Grid Layout */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {/* Tile 1: Title / Main Info Tile (Col 1-2, Row 1) */}
-          <div className="bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] border border-[var(--color-border)] rounded-[16px] p-6 md:col-span-2 md:row-span-1 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group shadow-[var(--shadow-card)]">
+        {/* Top Section: Goal & Study Mode */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Tile 1: Goal */}
+          <div className="bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] border border-[var(--color-border)] rounded-[16px] p-6 md:col-span-2 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group shadow-[var(--shadow-card)]">
             <div className="absolute left-0 top-0 opacity-10 text-[var(--color-primary)] transform scale-[2] -translate-x-4 -translate-y-4 group-hover:scale-[2.2] transition-transform duration-700 pointer-events-none">
               <Brain className="w-32 h-32" />
             </div>
@@ -519,238 +544,312 @@ export function FlashcardsPage() {
             </p>
           </div>
 
-          {/* Tile 2: Mode: Daily Tile (Col 3, Row 1) */}
-          <label
-            onClick={() => setSelectedGoal("daily")}
-            className={`rounded-[16px] p-6 md:col-span-1 md:row-span-1 cursor-pointer relative overflow-hidden flex flex-col justify-between transition-all duration-300 border ${
-              selectedGoal === "daily"
-                ? "bg-[var(--color-surface)] border-[var(--color-primary)] shadow-[var(--shadow-card)] ring-1 ring-[var(--color-primary)]"
-                : "bg-[var(--color-surface)] border-[var(--color-border)] hover:border-[var(--color-primary)]"
-            }`}
-          >
-            <input
-              type="radio"
-              name="study_mode_bento"
-              checked={selectedGoal === "daily"}
-              onChange={() => setSelectedGoal("daily")}
-              className="sr-only"
-            />
-            <div className="flex justify-between items-start relative z-10">
-              <div className="w-10 h-10 rounded-[10px] bg-[var(--color-primary-soft)] flex items-center justify-center text-[var(--color-primary)]">
-                <Calendar className="w-5 h-5" />
-              </div>
-              <div
-                className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                  selectedGoal === "daily" ? "border-[var(--color-primary)]" : "border-[var(--color-border)]"
-                }`}
-              >
+          {/* Tile 2: Mode Selector (Daily & Exam) */}
+          <div className="grid grid-cols-2 gap-3 md:col-span-1">
+            <label
+              onClick={() => setSelectedGoal("daily")}
+              className={`rounded-[16px] p-4 cursor-pointer relative overflow-hidden flex flex-col justify-between transition-all duration-300 border ${
+                selectedGoal === "daily"
+                  ? "bg-[var(--color-surface)] border-[var(--color-primary)] shadow-[var(--shadow-card)] ring-1 ring-[var(--color-primary)]"
+                  : "bg-[var(--color-surface)] border-[var(--color-border)] hover:border-[var(--color-primary)]"
+              }`}
+            >
+              <input
+                type="radio"
+                name="study_mode_bento"
+                checked={selectedGoal === "daily"}
+                onChange={() => setSelectedGoal("daily")}
+                className="sr-only"
+              />
+              <div className="flex justify-between items-start relative z-10">
+                <div className="w-8 h-8 rounded-[8px] bg-[var(--color-primary-soft)] flex items-center justify-center text-[var(--color-primary)]">
+                  <Calendar className="w-4 h-4" />
+                </div>
                 <div
-                  className={`w-3 h-3 rounded-full bg-[var(--color-primary)] transition-transform ${
-                    selectedGoal === "daily" ? "scale-100" : "scale-0"
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                    selectedGoal === "daily" ? "border-[var(--color-primary)]" : "border-[var(--color-border)]"
                   }`}
-                />
+                >
+                  <div
+                    className={`w-2.5 h-2.5 rounded-full bg-[var(--color-primary)] transition-transform ${
+                      selectedGoal === "daily" ? "scale-100" : "scale-0"
+                    }`}
+                  />
+                </div>
               </div>
-            </div>
-            <div className="relative z-10 mt-4">
-              <h3 className="text-base font-bold text-[var(--color-text)] mb-1">روزانه</h3>
-              <p className="text-xs text-[var(--color-text-muted)] line-clamp-2">یادگیری پایدار و بلندمدت SRS.</p>
-            </div>
-          </label>
+              <div className="relative z-10 mt-2">
+                <h3 className="text-sm font-bold text-[var(--color-text)] mb-0.5">روزانه</h3>
+                <p className="text-[11px] text-[var(--color-text-muted)] line-clamp-1">یادگیری پایدار SRS</p>
+              </div>
+            </label>
 
-          {/* Tile 3: Mode: Exam Tile (Col 4, Row 1) - موقتاً غیرفعال / به‌زودی */}
-          <div
-            aria-disabled="true"
-            className="rounded-[16px] p-6 md:col-span-1 md:row-span-1 relative overflow-hidden flex flex-col justify-between transition-all duration-300 border bg-[var(--color-surface)] border-[var(--color-border)] opacity-75 cursor-not-allowed select-none"
-          >
-            <div className="flex justify-between items-start relative z-10">
-              <div className="w-10 h-10 rounded-[10px] bg-[var(--color-error-soft)]/50 flex items-center justify-center text-[var(--color-error)]/70">
-                <Flame className="w-5 h-5" />
+            <div
+              aria-disabled="true"
+              className="rounded-[16px] p-4 relative overflow-hidden flex flex-col justify-between transition-all duration-300 border bg-[var(--color-surface)] border-[var(--color-border)] opacity-75 cursor-not-allowed select-none"
+            >
+              <div className="flex justify-between items-start relative z-10">
+                <div className="w-8 h-8 rounded-[8px] bg-[var(--color-error-soft)]/50 flex items-center justify-center text-[var(--color-error)]/70">
+                  <Flame className="w-4 h-4" />
+                </div>
+                <Badge variant="warning" size="sm" className="font-bold pointer-events-none text-[10px]">
+                  به‌زودی
+                </Badge>
               </div>
-              <Badge variant="warning" size="sm" className="font-bold pointer-events-none">
-                به‌زودی
-              </Badge>
-            </div>
-            <div className="relative z-10 mt-4">
-              <h3 className="text-base font-bold text-[var(--color-text-muted)] mb-1">شب امتحان</h3>
-              <p className="text-xs text-[var(--color-text-muted)] line-clamp-2">مطالعه فشرده برای امتحان</p>
+              <div className="relative z-10 mt-2">
+                <h3 className="text-sm font-bold text-[var(--color-text-muted)] mb-0.5">شب امتحان</h3>
+                <p className="text-[11px] text-[var(--color-text-muted)] line-clamp-1">مطالعه فشرده</p>
+              </div>
             </div>
           </div>
+        </div>
 
-          {/* Tile 4: Topics / Filters Tile (Col 1-2, Row 2-3) */}
-          <div className="bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] border border-[var(--color-border)] rounded-[16px] p-6 md:col-span-2 md:row-span-2 flex flex-col transition-all duration-300 shadow-[var(--shadow-card)]">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
-                  <Filter className="w-5 h-5 text-[var(--color-primary)]" />
-                  <span>فیلتر مباحث</span>
-                </h2>
-                {selectedGoal === "exam" && (
-                  <div className="flex items-center gap-1 text-xs pe-2 border-s border-[var(--color-border)]">
-                    <span className="text-[var(--color-text-muted)] text-[11px]">محدودیت:</span>
-                    {EXAM_MODE_LIMITS.map((limit) => (
-                      <button
-                        key={limit}
-                        type="button"
-                        onClick={() => setExamLimit(limit)}
-                        className={`px-1.5 py-0.5 rounded-[6px] text-[10px] font-bold border transition-colors cursor-pointer ${
-                          examLimit === limit
-                            ? "bg-[var(--color-error)] text-white border-[var(--color-error)]"
-                            : "bg-[var(--color-surface)] text-[var(--color-text-muted)] border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]"
-                        }`}
-                      >
-                        {limit === "all" ? "همه" : toPersianDigits(limit)}
-                      </button>
-                    ))}
-                  </div>
-                )}
+        {/* Section 1: Course & Topic Two-Panel Selector (Aligned with Exam Settings) */}
+        <section className="bg-[var(--color-surface)] rounded-2xl p-6 md:p-8 border border-[var(--color-border)] shadow-xs space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--color-border)] pb-4">
+            <div className="flex items-center gap-3">
+              <span className="p-2 rounded-xl bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
+                <BookOpen className="w-5 h-5" />
+              </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base sm:text-lg font-bold text-[var(--color-text)]">
+                    مباحث و دوره‌های مطالعه
+                  </h2>
+                  <Badge variant="primary" size="sm">
+                    {toPersianDigits(validCourses.length)} دوره
+                  </Badge>
+                </div>
+                <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                  دوره و سرفصل‌های مورد نظر خود را برای مرور فاصله‌دار هوشمند انتخاب کنید
+                </p>
               </div>
+            </div>
+
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={toggleSelectAllTopics}
+                aria-label={isAllSelected ? "لغو انتخاب همه مباحث" : "انتخاب همه مباحث"}
                 className="text-xs font-semibold text-[var(--color-primary)] hover:text-[var(--color-primary-dark)] bg-[var(--color-primary-soft)] hover:bg-[var(--color-primary-light)] px-3.5 py-1.5 rounded-full transition-all border border-[var(--color-primary-muted)] self-start sm:self-auto cursor-pointer"
               >
                 {isAllSelected ? "لغو انتخاب همه" : "انتخاب همه"}
               </button>
             </div>
+          </div>
 
-            <div className="flex-1 overflow-y-auto pe-1 max-h-[300px]">
-              <TaxonomySelector
-                courses={validCourses}
-                selectedCourseIds={selectedCourses}
-                selectedModuleIds={selectedModules}
-                selectedLessonIds={selectedLessons}
-                onSelectionChange={handleTaxonomyChange}
-                emptyMessage="برای این دوره هنوز سرفصل یا فلشکارتی ثبت نشده است."
-                itemLabelSingular="کارت"
-              />
+          <TaxonomySelector
+            courses={validCourses}
+            selectedCourseIds={selectedCourses}
+            selectedModuleIds={selectedModules}
+            selectedLessonIds={selectedLessons}
+            onSelectionChange={handleTaxonomyChange}
+            emptyMessage="برای این دوره هنوز سرفصل یا فلشکارتی ثبت نشده است."
+            itemLabelSingular="کارت"
+            hideLessons={true}
+            enableCourseSearch={validCourses.length > 2}
+            courseSearchPlaceholder="جست‌وجوی دوره..."
+            layout="two-panel"
+          />
+        </section>
+
+        {/* Section 2: Full-Width Study Settings Summary & Actions (Aligned with Exam Settings Box 2) */}
+        <section className="bg-[var(--color-surface)] rounded-2xl p-6 md:p-8 border-t-4 border-t-[var(--color-primary)] border border-[var(--color-border)] shadow-xs space-y-6">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-4">
+            <div className="flex items-center gap-2.5">
+              <span className="p-1.5 rounded-lg bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
+                <Sliders className="w-5 h-5" />
+              </span>
+              <h3 className="text-base sm:text-lg font-bold text-[var(--color-text)]">
+                خلاصه انتخاب و کارت‌های آماده مطالعه
+              </h3>
             </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setReviewAheadDays(3);
+                  startCustomStudy("review_ahead");
+                }}
+                className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline cursor-pointer"
+              >
+                مرور {toPersianDigits(reviewAheadDays)} روز بعد
+              </button>
+            </div>
+          </div>
 
-            <div className="mt-4 pt-3 border-t border-[var(--color-border)] text-xs text-[var(--color-text-muted)] flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Info className="w-4 h-4 text-[var(--color-text-muted)]" />
-                <span>
-                  {selectedModules.size > 0
-                    ? `${toPersianDigits(selectedModules.size)} مبحث انتخاب شده است.`
-                    : selectedCourses.size > 0
-                    ? `${toPersianDigits(selectedCourses.size)} دوره انتخاب شده است.`
-                    : "همه مباحث به صورت پیش‌فرض فعال هستند."}
+          {/* Part A: Summary Stats Badges */}
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+              <div className="py-2.5 px-3 rounded-xl bg-[var(--color-background)] border border-[var(--color-border)] text-center flex items-center justify-center">
+                <span className="text-sm sm:text-base font-bold font-mono text-[var(--color-text)]">
+                  {toPersianDigits(selectedCoursesList.length > 0 ? selectedCoursesList.length : validCourses.length)} دوره
                 </span>
               </div>
-              <div className="flex gap-1 text-[10px] text-[var(--color-text-muted)]">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setReviewAheadDays(3);
-                    startCustomStudy("review_ahead");
-                  }}
-                  className="hover:text-[var(--color-text)] underline cursor-pointer"
-                >
-                  مرور {toPersianDigits(reviewAheadDays)} روز بعد
-                </button>
+              <div className="py-2.5 px-3 rounded-xl bg-[var(--color-background)] border border-[var(--color-border)] text-center flex items-center justify-center">
+                <span className="text-sm sm:text-base font-bold font-mono text-[var(--color-primary)]">
+                  {toPersianDigits(selectedModules.size > 0 ? selectedModules.size : allModuleIds.size)} فصل
+                </span>
+              </div>
+              <div className="py-2.5 px-3 rounded-xl bg-[var(--color-background)] border border-[var(--color-border)] text-center flex items-center justify-center">
+                <span className="text-sm sm:text-base font-bold font-mono text-[#2a624b]">
+                  {toPersianDigits(activeSelectedCardCount)} کارت
+                </span>
+              </div>
+              <div className="py-2.5 px-3 rounded-xl bg-[var(--color-background)] border border-[var(--color-border)] text-center flex items-center justify-center">
+                <span className="text-sm sm:text-base font-bold font-mono text-[var(--color-text)]">
+                  ⏱ {toPersianDigits(estimatedMinutes)} دقیقه
+                </span>
+              </div>
+            </div>
+
+            {/* Direct Topics Display */}
+            {selectedCoursesList.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                {selectedCoursesList.map((c) => {
+                  const count = c.modules.filter((m) => selectedModules.has(m.id)).length;
+                  return (
+                    <span
+                      key={c.id}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-background)] border border-[var(--color-border)] text-xs font-medium text-[var(--color-text)]"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-primary)] shrink-0" />
+                      <span className="font-semibold">{c.title}:</span>
+                      <span className="text-[var(--color-primary)] font-bold font-mono">
+                        {c.modules.length > 0
+                          ? `${toPersianDigits(count)} از ${toPersianDigits(c.modules.length)} فصل`
+                          : "کل دوره"}
+                      </span>
+                    </span>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-[var(--color-text-muted)] pt-1">
+                همه مباحث به صورت پیش‌فرض فعال هستند (مطالعه جامع).
+              </p>
+            )}
+
+            <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] pt-1">
+              <Info className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
+              <span>
+                {selectedModules.size > 0
+                  ? `${toPersianDigits(selectedModules.size)} مبحث انتخاب شده است.`
+                  : selectedCourses.size > 0
+                  ? `${toPersianDigits(selectedCourses.size)} دوره انتخاب شده است.`
+                  : "همه مباحث به صورت پیش‌فرض فعال هستند."}
+              </span>
+            </div>
+          </div>
+
+          {/* Part B: Micro-Insight SRS Status Breakdown (Interactive Study Launchers) */}
+          <div className="space-y-3 pt-5 border-t border-[var(--color-border)]">
+            <h4 className="text-xs font-bold text-[var(--color-text-secondary)]">
+              تفکیک وضعیت کارت‌ها در مباحث انتخابی (برای مطالعه اختصاصی هر گروه کلیک کنید):
+            </h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {/* Tile 5: Forgotten Cards */}
+              <div
+                onClick={() => {
+                  if (scopedStats.overdue > 0) {
+                    startCustomStudy("overdue");
+                  }
+                }}
+                role="button"
+                tabIndex={scopedStats.overdue > 0 ? 0 : -1}
+                aria-disabled={scopedStats.overdue === 0}
+                className={`bg-[var(--color-warning-soft)] border border-[var(--color-warning-muted)] rounded-[14px] p-4 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group shadow-[var(--shadow-subtle)] ${
+                  scopedStats.overdue > 0 ? "cursor-pointer hover:shadow-md" : "opacity-60 cursor-not-allowed"
+                }`}
+              >
+                <h3 className="text-2xl font-black text-[var(--color-warning)] mb-0.5 relative z-10">
+                  {toPersianDigits(scopedStats.overdue)}
+                </h3>
+                <p className="text-xs font-bold text-[var(--color-text)] relative z-10">کارت فراموش شده</p>
+                <p className="text-[10px] text-[var(--color-text-muted)] mt-0.5 relative z-10">
+                  بیایید این‌ها را برطرف کنیم
+                </p>
+              </div>
+
+              {/* Tile 6: New Cards */}
+              <div
+                onClick={() => {
+                  if (scopedStats.newCards > 0) {
+                    startCustomStudy("new");
+                  }
+                }}
+                role="button"
+                tabIndex={scopedStats.newCards > 0 ? 0 : -1}
+                aria-disabled={scopedStats.newCards === 0}
+                className={`bg-[var(--color-primary-soft)] border border-[var(--color-primary-muted)] rounded-[14px] p-4 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group shadow-[var(--shadow-subtle)] ${
+                  scopedStats.newCards > 0 ? "cursor-pointer hover:shadow-md" : "opacity-60 cursor-not-allowed"
+                }`}
+              >
+                <h3 className="text-2xl font-black text-[var(--color-primary)] mb-0.5 relative z-10">
+                  {toPersianDigits(scopedStats.newCards)}
+                </h3>
+                <p className="text-xs font-bold text-[var(--color-text)] relative z-10">کارت‌های جدید</p>
+                <p className="text-[10px] text-[var(--color-text-muted)] mt-0.5 relative z-10">آماده یادگیری</p>
+              </div>
+
+              {/* Tile 7: Needs Review */}
+              <div
+                onClick={() => {
+                  if (scopedStats.due > 0) {
+                    startCustomStudy("due");
+                  }
+                }}
+                role="button"
+                tabIndex={scopedStats.due > 0 ? 0 : -1}
+                aria-disabled={scopedStats.due === 0}
+                className={`bg-[var(--color-error-soft)] border border-[var(--color-error-muted)] rounded-[14px] p-4 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group shadow-[var(--shadow-subtle)] ${
+                  scopedStats.due > 0 ? "cursor-pointer hover:shadow-md" : "opacity-60 cursor-not-allowed"
+                }`}
+              >
+                <h3 className="text-2xl font-black text-[var(--color-error)] mb-0.5 relative z-10">
+                  {toPersianDigits(scopedStats.due)}
+                </h3>
+                <p className="text-xs font-bold text-[var(--color-text)] relative z-10">نیاز به مرور</p>
+                <p className="text-[10px] text-[var(--color-text-muted)] mt-0.5 relative z-10">زمان یادآوری</p>
+              </div>
+
+              {/* Tile 8: Learned */}
+              <div
+                onClick={() => {
+                  if (scopedStats.learned > 0) {
+                    startCustomStudy("learned");
+                  }
+                }}
+                role="button"
+                tabIndex={scopedStats.learned > 0 ? 0 : -1}
+                aria-disabled={scopedStats.learned === 0}
+                className={`bg-[var(--color-success-soft)] border border-[var(--color-success-muted)] rounded-[14px] p-4 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group shadow-[var(--shadow-subtle)] ${
+                  scopedStats.learned > 0 ? "cursor-pointer hover:shadow-md" : "opacity-60 cursor-not-allowed"
+                }`}
+              >
+                <h3 className="text-2xl font-black text-[var(--color-success)] mb-0.5 relative z-10">
+                  {toPersianDigits(learnedCardsCount)}
+                </h3>
+                <p className="text-xs font-bold text-[var(--color-text)] relative z-10">یادگرفته شده</p>
+                <p className="text-[10px] text-[var(--color-success)] mt-0.5 relative z-10">تثبیت‌شده</p>
               </div>
             </div>
           </div>
 
-          {/* Tile 5: Micro-Insight: Forgotten Cards Tile (Col 3, Row 2) */}
-          <div
-            onClick={() => {
-              if (scopedStats.overdue > 0) {
-                startCustomStudy("overdue");
-              }
-            }}
-            role="button"
-            tabIndex={scopedStats.overdue > 0 ? 0 : -1}
-            aria-disabled={scopedStats.overdue === 0}
-            className={`bg-[var(--color-warning-soft)] border border-[var(--color-warning-muted)] rounded-[16px] p-6 md:col-span-1 md:row-span-1 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group shadow-[var(--shadow-subtle)] ${
-              scopedStats.overdue > 0 ? "cursor-pointer hover:shadow-md" : "opacity-60 cursor-not-allowed"
-            }`}
-          >
-            <h3 className="text-3xl font-black text-[var(--color-warning)] mb-1 relative z-10">
-              {toPersianDigits(scopedStats.overdue)}
-            </h3>
-            <p className="text-sm font-bold text-[var(--color-text)] relative z-10">کارت فراموش شده</p>
-            <p className="text-xs text-[var(--color-text-muted)] mt-1 relative z-10">
-              بیایید این‌ها را امروز برطرف کنیم.
-            </p>
-          </div>
-
-          {/* Tile 6: Micro-Insight: New Cards Tile (Col 4, Row 2) */}
-          <div
-            onClick={() => {
-              if (scopedStats.newCards > 0) {
-                startCustomStudy("new");
-              }
-            }}
-            role="button"
-            tabIndex={scopedStats.newCards > 0 ? 0 : -1}
-            aria-disabled={scopedStats.newCards === 0}
-            className={`bg-[var(--color-primary-soft)] border border-[var(--color-primary-muted)] rounded-[16px] p-6 md:col-span-1 md:row-span-1 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group shadow-[var(--shadow-subtle)] ${
-              scopedStats.newCards > 0 ? "cursor-pointer hover:shadow-md" : "opacity-60 cursor-not-allowed"
-            }`}
-          >
-            <h3 className="text-3xl font-black text-[var(--color-primary)] mb-1 relative z-10">
-              {toPersianDigits(scopedStats.newCards)}
-            </h3>
-            <p className="text-sm font-bold text-[var(--color-text)] relative z-10">کارت‌های جدید</p>
-            <p className="text-xs text-[var(--color-text-muted)] mt-1 relative z-10">آماده برای یادگیری امروز.</p>
-          </div>
-
-          {/* Tile 7: Micro-Insight: Needs Review Tile (Col 3, Row 3) */}
-          <div
-            onClick={() => {
-              if (scopedStats.due > 0) {
-                startCustomStudy("due");
-              }
-            }}
-            role="button"
-            tabIndex={scopedStats.due > 0 ? 0 : -1}
-            aria-disabled={scopedStats.due === 0}
-            className={`bg-[var(--color-error-soft)] border border-[var(--color-error-muted)] rounded-[16px] p-6 md:col-span-1 md:row-span-1 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group shadow-[var(--shadow-subtle)] ${
-              scopedStats.due > 0 ? "cursor-pointer hover:shadow-md" : "opacity-60 cursor-not-allowed"
-            }`}
-          >
-            <h3 className="text-3xl font-black text-[var(--color-error)] mb-1 relative z-10">
-              {toPersianDigits(scopedStats.due)}
-            </h3>
-            <p className="text-sm font-bold text-[var(--color-text)] relative z-10">نیاز به مرور</p>
-            <p className="text-xs text-[var(--color-text-muted)] mt-1 relative z-10">زمان یادآوری فرا رسیده است.</p>
-          </div>
-
-          {/* Tile 8: Micro-Insight: Learned Tile (Col 4, Row 3) */}
-          <div
-            onClick={() => {
-              if (scopedStats.learned > 0) {
-                startCustomStudy("learned");
-              }
-            }}
-            role="button"
-            tabIndex={scopedStats.learned > 0 ? 0 : -1}
-            aria-disabled={scopedStats.learned === 0}
-            className={`bg-[var(--color-success-soft)] border border-[var(--color-success-muted)] rounded-[16px] p-6 md:col-span-1 md:row-span-1 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group shadow-[var(--shadow-subtle)] ${
-              scopedStats.learned > 0 ? "cursor-pointer hover:shadow-md" : "opacity-60 cursor-not-allowed"
-            }`}
-          >
-            <h3 className="text-3xl font-black text-[var(--color-success)] mb-1 relative z-10">
-              {toPersianDigits(learnedCardsCount)}
-            </h3>
-            <p className="text-sm font-bold text-[var(--color-text)] relative z-10">یادگرفته شده</p>
-            <p className="text-xs text-[var(--color-success)] mt-1 relative z-10">عالی پیش می‌روید!</p>
-          </div>
-
-          {/* Tile 9: Massive Start Button Tile (Col 1-4, Row 4) */}
+          {/* Part C: Massive Start Button */}
           <button
             type="button"
             onClick={handleStartStudy}
             disabled={activeSelectedCardCount === 0}
-            className="rounded-[16px] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] active:bg-[var(--color-primary-active)] text-white relative overflow-hidden group shadow-[var(--shadow-card)] hover:shadow-lg transition-all duration-300 md:col-span-4 h-24 p-4 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="w-full rounded-[16px] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] active:bg-[var(--color-primary-active)] text-white relative overflow-hidden group shadow-[var(--shadow-card)] hover:shadow-lg transition-all duration-300 h-20 sm:h-24 p-4 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
-            <div className="relative z-10 w-full h-full flex items-center justify-between px-6">
-              <div className="flex items-center gap-6">
-                <div className="w-14 h-14 rounded-[10px] bg-white/20 flex items-center justify-center backdrop-blur-xs group-hover:scale-110 transition-transform duration-300 shrink-0">
-                  <Play className="w-8 h-8 text-white fill-white me-1" />
+            <div className="relative z-10 w-full h-full flex items-center justify-between px-4 sm:px-6">
+              <div className="flex items-center gap-4 sm:gap-6">
+                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-[10px] bg-white/20 flex items-center justify-center backdrop-blur-xs group-hover:scale-110 transition-transform duration-300 shrink-0">
+                  <Play className="w-7 h-7 sm:w-8 sm:h-8 text-white fill-white me-1" />
                 </div>
                 <div className="text-right">
-                  <h2 className="text-xl sm:text-2xl font-black mb-1 text-white">
+                  <h2 className="text-lg sm:text-2xl font-black mb-1 text-white">
                     {selectedGoal === "exam" ? "شروع مرور فشرده امتحان" : "شروع مطالعه"}
                   </h2>
                   <p className="text-white/80 text-xs sm:text-sm font-semibold">
@@ -761,11 +860,11 @@ export function FlashcardsPage() {
 
               <div className="hidden sm:flex flex-col text-left opacity-90">
                 <span className="text-xs text-white/80">کل کارت‌های انتخاب شده</span>
-                <span className="text-2xl font-black text-white">{toPersianDigits(activeSelectedCardCount)}</span>
+                <span className="text-xl sm:text-2xl font-black text-white">{toPersianDigits(activeSelectedCardCount)}</span>
               </div>
             </div>
           </button>
-        </div>
+        </section>
 
         {/* Separator Divider */}
         <div className="w-full border-t border-[var(--color-border)] my-2" />

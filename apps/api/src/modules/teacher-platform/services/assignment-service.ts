@@ -1,7 +1,6 @@
 import {
   DomainError,
   asUserId,
-  asOrganizationId,
   type Actor,
   type UserId,
   type AuthorizationPolicy,
@@ -26,6 +25,8 @@ import type { OrganizationStore } from "../../organizations/organization-store.j
 import type { UserStore } from "../../identity/user-store.js";
 import type { NotificationService } from "../../notifications/notification-service.js";
 import type { StorageProvider } from "../../storage/storage-provider.js";
+
+import { assertTeacherClassroomAccess as assertAccess } from "./auth-helpers.js";
 
 export interface TeacherAssignmentListItemDTO {
   id: string;
@@ -171,32 +172,12 @@ export class AssignmentService {
     actor: Actor,
     classroomId: string,
   ): Promise<Classroom> {
-    const classroom = await this.classroomStore.getById(classroomId);
-    if (!classroom) {
-      throw new DomainError("not_found", "کلاس یافت نشد");
-    }
-
-    if (
-      actor.globalRole === "platform_admin" ||
-      actor.role === "platform_admin"
-    ) {
-      return classroom;
-    }
-
-    if (classroom.teacherId === actor.userId) {
-      return classroom;
-    }
-
-    const membership = await this.organizationStore.findMembership(
-      asOrganizationId(classroom.organizationId),
-      asUserId(actor.userId),
+    return assertAccess(
+      this.classroomStore,
+      this.organizationStore,
+      actor,
+      classroomId,
     );
-
-    if (membership && membership.role === "organization_admin") {
-      return classroom;
-    }
-
-    throw new DomainError("not_found", "کلاس یافت نشد");
   }
 
   // -------------------------------------------------------------------------

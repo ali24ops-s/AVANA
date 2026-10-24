@@ -374,6 +374,19 @@ describe("Document Lifecycle Decoupling (P0 Core Invariant)", () => {
     });
     await reviewService.acceptContent(actor, orgId, genFlashcardId);
 
+    // Seed SRS schedules for accepted cards to test SRS history preservation across doc deletion
+    const initialCards = await flashcardStore.listByCourse(courseId, orgId);
+    for (const card of initialCards) {
+      await scheduleStore.upsertSchedule({
+        userId: actor.userId,
+        flashcardId: card.id,
+        dueAt: new Date(Date.now() - 1000).toISOString(),
+        intervalDays: 1,
+        easeFactor: 2.5,
+        reviewCount: 1,
+      });
+    }
+
     // 5. Create & Accept Quiz (Materializes Quiz & Quiz Questions)
     const genQuizId = randomUUID() as GeneratedContentId;
     await genContentStore.create({

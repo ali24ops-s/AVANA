@@ -553,6 +553,20 @@ export class InMemoryQuizQuestionStore implements QuizQuestionStore {
     return records.map((r) => ({ ...r }));
   }
 
+  async update(record: QuizQuestionRecord): Promise<QuizQuestionRecord> {
+    const idx = this.questions.findIndex((q) => q.id === record.id);
+    if (idx >= 0) {
+      this.questions[idx] = { ...record };
+    } else {
+      this.questions.push({ ...record });
+    }
+    if (this.quizStore) {
+      const quizQuestions = this.questions.filter((q) => q.quizId === record.quizId);
+      this.quizStore.setQuestionsForQuiz(record.quizId, quizQuestions);
+    }
+    return { ...record };
+  }
+
   /** Directly insert questions (used for seeding). */
   insert(record: QuizQuestionRecord): void {
     this.questions.push({ ...record });

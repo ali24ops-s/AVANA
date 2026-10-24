@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   ArrowRight,
   ArrowLeft,
@@ -21,7 +21,14 @@ import type {
   QuizQuestionResource,
   QuizAttemptResult,
 } from "@avana/contracts";
-import { toPersianDigits, formatPersianOf } from "@avana/domain";
+import {
+  toPersianDigits,
+  formatPersianOf,
+  filterAndDistributeQuestions,
+  cleanQuizChapterTitle,
+  type QuizQuestionFilterCount,
+  type QuizQuestionDifficulty,
+} from "@avana/domain";
 import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 export interface QuizExperienceProps {
@@ -31,6 +38,12 @@ export interface QuizExperienceProps {
   isPreview?: boolean;
   onUnlock?: () => void;
   onBack?: () => void;
+  initialCount?: QuizQuestionFilterCount | null;
+  initialDifficulty?: QuizQuestionDifficulty | null;
+  onFilterChange?: (filters: {
+    count: QuizQuestionFilterCount | null;
+    difficulty: QuizQuestionDifficulty | null;
+  }) => void;
 }
 
 export function QuizExperience({
@@ -40,10 +53,30 @@ export function QuizExperience({
   isPreview = false,
   onUnlock,
   onBack,
+  initialCount = null,
+  initialDifficulty = null,
+  onFilterChange,
 }: QuizExperienceProps) {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [attemptResult, setAttemptResult] = useState<QuizAttemptResult | null>(null);
+
+  const [selectedCount, setSelectedCount] = useState<QuizQuestionFilterCount | null>(initialCount ?? null);
+  const [selectedDifficulty, setSelectedDifficulty] = useState<QuizQuestionDifficulty | null>(initialDifficulty ?? null);
+
+  useEffect(() => {
+    if (initialCount !== undefined) setSelectedCount(initialCount);
+  }, [initialCount]);
+
+  useEffect(() => {
+    if (initialDifficulty !== undefined) setSelectedDifficulty(initialDifficulty);
+  }, [initialDifficulty]);
+
+  const handleClearFilters = () => {
+    setSelectedCount(null);
+    setSelectedDifficulty(null);
+    onFilterChange?.({ count: null, difficulty: null });
+  };
 
   const queryClient = useQueryClient();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
@@ -62,9 +95,10 @@ export function QuizExperience({
   });
 
   const submitMutation = useMutation({
-    mutationFn: async (formattedAnswers: Array<{ questionId: string; answer: unknown }>) => {
+    mutationFn: async (payload: { answers: Array<{ questionId: string; answer: unknown }>; questionIds?: string[] }) => {
       const res = await studyApi.submitQuizAttempt(organizationId, courseId, quizId, {
-        answers: formattedAnswers,
+        answers: payload.answers,
+        questionIds: payload.questionIds,
       });
       return res.attempt;
     },
@@ -82,7 +116,36 @@ export function QuizExperience({
     },
   });
 
-  const effectiveIsPreview = isPreview || (quizQuery.data?.quiz as any)?.is_preview === true;
+  const effectiveIsPreview = isPreview || (quizQuery.data?.quiz as { is_preview?: boolean } | undefined)?.is_preview === true;
+
+  const rawQuestions: QuizQuestionResource[] = quizQuery.data?.quiz?.questions || [];
+
+  const questions: QuizQuestionResource[] = useMemo(() => {
+    return filterAndDistributeQuestions(rawQuestions, {
+      count: selectedCount,
+      difficulty: selectedDifficulty,
+    });
+  }, [rawQuestions, selectedCount, selectedDifficulty]);
+
+  const prevQuestionsRef = useRef<QuizQuestionResource[]>(questions);
+  useEffect(() => {
+    if (prevQuestionsRef.current !== questions) {
+      const activeId = prevQuestionsRef.current[currentQuestionIndex]?.id;
+      prevQuestionsRef.current = questions;
+      if (questions.length === 0) {
+        setCurrentQuestionIndex(0);
+        return;
+      }
+      if (activeId) {
+        const matchingIndex = questions.findIndex((q) => q.id === activeId);
+        if (matchingIndex !== -1) {
+          setCurrentQuestionIndex(matchingIndex);
+          return;
+        }
+      }
+      setCurrentQuestionIndex((prev) => Math.min(prev, questions.length - 1));
+    }
+  }, [questions, currentQuestionIndex]);
 
   if (quizQuery.isLoading) {
     return (
@@ -126,7 +189,6 @@ export function QuizExperience({
     );
   }
 
-  const questions: QuizQuestionResource[] = quizQuery.data?.quiz?.questions || [];
   const currentQuestion = questions[currentQuestionIndex];
 
   const handleSelectAnswer = (questionId: string, answerVal: unknown) => {
@@ -138,7 +200,10 @@ export function QuizExperience({
       questionId: q.id,
       answer: answers[q.id] ?? null,
     }));
-    submitMutation.mutate(formatted);
+    submitMutation.mutate({
+      answers: formatted,
+      questionIds: questions.map((q) => q.id),
+    });
   };
 
   // Scored results view
@@ -384,7 +449,7 @@ export function QuizExperience({
   }
 
   // Quiz Taking Mode
-  if (questions.length === 0) {
+  if (rawQuestions.length === 0) {
     return (
       <Card className="p-8 sm:p-12 text-center space-y-4 max-w-md mx-auto">
         <HelpCircle className="w-10 h-10 text-[var(--color-text-muted)] mx-auto" />
@@ -404,6 +469,87 @@ export function QuizExperience({
           </div>
         )}
       </Card>
+    );
+  }
+
+  // Quiz Header UI (Back button, question counter, title, total questions meta)
+  const renderQuizHeader = () => (
+    <div className="space-y-4">
+      {/* Top action bar: Back button & Question counter */}
+      <div className="flex items-center justify-between gap-3">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#008080] rounded-lg px-1 py-0.5"
+          >
+            <ArrowRight className="w-3.5 h-3.5" />
+            <span>خروج از آزمون</span>
+          </button>
+        )}
+        <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] font-semibold ms-auto">
+          <Clock className="w-4 h-4 text-[#008080]" />
+          <span>
+            {questions.length > 0
+              ? formatPersianOf(currentQuestionIndex + 1, questions.length, { prefix: "سوال" })
+              : "بدون سؤال"}
+          </span>
+        </div>
+      </div>
+
+      {/* Chapter Title & Total Questions Meta */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <h2 className="text-base sm:text-lg font-bold text-[var(--color-text)] truncate">
+            {cleanQuizChapterTitle(quizQuery.data?.quiz?.title) || "آزمون فصل"}
+          </h2>
+          <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+            مجموع سؤالات فصل: {toPersianDigits(rawQuestions.length)} سؤال
+            {questions.length !== rawQuestions.length && (
+              <span className="ms-1.5 text-[#008080] font-semibold">
+                ({toPersianDigits(questions.length)} سؤال منتخب)
+              </span>
+            )}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (questions.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-5">
+        {renderQuizHeader()}
+        <Card className="p-8 sm:p-12 text-center space-y-4 max-w-md mx-auto">
+          <HelpCircle className="w-10 h-10 text-[var(--color-text-muted)] mx-auto" />
+          <h3 className="text-base font-bold text-[var(--color-text)]">
+            سؤالی با فیلترهای انتخابی یافت نشد
+          </h3>
+          <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+            در این فصل سؤالی با سطح دشواری یا ترکیب فیلترهای انتخاب‌شده وجود ندارد. می‌توانید برای تغییر فیلترها به فهرست فصل‌ها بازگردید یا تمام سؤالات این فصل را مشاهده کنید.
+          </p>
+          <div className="pt-2 flex items-center justify-center gap-3">
+            {onBack && (
+              <Button
+                type="button"
+                onClick={onBack}
+                variant="outline"
+                size="sm"
+              >
+                تغییر فیلترها در فهرست
+              </Button>
+            )}
+            <Button
+              type="button"
+              onClick={handleClearFilters}
+              variant="primary"
+              size="sm"
+            >
+              نمایش تمام سؤالات این فصل
+            </Button>
+          </div>
+        </Card>
+      </div>
     );
   }
 
@@ -427,25 +573,8 @@ export function QuizExperience({
         </div>
       )}
 
-      {/* Top bar */}
-      <div className="flex items-center justify-between">
-        {onBack && (
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
-          >
-            <ArrowRight className="w-3.5 h-3.5" />
-            <span>خروج از آزمون</span>
-          </button>
-        )}
-        <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] font-semibold">
-          <Clock className="w-4 h-4 text-[#008080]" />
-          <span>
-            {formatPersianOf(currentQuestionIndex + 1, questions.length, { prefix: "سوال" })}
-          </span>
-        </div>
-      </div>
+      {/* Chapter Header */}
+      {renderQuizHeader()}
 
       {/* Progress bar */}
       <Progress

@@ -429,12 +429,24 @@ export class InMemoryReferralStore implements ReferralStore {
     _adminId: UserId,
     config: Partial<ReferralSystemConfig>,
   ): Promise<ReferralSystemConfig> {
+    const rewardDays =
+      typeof config?.rewardDays === "number"
+        ? config.rewardDays
+        : typeof config?.rewardAmount === "number"
+          ? config.rewardAmount
+          : (this.config.rewardDays ?? 15);
+
+    const maxRewardedReferrals =
+      typeof config?.maxRewardedReferrals === "number"
+        ? config.maxRewardedReferrals
+        : (this.config.maxRewardedReferrals ?? 4);
+
     this.config = {
-      enabled: config?.enabled ?? this.config.enabled ?? true,
-      rewardDays: config?.rewardDays ?? (config?.rewardAmount ? config.rewardAmount : this.config.rewardDays ?? 15),
-      maxRewardedReferrals: config?.maxRewardedReferrals ?? this.config.maxRewardedReferrals ?? 4,
-      maxRewardDays: config?.maxRewardDays ?? this.config.maxRewardDays ?? 60,
-      rewardAmount: config?.rewardDays ?? (config?.rewardAmount ? config.rewardAmount : this.config.rewardDays ?? 15),
+      enabled: typeof config?.enabled === "boolean" ? config.enabled : (this.config.enabled ?? true),
+      rewardDays,
+      maxRewardedReferrals,
+      maxRewardDays: config?.maxRewardDays ?? (rewardDays * maxRewardedReferrals),
+      rewardAmount: rewardDays,
       rewardType: config?.rewardType ?? this.config.rewardType ?? "subscription_days",
     };
     return { ...this.config };

@@ -238,10 +238,13 @@ export class CourseService {
     );
 
     // Official courses are only visible in public catalog when 'published'.
-    // Non-official / user courses are governed by standard membership.
+    // Non-official / user courses in the caller's organization are governed by standard membership.
     const visibleCourses = courses.filter((c) => {
-      if (c.isOfficial === true) {
-        return c.status === "published";
+      const isOfficial =
+        c.isOfficial ??
+        (Boolean(this.systemOrganizationId) && c.organizationId === this.systemOrganizationId);
+      if (isOfficial) {
+        return (c.status ?? "published") === "published";
       }
       return true;
     });
@@ -436,11 +439,22 @@ export class CourseService {
       },
     );
 
-    // Unpublished official courses must not be accessible to students
+    // Unpublished official courses must not be accessible to students or unrelated organization admins
+    const systemOrgMembership = fullActor.memberships?.find(
+      (m) => !!this.systemOrganizationId && m.organizationId === this.systemOrganizationId,
+    );
+    const effectiveSystemRole = systemOrgMembership?.role ?? null;
+
     const isPrivilegedAdmin =
       fullActor.globalRole === "platform_admin" ||
       fullActor.role === "platform_admin" ||
-      fullActor.role === "organization_admin";
+      fullActor.globalRole === "course_editor" ||
+      fullActor.role === "course_editor" ||
+      (fullActor.globalRole === "content_worker" && !!this.systemOrganizationId && course.organizationId === this.systemOrganizationId) ||
+      effectiveSystemRole === "organization_admin" ||
+      effectiveSystemRole === "content_worker" ||
+      effectiveSystemRole === "course_editor";
+
     if (
       course.isOfficial === true &&
       course.status !== "published" &&
@@ -774,6 +788,28 @@ export class CourseService {
       throw new DomainError("bad_request", "Module title is required");
     }
 
+    if (input.documentId && this.documentStore) {
+      const doc = await this.documentStore.findByIdForOrganization(
+        input.documentId,
+        organizationId,
+      );
+      if (!doc || doc.deletedAt) {
+        throw new DomainError("not_found", "سند منبع یافت نشد.");
+      }
+      if (!doc.courseId) {
+        throw new DomainError(
+          "bad_request",
+          "این سند به دوره‌ای اختصاص نیافته است. لطفاً ابتدا سند را به دوره متصل کنید.",
+        );
+      }
+      if (doc.courseId !== courseId) {
+        throw new DomainError(
+          "bad_request",
+          "سند انتخاب‌شده متعلق به این دوره نیست.",
+        );
+      }
+    }
+
     const existing = await this.moduleStore.listByCourse(courseId);
     const now = new Date().toISOString();
     const newModule = await this.moduleStore.create({
@@ -802,10 +838,33 @@ export class CourseService {
       description?: string | null;
       subCourseGroupId?: SubCourseGroupId | null;
       sortOrder?: number;
+      documentId?: import("@avana/domain").DocumentId | null;
     },
   ) {
     if (!this.moduleStore) {
       throw new DomainError("internal_error", "ModuleStore not configured");
+    }
+
+    if (input.documentId && this.documentStore) {
+      const doc = await this.documentStore.findByIdForOrganization(
+        input.documentId,
+        organizationId,
+      );
+      if (!doc || doc.deletedAt) {
+        throw new DomainError("not_found", "سند منبع یافت نشد.");
+      }
+      if (!doc.courseId) {
+        throw new DomainError(
+          "bad_request",
+          "این سند به دوره‌ای اختصاص نیافته است. لطفاً ابتدا سند را به دوره متصل کنید.",
+        );
+      }
+      if (doc.courseId !== courseId) {
+        throw new DomainError(
+          "bad_request",
+          "سند انتخاب‌شده متعلق به این دوره نیست.",
+        );
+      }
     }
 
     // 1. Authoritative Module Lookup
@@ -887,6 +946,10 @@ export class CourseService {
           : existing.subCourseGroupId,
       sortOrder:
         input.sortOrder !== undefined ? input.sortOrder : existing.sortOrder,
+      documentId:
+        input.documentId !== undefined
+          ? input.documentId
+          : existing.documentId,
       updatedAt: new Date().toISOString(),
     });
 
@@ -1066,11 +1129,22 @@ export class CourseService {
       throw new DomainError("not_found", "Course not found");
     }
 
-    // Unpublished official courses must not be accessible to students
+    // Unpublished official courses must not be accessible to students or unrelated organization admins
+    const systemOrgMembership = fullActor.memberships?.find(
+      (m) => !!this.systemOrganizationId && m.organizationId === this.systemOrganizationId,
+    );
+    const effectiveSystemRole = systemOrgMembership?.role ?? null;
+
     const isPrivilegedAdmin =
       fullActor.globalRole === "platform_admin" ||
       fullActor.role === "platform_admin" ||
-      fullActor.role === "organization_admin";
+      fullActor.globalRole === "course_editor" ||
+      fullActor.role === "course_editor" ||
+      (fullActor.globalRole === "content_worker" && !!this.systemOrganizationId && course.organizationId === this.systemOrganizationId) ||
+      effectiveSystemRole === "organization_admin" ||
+      effectiveSystemRole === "content_worker" ||
+      effectiveSystemRole === "course_editor";
+
     if (
       course.isOfficial === true &&
       course.status !== "published" &&

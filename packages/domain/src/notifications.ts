@@ -30,6 +30,7 @@ export const NotificationTypes = {
   CLASSROOM_ASSIGNMENT_ARCHIVED: "classroom_assignment_archived",
   TEACHER_NEW_MESSAGE: "teacher_new_message",
   TEACHER_REPLY_MESSAGE: "teacher_reply_message",
+  WELCOME_GIFT: "welcome_gift",
   SYSTEM: "system",
 } as const;
 

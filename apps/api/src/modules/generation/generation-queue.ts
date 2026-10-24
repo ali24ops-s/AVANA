@@ -22,6 +22,7 @@ import type {
   GenerationJobId,
   OrganizationId,
   QuestionPatternId,
+  SourcePackRole,
 } from "@avana/domain";
 import type { GeneratedContentType } from "@avana/domain";
 import type { GenerationJobStore } from "./generation-jobs-store.js";
@@ -50,8 +51,14 @@ export type GenerationJobPayload = {
   generationKey?: string;
   force?: boolean;
   generationContext?: GenerationContext;
+  sources?: Array<{
+    documentId: DocumentId;
+    order: number;
+    role?: SourcePackRole;
+  }>;
   questionPatternId?: QuestionPatternId | null;
   questionPatternVersion?: number | null;
+  questionPatternIds?: QuestionPatternId[] | null;
 };
 
 /**
@@ -88,8 +95,10 @@ export class InMemoryGenerationQueue implements GenerationQueue {
   private adminGenerationService?: GenerationService;
   private userGenerationService?: GenerationService;
 
+  public readonly jobs: Array<{ id: GenerationJobId; payload: GenerationJobPayload }> = [];
+
   constructor(
-    private readonly jobStore: GenerationJobStore,
+    private readonly jobStore?: GenerationJobStore,
     generationServiceOrDeps?:
       | GenerationService
       | {
@@ -126,6 +135,7 @@ export class InMemoryGenerationQueue implements GenerationQueue {
   ): Promise<EnqueueGenerationResult> {
     const now = new Date().toISOString();
     const jobId = payload.jobId ?? this.newJobId();
+    this.jobs.push({ id: jobId, payload });
     const record = {
       id: jobId,
       organizationId: payload.organizationId,
@@ -146,7 +156,22 @@ export class InMemoryGenerationQueue implements GenerationQueue {
       questionPatternId: payload.questionPatternId ?? null,
       questionPatternVersion: payload.questionPatternVersion ?? null,
     };
-    await this.jobStore.create(record as never);
+    if (this.jobStore) {
+      await this.jobStore.create(record as never);
+
+      if (payload.sources && payload.sources.length > 0 && this.jobStore.addSources) {
+        await this.jobStore.addSources(
+          payload.sources.map((s) => ({
+            id: crypto.randomUUID(),
+            generationJobId: jobId,
+            documentId: s.documentId,
+            role: s.role ?? (s.order === 0 ? "primary_notes" : "supplementary_reference"),
+            orderIndex: s.order,
+            createdAt: now,
+          })),
+        );
+      }
+    }
 
     const isActorAdmin =
       payload.actorRole === "platform_admin" ||
@@ -162,30 +187,35 @@ export class InMemoryGenerationQueue implements GenerationQueue {
 
     if (targetService) {
       const service = targetService;
+      const jobStore = this.jobStore;
       setTimeout(async () => {
         try {
-          const currentJob = await this.jobStore.findByIdForOrganization(
-            record.id,
-            payload.organizationId,
-          );
+          const currentJob = jobStore
+            ? await jobStore.findByIdForOrganization(
+                record.id,
+                payload.organizationId,
+              )
+            : undefined;
           if (
-            !currentJob ||
-            currentJob.status === "stopped" ||
-            currentJob.status === "stopping" ||
-            currentJob.status === "deleted" ||
-            currentJob.status === "deleting"
+            currentJob &&
+            (currentJob.status === "stopped" ||
+              currentJob.status === "stopping" ||
+              currentJob.status === "deleted" ||
+              currentJob.status === "deleting")
           ) {
             return;
           }
 
           const startedAt = new Date().toISOString();
-          await this.jobStore.update({
-            ...record,
-            status: "running",
-            attempts: 1,
-            startedAt,
-            updatedAt: startedAt,
-          });
+          if (jobStore) {
+            await jobStore.update({
+              ...record,
+              status: "running",
+              attempts: 1,
+              startedAt,
+              updatedAt: startedAt,
+            });
+          }
 
           await service.generateForDocument(
             {
@@ -202,45 +232,53 @@ export class InMemoryGenerationQueue implements GenerationQueue {
               courseId: payload.courseId,
               jobId: record.id,
               generationContext: effectiveContext,
+              sources: payload.sources,
               questionPatternId: payload.questionPatternId,
               questionPatternVersion: payload.questionPatternVersion,
+              questionPatternIds: payload.questionPatternIds,
             },
           );
 
-          const finalJob = await this.jobStore.findByIdForOrganization(
-            record.id,
-            payload.organizationId,
-          );
+          const finalJob = jobStore
+            ? await jobStore.findByIdForOrganization(
+                record.id,
+                payload.organizationId,
+              )
+            : undefined;
           if (
-            !finalJob ||
-            finalJob.status === "stopped" ||
-            finalJob.status === "stopping" ||
-            finalJob.status === "deleted" ||
-            finalJob.status === "deleting"
+            finalJob &&
+            (finalJob.status === "stopped" ||
+              finalJob.status === "stopping" ||
+              finalJob.status === "deleted" ||
+              finalJob.status === "deleting")
           ) {
             return;
           }
 
           const completedAt = new Date().toISOString();
-          await this.jobStore.update({
-            ...record,
-            status: "succeeded",
-            attempts: 1,
-            startedAt,
-            completedAt,
-            updatedAt: completedAt,
-          });
+          if (jobStore) {
+            await jobStore.update({
+              ...record,
+              status: "succeeded",
+              attempts: 1,
+              startedAt,
+              completedAt,
+              updatedAt: completedAt,
+            });
+          }
         } catch (err: unknown) {
-          const finalJob = await this.jobStore.findByIdForOrganization(
-            record.id,
-            payload.organizationId,
-          );
+          const finalJob = jobStore
+            ? await jobStore.findByIdForOrganization(
+                record.id,
+                payload.organizationId,
+              )
+            : undefined;
           if (
-            !finalJob ||
-            finalJob.status === "stopped" ||
-            finalJob.status === "stopping" ||
-            finalJob.status === "deleted" ||
-            finalJob.status === "deleting"
+            finalJob &&
+            (finalJob.status === "stopped" ||
+              finalJob.status === "stopping" ||
+              finalJob.status === "deleted" ||
+              finalJob.status === "deleting")
           ) {
             return;
           }
@@ -251,14 +289,16 @@ export class InMemoryGenerationQueue implements GenerationQueue {
               ? (err as { code: string }).code
               : "generation_failed";
           const errorMessage = err instanceof Error ? err.message : String(err);
-          await this.jobStore.update({
-            ...record,
-            status: "failed",
-            attempts: 1,
-            errorCode,
-            errorMessage,
-            updatedAt: failedAt,
-          });
+          if (jobStore) {
+            await jobStore.update({
+              ...record,
+              status: "failed",
+              attempts: 1,
+              errorCode,
+              errorMessage,
+              updatedAt: failedAt,
+            });
+          }
         }
       }, 50);
     }

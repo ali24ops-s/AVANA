@@ -80,12 +80,12 @@ describe("UserReferralPage UI Component", () => {
     expect(screen.getByText("دعوت از دوستان")).toBeInTheDocument();
     expect(screen.getByText("AVN7K4P2")).toBeInTheDocument();
     expect(screen.getByText("https://aavana.ir/register?ref=AVN7K4P2")).toBeInTheDocument();
-    expect(screen.getByText("5 نفر")).toBeInTheDocument();
-    expect(screen.getByText("3 نفر")).toBeInTheDocument();
-    expect(screen.getByText("2 از ۴")).toBeInTheDocument();
+    expect(screen.getByText("۵ نفر")).toBeInTheDocument();
+    expect(screen.getByText("۳ نفر")).toBeInTheDocument();
+    expect(screen.getByText("۲ از ۴")).toBeInTheDocument();
     expect(screen.getAllByText("ع*** م***")[0]).toBeInTheDocument();
     expect(screen.getAllByText("پاداش داده شد")[0]).toBeInTheDocument();
-    expect(screen.getAllByText("+15 روز")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("+۱۵ روز")[0]).toBeInTheDocument();
   });
 
   it("renders empty state when user has not invited anyone yet", () => {

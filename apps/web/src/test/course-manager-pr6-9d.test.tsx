@@ -204,6 +204,44 @@ describe("DocumentStatusCard", () => {
           json: async () => ({ error: { code: "conflict", message: "Document not in a generatable state" } }),
         });
       }
+      if (typeof url === "string" && url.includes("/estimate-cost")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-estimate",
+            estimated_price_toman: 0,
+            formatted_price: "رایگان",
+            currency: "toman",
+          }),
+        });
+      }
+      if (typeof url === "string" && url.includes("/wallet/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            balance: 500000,
+            currency: "toman",
+            formatted_balance: "۵۰,۰۰۰ تومان",
+          }),
+        });
+      }
+      if (typeof url === "string" && url.includes("/content-status")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-content",
+            content: {
+              lesson: { generated: false },
+              flashcards: { generated: false },
+              exam: { generated: false },
+              review_summary: { generated: false },
+            },
+          }),
+        });
+      }
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -240,6 +278,7 @@ describe("DocumentStatusCard", () => {
     fireEvent.click(screen.getByRole("button", { name: /تولید هوشمند محتوای آموزشی/i }));
 
     const confirmBtn = await screen.findByRole("button", { name: /تولید محتوا/i });
+    await waitFor(() => expect(confirmBtn).not.toBeDisabled());
     fireEvent.click(confirmBtn);
 
     await waitFor(() => {
@@ -324,7 +363,7 @@ describe("ReviewQueueList filter buttons", () => {
       expect(screen.getByText("موردی در انتظار بازبینی وجود ندارد")).toBeDefined(),
     );
 
-    const allBtn = screen.getByRole("button", { name: /^همه$/i });
+    const allBtn = screen.getAllByRole("button", { name: /^همه$/i })[0];
     const lessonBtn = screen.getByRole("button", { name: /^درس‌ها$/i });
 
     expect(allBtn.getAttribute("aria-pressed")).toBe("true");

@@ -65,5 +65,12 @@ export {
   DrizzlePasswordResetStore,
   DrizzleDeviceStore,
 } from "./drizzle-stores.js";
+export type { WelcomeGiftStore } from "./welcome-gift-store.js";
+export {
+  DrizzleWelcomeGiftStore,
+  InMemoryWelcomeGiftStore,
+} from "./welcome-gift-store.js";
+export { WelcomeGiftService } from "./welcome-gift-service.js";
+export type { WelcomeGiftServiceOptions } from "./welcome-gift-service.js";
 
 

@@ -1,6 +1,7 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import type { OrganizationId } from "@avana/domain";
 import { defaultPolicy } from "@avana/domain";
+import { makeAuthMiddleware } from "../http/authMiddleware.js";
 import { healthRoutes } from "./health.js";
 import { readinessRoutes } from "./readiness.js";
 import { seoRoutes } from "./seo.js";
@@ -9,6 +10,12 @@ import { courseRoutes } from "../modules/courses/index.js";
 import { learningRoutes } from "../modules/learning/index.js";
 import { documentRoutes } from "../modules/documents/index.js";
 import { generationRoutes, reviewRoutes } from "../modules/generation/index.js";
+import {
+  type SourcePackStore,
+  SourcePackService,
+  sourcePackRoutes,
+  DrizzleSourcePackStore,
+} from "../modules/source-packs/index.js";
 import { libraryRoutes } from "../modules/library/index.js";
 import type {
   ContentPackStore,
@@ -56,6 +63,7 @@ import {
   DrizzleQuestionPatternStore,
   InMemoryQuestionPatternStore,
 } from "../modules/generation/question-patterns-store.js";
+import type { DbClient } from "@avana/database/client";
 import type { GenerationChunkStore } from "../modules/generation/generation-chunk-store.js";
 import type { GenerationJobStore } from "../modules/generation/generation-jobs-store.js";
 import type { GenerationQueue } from "../modules/generation/generation-queue.js";
@@ -88,6 +96,10 @@ import {
   DeviceService,
   registerIdentityModule,
   type IdentityPluginOptions,
+  type WelcomeGiftStore,
+  WelcomeGiftService,
+  DrizzleWelcomeGiftStore,
+  InMemoryWelcomeGiftStore,
 } from "../modules/identity/index.js";
 import type { StorageProvider } from "../modules/storage/index.js";
 import type { AuditService } from "../observability/audit-service.js";
@@ -238,6 +250,10 @@ export interface V1RouteOptions {
   teacherConversationMessageStore?: import("../modules/teacher-platform/stores.js").TeacherConversationMessageStore;
   teacherMessageService?: TeacherMessageService;
   questionPatternStore?: import("../modules/generation/question-patterns-store.js").QuestionPatternStore;
+  sourcePackStore?: SourcePackStore;
+  sourcePackService?: SourcePackService;
+  welcomeGiftStore?: WelcomeGiftStore;
+  welcomeGiftService?: WelcomeGiftService;
   db?: import("@avana/database/client").DbClient;
   ga4Service?: Ga4MeasurementProtocolService;
 }
@@ -282,6 +298,28 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
         )
       : undefined);
 
+  const adminDb = (opts.adminStore as unknown as { db?: DbClient })?.db;
+  const effectiveDb = opts.db ?? adminDb;
+
+  const welcomeGiftStore =
+    opts.welcomeGiftStore ??
+    (effectiveDb
+      ? new DrizzleWelcomeGiftStore(effectiveDb)
+      : opts.walletStore || opts.commerceStore
+        ? new InMemoryWelcomeGiftStore(opts.walletStore, opts.commerceStore)
+        : undefined);
+
+  const welcomeGiftService =
+    opts.welcomeGiftService ??
+    (welcomeGiftStore && opts.userStore
+      ? new WelcomeGiftService({
+          store: welcomeGiftStore,
+          userStore: opts.userStore,
+          notificationService,
+          auditService: opts.auditService,
+        })
+      : undefined);
+
   // Register identity (auth) module if stores are provided
   if (opts.config && opts.sessionStore && opts.userStore) {
     await registerIdentityModule(app, {
@@ -297,6 +335,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       notificationService,
       referralService,
       auditService: opts.auditService,
+      welcomeGiftStore,
+      welcomeGiftService,
     });
   }
 
@@ -427,6 +467,51 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
     });
   }
 
+  const questionPatternStore =
+    opts.questionPatternStore ??
+    (adminDb
+      ? new DrizzleQuestionPatternStore(adminDb)
+      : opts.db
+        ? new DrizzleQuestionPatternStore(opts.db)
+        : new InMemoryQuestionPatternStore());
+
+  if (opts.config && opts.sessionStore && opts.userStore) {
+    const patternSessionService = new SessionService(
+      opts.sessionStore,
+      opts.config.session,
+    );
+    const { requireAuth } = makeAuthMiddleware({
+      sessionService: patternSessionService,
+      userStore: opts.userStore,
+    });
+    const handleListUserQuestionPatterns = async (
+      request: FastifyRequest,
+      reply: FastifyReply,
+    ) => {
+      const category = (request.query as { category?: string } | undefined)?.category;
+      const patterns = await questionPatternStore.listPatterns({
+        activeOnly: true,
+        category,
+      });
+
+      return reply.code(200).send({
+        patterns: patterns.map((p) => ({
+          id: p.id,
+          title: p.title,
+          description: p.description,
+          category: p.category ?? "exam",
+          cognitiveLevel: p.cognitiveLevel,
+          skills: p.skills,
+          version: p.version,
+          examplesCount: p.examplesCount,
+        })),
+      });
+    };
+
+    app.get("/v1/question-patterns", { preHandler: [requireAuth] }, handleListUserQuestionPatterns);
+    app.get("/v1/generation/question-patterns", { preHandler: [requireAuth] }, handleListUserQuestionPatterns);
+  }
+
   // Register generation routes if all stores and a gateway are provided
   if (
     opts.config &&
@@ -475,6 +560,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       walletService,
       walletStore: opts.walletStore,
       entitlementService: opts.entitlementService,
+      questionPatternStore,
     });
   }
 
@@ -512,7 +598,90 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       organizationStore: opts.organizationStore,
       auditService: opts.auditService,
       db: opts.db,
+      systemOrganizationId: opts.config?.systemOrganizationId as OrganizationId,
     });
+  }
+
+  // Register Source Pack routes
+  if (
+    opts.config &&
+    opts.sessionStore &&
+    opts.userStore &&
+    opts.documentStore &&
+    opts.courseStore
+  ) {
+    const packStore: SourcePackStore =
+      opts.sourcePackStore ??
+      (opts.db ? new DrizzleSourcePackStore(opts.db as any) : undefined!);
+
+    if (packStore) {
+      let generationServiceForPacks: GenerationService | undefined;
+      if (
+        opts.generatedContentStore &&
+        opts.generatedContentCitationStore &&
+        opts.gateway
+      ) {
+        generationServiceForPacks = new GenerationService(
+          opts.generatedContentStore,
+          opts.generatedContentCitationStore,
+          opts.gateway,
+          opts.documentStore,
+          opts.documentChunkStore ?? ({
+            listByDocument: async () => [],
+            listByDocuments: async () => [],
+            findById: async () => undefined,
+          } as any),
+          defaultPolicy,
+          opts.auditService,
+          opts.organizationStore,
+          opts.moduleStore,
+          opts.lessonStore,
+          opts.flashcardStore,
+          opts.quizStore,
+          opts.quizQuestionStore,
+          opts.courseStore,
+          opts.config.systemOrganizationId as OrganizationId,
+          opts.generationChunkStore,
+          opts.generationJobStore,
+          opts.generationProgressService,
+          notificationService,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          opts.config.generation?.pricing,
+          opts.adminStore
+            ? () => opts.adminStore!.getContentGenerationPricing()
+            : undefined,
+        );
+      }
+      if (generationServiceForPacks) {
+        generationServiceForPacks.setQuestionPatternStore(questionPatternStore);
+      }
+
+      const packService =
+        opts.sourcePackService ??
+        new SourcePackService({
+          store: packStore,
+          documentStore: opts.documentStore,
+          courseStore: opts.courseStore,
+          generationService: generationServiceForPacks,
+          generationQueue: opts.queue,
+          walletService,
+          walletStore: opts.walletStore,
+          systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
+          questionPatternStore,
+        });
+
+      await app.register(sourcePackRoutes, {
+        service: packService,
+        sessionService: new SessionService(
+          opts.sessionStore,
+          opts.config.session,
+        ),
+        userStore: opts.userStore,
+      });
+    }
   }
 
   let sharedStudyService: StudyService | undefined;
@@ -549,6 +718,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       opts.studySessionStore,
       opts.flashcardStudySessionStore,
       entitlementService,
+      opts.subCourseGroupStore,
     );
 
     if (
@@ -591,6 +761,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       flashcardStudySessionStore: opts.flashcardStudySessionStore,
       entitlementService,
       studyService: sharedStudyService,
+      subCourseGroupStore: opts.subCourseGroupStore,
       annotationStore:
         opts.annotationStore ??
         (opts.db
@@ -716,11 +887,6 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
             adminStore: opts.adminStore,
           })
         : undefined);
-    const questionPatternStore =
-      opts.questionPatternStore ??
-      ((opts.adminStore as any)?.db
-        ? new DrizzleQuestionPatternStore((opts.adminStore as any).db)
-        : new InMemoryQuestionPatternStore());
 
     const officialContentService =
       opts.officialContentService ??
@@ -787,6 +953,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
               opts.commerceStore,
               undefined,
               specialExamAutomationService,
+              opts.config.systemOrganizationId as OrganizationId,
             ),
             opts.adminStore,
             opts.config.systemOrganizationId as OrganizationId,

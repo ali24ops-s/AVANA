@@ -11,6 +11,7 @@ interface AiAnalyticsData {
     successful: number;
     failed: number;
     processing: number;
+    queued?: number;
     successRate: number;
     averageDurationMs: number;
   };
@@ -76,9 +77,17 @@ export function AdminAiAnalyticsPage() {
         />
         <StatCard
           title="نرخ موفقیت"
-          value={`${toPersianDigits(data.overview.successRate.toFixed(1))}٪`}
+          value={
+            (data.overview.successful + data.overview.failed) > 0
+              ? `${toPersianDigits(data.overview.successRate.toFixed(1))}٪`
+              : "بدون داده"
+          }
           icon={<CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />}
-          highlightColor="text-emerald-600 dark:text-emerald-400"
+          highlightColor={
+            (data.overview.successful + data.overview.failed) > 0
+              ? (data.overview.successRate >= 90 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-500")
+              : "text-[var(--color-text-muted)]"
+          }
         />
         <StatCard
           title="خطاها"

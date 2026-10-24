@@ -25,13 +25,13 @@ import { useAuth } from "../../providers/AuthProvider.js";
 import { canUserGenerateContent } from "../../utils/generationPermissions.js";
 import { isUserAdmin } from "../../utils/adminPermissions.js";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
-import { ApiError } from "../../lib/api/errors.js";
 import {
   createGenerationApi,
   type DocumentContentStatus,
   type DocumentContentStatusResponse,
   type GenerationCostEstimateResponse,
 } from "../../lib/api/generation.js";
+import { createSourcePacksApi } from "../../lib/api/source-packs.js";
 import { toPersianDigits } from "@avana/domain";
 import { AvanaSelect } from "@avana/ui";
 
@@ -40,6 +40,7 @@ export interface GenerateContentModalProps {
   onClose: () => void;
   documentName: string;
   documentId?: string;
+  packId?: string;
   organizationId?: string;
   courseId?: string | null;
   contentStatus?: (Partial<DocumentContentStatusResponse> & {
@@ -54,6 +55,7 @@ export interface GenerateContentModalProps {
   isLoadingStatus?: boolean;
   isGenerating?: boolean;
   hideCostEstimate?: boolean;
+  isAllSourcesReady?: boolean;
   onConfirmGenerate: (selected: {
     lesson: boolean;
     flashcards: boolean;
@@ -61,6 +63,7 @@ export interface GenerateContentModalProps {
     review_summary: boolean;
     questionPatternId?: string | null;
     questionPatternVersion?: number | null;
+    questionPatternIds?: string[] | null;
   }) => void;
 }
 
@@ -69,12 +72,14 @@ export function GenerateContentModal({
   onClose,
   documentName,
   documentId,
+  packId,
   organizationId,
   courseId,
   contentStatus,
   isLoadingStatus = false,
   isGenerating = false,
   hideCostEstimate = false,
+  isAllSourcesReady = true,
   onConfirmGenerate,
 }: GenerateContentModalProps) {
   const { user, memberships } = useAuth();
@@ -86,11 +91,28 @@ export function GenerateContentModal({
   const [selectedExam, setSelectedExam] = useState(true);
   const [selectedReviewSummary, setSelectedReviewSummary] = useState(false);
   const [selectedQuestionPatternId, setSelectedQuestionPatternId] = useState<string>("");
+  const [selectedQuestionPatternIds, setSelectedQuestionPatternIds] = useState<string[]>([]);
 
   // Sync initial selection when modal opens or contentStatus changes
   useEffect(() => {
     if (isOpen) {
-      if (contentStatus?.requested_types && contentStatus.requested_types.length > 0) {
+      const isPastJobCompleted =
+        !contentStatus?.active_job_id &&
+        contentStatus?.requested_types &&
+        contentStatus.requested_types.length > 0 &&
+        contentStatus.requested_types.every((t) => {
+          if (t === "lesson") return contentStatus.lesson?.generated;
+          if (t === "flashcard") return contentStatus.flashcards?.generated;
+          if (t === "quiz") return contentStatus.exam?.generated;
+          if (t === "review_summary") return contentStatus.review_summary?.generated;
+          return false;
+        });
+
+      if (
+        !isPastJobCompleted &&
+        contentStatus?.requested_types &&
+        contentStatus.requested_types.length > 0
+      ) {
         const req = contentStatus.requested_types;
         setSelectedLesson(req.includes("lesson") && !contentStatus.lesson?.generated);
         setSelectedFlashcards(req.includes("flashcard") && !contentStatus.flashcards?.generated);
@@ -171,17 +193,20 @@ export function GenerateContentModal({
 
   const apiClient = useMemo(() => createApiClient({ baseUrl: getApiBaseUrl() }), []);
   const genApi = useMemo(() => createGenerationApi(apiClient), [apiClient]);
+  const packApi = useMemo(() => createSourcePacksApi(apiClient), [apiClient]);
 
   const costQueryKey = useMemo(
     () => [
       "generation-cost-estimate",
       organizationId,
-      documentId,
+      packId ? `pack:${packId}` : documentId,
       courseId,
       newItemsToGenerate.slice().sort().join(","),
     ],
-    [organizationId, documentId, courseId, newItemsToGenerate],
+    [organizationId, packId, documentId, courseId, newItemsToGenerate],
   );
+
+  const isPackSourcesUnready = Boolean(packId && !isAllSourcesReady);
 
   const contextQueryClient = useContext(QueryClientContext);
   const resolvedQueryClient = contextQueryClient ?? fallbackQueryClient;
@@ -196,6 +221,31 @@ export function GenerateContentModal({
     {
       queryKey: costQueryKey,
       queryFn: async (): Promise<GenerationCostEstimateResponse> => {
+        if (packId) {
+          const res = await packApi.estimateSourcePackCost(
+            organizationId!,
+            courseId!,
+            packId,
+            newItemsToGenerate,
+          );
+          const rawEstimate = res.estimate as
+            | {
+                estimatedPriceToman?: number;
+                formattedPrice?: string;
+                currency?: string;
+                disclaimer?: string;
+              }
+            | undefined;
+          return {
+            request_id: res.request_id,
+            estimated_price_toman: rawEstimate?.estimatedPriceToman ?? 0,
+            formatted_price: rawEstimate?.formattedPrice ?? "۰ تومان",
+            currency: rawEstimate?.currency ?? "toman",
+            disclaimer:
+              rawEstimate?.disclaimer ??
+              "این مبلغ برآورد اولیه هزینه تولید محتوا بر اساس تعداد توکن‌های قابل‌استفاده است و تا زمان اعمال نهایی، قطعی تلقی نمی‌شود.",
+          };
+        }
         return genApi.estimateGenerationCost(organizationId!, documentId!, courseId, {
           types: newItemsToGenerate,
         });
@@ -204,9 +254,10 @@ export function GenerateContentModal({
         !hideCostEstimate &&
           isOpen &&
           organizationId &&
-          Boolean(documentId) &&
+          (packId ? Boolean(courseId) : Boolean(documentId)) &&
           newItemsToGenerate.length > 0 &&
-          !allAvailableGenerated,
+          !allAvailableGenerated &&
+          !isPackSourcesUnready,
       ),
       staleTime: 60_000,
     },
@@ -220,6 +271,7 @@ export function GenerateContentModal({
       id: string;
       title: string;
       description: string | null;
+      category?: "exam" | "analytical" | "supplementary";
       cognitiveLevel: string;
       version: number;
       isActive: boolean;
@@ -234,17 +286,32 @@ export function GenerateContentModal({
             id: string;
             title: string;
             description: string | null;
+            category?: "exam" | "analytical" | "supplementary";
             cognitiveLevel: string;
             version: number;
             isActive: boolean;
             examplesCount: number;
           }>;
-        }>("/v1/admin/question-patterns?status=active");
+        }>("/v1/question-patterns");
       },
-      enabled: Boolean(isOpen && isAdmin),
+      enabled: Boolean(isOpen),
       staleTime: 60_000,
     },
     resolvedQueryClient,
+  );
+
+  const { data: packData } = useQuery(
+    {
+      queryKey: ["source-pack-detail", organizationId, courseId, packId],
+      queryFn: () => packApi.getSourcePack(organizationId!, courseId!, packId!),
+      enabled: Boolean(isOpen && packId && organizationId && courseId),
+      staleTime: 60_000,
+    },
+    resolvedQueryClient,
+  );
+
+  const questionTemplateDoc = packData?.documents?.find(
+    (d: { role?: string }) => d.role === "question_template",
   );
 
   const availablePatterns = patternsData?.patterns ?? [];
@@ -252,10 +319,24 @@ export function GenerateContentModal({
   const patternOptions = useMemo(
     () => [
       { value: "", label: "بدون الگو (تولید استاندارد آوانا)" },
-      ...availablePatterns.map((pat) => ({
-        value: pat.id,
-        label: `${pat.title} (${pat.examplesCount} نمونه مرجع - نگارش ${toPersianDigits(pat.version)})`,
-      })),
+      ...availablePatterns.map((pat) => {
+        const catLabel =
+          pat.category === "analytical"
+            ? "تحلیلی"
+            : pat.category === "supplementary"
+              ? "تکمیلی"
+              : "امتحانی";
+        return {
+          value: pat.id,
+          label: `[${catLabel}] ${pat.title} (${toPersianDigits(pat.examplesCount)} نمونه)`,
+          group:
+            pat.category === "analytical"
+              ? "الگوهای تحلیلی و بالینی"
+              : pat.category === "supplementary"
+                ? "الگوهای تکمیلی و مفهومی"
+                : "الگوهای استاندارد و امتحانی",
+        };
+      }),
     ],
     [availablePatterns],
   );
@@ -294,9 +375,10 @@ export function GenerateContentModal({
   const isEstimateRequired = Boolean(
     !hideCostEstimate &&
       organizationId &&
-      Boolean(documentId) &&
+      (packId ? Boolean(courseId) : Boolean(documentId)) &&
       newItemsToGenerate.length > 0 &&
-      !allAvailableGenerated,
+      !allAvailableGenerated &&
+      !isPackSourcesUnready,
   );
   const isEstimatePending = isEstimateRequired && isCostLoading;
   const isEstimateFailed =
@@ -313,6 +395,7 @@ export function GenerateContentModal({
       hasNoNewSelection ||
       isGenerating ||
       allAvailableGenerated ||
+      isPackSourcesUnready ||
       !isEstimateReady ||
       isEstimatePending ||
       isEstimateFailed ||
@@ -322,18 +405,21 @@ export function GenerateContentModal({
     }
 
     const willGenerateExam = !isExamGenerated && selectedExam;
-    const selectedPattern = willGenerateExam && selectedQuestionPatternId
-      ? availablePatterns.find((p) => p.id === selectedQuestionPatternId)
-      : null;
+    const selectedPatterns = willGenerateExam && selectedQuestionPatternIds.length > 0
+      ? availablePatterns.filter((p) => selectedQuestionPatternIds.includes(p.id))
+      : selectedQuestionPatternId
+        ? availablePatterns.filter((p) => p.id === selectedQuestionPatternId)
+        : [];
 
     onConfirmGenerate({
       lesson: !isLessonGenerated && selectedLesson,
       flashcards: !isFlashcardsGenerated && selectedFlashcards,
       exam: willGenerateExam,
       review_summary: !isReviewSummaryGenerated && selectedReviewSummary,
-      ...(selectedPattern ? {
-        questionPatternId: selectedPattern.id,
-        questionPatternVersion: selectedPattern.version,
+      ...(selectedPatterns.length > 0 ? {
+        questionPatternId: selectedPatterns[0].id,
+        questionPatternVersion: selectedPatterns[0].version,
+        questionPatternIds: selectedPatterns.map((p) => p.id),
       } : {}),
     });
   };
@@ -607,20 +693,44 @@ export function GenerateContentModal({
                     />
                   </label>
 
-                  {/* Question Pattern Selector (Inside Exam Card) */}
-                  {isAdmin && !isExamGenerated && selectedExam && (
+                  {/* Question Template Reference Notice (if present in pack) */}
+                  {questionTemplateDoc && !isExamGenerated && selectedExam && (
+                    <div
+                      data-testid="question-template-notice"
+                      className="px-4 pb-2 pt-2 border-t border-[#008080]/15"
+                    >
+                      <div className="flex items-start gap-2.5 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-900 dark:text-purple-200 text-xs">
+                        <Info className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold">
+                            فایل مرجع سؤال در پک شناسایی شد: {questionTemplateDoc.original_name || "نمونه سؤالات"}
+                          </p>
+                          <p className="text-[11px] opacity-80 leading-relaxed mt-0.5">
+                            سبک، چارچوب و سطح دشواری سؤالات آزمون با الگوگیری از این فایل تنظیم خواهد شد. تمام فکت‌های علمی صرفاً از منابع درسی اصلی استخراج می‌شوند.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Question Pattern Selector (Inside Exam Card - Available to all users) */}
+                  {!isExamGenerated && selectedExam && (
                     <div
                       data-testid="question-pattern-selector"
-                      className="px-4 pb-4 pt-3 border-t border-[#008080]/15 animate-in fade-in duration-150"
+                      className={`px-4 pb-4 ${questionTemplateDoc ? "pt-1" : "pt-3 border-t border-[#008080]/15"} animate-in fade-in duration-150`}
                     >
                       <AvanaSelect
                         id="question-pattern-select"
                         dataTestId="question-pattern-select"
-                        label="نوع الگو"
-                        value={selectedQuestionPatternId}
-                        onChange={(val) =>
-                          setSelectedQuestionPatternId(typeof val === "string" ? val : val[0] || "")
-                        }
+                        label="الگوهای سؤال (اختیاری)"
+                        isMulti={true}
+                        isSearchable={true}
+                        value={selectedQuestionPatternIds}
+                        onChange={(val) => {
+                          const ids = Array.isArray(val) ? val : val ? [val] : [];
+                          setSelectedQuestionPatternIds(ids);
+                          setSelectedQuestionPatternId(ids[0] || "");
+                        }}
                         disabled={isGenerating}
                         placeholder="بدون الگو (تولید استاندارد آوانا)"
                         options={patternOptions}
@@ -686,7 +796,7 @@ export function GenerateContentModal({
               {!hideCostEstimate &&
                 Boolean(
                   organizationId &&
-                    Boolean(documentId) &&
+                    (packId ? Boolean(courseId) : Boolean(documentId)) &&
                     newItemsToGenerate.length > 0,
                 ) && (
                   <div
@@ -703,7 +813,12 @@ export function GenerateContentModal({
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-[#008080]" />
                         <span>در حال برآورد هزینه...</span>
                       </div>
-) : isCostError ? (
+                    ) : isPackSourcesUnready ? (
+                      <div className="flex items-center gap-1 text-xs text-amber-600 font-medium">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>در انتظار آماده‌سازی منابع</span>
+                      </div>
+                    ) : isCostError ? (
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-rose-600 font-bold">خطا در برآورد</span>
                         <button
@@ -724,7 +839,11 @@ export function GenerateContentModal({
                       </span>
                     ) : null}
                   </div>
-                  {isEstimateFailed ? (
+                  {isPackSourcesUnready ? (
+                    <p className="text-[11px] text-amber-700 font-medium leading-relaxed">
+                      هزینه پس از آماده‌شدن همه منابع قابل برآورد است.
+                    </p>
+                  ) : isEstimateFailed ? (
                     <p className="text-[11px] text-rose-600 font-medium">
                       دریافت برآورد هزینه ناموفق بود. برای فعال‌شدن تولید محتوا، لطفاً روی «تلاش مجدد» کلیک کنید.
                     </p>

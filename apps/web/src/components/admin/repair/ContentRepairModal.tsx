@@ -22,6 +22,8 @@ export interface ContentRepairModalProps {
   lessonId?: string;
   generatedContentId?: string;
   organizationId?: string;
+  reportId?: string;
+  onRefreshPreview?: () => Promise<void>;
   onApplySuccess: (repairedContent: string) => void;
 }
 
@@ -32,9 +34,12 @@ export function ContentRepairModal({
   lessonId,
   generatedContentId,
   organizationId,
+  reportId,
+  onRefreshPreview,
   onApplySuccess,
 }: ContentRepairModalProps) {
   const [applying, setApplying] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedBlockIndices, setSelectedBlockIndices] = useState<number[]>([]);
 
@@ -67,6 +72,7 @@ export function ContentRepairModal({
         lessonId,
         generatedContentId,
         organizationId,
+        reportId,
         appliedBlockIndices: selectedBlockIndices,
       });
 
@@ -141,9 +147,32 @@ export function ContentRepairModal({
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           {error && (
-            <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-400 rounded-xl text-xs flex items-start gap-2.5">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              <div className="flex-1 leading-relaxed">{error}</div>
+            <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-400 rounded-xl text-xs flex items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5 flex-1">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">{error}</div>
+              </div>
+              {onRefreshPreview && (
+                <button
+                  type="button"
+                  disabled={isRefreshing || applying}
+                  onClick={async () => {
+                    setIsRefreshing(true);
+                    try {
+                      setError(null);
+                      await onRefreshPreview();
+                    } catch (refreshErr) {
+                      setError(refreshErr instanceof Error ? refreshErr.message : "خطا در بروزرسانی پیش‌نمایش");
+                    } finally {
+                      setIsRefreshing(false);
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold shrink-0 transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  {isRefreshing && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>دریافت مجدد پیش‌نمایش</span>
+                </button>
+              )}
             </div>
           )}
 

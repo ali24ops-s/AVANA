@@ -100,7 +100,11 @@ export class GenerationActiveStatusService {
       userId: actor.userId,
       globalRole:
         actor.globalRole ??
-        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+        (actor.role === "platform_admin"
+          ? "platform_admin"
+          : actor.role === "content_worker"
+            ? "content_worker"
+            : undefined),
       role: actor.role,
       memberships,
     });
@@ -131,7 +135,13 @@ export class GenerationActiveStatusService {
   ): Promise<ActiveGenerationResource[]> {
     const orgIds = new Set<OrganizationId>();
 
-    if (this.systemOrganizationId && actor.role === "platform_admin") {
+    if (
+      this.systemOrganizationId &&
+      (actor.role === "platform_admin" ||
+        actor.globalRole === "platform_admin" ||
+        actor.globalRole === "content_worker" ||
+        actor.role === "content_worker")
+    ) {
       orgIds.add(this.systemOrganizationId);
     }
 
@@ -148,7 +158,11 @@ export class GenerationActiveStatusService {
       }
     }
 
-    if (actor.role === "platform_admin" && this.orgStore) {
+    if (
+      (actor.role === "platform_admin" ||
+        actor.globalRole === "platform_admin") &&
+      this.orgStore
+    ) {
       type ExtendedOrgStore = OrganizationStore & {
         listAll?: () => Promise<Array<{ id?: OrganizationId }>>;
         listOrganizations?: () => Promise<Array<{ id?: OrganizationId }>>;
@@ -233,7 +247,12 @@ export class GenerationActiveStatusService {
   ): Promise<ActiveGenerationResource[]> {
     await this.authorize(actor, organizationId, "document:read");
 
-    let isPrivileged = actor.role === "platform_admin";
+    let isPrivileged =
+      actor.role === "platform_admin" ||
+      actor.globalRole === "platform_admin" ||
+      (!!this.systemOrganizationId &&
+        organizationId === this.systemOrganizationId &&
+        (actor.globalRole === "content_worker" || actor.role === "content_worker"));
     if (!isPrivileged && this.orgStore && typeof this.orgStore.findMembership === "function") {
       const membership = await this.orgStore.findMembership(organizationId, actor.userId);
       const role = membership?.role;
@@ -241,6 +260,7 @@ export class GenerationActiveStatusService {
         role === "organization_admin" ||
         role === "course_editor" ||
         role === "teacher" ||
+        role === "content_worker" ||
         role === "platform_admin" ||
         role === "support_agent";
     }

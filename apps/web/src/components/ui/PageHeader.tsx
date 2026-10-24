@@ -26,9 +26,9 @@ export function PageHeader({
     <div
       className={`flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-[var(--color-border)] ${className}`}
     >
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-center sm:justify-start gap-2.5 flex-wrap">
-          <h1 className={`text-lg sm:text-2xl lg:text-3xl font-black text-[var(--color-text)] tracking-tight text-center sm:text-right ${titleClassName}`}>
+      <div className="space-y-1.5 min-w-0 flex-1">
+        <div className="flex items-center justify-start gap-2.5 flex-wrap">
+          <h1 className={`text-lg sm:text-2xl lg:text-3xl font-black text-[var(--color-text)] tracking-tight text-start ${titleClassName}`}>
             {title}
           </h1>
           {badge && (
@@ -39,7 +39,7 @@ export function PageHeader({
           )}
         </div>
         {description && (
-          <p className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed max-w-2xl">
+          <p className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed max-w-2xl text-start">
             {description}
           </p>
         )}

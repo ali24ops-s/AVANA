@@ -3,11 +3,12 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "../providers/AuthProvider.js";
 import { AuthenticatedShell } from "../components/shell/AuthenticatedShell.js";
+import { TeacherShell } from "../components/teacher/TeacherShell.js";
 import type { ReactNode } from "react";
 
 vi.mock("react-router-dom", async () => {
@@ -18,20 +19,44 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-function renderWithProviders(ui: ReactNode) {
+function renderWithProviders(ui: ReactNode, initialEntries: string[] = ["/"]) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/"]}>{ui}</MemoryRouter>
+      <MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
+// Mock localStorage for test isolation
+const createMockLocalStorage = () => {
+  let store: Record<string, string> = {};
+  return {
+    getItem: (key: string) => store[key] ?? null,
+    setItem: (key: string, value: string) => {
+      store[key] = String(value);
+    },
+    removeItem: (key: string) => {
+      delete store[key];
+    },
+    clear: () => {
+      store = {};
+    },
+  };
+};
+
+const mockStorage = createMockLocalStorage();
+Object.defineProperty(window, "localStorage", {
+  value: mockStorage,
+  writable: true,
+});
+
 describe("AuthenticatedShell", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    window.localStorage.clear();
   });
 
   it("shows loading state while auth is being determined", () => {
@@ -504,7 +529,7 @@ describe("AuthenticatedShell", () => {
     });
   });
 
-  it("does not render 'تنظیمات' option in the mobile navigation drawer", async () => {
+  it("does not render personal account options in the mobile navigation drawer, but preserves general navigation", async () => {
     const mockMeResponse = {
       ok: true,
       status: 200,
@@ -536,11 +561,405 @@ describe("AuthenticatedShell", () => {
     const menuButton = screen.getByRole("button", { name: "منو" });
     fireEvent.click(menuButton);
 
-    // Verify other drawer items are visible
+    const drawerNav = screen.getByRole("navigation", { name: "منوی ناوبری موبایل" });
+
+    // Verify general navigation items ARE rendered in the mobile drawer
+    expect(within(drawerNav).getByText("صفحه اصلی")).toBeInTheDocument();
+    expect(within(drawerNav).getByText("دوره‌ها")).toBeInTheDocument();
+    expect(within(drawerNav).getByText("فلش‌کارت‌ها")).toBeInTheDocument();
+    expect(within(drawerNav).getByText("کلاس‌های من")).toBeInTheDocument();
+    expect(within(drawerNav).getByText("آزمون‌ها")).toBeInTheDocument();
+    expect(within(drawerNav).getByText("کتابخانه")).toBeInTheDocument();
+
+    // Verify personal account options are NOT rendered in the mobile drawer
+    expect(within(drawerNav).queryByText(/اشتراک/i)).not.toBeInTheDocument();
+    expect(within(drawerNav).queryByText("اشتراک و امور مالی")).not.toBeInTheDocument();
+    expect(within(drawerNav).queryByText("خریدهای من و فاکتورها")).not.toBeInTheDocument();
+    expect(within(drawerNav).queryByText("کیف پول من")).not.toBeInTheDocument();
+    expect(within(drawerNav).queryByText("دعوت از دوستان")).not.toBeInTheDocument();
+    expect(within(drawerNav).queryByText("پشتیبانی و بازخورد")).not.toBeInTheDocument();
+    expect(within(drawerNav).queryByText("ویرایش مشخصات")).not.toBeInTheDocument();
+    expect(within(drawerNav).queryByText("تنظیمات")).not.toBeInTheDocument();
+  });
+
+  it("preserves privileged management links in the mobile drawer for platform_admin", async () => {
+    const mockMeResponse = {
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          request_id: "test-admin",
+          user: {
+            id: "admin-1",
+            email: "admin@example.com",
+            name: "مدیر سیستم",
+            role: "platform_admin" as const,
+          },
+        }),
+    } as Response;
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockMeResponse);
+
+    renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("مدیر سیستم")).toBeInTheDocument();
+    });
+
+    // Open the mobile menu drawer
+    const menuButton = screen.getByRole("button", { name: "منو" });
+    fireEvent.click(menuButton);
+
+    const drawerNav = screen.getByRole("navigation", { name: "منوی ناوبری موبایل" });
+    // Privileged admin panel link should still be available in the drawer
+    expect(within(drawerNav).getByRole("link", { name: /پنل مدیریت/i })).toBeInTheDocument();
+  });
+
+  it("provides an accessible account control with >= 44x44px touch target, ARIA attributes, and no chevron indicator", async () => {
+    const mockMeResponse = {
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          request_id: "test-req",
+          user: {
+            id: "user-1",
+            email: "user@example.com",
+            name: "مهسا کریمی",
+            role: "student" as const,
+          },
+        }),
+    } as Response;
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockMeResponse);
+
+    const { container } = renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("مهسا کریمی")).toBeInTheDocument();
+    });
+
+    const accountControl = screen.getByRole("link", { name: /مهسا کریمی/i });
+    expect(accountControl).toBeInTheDocument();
+    expect(accountControl).toHaveAttribute("aria-expanded", "false");
+    expect(accountControl).toHaveAttribute("aria-haspopup", "true");
+    expect(accountControl.className).toContain("min-h-[44px]");
+    expect(accountControl.className).toContain("min-w-[44px]");
+
+    // Verify ChevronDown has been removed
+    expect(container.querySelector(".lucide-chevron-down")).toBeNull();
+
+    // Click to open account menu
+    fireEvent.click(accountControl);
+
+    // Verify aria-expanded updates and active styling is applied
+    expect(accountControl).toHaveAttribute("aria-expanded", "true");
+    expect(accountControl.className).toContain("border-[#008080]");
+
+    // Verify dedicated account options appear in the open menu
+    expect(screen.getByText("ویرایش مشخصات")).toBeInTheDocument();
+    expect(screen.getByText("اشتراک و امور مالی")).toBeInTheDocument();
+    expect(screen.queryByText("اشتراک من")).not.toBeInTheDocument();
+    expect(screen.queryByText("خریدهای من و فاکتورها")).not.toBeInTheDocument();
+    expect(screen.queryByText("کیف پول من")).not.toBeInTheDocument();
+    expect(screen.getByText("دعوت از دوستان")).toBeInTheDocument();
     expect(screen.getByText("پشتیبانی و بازخورد")).toBeInTheDocument();
 
-    // Verify 'تنظیمات' is NOT rendered in the mobile drawer
-    expect(screen.queryByText("تنظیمات")).not.toBeInTheDocument();
+    // Clicking again closes the menu
+    fireEvent.click(accountControl);
+    expect(accountControl).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("renders first-time onboarding aura, respects prefers-reduced-motion, and permanently dismisses on first click", async () => {
+    const mockMeResponse = {
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          request_id: "test-req-hint",
+          user: {
+            id: "user-new",
+            email: "newuser@example.com",
+            name: "کاربر جدید",
+            role: "student" as const,
+          },
+        }),
+    } as Response;
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockMeResponse);
+
+    const { unmount } = renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("کاربر جدید")).toBeInTheDocument();
+    });
+
+    // 1. Aura should be rendered on first visit
+    const aura = screen.getByTestId("account-hint-aura");
+    expect(aura).toBeInTheDocument();
+    expect(aura.className).toContain("motion-safe:animate-account-aura");
+    expect(aura.className).toContain("motion-reduce:animate-none");
+
+    const accountControl = screen.getByRole("link", { name: /کاربر جدید/i });
+
+    // 2. Clicking on account control dismisses the aura and persists to localStorage
+    fireEvent.click(accountControl);
+    expect(screen.queryByTestId("account-hint-aura")).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("avana_account_menu_hint_seen")).toBe("true");
+
+    // 3. Closing the menu does not bring the aura back
+    fireEvent.click(accountControl);
+    expect(screen.queryByTestId("account-hint-aura")).not.toBeInTheDocument();
+
+    unmount();
+
+    // 4. On subsequent visit, aura is not rendered at all
+    renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("کاربر جدید")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("account-hint-aura")).not.toBeInTheDocument();
+  });
+
+  it("closes open menus when Escape key is pressed", async () => {
+    const mockMeResponse = {
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          request_id: "test-req",
+          user: {
+            id: "user-1",
+            email: "esc@example.com",
+            name: "کاربر کیبورد",
+            role: "student" as const,
+          },
+        }),
+    } as Response;
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockMeResponse);
+
+    renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("کاربر کیبورد")).toBeInTheDocument();
+    });
+
+    // 1. Test account dropdown escape
+    const accountControl = screen.getByRole("link", { name: /کاربر کیبورد/i });
+    fireEvent.click(accountControl);
+    expect(accountControl).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("ویرایش مشخصات")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(accountControl).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("ویرایش مشخصات")).not.toBeInTheDocument();
+
+    // 2. Test mobile drawer escape
+    const menuButton = screen.getByRole("button", { name: "منو" });
+    fireEvent.click(menuButton);
+    expect(screen.getByRole("navigation", { name: "منوی ناوبری موبایل" })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("navigation", { name: "منوی ناوبری موبایل" })).not.toBeInTheDocument();
+  });
+
+  it("handles unauthenticated state gracefully by pointing directly to /sign-in and hiding sign out button", async () => {
+    const mockMeResponse = {
+      ok: false,
+      status: 401,
+      json: () =>
+        Promise.resolve({
+          message: "Unauthorized",
+        }),
+    } as Response;
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockMeResponse);
+
+    renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    // Wait until loading finishes
+    await waitFor(() => {
+      expect(screen.queryByText("در حال بارگذاری حساب کاربری...")).not.toBeInTheDocument();
+    });
+
+    // The account control for guests should link to /sign-in
+    const signInControl = screen.getByRole("link", { name: /ورود به حساب کاربری/i });
+    expect(signInControl).toBeInTheDocument();
+    expect(signInControl).toHaveAttribute("href", "/sign-in");
+    expect(signInControl.className).toContain("min-h-[44px]");
+    expect(signInControl.className).toContain("min-w-[44px]");
+
+    // Sign out button must NOT be present
+    expect(screen.queryByRole("button", { name: "خروج از حساب" })).not.toBeInTheDocument();
+
+    // Clicking the sign-in link must not open any authenticated account panel
+    fireEvent.click(signInControl);
+    expect(screen.queryByText("ویرایش مشخصات")).not.toBeInTheDocument();
+    expect(screen.queryByText("اشتراک و امور مالی")).not.toBeInTheDocument();
+    expect(screen.queryByText("اشتراک من")).not.toBeInTheDocument();
+  });
+
+  it("TeacherShell: provides touch target and ARIA attributes for teacher account button and deduplicates mobile drawer", async () => {
+    const mockTeacherResponse = {
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          request_id: "test-teacher",
+          user: {
+            id: "teacher-1",
+            email: "teacher@example.com",
+            name: "استاد رضایی",
+            role: "teacher" as const,
+          },
+        }),
+    } as Response;
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockTeacherResponse);
+
+    const { container } = renderWithProviders(
+      <AuthProvider>
+        <TeacherShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("استاد رضایی")).toBeInTheDocument();
+    });
+
+    const accountControl = screen.getByRole("button", { name: /استاد رضایی/i });
+    expect(accountControl).toBeInTheDocument();
+    expect(accountControl).toHaveAttribute("aria-expanded", "false");
+    expect(accountControl).toHaveAttribute("aria-haspopup", "true");
+    expect(accountControl.className).toContain("min-h-[44px]");
+    expect(accountControl.className).toContain("min-w-[44px]");
+
+    // Verify ChevronDown has been removed in TeacherShell
+    expect(container.querySelector(".lucide-chevron-down")).toBeNull();
+
+    // Verify first-time aura exists and clicking dismisses it
+    expect(screen.getByTestId("account-hint-aura")).toBeInTheDocument();
+    fireEvent.click(accountControl);
+    expect(screen.queryByTestId("account-hint-aura")).not.toBeInTheDocument();
+    fireEvent.click(accountControl); // Close menu
+
+    // Open teacher mobile drawer
+    const menuButton = screen.getByRole("button", { name: "منو" });
+    fireEvent.click(menuButton);
+
+    const drawerNav = screen.getByRole("navigation", { name: "منوی ناوبری اساتید" });
+    expect(within(drawerNav).getByText("داشبورد استاد")).toBeInTheDocument();
+    expect(within(drawerNav).getByText("کلاس‌های من")).toBeInTheDocument();
+    expect(within(drawerNav).getByText("پیام‌های دانشجویان")).toBeInTheDocument();
+
+    // Verify 'خروج از حساب' is NOT in the mobile drawer
+    expect(within(drawerNav).queryByText("خروج از حساب")).not.toBeInTheDocument();
+  });
+
+  describe("Header positioning behavior (relative on lesson page, sticky top-0 elsewhere)", () => {
+    const mockUserResponse = {
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          request_id: "test-req",
+          user: {
+            id: "user-1",
+            email: "student@example.com",
+            name: "دانشجو",
+            role: "student" as const,
+          },
+        }),
+    } as Response;
+
+    it("uses relative in-flow positioning for the site header on lesson page (/courses/:courseId)", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(mockUserResponse);
+
+      const { container } = renderWithProviders(
+        <AuthProvider>
+          <AuthenticatedShell />
+        </AuthProvider>,
+        ["/courses/cardiology-101"],
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("دانشجو")).toBeInTheDocument();
+      });
+
+      const header = container.querySelector("header");
+      expect(header).not.toBeNull();
+      // On lesson page, header must be relative so it scrolls out of view naturally
+      expect(header?.className).toContain("relative");
+      expect(header?.className).not.toContain("sticky");
+    });
+
+    it("maintains sticky top-0 positioning on regular pages like /home and /courses", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(mockUserResponse);
+
+      const { container } = renderWithProviders(
+        <AuthProvider>
+          <AuthenticatedShell />
+        </AuthProvider>,
+        ["/home"],
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("دانشجو")).toBeInTheDocument();
+      });
+
+      const header = container.querySelector("header");
+      expect(header).not.toBeNull();
+      expect(header?.className).toContain("sticky");
+      expect(header?.className).toContain("top-0");
+      expect(header?.className).toContain("z-50");
+    });
+
+    it("maintains sticky top-0 positioning on /courses list page", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(mockUserResponse);
+
+      const { container } = renderWithProviders(
+        <AuthProvider>
+          <AuthenticatedShell />
+        </AuthProvider>,
+        ["/courses"],
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("دانشجو")).toBeInTheDocument();
+      });
+
+      const header = container.querySelector("header");
+      expect(header).not.toBeNull();
+      expect(header?.className).toContain("sticky");
+      expect(header?.className).toContain("top-0");
+      expect(header?.className).toContain("z-50");
+    });
   });
 });
 

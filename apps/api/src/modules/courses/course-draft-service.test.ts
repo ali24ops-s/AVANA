@@ -497,4 +497,20 @@ describe("CourseDraftService", () => {
       }),
     );
   });
+
+  it("13. publishDraftSession and rollbackRelease: reject content_worker with forbidden 403", async () => {
+    const workerActor: Actor = {
+      userId: asUserId(parseUUID("55555555-5555-4555-8555-555555555555")),
+      role: "content_worker",
+      globalRole: "content_worker",
+    };
+
+    await expect(
+      service.publishDraftSession(workerActor, sessionId),
+    ).rejects.toThrowError(/تنها مدیران یا ویرایشگران دوره/);
+
+    await expect(
+      service.rollbackRelease(workerActor, courseId, 1, "unauthorized rollback"),
+    ).rejects.toThrowError(/تنها مدیران یا ویرایشگران دوره/);
+  });
 });

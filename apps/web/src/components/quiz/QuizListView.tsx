@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  HelpCircle,
   ChevronLeft,
   AlertCircle,
 } from "lucide-react";
@@ -9,8 +8,14 @@ import { Card, Badge, Button, LoadingState, EmptyState } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
 import { QuizExperience } from "./QuizExperience.js";
+import { QuizFilterBar } from "./QuizFilterBar.js";
 import type { QuizResource } from "@avana/contracts";
-import { toPersianDigits } from "@avana/domain";
+import {
+  toPersianDigits,
+  cleanQuizChapterTitle,
+  type QuizQuestionFilterCount,
+  type QuizQuestionDifficulty,
+} from "@avana/domain";
 import { AvaniAvatar } from "../brand/AvaniAvatar.js";
 
 export interface QuizListViewProps {
@@ -29,6 +34,14 @@ export function QuizListView({
   initialQuizId = null,
 }: QuizListViewProps) {
   const [activeQuizId, setActiveQuizId] = useState<string | null>(initialQuizId);
+  const [selectedCount, setSelectedCount] = useState<QuizQuestionFilterCount | null>(null);
+  const [selectedDifficulty, setSelectedDifficulty] = useState<QuizQuestionDifficulty | null>(null);
+
+  useEffect(() => {
+    setActiveQuizId(initialQuizId);
+    setSelectedCount(null);
+    setSelectedDifficulty(null);
+  }, [organizationId, courseId]);
 
   useEffect(() => {
     if (initialQuizId) {
@@ -49,12 +62,15 @@ export function QuizListView({
   if (activeQuizId) {
     return (
       <QuizExperience
+        key={activeQuizId}
         organizationId={organizationId}
         courseId={courseId}
         quizId={activeQuizId}
         isPreview={effectiveIsPreview}
         onUnlock={onUnlock}
         onBack={() => setActiveQuizId(null)}
+        initialCount={selectedCount}
+        initialDifficulty={selectedDifficulty}
       />
     );
   }
@@ -109,6 +125,19 @@ export function QuizListView({
         </Badge>
       </div>
 
+      {quizzes.length > 0 && (
+        <QuizFilterBar
+          selectedCount={selectedCount}
+          selectedDifficulty={selectedDifficulty}
+          onCountChange={(count) => setSelectedCount(count)}
+          onDifficultyChange={(diff) => setSelectedDifficulty(diff)}
+          onClearFilters={() => {
+            setSelectedCount(null);
+            setSelectedDifficulty(null);
+          }}
+        />
+      )}
+
       {quizzes.length === 0 ? (
         <EmptyState
           icon={<AvaniAvatar variant="empty" size={44} alt="آوانی" asInlineSvg={true} />}
@@ -117,37 +146,50 @@ export function QuizListView({
         />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
-          {quizzes.map((quiz: QuizResource) => (
-            <button
-              type="button"
-              key={quiz.id}
-              onClick={() => setActiveQuizId(quiz.id)}
-              aria-label={`شرکت در آزمون: ${quiz.title}`}
-              className="w-full text-start group bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] rounded-[16px] border border-[var(--color-border)] hover:border-[#008080] p-5 sm:p-6 transition-all duration-150 cursor-pointer flex flex-col justify-between space-y-4 shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-card)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#008080]"
-            >
-              <div className="space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="w-10 h-10 rounded-[10px] bg-[#e0f2f2] text-[#008080] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <HelpCircle className="w-5 h-5" />
-                  </div>
-                  <Badge variant={effectiveIsPreview ? "info" : "primary"} size="sm">
-                    {effectiveIsPreview ? "پیش‌نمایش رایگان (۵ سوال)" : (quiz.status === "published" ? "منتشر شده" : quiz.status)}
-                  </Badge>
-                </div>
-                <h4 className="text-sm font-bold text-[var(--color-text)] group-hover:text-[#008080] transition-colors">
-                  {quiz.title}
-                </h4>
-              </div>
+          {quizzes.map((quiz: QuizResource) => {
+            const questionCount =
+              (quiz as { questions?: unknown[]; question_count?: number }).questions?.length ??
+              (quiz as { question_count?: number }).question_count;
 
-              <div className="flex items-center justify-between pt-3 border-t border-[var(--color-border)] text-xs text-[var(--color-text-muted)]">
-                <span>تاریخ: {new Date(quiz.created_at).toLocaleDateString("fa-IR")}</span>
-                <span className="font-bold text-[#008080] flex items-center gap-1 group-hover:-translate-x-0.5 transition-transform">
-                  <span>شروع آزمون</span>
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </span>
-              </div>
-            </button>
-          ))}
+            const chapterTitle = cleanQuizChapterTitle(quiz.title);
+
+            return (
+              <button
+                type="button"
+                key={quiz.id}
+                onClick={() => setActiveQuizId(quiz.id)}
+                aria-label={`شرکت در آزمون: ${chapterTitle}`}
+                className="w-full text-start group bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] rounded-[16px] border border-[var(--color-border)] hover:border-[#008080] p-5 sm:p-6 transition-all duration-150 cursor-pointer flex flex-col justify-between space-y-4 shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-card)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#008080]"
+              >
+                <div className="space-y-2">
+                  {effectiveIsPreview && (
+                    <div className="flex items-center justify-end">
+                      <Badge variant="info" size="sm">
+                        پیش‌نمایش رایگان (۵ سوال)
+                      </Badge>
+                    </div>
+                  )}
+                  <h4 className="text-sm font-bold text-[var(--color-text)] group-hover:text-[#008080] transition-colors leading-relaxed">
+                    {chapterTitle}
+                  </h4>
+                </div>
+
+                <div className="flex items-center justify-between pt-3 border-t border-[var(--color-border)] text-xs text-[var(--color-text-muted)]">
+                  {questionCount !== undefined && questionCount > 0 ? (
+                    <span className="font-medium text-[var(--color-text-secondary)]">
+                      {toPersianDigits(questionCount)} سوال
+                    </span>
+                  ) : (
+                    <span />
+                  )}
+                  <span className="font-bold text-[#008080] flex items-center gap-1 group-hover:-translate-x-0.5 transition-transform ms-auto">
+                    <span>شروع آزمون</span>
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </span>
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

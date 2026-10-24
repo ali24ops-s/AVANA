@@ -135,6 +135,12 @@ export interface SupportMessageItem {
   attachmentUrl: string | null;
   isInternalNote: boolean;
   createdAt: string;
+  /**
+   * Timestamp when the user actually viewed this admin reply.
+   * STRICT SECURITY INVARIANT: Populated ONLY for authorized admin responses.
+   * Omitted entirely from user API responses to prevent leakage.
+   */
+  readAt?: string | null;
 }
 
 export interface SupportTicketItem {

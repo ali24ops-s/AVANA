@@ -23,6 +23,7 @@ import {
   DrizzleEmailVerificationStore,
   DrizzlePasswordResetStore,
   DrizzleDeviceStore,
+  DrizzleWelcomeGiftStore,
   MockEmailService,
   ResendEmailService,
   type EmailService,
@@ -104,6 +105,7 @@ import {
   DrizzleContentPackUsageStore,
 } from "../modules/library/index.js";
 import { DrizzleQuestionPatternStore } from "../modules/generation/question-patterns-store.js";
+import { DrizzleSourcePackStore } from "../modules/source-packs/drizzle-source-pack-store.js";
 import { DrizzleSearchStore } from "../modules/search/index.js";
 import {
   DrizzleCommerceStore,
@@ -697,6 +699,7 @@ export async function composeProduction(
   const contentStore = new DrizzleClassroomContentStore(db);
   const teacherConversationStore = new DrizzleTeacherConversationStore(db);
   const teacherConversationMessageStore = new DrizzleTeacherConversationMessageStore(db);
+  const sourcePackStore = new DrizzleSourcePackStore(db);
 
   const v1Options: V1RouteOptions = {
     config,
@@ -764,6 +767,8 @@ export async function composeProduction(
     contentStore,
     teacherConversationStore,
     teacherConversationMessageStore,
+    sourcePackStore,
+    welcomeGiftStore: new DrizzleWelcomeGiftStore(db),
     db,
   };
 

@@ -118,7 +118,7 @@ export interface PromotionRedemptionRecord {
   promotionId: PromotionId;
   codeId: PromotionCodeId;
   userId: UserId;
-  orderId: OrderId;
+  orderId: OrderId | null;
   paymentId: PaymentId | null;
   benefitType: PromotionBenefitType;
   benefitValue: number;

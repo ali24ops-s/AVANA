@@ -217,6 +217,9 @@ describe("Academic Field Personalization Integration Tests", () => {
       },
     });
 
+    expect(regRes.statusCode).toBe(200);
+    const regBody = JSON.parse(regRes.body);
+    const userId = regBody.user.id;
     const sessionCookie = regRes.cookies.find((c) => c.name === "avana_session")?.value;
 
     // Create an organization where user is owner
@@ -228,6 +231,7 @@ describe("Academic Field Personalization Integration Tests", () => {
     });
     expect(orgRes.statusCode).toBe(201);
     const orgId = JSON.parse(orgRes.body).organization.id;
+    orgStore.setMembershipRole(orgId, userId, "organization_admin");
 
     // Create course with target_academic_fields
     const createRes = await app.inject({

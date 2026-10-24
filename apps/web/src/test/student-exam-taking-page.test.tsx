@@ -10,6 +10,11 @@ const mockUseStudentClassroomExams = vi.fn();
 const mockUseCurrentStudentExamAttempt = vi.fn();
 const mockUseStartStudentExamAttempt = vi.fn();
 const mockUseSaveStudentExamAnswer = vi.fn();
+const mockUseRecordStudentExamSecurityEvent = vi.fn().mockReturnValue({
+  mutate: vi.fn(),
+  mutateAsync: vi.fn(),
+  isPending: false,
+});
 const mockUseSubmitStudentExamAttempt = vi.fn();
 
 vi.mock("../hooks/useStudentTeacherExams.js", () => ({
@@ -18,6 +23,8 @@ vi.mock("../hooks/useStudentTeacherExams.js", () => ({
   useStartStudentExamAttempt: (examId: string, classroomId?: string) =>
     mockUseStartStudentExamAttempt(examId, classroomId),
   useSaveStudentExamAnswer: (examId: string) => mockUseSaveStudentExamAnswer(examId),
+  useRecordStudentExamSecurityEvent: (examId: string) =>
+    mockUseRecordStudentExamSecurityEvent(examId),
   useSubmitStudentExamAttempt: (examId: string, classroomId?: string) =>
     mockUseSubmitStudentExamAttempt(examId, classroomId),
   studentExamKeys: {

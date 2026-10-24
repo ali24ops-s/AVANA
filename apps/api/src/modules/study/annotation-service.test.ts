@@ -90,6 +90,23 @@ class MockOrganizationStore implements Partial<OrganizationStore> {
     }
     return null;
   }
+
+  async listMembershipsByUserId(userId: UserId) {
+    const list: Array<{ organizationId: OrganizationId; userId: UserId; role: "student"; createdAt: string; updatedAt: string }> = [];
+    for (const item of this.members) {
+      const [mOrgId, mUserId] = item.split(":");
+      if (mUserId === userId) {
+        list.push({
+          organizationId: mOrgId as OrganizationId,
+          userId,
+          role: "student",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    }
+    return list;
+  }
 }
 
 describe("AnnotationService (Highlights, Notes & Content Reports)", () => {

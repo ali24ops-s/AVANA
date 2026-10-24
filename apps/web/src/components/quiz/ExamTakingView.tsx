@@ -73,8 +73,8 @@ export function calculateReconnectDelayMs(
 }
 
 export function ExamTakingView({
-  organizationId,
-  attemptId,
+  organizationId = "",
+  attemptId = "",
   questions,
   initialAnswers,
   startedAt: _startedAt,

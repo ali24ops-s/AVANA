@@ -11,23 +11,21 @@ import {
   ChevronDown,
   X,
   Flag,
-  Plus,
   FolderPlus,
   Folder,
   ArrowUp,
   ArrowDown,
   Edit3,
   Trash2,
-  MoveVertical,
   Check,
 } from "lucide-react";
 import {
-  api,
-  type AdminCourseHierarchy,
+  getLessonDetails,
   type AdminCourseHierarchyGroup,
   type AdminCourseHierarchyModule,
   type AdminCourseHierarchyLesson,
 } from "../../../lib/api/admin.js";
+import { MarkdownRenderer } from "../../markdown/MarkdownRenderer.js";
 import { useAdmin } from "../../../hooks/useAdmin.js";
 import { toPersianDigits } from "@avana/domain";
 
@@ -41,6 +39,20 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
 
   const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
   const [previewLesson, setPreviewLesson] = useState<AdminCourseHierarchyLesson | null>(null);
+  const [activeModalTab, setActiveModalTab] = useState<"content" | "flashcards" | "quizzes">("content");
+
+  const lessonDetailsQuery = useQuery({
+    queryKey: ["admin-lesson-detail", previewLesson?.id, courseId],
+    queryFn: () => getLessonDetails(previewLesson!.id, { courseId }),
+    enabled: Boolean(previewLesson?.id),
+    staleTime: 30000,
+  });
+
+  useEffect(() => {
+    if (previewLesson) {
+      setActiveModalTab("content");
+    }
+  }, [previewLesson]);
 
   // Group modal & inline states
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
@@ -769,57 +781,249 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
       {/* Lesson Details Preview Modal */}
       {previewLesson && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-2xl bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-6 shadow-2xl space-y-5">
+          <div className="w-full max-w-3xl bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-6 shadow-2xl space-y-5">
             <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-4">
               <div>
                 <h3 className="font-bold text-lg text-[var(--color-text)]">{previewLesson.title}</h3>
                 <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
                   شناسه درس: {previewLesson.id}
+                  {lessonDetailsQuery.data?.moduleTitle ? ` | فصل: ${lessonDetailsQuery.data.moduleTitle}` : ""}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setPreviewLesson(null)}
-                className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-1 rounded-lg hover:bg-[var(--color-surface-warm)] transition-colors"
+                aria-label="بستن پنجره"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="space-y-4">
-              <div className="flex flex-wrap gap-2 text-xs">
+              {/* Badges / Stats Bar */}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
                 {reportsByLessonId.has(previewLesson.id) && (
                   <Link
                     to={`/admin/courses/${courseId}?tab=reports`}
                     className="px-3 py-1 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1.5 hover:bg-rose-500/20 transition-colors"
                   >
                     <Flag className="w-3.5 h-3.5 text-rose-500" />
-                    <span>{toPersianDigits(reportsByLessonId.get(previewLesson.id)!)} گزارش مشکل ثبت‌شده — مشاهده در برگه گزارش‌ها</span>
+                    <span>{toPersianDigits(reportsByLessonId.get(previewLesson.id)!)} گزارش مشکل ثبت‌شده</span>
                   </Link>
                 )}
                 <span className="px-3 py-1 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-muted)] font-bold">
-                  فلش‌کارت‌های مرتبط: {toPersianDigits(previewLesson.flashcardCount)}
+                  فلش‌کارت‌های مرتبط: {toPersianDigits(lessonDetailsQuery.data?.flashcards?.length ?? previewLesson.flashcardCount)}
                 </span>
                 <span className="px-3 py-1 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-muted)] font-bold">
-                  سؤالات تستی مرتبط: {toPersianDigits(previewLesson.quizCount)}
+                  سؤالات تستی مرتبط: {toPersianDigits(lessonDetailsQuery.data?.quizQuestions?.length ?? previewLesson.quizCount)}
                 </span>
-                <span className="px-3 py-1 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-muted)] font-bold">
-                  وضعیت محتوا: {previewLesson.hasContent ? "تکمیل شده" : "فاقد متن"}
+                <span className="px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-bold">
+                  وضعیت محتوا: {previewLesson.hasContent || lessonDetailsQuery.data?.contentMarkdown ? "تکمیل شده" : "فاقد متن"}
                 </span>
               </div>
 
-              <div className="p-4 bg-[var(--color-surface-warm)]/50 rounded-xl border border-[var(--color-border)] text-xs text-[var(--color-text)] max-h-80 overflow-y-auto">
-                <p className="text-[var(--color-text-muted)]">
-                  درسنامه با موفقیت در ساختار رسمی دوره مستقر شده است و تمامی ارجاعات کارت‌ها و آزمون‌ها به این شناسه نگاشت شده‌اند.
-                </p>
+              {/* Modal Tabs */}
+              <div className="flex items-center gap-2 border-b border-[var(--color-border)] pb-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveModalTab("content")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    activeModalTab === "content"
+                      ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-xs"
+                      : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
+                  }`}
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>متن درسنامه</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveModalTab("flashcards")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    activeModalTab === "flashcards"
+                      ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-xs"
+                      : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>فلش‌کارت‌ها ({toPersianDigits(lessonDetailsQuery.data?.flashcards?.length ?? previewLesson.flashcardCount)})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveModalTab("quizzes")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    activeModalTab === "quizzes"
+                      ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-xs"
+                      : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
+                  }`}
+                >
+                  <HelpCircle className="w-3.5 h-3.5" />
+                  <span>سؤالات تستی ({toPersianDigits(lessonDetailsQuery.data?.quizQuestions?.length ?? previewLesson.quizCount)})</span>
+                </button>
               </div>
+
+              {/* Tab Content Body */}
+              {lessonDetailsQuery.isLoading ? (
+                <div className="flex flex-col items-center justify-center py-16 gap-3">
+                  <Loader2 className="w-7 h-7 animate-spin text-[var(--color-primary-default)]" />
+                  <span className="text-xs text-[var(--color-text-muted)] font-medium">در حال بارگذاری محتوای درسنامه و ضمائم...</span>
+                </div>
+              ) : lessonDetailsQuery.isError ? (
+                <div className="p-6 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-center space-y-3">
+                  <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
+                  <p className="text-xs font-bold text-rose-600 dark:text-rose-400">
+                    خطا در دریافت جزئیات درس: {(lessonDetailsQuery.error as Error)?.message || "خطای نامشخص"}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void lessonDetailsQuery.refetch()}
+                    className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors"
+                  >
+                    تلاش مجدد
+                  </button>
+                </div>
+              ) : (
+                <div className="min-h-[220px]">
+                  {/* Content / Markdown Tab */}
+                  {activeModalTab === "content" && (
+                    <div className="p-5 bg-[var(--color-surface-warm)]/40 rounded-2xl border border-[var(--color-border)] text-xs text-[var(--color-text)] max-h-96 overflow-y-auto leading-relaxed">
+                      {lessonDetailsQuery.data?.contentMarkdown?.trim() ? (
+                        <MarkdownRenderer content={lessonDetailsQuery.data.contentMarkdown} />
+                      ) : (
+                        <div className="text-center py-10 space-y-2">
+                          <BookOpen className="w-8 h-8 text-[var(--color-text-muted)] mx-auto opacity-50" />
+                          <p className="text-xs text-[var(--color-text-muted)]">
+                            متن درسنامه‌ای برای این درس ثبت نشده است.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Flashcards Tab */}
+                  {activeModalTab === "flashcards" && (
+                    <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                      {(!lessonDetailsQuery.data?.flashcards || lessonDetailsQuery.data.flashcards.length === 0) ? (
+                        <div className="text-center py-10 space-y-2">
+                          <Layers className="w-8 h-8 text-[var(--color-text-muted)] mx-auto opacity-50" />
+                          <p className="text-xs text-[var(--color-text-muted)]">
+                            فلش‌کارتی به این درس متصل نشده است.
+                          </p>
+                        </div>
+                      ) : (
+                        lessonDetailsQuery.data.flashcards.map((fc, idx) => (
+                          <div
+                            key={fc.id || idx}
+                            className="p-4 bg-[var(--color-surface-warm)]/40 rounded-2xl border border-[var(--color-border)] space-y-2.5 text-xs"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-[var(--color-primary-default)]">
+                                کارت شماره {toPersianDigits(idx + 1)}
+                              </span>
+                              {fc.difficulty && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] font-bold">
+                                  {fc.difficulty === "easy" ? "آسان" : fc.difficulty === "hard" ? "سخت" : "متوسط"}
+                                </span>
+                              )}
+                            </div>
+                            <div>
+                              <span className="font-bold text-[var(--color-text-muted)]">روی کارت (پرسش): </span>
+                              <span className="text-[var(--color-text)] font-medium">{fc.front}</span>
+                            </div>
+                            <div className="pt-2 border-t border-[var(--color-border)]/60">
+                              <span className="font-bold text-[var(--color-text-muted)]">پشت کارت (پاسخ): </span>
+                              <span className="text-[var(--color-text)]">{fc.back}</span>
+                            </div>
+                            {fc.explanation && (
+                              <div className="p-2.5 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)]/50 text-[11px] text-[var(--color-text-muted)] leading-relaxed">
+                                <strong className="text-[var(--color-text)]">توضیح تکمیلی: </strong>
+                                {fc.explanation}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+
+                  {/* Quizzes Tab */}
+                  {activeModalTab === "quizzes" && (
+                    <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                      {(!lessonDetailsQuery.data?.quizQuestions || lessonDetailsQuery.data.quizQuestions.length === 0) ? (
+                        <div className="text-center py-10 space-y-2">
+                          <HelpCircle className="w-8 h-8 text-[var(--color-text-muted)] mx-auto opacity-50" />
+                          <p className="text-xs text-[var(--color-text-muted)]">
+                            سؤال تستی به این درس متصل نشده است.
+                          </p>
+                        </div>
+                      ) : (
+                        lessonDetailsQuery.data.quizQuestions.map((qq, idx) => (
+                          <div
+                            key={qq.id || idx}
+                            className="p-4 bg-[var(--color-surface-warm)]/40 rounded-2xl border border-[var(--color-border)] space-y-3 text-xs"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-[var(--color-primary-default)]">
+                                سؤال شماره {toPersianDigits(idx + 1)}
+                              </span>
+                              {qq.difficulty && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] font-bold">
+                                  {qq.difficulty === "easy" ? "آسان" : qq.difficulty === "hard" ? "سخت" : "متوسط"}
+                                </span>
+                              )}
+                            </div>
+                            <p className="font-bold text-[var(--color-text)] text-sm leading-relaxed">{qq.question}</p>
+                            {Array.isArray(qq.choices) && qq.choices.length > 0 && (
+                              <div className="space-y-1.5 pt-1">
+                                {qq.choices.map((choice, cIdx) => {
+                                  const isCorrect =
+                                    String(qq.correctAnswer) === String(choice) ||
+                                    String(qq.correctAnswer) === String(cIdx) ||
+                                    String(qq.correctAnswer) === String(cIdx + 1);
+                                  return (
+                                    <div
+                                      key={cIdx}
+                                      className={`p-2.5 rounded-xl text-xs flex items-center justify-between transition-colors ${
+                                        isCorrect
+                                          ? "bg-emerald-500/10 border border-emerald-500/25 text-emerald-700 dark:text-emerald-400 font-bold"
+                                          : "bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]"
+                                      }`}
+                                    >
+                                      <span>
+                                        {toPersianDigits(cIdx + 1)}) {choice}
+                                      </span>
+                                      {isCorrect && (
+                                        <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-bold shrink-0">
+                                          <Check className="w-3.5 h-3.5" />
+                                          <span>پاسخ صحیح</span>
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {qq.explanation && (
+                              <div className="p-2.5 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)]/50 text-[11px] text-[var(--color-text-muted)] leading-relaxed">
+                                <strong className="text-[var(--color-text)]">پاسخ تشریحی: </strong>
+                                {qq.explanation}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end pt-3 border-t border-[var(--color-border)]">
               <button
                 type="button"
                 onClick={() => setPreviewLesson(null)}
-                className="px-5 py-2.5 rounded-xl bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-card)] text-[var(--color-text)] border border-[var(--color-border)] text-xs font-bold transition-colors"
+                className="px-5 py-2.5 rounded-xl bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-card)] text-[var(--color-text)] border border-[var(--color-border)] text-xs font-bold transition-colors cursor-pointer"
               >
                 بستن
               </button>

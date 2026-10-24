@@ -89,7 +89,11 @@ export interface ContentReportStore {
   ): Promise<ContentReportRecord>;
   findById(id: string): Promise<ContentReportDetailRecord | null>;
   list(params?: ListContentReportsParams): Promise<ListContentReportsResult>;
-  updateStatus(id: string, status: string): Promise<ContentReportRecord | null>;
+  updateStatus(
+    id: string,
+    status: string,
+    expectedCurrentStatus?: string,
+  ): Promise<ContentReportRecord | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -222,9 +226,16 @@ export class InMemoryContentReportStore implements ContentReportStore {
     };
   }
 
-  async updateStatus(id: string, status: string): Promise<ContentReportRecord | null> {
+  async updateStatus(
+    id: string,
+    status: string,
+    expectedCurrentStatus?: string,
+  ): Promise<ContentReportRecord | null> {
     const index = this.reports.findIndex((r) => r.id === id);
     if (index === -1) return null;
+    if (expectedCurrentStatus && this.reports[index].status !== expectedCurrentStatus) {
+      return null;
+    }
     this.reports[index] = {
       ...this.reports[index],
       status,
@@ -567,11 +578,19 @@ export class DrizzleContentReportStore implements ContentReportStore {
     };
   }
 
-  async updateStatus(id: string, status: string): Promise<ContentReportRecord | null> {
+  async updateStatus(
+    id: string,
+    status: string,
+    expectedCurrentStatus?: string,
+  ): Promise<ContentReportRecord | null> {
+    const conditions = [eq(contentReports.id, id)];
+    if (expectedCurrentStatus) {
+      conditions.push(eq(contentReports.status, expectedCurrentStatus));
+    }
     const [updated] = await this.db
       .update(contentReports)
       .set({ status })
-      .where(eq(contentReports.id, id))
+      .where(and(...conditions))
       .returning();
 
     if (!updated) return null;

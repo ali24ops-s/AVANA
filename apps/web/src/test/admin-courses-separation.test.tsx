@@ -232,4 +232,19 @@ describe("Admin Courses Segregation UI Integration (/admin/courses)", () => {
       expect(screen.getByText("فیزیولوژی پزشکی پیشرفته")).toBeInTheDocument();
     });
   });
+
+  it("5. Personal courses created by regular users are segregated under user scope and never leak into teacher tab", async () => {
+    const Wrapper = wrapperWithInitialEntries(["/admin/courses?tab=user"]);
+    render(<AdminCoursesPage />, { wrapper: Wrapper });
+
+    await waitFor(() => {
+      expect(mockListCourses).toHaveBeenCalledWith(1, 20, "", "user");
+      // The user courses appear
+      expect(screen.getByText("خلاصه‌های بافت‌شناسی من")).toBeInTheDocument();
+      // The teacher course does NOT appear in user tab
+      expect(screen.queryByText("فیزیولوژی پزشکی پیشرفته")).not.toBeInTheDocument();
+      // The official course does NOT appear in user tab
+      expect(screen.queryByText("فارماکولوژی بالینی رسمی")).not.toBeInTheDocument();
+    });
+  });
 });

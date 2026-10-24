@@ -1,20 +1,42 @@
 import React from "react";
-import { FileText, BookOpen, Layers } from "lucide-react";
+import { FileText, BookOpen, Layers, Download, Loader2 } from "lucide-react";
 import type { SourceChunkResource } from "@avana/contracts";
+import { toPersianDigits } from "@avana/domain";
 import {
   calculateWordCount,
   extractTopicsFromSourceChunks,
 } from "../../lib/utils/evidence-utils.js";
 
+function formatFileSize(bytes?: number): string {
+  if (!bytes || bytes <= 0) return "";
+  if (bytes < 1024) return `${toPersianDigits(bytes)} بایت`;
+  if (bytes < 1024 * 1024) return `${toPersianDigits((bytes / 1024).toFixed(1))} کیلوبایت`;
+  return `${toPersianDigits((bytes / (1024 * 1024)).toFixed(1))} مگابایت`;
+}
+
 export interface EvidenceSummaryProps {
   sourceChunks?: SourceChunkResource[] | null;
   payload?: Record<string, unknown> | null;
+  document?: {
+    id: string;
+    originalName?: string;
+    original_name?: string;
+    sizeBytes?: number;
+    size_bytes?: number;
+    mimeType?: string;
+    mime_type?: string;
+  } | null;
+  onDownload?: () => void;
+  isDownloading?: boolean;
   className?: string;
 }
 
 export const EvidenceSummary: React.FC<EvidenceSummaryProps> = ({
   sourceChunks,
   payload,
+  document,
+  onDownload,
+  isDownloading = false,
   className = "",
 }) => {
   const wordCount = calculateWordCount(sourceChunks);
@@ -72,6 +94,37 @@ export const EvidenceSummary: React.FC<EvidenceSummaryProps> = ({
               </span>
             </div>
           </div>
+        </div>
+      )}
+
+      {document && document.id && document.id !== "__unknown__" && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-[var(--color-surface-warm)]/60 rounded-xl border border-[var(--color-border)]">
+          <div className="min-w-0 flex-1">
+            <span className="block text-[11px] text-[var(--color-text-muted)] font-medium">فایل سند منبع</span>
+            <div className="text-sm font-semibold text-[var(--color-text)] truncate" title={document.originalName || document.original_name || "فایل منبع"}>
+              {document.originalName || document.original_name || "فایل منبع"}
+            </div>
+            {(document.sizeBytes ?? document.size_bytes) ? (
+              <span className="text-xs text-[var(--color-text-muted)] mt-0.5 block">
+                حجم فایل: {formatFileSize(document.sizeBytes ?? document.size_bytes)}
+              </span>
+            ) : null}
+          </div>
+          {onDownload && (
+            <button
+              type="button"
+              onClick={onDownload}
+              disabled={isDownloading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-primary-default)] font-bold text-xs border border-[var(--color-border)] shadow-xs transition-colors disabled:opacity-50"
+            >
+              {isDownloading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5" />
+              )}
+              <span>دانلود فایل اصلی</span>
+            </button>
+          )}
         </div>
       )}
     </div>

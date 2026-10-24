@@ -1083,6 +1083,24 @@ describe("AVANA Official Content Pipeline — Production Readiness (18 Scenarios
 
     // 8. Re-run Generation and Approval for the same Course / Document (Regeneration)
     await officialContentService.triggerOfficialGeneration(adminActor, course.id, docId, { force: true });
+
+    // Update regenerated draft title to reflect a new revised edition (triggering new lesson materialization)
+    const pendingDrafts = await generatedContentStore.listByDocument(docId, officialOrgId);
+    const newLessonDraft = pendingDrafts.find((d) => d.type === "lesson" && d.status === "draft");
+    if (newLessonDraft) {
+      const p = newLessonDraft.payload as any;
+      const updatedSessions = Array.isArray(p.sessions)
+        ? p.sessions.map((s: any) => ({ ...s, title: s.title + " (بازنویسی نسل دوم)" }))
+        : p.sessions;
+      await reviewService.editContent(adminActor, officialOrgId, newLessonDraft.id, {
+        payload: {
+          ...p,
+          title: "جلسه 1: مبحث شماره 1 (بازنویسی نسل دوم)",
+          sessions: updatedSessions,
+        },
+      });
+    }
+
     const reApproved = await officialContentService.approveOfficialCourse(adminActor, course.id);
     expect(reApproved.approved).toBe(true);
 

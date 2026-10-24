@@ -157,16 +157,28 @@ describe("userCommerceUtils", () => {
       expect(badge.label).toBe("منقضی شده");
       expect(badge.className).toContain("rose");
     });
-  });
 
-  describe("getUrgencyBadge", () => {
-    it("returns correct urgency classes", () => {
-      expect(getUrgencyBadge("critical").className).toContain("animate-pulse");
-      expect(getUrgencyBadge("warning").className).toContain("amber");
-      expect(getUrgencyBadge("normal").className).toContain("teal");
+    it("resolves active_pending_payment_review badge with high contrast indigo classes", () => {
+      const badge = getSubscriptionStatusBadge("active_pending_payment_review");
+      expect(badge.label).toBe("فعال (در انتظار بررسی نهایی)");
+      expect(badge.className).toContain("indigo-700");
+      expect(badge.className).toContain("indigo-50");
+      expect(badge.className).toContain("dark:text-indigo-300");
     });
   });
 
+  describe("getUrgencyBadge", () => {
+    it("returns correct urgency classes with high contrast", () => {
+      expect(getUrgencyBadge("critical").className).toContain("animate-pulse");
+      expect(getUrgencyBadge("warning").className).toContain("amber");
+      expect(getUrgencyBadge("normal").className).toContain("teal-800");
+      expect(getUrgencyBadge("normal").className).toContain("dark:text-teal-200");
+      expect(getUrgencyBadge("normal").className).toContain("teal-50");
+      expect(getUrgencyBadge("normal").dotClassName).toContain("bg-teal-600");
+    });
+  });
+
+  // eslint-disable-next-line no-secrets/no-secrets
   describe("getUserChipSubscriptionInfo", () => {
     const fixedNow = new Date("2026-09-01T12:00:00Z");
 

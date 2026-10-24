@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAdmin } from "../../hooks/useAdmin.js";
-import { Search, ChevronRight, ChevronLeft, ShieldAlert, UserX, AlertCircle, Loader2, CreditCard, Laptop } from "lucide-react";
+import { Search, ChevronRight, ChevronLeft, ShieldAlert, UserX, AlertCircle, Loader2, CreditCard, Laptop, Trash2 } from "lucide-react";
 import { formatPersianOf, toPersianDigits } from "@avana/domain";
 import type { AdminUserRecord } from "../../lib/api/admin.js";
 import { UserCommerceDrawer } from "../../components/admin/commerce/UserCommerceDrawer.js";
@@ -31,7 +31,7 @@ export function AdminUsersPage() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  
+
   const pageSize = 20;
 
   const [selectedUser, setSelectedUser] = useState<AdminUserRecord | null>(null);
@@ -39,7 +39,11 @@ export function AdminUsersPage() {
   const [newRole, setNewRole] = useState("student");
   const [selectedCommerceUserId, setSelectedCommerceUserId] = useState<string | null>(null);
   const [selectedDeviceUserId, setSelectedDeviceUserId] = useState<string | null>(null);
-  
+
+  const [userToDelete, setUserToDelete] = useState<AdminUserRecord | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const roleMutation = useMutation({
     mutationFn: async (vars: { userId: string, role: string }) => {
       return adminApi.updateUserRole(vars.userId, vars.role);
@@ -53,10 +57,34 @@ export function AdminUsersPage() {
     }
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      setDeleteError(null);
+      return adminApi.deleteUser(userId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+      setIsDeleteModalOpen(false);
+      setUserToDelete(null);
+      setDeleteError(null);
+    },
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } }; message?: string };
+      const msg = err?.response?.data?.message || err?.message || "خطا در حذف حساب کاربر. لطفاً مجدداً تلاش کنید.";
+      setDeleteError(msg);
+    },
+  });
+
   const handleRoleChangeClick = (user: AdminUserRecord) => {
     setSelectedUser(user);
     setNewRole(user.role);
     setIsModalOpen(true);
+  };
+
+  const handleDeleteClick = (user: AdminUserRecord) => {
+    setUserToDelete(user);
+    setDeleteError(null);
+    setIsDeleteModalOpen(true);
   };
 
   const { data, isLoading, isError } = useQuery({
@@ -84,7 +112,7 @@ export function AdminUsersPage() {
       </div>
 
       <AdminUsersNavigation />
-      
+
       {/* Search & Filters */}
       <div className="border border-[var(--color-border)] rounded-2xl p-4 bg-[var(--color-surface)] shadow-sm flex flex-col md:flex-row gap-4">
         <div className="relative flex-grow flex items-center">
@@ -101,7 +129,7 @@ export function AdminUsersPage() {
           />
           <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
         </div>
-        
+
         <div className="flex flex-wrap sm:flex-nowrap gap-3">
           <div className="w-full sm:w-40">
             <select
@@ -118,7 +146,7 @@ export function AdminUsersPage() {
               ))}
             </select>
           </div>
-          
+
           <div className="w-full sm:w-40">
             <select
               aria-label="فیلتر بر اساس وضعیت"
@@ -134,7 +162,7 @@ export function AdminUsersPage() {
               ))}
             </select>
           </div>
-          
+
           {hasActiveFilters && (
             <button
               onClick={clearFilters}
@@ -269,13 +297,22 @@ export function AdminUsersPage() {
                           <Laptop className="w-3.5 h-3.5" />
                           <span>دستگاه‌ها</span>
                         </button>
-                        <button 
+                        <button
                           onClick={() => handleRoleChangeClick(user)}
                           className="text-xs font-medium text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] bg-[var(--color-primary-default)]/10 hover:bg-[var(--color-primary-default)]/20 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer shrink-0"
                           title="تغییر نقش"
                           aria-label={`تغییر نقش کاربر ${user.email}`}
                         >
                           ویرایش نقش
+                        </button>
+                        <button
+                          onClick={() => handleDeleteClick(user)}
+                          className="text-xs font-medium text-rose-600 dark:text-rose-400 hover:text-rose-700 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap cursor-pointer shrink-0"
+                          title="حذف حساب کاربر"
+                          aria-label={`حذف حساب کاربر ${user.email}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>حذف</span>
                         </button>
                       </div>
                     </td>
@@ -285,13 +322,13 @@ export function AdminUsersPage() {
             </tbody>
           </table>
         </div>
-        
+
         {/* Pagination */}
         <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)] gap-4">
           <span className="text-sm text-[var(--color-text-muted)]">
             مجموع: {toPersianDigits(data?.totalCount || 0)} کاربر
           </span>
-          
+
           {totalPages > 1 && (
             <div className="flex items-center gap-2">
               <button
@@ -302,11 +339,11 @@ export function AdminUsersPage() {
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
-              
+
               <span className="text-sm text-[var(--color-text)] px-3 font-medium min-w-[5rem] text-center" aria-current="page">
                 {formatPersianOf(page, totalPages)}
               </span>
-              
+
               <button
                 disabled={page >= totalPages || isLoading}
                 onClick={() => setPage(p => Math.min(totalPages, p + 1))}
@@ -344,7 +381,7 @@ export function AdminUsersPage() {
                 در حال تغییر نقش برای <span className="text-[var(--color-text)] font-medium break-all" dir="ltr">{selectedUser.email}</span>
               </p>
             </div>
-            
+
             <div className="p-6 space-y-5">
               <div className="flex justify-between items-center bg-[var(--color-surface-warm)] p-3.5 rounded-xl border border-[var(--color-border)]">
                 <span className="text-sm text-[var(--color-text-muted)]">نقش فعلی</span>
@@ -352,12 +389,12 @@ export function AdminUsersPage() {
                   {ROLES.find(r => r.value === selectedUser.role)?.label || selectedUser.role}
                 </span>
               </div>
-              
+
               <div>
                 <label htmlFor="newRoleSelect" className="block text-sm font-medium text-[var(--color-text)] mb-2">انتخاب نقش جدید</label>
-                <select 
+                <select
                   id="newRoleSelect"
-                  value={newRole} 
+                  value={newRole}
                   onChange={(e) => setNewRole(e.target.value)}
                   className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text)] text-sm rounded-xl ps-3 pe-8 py-3 focus:ring-1 focus:ring-[var(--color-primary-default)] focus:border-[var(--color-primary-default)] transition-shadow outline-none cursor-pointer"
                 >
@@ -366,7 +403,7 @@ export function AdminUsersPage() {
                   ))}
                 </select>
               </div>
-              
+
               <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex gap-3 items-start">
                 <ShieldAlert className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" aria-hidden="true" />
                 <p className="text-xs text-amber-700 dark:text-amber-200/90 leading-relaxed font-medium">
@@ -374,22 +411,107 @@ export function AdminUsersPage() {
                 </p>
               </div>
             </div>
-            
+
             <div className="p-5 border-t border-[var(--color-border)] flex justify-end gap-3 bg-[var(--color-surface-warm)]">
-              <button 
+              <button
                 onClick={() => setIsModalOpen(false)}
                 disabled={roleMutation.isPending}
                 className="px-4 py-2.5 text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] border border-[var(--color-border)] rounded-xl transition-colors cursor-pointer"
               >
                 انصراف
               </button>
-              <button 
+              <button
                 onClick={() => roleMutation.mutate({ userId: selectedUser.id, role: newRole })}
                 disabled={roleMutation.isPending || newRole === selectedUser.role}
                 className="px-5 py-2.5 text-sm font-medium text-[var(--color-primary-contrast)] bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
               >
                 {roleMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                 {roleMutation.isPending ? "در حال اعمال..." : "تأیید و اعمال"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete User Confirmation Modal */}
+      {userToDelete && isDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
+          <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl w-full max-w-md shadow-xl overflow-hidden" dir="rtl">
+            <div className="p-6 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)] space-y-2">
+              <h3 id="delete-modal-title" className="text-xl font-bold text-rose-600 dark:text-rose-400 flex items-center gap-2">
+                <Trash2 className="w-5 h-5 shrink-0" />
+                <span>حذف حساب کاربر</span>
+              </h3>
+              <p className="text-sm text-[var(--color-text-muted)]">
+                آیا از حذف کامل حساب کاربری زیر اطمینان دارید؟
+              </p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-[var(--color-surface-warm)] p-4 rounded-xl border border-[var(--color-border)] space-y-2.5 text-sm">
+                <div className="flex justify-between items-center py-1 border-b border-[var(--color-border)]/50 gap-2">
+                  <span className="text-[var(--color-text-muted)] text-xs shrink-0">شناسه کاربر</span>
+                  <span className="font-mono text-xs text-[var(--color-text)] select-all truncate max-w-[240px]" dir="ltr">{userToDelete.id}</span>
+                </div>
+                {userToDelete.name && (
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--color-border)]/50 gap-2">
+                    <span className="text-[var(--color-text-muted)] text-xs shrink-0">نام کاربر</span>
+                    <span className="font-medium text-[var(--color-text)] truncate">{userToDelete.name}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center py-1 border-b border-[var(--color-border)]/50 gap-2">
+                  <span className="text-[var(--color-text-muted)] text-xs shrink-0">ایمیل</span>
+                  <span className="text-[var(--color-text)] font-medium truncate" dir="ltr">{userToDelete.email}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-[var(--color-border)]/50 gap-2">
+                  <span className="text-[var(--color-text-muted)] text-xs shrink-0">شماره همراه</span>
+                  <span className="text-[var(--color-text)]" dir="ltr">{userToDelete.phoneNumber || "ثبت نشده"}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 gap-2">
+                  <span className="text-[var(--color-text-muted)] text-xs shrink-0">نقش</span>
+                  <span className="font-medium text-[var(--color-text)]">
+                    {ROLES.find(r => r.value === userToDelete.role)?.label || userToDelete.role}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-4 flex gap-3 items-start">
+                <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" aria-hidden="true" />
+                <div className="text-xs text-rose-700 dark:text-rose-200/90 leading-relaxed font-medium space-y-1">
+                  <p>هشدار: با حذف حساب، کلیه نشست‌های فعال کاربر ابطال شده و دسترسی‌های کاربر به پلتفرم خاتمه می‌یابد.</p>
+                  <p>این عملیات قطعی و غیرقابل بازگشت است.</p>
+                </div>
+              </div>
+
+              {deleteError && (
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3.5 flex gap-2.5 items-start text-xs text-amber-800 dark:text-amber-200" role="alert">
+                  <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-medium">{deleteError}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-5 border-t border-[var(--color-border)] flex justify-end gap-3 bg-[var(--color-surface-warm)]">
+              <button
+                onClick={() => {
+                  setIsDeleteModalOpen(false);
+                  setUserToDelete(null);
+                  setDeleteError(null);
+                }}
+                disabled={deleteMutation.isPending}
+                className="px-4 py-2.5 text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] border border-[var(--color-border)] rounded-xl transition-colors cursor-pointer"
+              >
+                انصراف
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate(userToDelete.id)}
+                disabled={deleteMutation.isPending}
+                className="px-5 py-2.5 text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
+              >
+                {deleteMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                {deleteMutation.isPending ? "در حال حذف..." : deleteError ? "تلاش مجدد حذف" : "تأیید و حذف حساب"}
               </button>
             </div>
           </div>

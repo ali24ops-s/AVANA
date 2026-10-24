@@ -99,11 +99,13 @@ class FlexibleMockGateway implements ModelGateway {
     const userPrompt = req.messages.find((m) => m.role === "user")?.content || "";
 
     if (stage === "planning" || schemaType === "content_plan" || userPrompt.includes("CONTENT PLANNING")) {
+      const allChunks = [...new Set([...userPrompt.matchAll(/chunk-\d+/g)].map((m) => m[0]))];
+      const assignedChunkIds = allChunks.length > 0 ? allChunks : ["chunk-1"];
       const sessions = Array.from({ length: this.targetSessionCount }, (_, i) => ({
         index: i,
         title: `جلسه ${i + 1}: مبحث پزشکی شماره ${i + 1}`,
         description: `توضیحات تکمیلی جلسه ${i + 1}`,
-        relevantChunkIds: ["chunk-1"],
+        relevantChunkIds: assignedChunkIds,
         targetFlashcardCount: 2,
         targetQuizCount: 2,
       }));
@@ -805,13 +807,13 @@ describe("DeepSeek vs Gemini Content Generation Batching Tests", () => {
               kind: "content_plan",
               moduleTitle: "فارماکولوژی بالینی",
               outline: [{ title: "مبحث مشترک", description: "بخش ۱" }, { title: "مبحث مشترک", description: "بخش ۲" }],
-              sourceTopics: [{ id: "t1", title: "مبحث مشترک", description: "بخش ۱", relevantChunkIds: ["chunk-1"] }],
+              sourceTopics: [{ id: "t1", title: "مبحث مشترک", description: "بخش ۱", relevantChunkIds: ["chunk-1", "chunk-2", "chunk-3", "chunk-4", "chunk-5", "chunk-6"] }],
               sessions: [
-                { index: 0, title: "مبحث مشترک", description: "بخش ۱", relevantChunkIds: ["chunk-1"] },
-                { index: 1, title: "مبحث مشترک", description: "بخش ۲", relevantChunkIds: ["chunk-1"] },
+                { index: 0, title: "مبحث مشترک", description: "بخش ۱", relevantChunkIds: ["chunk-1", "chunk-2", "chunk-3"] },
+                { index: 1, title: "مبحث مشترک", description: "بخش ۲", relevantChunkIds: ["chunk-4", "chunk-5", "chunk-6"] },
               ],
               highYieldFacts: [],
-              citationChunkIds: ["chunk-1"],
+              citationChunkIds: ["chunk-1", "chunk-2", "chunk-3", "chunk-4", "chunk-5", "chunk-6"],
             }),
             model: "deepseek-chat",
             finishReason: "stop",

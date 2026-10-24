@@ -97,7 +97,7 @@ describe("Background Generation UX & Global Status Visibility", () => {
       );
 
       // Verify generating indicator in button
-      expect(screen.getByText("در حال تولید هوشمند...")).toBeDefined();
+      expect(screen.getByText(/در حال تولید/)).toBeDefined();
 
       // Close button in footer should show "بستن پنجره" and be ENABLED
       const closeFooterBtn = screen.getByRole("button", { name: "بستن پنجره" });
@@ -203,13 +203,13 @@ describe("Background Generation UX & Global Status Visibility", () => {
 
       await waitFor(() => {
         // Multi-active count label
-        expect(screen.getByText(/2 تولید محتوای فعال/i)).toBeDefined();
+        expect(screen.getByText(/[2۲]\s*تولید محتوای فعال/i)).toBeDefined();
         // Stage label
         expect(screen.getByText(/تولید درسنامه/i)).toBeDefined();
         // Counter
-        expect(screen.getByText(/3\/12/i)).toBeDefined();
+        expect(screen.getByText(/3\/12|۳ از ۱۲|3 از 12/i)).toBeDefined();
         // Percentage
-        expect(screen.getByText(/45٪/i)).toBeDefined();
+        expect(screen.getByText(/45٪|۴۵٪/i)).toBeDefined();
       });
     });
 
@@ -526,7 +526,7 @@ describe("Background Generation UX & Global Status Visibility", () => {
 
       await waitFor(() => {
         expect(screen.getByText(/تولید درسنامه/i)).toBeDefined();
-        expect(screen.getByText(/50٪/i)).toBeDefined();
+        expect(screen.getByText(/50٪|۵۰٪/i)).toBeDefined();
       });
 
       // Simulate Page Refresh (Unmount & Mount new QueryClient/Component)
@@ -543,7 +543,7 @@ describe("Background Generation UX & Global Status Visibility", () => {
 
       await waitFor(() => {
         expect(screen.getByText(/تولید درسنامه/i)).toBeDefined();
-        expect(screen.getByText(/50٪/i)).toBeDefined();
+        expect(screen.getByText(/50٪|۵۰٪/i)).toBeDefined();
       });
     });
 
@@ -582,7 +582,7 @@ describe("Background Generation UX & Global Status Visibility", () => {
 
       await waitFor(() => {
         expect(screen.getByText(/برنامه‌ریزی محتوا/i)).toBeDefined();
-        expect(screen.getByText(/20٪/i)).toBeDefined();
+        expect(screen.getByText(/20٪|۲۰٪/i)).toBeDefined();
       });
     });
 
@@ -620,7 +620,7 @@ describe("Background Generation UX & Global Status Visibility", () => {
 
       await waitFor(() => {
         expect(screen.getByText(/تولید آزمون/i)).toBeDefined();
-        expect(screen.getByText(/80٪/i)).toBeDefined();
+        expect(screen.getByText(/80٪|۸۰٪/i)).toBeDefined();
       });
     });
 

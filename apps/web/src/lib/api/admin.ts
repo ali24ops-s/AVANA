@@ -43,6 +43,10 @@ export interface AdminUserRecord {
   isVerified: boolean;
   createdAt: string;
   lastActiveAt?: string;
+  university?: string | null;
+  faculty?: string | null;
+  department?: string | null;
+  phoneNumber?: string | null;
 }
 
 export interface AdminUsersList {
@@ -62,6 +66,10 @@ export interface AdminTeacherRecord {
   classroomsCount: number;
   examsCount: number;
   studentsCount: number;
+  university?: string | null;
+  faculty?: string | null;
+  department?: string | null;
+  phoneNumber?: string | null;
 }
 
 export interface AdminTeacherStats {
@@ -212,6 +220,16 @@ export interface AdminGenerationJobRecord {
   userEmail?: string;
 }
 
+export interface AdminGenerationDetailSource {
+  documentId: string;
+  originalName: string;
+  role: string;
+  orderIndex: number;
+  sizeBytes?: number;
+  mimeType?: string;
+  status?: string;
+}
+
 export interface AdminGenerationDetail extends AdminGenerationJobRecord {
   startedAt?: string;
   durationMs?: number;
@@ -225,8 +243,9 @@ export interface AdminGenerationDetail extends AdminGenerationJobRecord {
   totalTokens?: number;
   user?: { id: string; email: string };
   organization?: { id: string; name: string };
-  document?: { id: string; originalName: string };
+  document?: { id: string; originalName: string; sizeBytes?: number; mimeType?: string };
   course?: { id: string; name?: string };
+  sources?: AdminGenerationDetailSource[];
 }
 
 export interface AdminRejectedContentRecord {
@@ -515,8 +534,35 @@ export function createAdminApi(client: {
       return client.get<AdminSystemHealth>("/v1/admin/system/health");
     },
 
-    async listAuditLogs(page = 1, pageSize = 5): Promise<AdminAuditList> {
-      return client.get<AdminAuditList>(`/v1/admin/system/audit?page=${page}&pageSize=${pageSize}`);
+    async listAuditLogs(
+      paramsOrPage: number | {
+        page?: number;
+        pageSize?: number;
+        search?: string;
+        action?: string;
+        entityType?: string;
+        adminEmail?: string;
+      } = 1,
+      pageSize = 20,
+      options?: { signal?: AbortSignal }
+    ): Promise<AdminAuditList> {
+      if (typeof paramsOrPage === "number") {
+        return client.get<AdminAuditList>("/v1/admin/system/audit", {
+          params: { page: paramsOrPage, pageSize },
+          signal: options?.signal,
+        });
+      }
+      return client.get<AdminAuditList>("/v1/admin/system/audit", {
+        params: {
+          page: paramsOrPage?.page ?? 1,
+          pageSize: paramsOrPage?.pageSize ?? pageSize,
+          search: paramsOrPage?.search || undefined,
+          action: paramsOrPage?.action || undefined,
+          entityType: paramsOrPage?.entityType || undefined,
+          adminEmail: paramsOrPage?.adminEmail || undefined,
+        },
+        signal: options?.signal,
+      });
     },
     
     async listUsers(page = 1, pageSize = 20, search?: string, role?: string, status?: string): Promise<AdminUsersList> {
@@ -557,6 +603,54 @@ export function createAdminApi(client: {
 
     async getCourse(courseId: string): Promise<{ course: AdminCourseRecord }> {
       return client.get<{ course: AdminCourseRecord }>(`/v1/admin/courses/${encodeURIComponent(courseId)}`);
+    },
+
+    async getLessonDetails(
+      lessonId: string,
+      options?: { submissionId?: string; courseId?: string },
+    ): Promise<AdminLessonDetail> {
+      const queryParams = new URLSearchParams();
+      if (options?.submissionId) queryParams.set("submissionId", options.submissionId);
+      if (options?.courseId) queryParams.set("courseId", options.courseId);
+      const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
+      return client.get<AdminLessonDetail>(`/v1/admin/content/lessons/${encodeURIComponent(lessonId)}${qs}`);
+    },
+
+    async listCourseSubmissions(params?: {
+      page?: number;
+      pageSize?: number;
+      status?: string;
+      search?: string;
+      courseId?: string;
+    }): Promise<{ items: AdminCourseSubmissionItem[]; totalCount: number }> {
+      const queryParams = new URLSearchParams();
+      if (params?.page) queryParams.set("page", params.page.toString());
+      if (params?.pageSize) queryParams.set("pageSize", params.pageSize.toString());
+      if (params?.status) queryParams.set("status", params.status);
+      if (params?.search) queryParams.set("search", params.search);
+      if (params?.courseId) queryParams.set("courseId", params.courseId);
+      const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
+      return client.get<{ items: AdminCourseSubmissionItem[]; totalCount: number }>(`/v1/admin/course-submissions${qs}`);
+    },
+
+    async approveCourseSubmission(
+      id: string,
+      data?: { reviewNotes?: string; targetPrice?: number },
+    ): Promise<{ success: boolean; publication: AdminCourseSubmissionItem }> {
+      return client.post<{ success: boolean; publication: AdminCourseSubmissionItem }>(
+        `/v1/admin/course-submissions/${encodeURIComponent(id)}/approve`,
+        data || {},
+      );
+    },
+
+    async rejectCourseSubmission(
+      id: string,
+      reason: string,
+    ): Promise<{ success: boolean; publication: AdminCourseSubmissionItem }> {
+      return client.post<{ success: boolean; publication: AdminCourseSubmissionItem }>(
+        `/v1/admin/course-submissions/${encodeURIComponent(id)}/reject`,
+        { reason },
+      );
     },
 
     async listGenerationJobs(page = 1, pageSize = 20, status?: string, search?: string): Promise<{ jobs: AdminGenerationJobRecord[]; totalCount: number }> {
@@ -626,6 +720,9 @@ export function createAdminApi(client: {
     async updateUserRole(userId: string, role: string): Promise<{ success: boolean }> {
       return client.patch<{ success: boolean }>(`/v1/admin/users/${userId}/role`, { role });
     },
+    async deleteUser(userId: string): Promise<{ success: boolean; message?: string }> {
+      return client.delete<{ success: boolean; message?: string }>(`/v1/admin/users/${userId}`);
+    },
     async getUserDevices(userId: string): Promise<AdminUserDevicesResponse> {
       return client.get<AdminUserDevicesResponse>(`/v1/admin/users/${userId}/devices`);
     },
@@ -657,6 +754,75 @@ export function createAdminApi(client: {
     },
     getDownloadUrl(documentId: string): string {
       return `${getApiBaseUrl()}/v1/admin/documents/${documentId}/download`;
+    },
+    async downloadDocument(documentId: string, fallbackName?: string): Promise<void> {
+      const url = `${getApiBaseUrl()}/v1/admin/documents/${encodeURIComponent(documentId)}/download`;
+      const requestId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      const res = await fetch(url, {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          "x-request-id": requestId,
+        },
+      });
+
+      if (!res.ok) {
+        let errorMessage = "خطا در دانلود فایل";
+        try {
+          const contentType = res.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const errorData = await res.json();
+            if (errorData?.message) {
+              errorMessage = errorData.message;
+            } else if (errorData?.error?.message) {
+              errorMessage = errorData.error.message;
+            }
+          } else if (res.status === 404) {
+            errorMessage = "فایل مورد نظر در سرور ذخیره‌سازی یافت نشد.";
+          } else if (res.status === 403) {
+            errorMessage = "شما دسترسی لازم برای دانلود این فایل را ندارید.";
+          }
+        } catch {
+          if (res.status === 404) {
+            errorMessage = "فایل مورد نظر در سرور ذخیره‌سازی یافت نشد.";
+          } else if (res.status === 403) {
+            errorMessage = "شما دسترسی لازم برای دانلود این فایل را ندارید.";
+          }
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Parse filename from Content-Disposition if present
+      let filename = fallbackName || `document-${documentId}`;
+      const disposition = res.headers.get("content-disposition");
+      if (disposition) {
+        const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match?.[1]) {
+          try {
+            filename = decodeURIComponent(utf8Match[1].trim());
+          } catch {
+            // fallback
+          }
+        } else {
+          const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+          if (asciiMatch?.[1]) {
+            filename = asciiMatch[1].trim();
+          }
+        }
+      }
+
+      const blob = await res.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const a = window.document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      window.document.body.appendChild(a);
+      a.click();
+      window.document.body.removeChild(a);
+      window.URL.revokeObjectURL(objectUrl);
     },
     async getPrompts(): Promise<{ prompts: AdminPromptRecord[] }> {
       return client.get<{ prompts: AdminPromptRecord[] }>("/v1/admin/prompts");
@@ -913,38 +1079,42 @@ export function createAdminApi(client: {
     },
 
     async getCommercePromotion(id: string): Promise<AdminPromotionDetail> {
-      return client.get<AdminPromotionDetail>(
+      const res = await client.get<any>(
         `/v1/admin/commerce/promotions/${encodeURIComponent(id)}`,
       );
+      return normalizeAdminPromotionDetail(res);
     },
 
     async createCommercePromotion(
       input: CreateAdminPromotionInput,
     ): Promise<AdminPromotionDetail> {
-      return client.post<AdminPromotionDetail>(
+      const res = await client.post<any>(
         "/v1/admin/commerce/promotions",
         input,
       );
+      return normalizeAdminPromotionDetail(res);
     },
 
     async updateCommercePromotion(
       id: string,
       input: UpdateAdminPromotionInput,
     ): Promise<AdminPromotionDetail> {
-      return client.patch<AdminPromotionDetail>(
+      const res = await client.patch<any>(
         `/v1/admin/commerce/promotions/${encodeURIComponent(id)}`,
         input,
       );
+      return normalizeAdminPromotionDetail(res);
     },
 
     async toggleCommercePromotionActive(
       id: string,
       active: boolean,
     ): Promise<AdminPromotionDetail> {
-      return client.patch<AdminPromotionDetail>(
+      const res = await client.patch<any>(
         `/v1/admin/commerce/promotions/${encodeURIComponent(id)}/toggle-active`,
         { active },
       );
+      return normalizeAdminPromotionDetail(res);
     },
 
     async deleteCommercePromotion(id: string): Promise<{ success: boolean }> {
@@ -971,7 +1141,16 @@ export function createAdminApi(client: {
     async listCommercePromotionRedemptions(
       idOrParams?: string | { promotionId?: string; id?: string; page?: number; pageSize?: number; limit?: number },
       params?: { page?: number; pageSize?: number; limit?: number },
-    ): Promise<{ items: AdminPromotionRedemptionListItem[]; redemptions: AdminPromotionRedemptionListItem[]; totalCount: number }> {
+    ): Promise<{
+      items: AdminPromotionRedemptionListItem[];
+      redemptions: AdminPromotionRedemptionListItem[];
+      totalCount: number;
+      stats?: {
+        totalCompleted: number;
+        totalDiscountGranted: number;
+        totalCashbackGranted: number;
+      };
+    }> {
       let promoId: string | undefined;
       let p = params;
       if (typeof idOrParams === "string") {
@@ -988,11 +1167,20 @@ export function createAdminApi(client: {
         ? `/v1/admin/commerce/promotions/${encodeURIComponent(promoId)}/redemptions?${searchParams.toString()}`
         : `/v1/admin/commerce/promotions/redemptions?${searchParams.toString()}`;
 
-      const res = await client.get<{ items: AdminPromotionRedemptionListItem[]; totalCount: number }>(url);
+      const res = await client.get<{
+        items: AdminPromotionRedemptionListItem[];
+        totalCount: number;
+        stats?: {
+          totalCompleted: number;
+          totalDiscountGranted: number;
+          totalCashbackGranted: number;
+        };
+      }>(url);
       return {
         items: res.items || [],
         redemptions: res.items || [],
         totalCount: res.totalCount || (res.items || []).length,
+        stats: res.stats,
       };
     },
 
@@ -1111,6 +1299,22 @@ export function createAdminApi(client: {
       );
     },
 
+    async unpublishOfficialCourse(
+      courseId: string,
+    ): Promise<{ success: boolean; course: any }> {
+      return client.post(
+        `/v1/admin/content-studio/courses/${courseId}/unpublish`,
+      );
+    },
+
+    async unarchiveOfficialCourse(
+      courseId: string,
+    ): Promise<{ success: boolean; course: any }> {
+      return client.post(
+        `/v1/admin/content-studio/courses/${courseId}/unarchive`,
+      );
+    },
+
     async deleteOfficialCourse(
       courseId: string,
       options: DeleteOfficialCourseOptions,
@@ -1216,8 +1420,13 @@ export function createAdminApi(client: {
       return client.post(`/v1/admin/content/courses/${courseId}/modules/reorder`, { items });
     },
 
-    async listQuestionPatterns(status?: "active"): Promise<{ patterns: AdminQuestionPatternSummary[] }> {
-      const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+    async listQuestionPatterns(options?: { status?: "active"; category?: string } | "active"): Promise<{ patterns: AdminQuestionPatternSummary[] }> {
+      const status = typeof options === "string" ? options : options?.status;
+      const category = typeof options === "object" ? options?.category : undefined;
+      const params = new URLSearchParams();
+      if (status) params.set("status", status);
+      if (category) params.set("category", category);
+      const qs = params.toString() ? `?${params.toString()}` : "";
       return client.get<{ patterns: AdminQuestionPatternSummary[] }>(`/v1/admin/question-patterns${qs}`);
     },
 
@@ -1228,6 +1437,7 @@ export function createAdminApi(client: {
     async createQuestionPattern(data: {
       title: string;
       description?: string | null;
+      category?: "exam" | "analytical" | "supplementary";
       cognitiveLevel?: string;
       skills?: string[];
       systemInstructions: string;
@@ -1241,6 +1451,7 @@ export function createAdminApi(client: {
       data: {
         title?: string;
         description?: string | null;
+        category?: "exam" | "analytical" | "supplementary";
         cognitiveLevel?: string;
         skills?: string[];
         systemInstructions?: string;
@@ -1288,6 +1499,7 @@ export interface AdminQuestionPatternSummary {
   id: string;
   title: string;
   description: string | null;
+  category?: "exam" | "analytical" | "supplementary";
   cognitiveLevel: string;
   skills: string[];
   systemInstructions: string;
@@ -1766,6 +1978,39 @@ export interface AdminPromotionRedemptionListItem {
   completedAt: string | null;
 }
 
+export function normalizeAdminPromotionDetail(raw: any): AdminPromotionDetail {
+  if (!raw) return raw;
+  const p = raw.promotion || raw;
+  return {
+    id: p.id,
+    name: p.name,
+    description: p.description ?? null,
+    benefitType: p.benefitType,
+    benefitValue: p.benefitValue,
+    maxDiscountAmount: p.maxDiscountAmount ?? null,
+    minOrderAmount: p.minOrderAmount ?? null,
+    totalUsageLimit: p.totalUsageLimit ?? null,
+    perUserUsageLimit: p.perUserUsageLimit ?? null,
+    active: Boolean(p.active),
+    startsAt: p.startsAt ?? null,
+    endsAt: p.endsAt ?? null,
+    codes: raw.codes || p.codes || [],
+    productRestrictions: raw.productRestrictions || p.productRestrictions || [],
+    userRestrictions: raw.userRestrictions || p.userRestrictions || [],
+    stats: raw.stats || p.stats || {
+      totalRedemptions: 0,
+      completedRedemptions: 0,
+      pendingRedemptions: 0,
+      totalDiscountGranted: 0,
+      totalCashbackGranted: 0,
+      remainingUsage: null,
+    },
+    metadata: p.metadata || {},
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+  };
+}
+
 export async function getAdminPromotions(params?: {
   page?: number;
   pageSize?: number;
@@ -1800,7 +2045,8 @@ export async function getAdminPromotion(id: string): Promise<AdminPromotionDetai
     const err = await res.json().catch(() => null);
     throw new Error(err?.message || "خطا در دریافت اطلاعات پروموشن");
   }
-  return res.json();
+  const data = await res.json();
+  return normalizeAdminPromotionDetail(data);
 }
 
 export async function createAdminPromotion(
@@ -1817,7 +2063,8 @@ export async function createAdminPromotion(
     const err = await res.json().catch(() => null);
     throw new Error(err?.message || "خطا در ایجاد پروموشن");
   }
-  return res.json();
+  const data = await res.json();
+  return normalizeAdminPromotionDetail(data);
 }
 
 export async function updateAdminPromotion(
@@ -1835,7 +2082,8 @@ export async function updateAdminPromotion(
     const err = await res.json().catch(() => null);
     throw new Error(err?.message || "خطا در ویرایش پروموشن");
   }
-  return res.json();
+  const data = await res.json();
+  return normalizeAdminPromotionDetail(data);
 }
 
 export async function toggleAdminPromotionActive(
@@ -1853,7 +2101,8 @@ export async function toggleAdminPromotionActive(
     const err = await res.json().catch(() => null);
     throw new Error(err?.message || "خطا در تغییر وضعیت پروموشن");
   }
-  return res.json();
+  const data = await res.json();
+  return normalizeAdminPromotionDetail(data);
 }
 
 export async function deleteAdminPromotion(id: string): Promise<{ success: boolean }> {
@@ -1888,18 +2137,27 @@ export async function bulkGenerateAdminPromotionCodes(
 }
 
 export async function getAdminPromotionRedemptions(
-  id: string,
+  id?: string,
   params?: { page?: number; pageSize?: number },
-): Promise<{ items: AdminPromotionRedemptionListItem[]; totalCount: number }> {
+): Promise<{
+  items: AdminPromotionRedemptionListItem[];
+  totalCount: number;
+  stats?: {
+    totalCompleted: number;
+    totalDiscountGranted: number;
+    totalCashbackGranted: number;
+  };
+}> {
   const baseUrl = getApiBaseUrl();
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
   if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
 
-  const res = await fetch(
-    `${baseUrl}/v1/admin/commerce/promotions/${encodeURIComponent(id)}/redemptions?${searchParams.toString()}`,
-    { credentials: "include" },
-  );
+  const path = id
+    ? `${baseUrl}/v1/admin/commerce/promotions/${encodeURIComponent(id)}/redemptions?${searchParams.toString()}`
+    : `${baseUrl}/v1/admin/commerce/promotions/redemptions?${searchParams.toString()}`;
+
+  const res = await fetch(path, { credentials: "include" });
   if (!res.ok) {
     const err = await res.json().catch(() => null);
     throw new Error(err?.message || "خطا در دریافت لیست استفاده‌ها");
@@ -1916,6 +2174,7 @@ export interface ContentRepairPreviewParams {
   lessonId?: string;
   generatedContentId?: string;
   organizationId?: string;
+  reportId?: string;
   appliedRuleIds?: string[];
   appliedBlockIndices?: number[];
 }
@@ -1925,6 +2184,7 @@ export interface ContentRepairApplyParams {
   lessonId?: string;
   generatedContentId?: string;
   organizationId?: string;
+  reportId?: string;
   originalHash: string;
   appliedRuleIds?: string[];
   appliedBlockIndices?: number[];
@@ -1946,6 +2206,126 @@ export async function getContentRepairAudit(params?: { batchSize?: number; maxLe
       search: params?.search,
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Lesson Details & Course Submissions
+// ---------------------------------------------------------------------------
+
+export interface AdminLessonDetail {
+  id: string;
+  title: string;
+  courseName?: string;
+  moduleTitle?: string;
+  moduleId?: string;
+  publicationStatus?: string;
+  contentMarkdown: string;
+  createdAt: string;
+  flashcards?: Array<{
+    id: string;
+    front: string;
+    back: string;
+    explanation?: string | null;
+    difficulty?: string | null;
+  }>;
+  quizQuestions?: Array<{
+    id: string;
+    question: string;
+    choices?: string[] | null;
+    correctAnswer: unknown;
+    explanation?: string | null;
+    difficulty?: string | null;
+  }>;
+}
+
+export interface AdminCourseSubmissionItem {
+  id: string;
+  courseId: string;
+  version: number;
+  title: string;
+  description?: string | null;
+  subject?: string | null;
+  status: "pending_review" | "approved" | "rejected" | "published" | "draft";
+  creator: {
+    id: string;
+    name: string;
+    email?: string;
+    avatarUrl?: string;
+  };
+  product?: {
+    id: string;
+    priceAmount: number;
+    priceCurrency: string;
+  } | null;
+  createdAt: string;
+  submittedAt?: string;
+  reviewNotes?: string;
+}
+
+export async function getLessonDetails(
+  lessonId: string,
+  options?: { submissionId?: string; courseId?: string },
+): Promise<AdminLessonDetail> {
+  const queryParams = new URLSearchParams();
+  if (options?.submissionId) queryParams.set("submissionId", options.submissionId);
+  if (options?.courseId) queryParams.set("courseId", options.courseId);
+  const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
+  return api.get<AdminLessonDetail>(`/admin/content/lessons/${encodeURIComponent(lessonId)}${qs}`);
+}
+
+export async function listCourseSubmissions(params?: {
+  page?: number;
+  pageSize?: number;
+  status?: string;
+  search?: string;
+  courseId?: string;
+}): Promise<{ items: AdminCourseSubmissionItem[]; totalCount: number }> {
+  const queryParams = new URLSearchParams();
+  if (params?.page) queryParams.set("page", params.page.toString());
+  if (params?.pageSize) queryParams.set("pageSize", params.pageSize.toString());
+  if (params?.status) queryParams.set("status", params.status);
+  if (params?.search) queryParams.set("search", params.search);
+  if (params?.courseId) queryParams.set("courseId", params.courseId);
+  const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
+  return api.get<{ items: AdminCourseSubmissionItem[]; totalCount: number }>(`/admin/course-submissions${qs}`);
+}
+
+export async function getCourseSubmission(id: string): Promise<{
+  publication: AdminCourseSubmissionItem & {
+    snapshot?: {
+      title: string;
+      description?: string | null;
+      subject?: string | null;
+      chapters: Array<{
+        id: string;
+        title: string;
+        description?: string | null;
+        sortOrder: number;
+        lessons: Array<{
+          id: string;
+          title: string;
+          contentMarkdown: string;
+          sortOrder: number;
+        }>;
+      }>;
+    };
+  };
+}> {
+  return api.get(`/admin/course-submissions/${encodeURIComponent(id)}`);
+}
+
+export async function approveCourseSubmission(
+  id: string,
+  data?: { reviewNotes?: string; targetPrice?: number },
+): Promise<{ success: boolean; publication: AdminCourseSubmissionItem }> {
+  return api.post(`/admin/course-submissions/${encodeURIComponent(id)}/approve`, data || {});
+}
+
+export async function rejectCourseSubmission(
+  id: string,
+  reason: string,
+): Promise<{ success: boolean; publication: AdminCourseSubmissionItem }> {
+  return api.post(`/admin/course-submissions/${encodeURIComponent(id)}/reject`, { reason });
 }
 
 

@@ -10,6 +10,10 @@ import {
   ChevronLeft,
   Trash2,
   Library as LibraryIcon,
+  BookOpen,
+  Layers,
+  HelpCircle,
+  X,
 } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createDocumentsApi } from "../../lib/api/documents.js";
@@ -28,6 +32,9 @@ export interface DocumentStatusCardProps {
   courseId?: string | null;
   onNavigateToReview?: () => void;
   canGenerate?: boolean;
+  isSelectable?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (documentId: string) => void;
 }
 
 const TRANSIENT_STATUSES: ReadonlySet<DocumentStatus> = new Set<DocumentStatus>([
@@ -70,15 +77,62 @@ function formatGenerationErrorMessage(errorMessage?: string | null): string {
   return `خطا در تولید هوشمند: ${errorMessage}`;
 }
 
+function getJobContentPersianTitle(type?: string): string {
+  if (!type) return "محتوای آموزشی";
+  if (type === "lesson") return "درسنامه";
+  if (type === "flashcard") return "فلش‌کارت‌ها";
+  if (type === "quiz") return "آزمون و سوالات تستی";
+  if (type === "review_summary") return "خلاصه مرور";
+  if (type === "all") return "محتوای کامل آموزشی";
+  const parts: string[] = [];
+  if (type.includes("lesson")) parts.push("درسنامه");
+  if (type.includes("flashcard")) parts.push("فلش‌کارت‌ها");
+  if (type.includes("quiz")) parts.push("آزمون");
+  if (type.includes("review_summary")) parts.push("خلاصه مرور");
+  return parts.length > 0 ? parts.join("، ") : type;
+}
+
+function getJobStagePersianLabel(stage?: string | null): string {
+  switch (stage) {
+    case "queued":
+      return "در صف انتظار پردازش هوش مصنوعی";
+    case "planning":
+      return "برنامه‌ریزی و طراحی سرفصل‌های آموزشی";
+    case "lesson":
+    case "lessons":
+      return "تولید متون و مباحث درسنامه";
+    case "flashcard":
+    case "flashcards":
+      return "تولید فلش‌کارت‌های مرور فاصله‌دار";
+    case "quiz":
+    case "mcqs":
+      return "طراحی سوالات و گزینه‌های آزمون";
+    case "review_summary":
+    case "summary":
+    case "review":
+    case "publishing":
+      return "بررسی و نهایی‌سازی خروجی‌های آموزشی";
+    case "completed":
+      return "تکمیل موفقیت‌آمیز";
+    default:
+      return "در حال پردازش هوشمند";
+  }
+}
+
 export function DocumentStatusCard({
   document,
   organizationId,
   courseId,
   onNavigateToReview,
   canGenerate: canGenerateProp,
+  isSelectable = false,
+  isSelected = false,
+  onToggleSelect,
 }: DocumentStatusCardProps) {
   const { user, memberships } = useAuth();
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [dismissedCompletedJobId, setDismissedCompletedJobId] = useState<string | null>(null);
+  const [dismissedFailedJobId, setDismissedFailedJobId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isComingSoonOpen, setIsComingSoonOpen] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
@@ -153,9 +207,17 @@ export function DocumentStatusCard({
     },
   });
 
-  // Automatically refresh queries when generation finishes
+  // Sync active job ID across page reloads if backend has an ongoing generation
   useEffect(() => {
-    if (jobQuery.data?.job?.status === "succeeded") {
+    if (!activeJobId && contentStatus?.active_job_id) {
+      setActiveJobId(contentStatus.active_job_id);
+    }
+  }, [activeJobId, contentStatus?.active_job_id]);
+
+  // Automatically refresh queries when generation finishes (succeeded or failed)
+  useEffect(() => {
+    const jobStatus = jobQuery.data?.job?.status;
+    if (jobStatus === "succeeded" || jobStatus === "failed") {
       if (resolvedCourseId) {
         void queryClient.invalidateQueries({
           queryKey: ["review-queue", organizationId, resolvedCourseId],
@@ -219,7 +281,12 @@ export function DocumentStatusCard({
 
   // Trigger generation mutation with selected content types
   const generateMutation = useMutation({
-    mutationFn: (options?: { types?: ("lesson" | "flashcard" | "quiz" | "review_summary")[] }) => {
+    mutationFn: (options?: {
+      types?: ("lesson" | "flashcard" | "quiz" | "review_summary")[];
+      question_pattern_id?: string;
+      question_pattern_version?: number;
+      question_pattern_ids?: string[];
+    }) => {
       if (!resolvedCourseId) {
         throw new Error("لطفاً ابتدا یک دوره آموزشی انتخاب کنید.");
       }
@@ -229,11 +296,16 @@ export function DocumentStatusCard({
         document.id,
         {
           types: options?.types ?? ["lesson", "flashcard", "quiz", "review_summary"],
+          ...(options?.question_pattern_id ? { question_pattern_id: options.question_pattern_id } : {}),
+          ...(options?.question_pattern_version ? { question_pattern_version: options.question_pattern_version } : {}),
+          ...(options?.question_pattern_ids ? { question_pattern_ids: options.question_pattern_ids } : {}),
         },
       );
     },
     onSuccess: (res) => {
       setGenerateError(null);
+      setDismissedCompletedJobId(null);
+      setDismissedFailedJobId(null);
       setActiveJobId(res.job_id);
       setIsModalOpen(false);
       if (resolvedCourseId) {
@@ -261,14 +333,25 @@ export function DocumentStatusCard({
     flashcards: boolean;
     exam: boolean;
     review_summary: boolean;
+    questionPatternId?: string | null;
+    questionPatternVersion?: number | null;
+    questionPatternIds?: string[] | null;
   }) => {
+    setGenerateError(null);
+    setDismissedCompletedJobId(null);
+    setDismissedFailedJobId(null);
     const types: Array<"lesson" | "flashcard" | "quiz" | "review_summary"> = [];
     if (selected.lesson) types.push("lesson");
     if (selected.flashcards) types.push("flashcard");
     if (selected.exam) types.push("quiz");
     if (selected.review_summary) types.push("review_summary");
 
-    generateMutation.mutate({ types });
+    generateMutation.mutate({
+      types,
+      question_pattern_id: selected.questionPatternId ?? undefined,
+      question_pattern_version: selected.questionPatternVersion ?? undefined,
+      question_pattern_ids: selected.questionPatternIds ?? undefined,
+    });
   };
 
   const isWaiting =
@@ -286,14 +369,77 @@ export function DocumentStatusCard({
     currentStatus === "review_pending" ||
     currentStatus === "ready";
   const isFailed = currentStatus === "failed";
-  const isGenerating =
-    generateMutation.isPending ||
-    Boolean(
+
+  const resolvedJob =
+    (activeJobId
+      ? (jobQuery.data?.job?.id === activeJobId ? jobQuery.data.job : undefined) ??
+        (contentStatus?.latest_job &&
+        ((contentStatus.latest_job as any).id === activeJobId ||
+          (contentStatus.latest_job as any).job_id === activeJobId)
+          ? ({
+              id: activeJobId,
+              status: contentStatus.latest_job.status,
+              type:
+                (contentStatus.latest_job as any).type ??
+                (contentStatus.latest_job as any).types?.[0] ??
+                "all",
+              error_message: contentStatus.latest_job.error_message ?? null,
+            } as any)
+          : undefined)
+      : undefined) ??
+    (contentStatus?.latest_job
+      ? ({
+          id:
+            (contentStatus.latest_job as any).id ??
+            (contentStatus.latest_job as any).job_id,
+          status: contentStatus.latest_job.status,
+          type:
+            (contentStatus.latest_job as any).type ??
+            (contentStatus.latest_job as any).types?.[0] ??
+            "all",
+          error_message: contentStatus.latest_job.error_message ?? null,
+        } as any)
+      : undefined);
+
+  const job = resolvedJob;
+  const isJobRunning = Boolean(
+    activeJobId &&
+      jobQuery.data?.job !== undefined &&
+      jobQuery.data.job.id === activeJobId &&
+      jobQuery.data.job.status !== "succeeded" &&
+      jobQuery.data.job.status !== "failed" &&
+      !jobQuery.isError,
+  );
+  const isGenerating = generateMutation.isPending || isJobRunning;
+
+  const currentProgress = job?.progress ?? contentStatus?.progress;
+  const safeTotal =
+    currentProgress?.total && currentProgress.total > 0
+      ? currentProgress.total
+      : 1;
+  const safeCompleted = Math.min(
+    safeTotal,
+    Math.max(0, currentProgress?.completed ?? 0),
+  );
+  const percent = Math.min(
+    100,
+    Math.round((safeCompleted / safeTotal) * 100),
+  );
+
+  const isSuccessAlertVisible = Boolean(
+    !isGenerating &&
       activeJobId &&
-        jobQuery.data?.job?.status !== "succeeded" &&
-        jobQuery.data?.job?.status !== "failed" &&
-        !jobQuery.isError,
-    );
+      job?.id === activeJobId &&
+      job?.status === "succeeded" &&
+      dismissedCompletedJobId !== job.id,
+  );
+
+  const isFailedAlertVisible = Boolean(
+    !isGenerating &&
+      job?.status === "failed" &&
+      job?.id &&
+      dismissedFailedJobId !== job.id,
+  );
 
   const getStatusLabel = (status: string) => {
     switch (status) {
@@ -318,15 +464,14 @@ export function DocumentStatusCard({
     }
   };
 
-  const currentProgress =
-    jobQuery.data?.job?.progress ?? contentStatus?.progress;
   const isPartial = Boolean(
     !isAllGenerated &&
+      !isGenerating &&
       currentProgress &&
       currentProgress.completed > 0 &&
       (currentProgress.status === "partial" ||
         currentProgress.status === "failed" ||
-        jobQuery.data?.job?.status === "failed"),
+        job?.status === "failed"),
   );
 
   const hasReviewableContent = Boolean(
@@ -340,9 +485,20 @@ export function DocumentStatusCard({
   );
 
   return (
-    <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-4 sm:p-5 space-y-4 shadow-xs">
+    <div className={`bg-[var(--color-surface)] rounded-2xl border ${isSelected ? "border-[#008080] ring-1 ring-[#008080]" : "border-[var(--color-border)]"} p-4 sm:p-5 space-y-4 shadow-xs transition-colors`}>
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
         <div className="flex items-start gap-3 min-w-0 flex-1">
+          {isSelectable && (
+            <div className="pt-2">
+              <input
+                type="checkbox"
+                aria-label={`انتخاب سند ${document.original_name}`}
+                checked={isSelected}
+                onChange={() => onToggleSelect?.(document.id)}
+                className="w-4 h-4 rounded text-[#008080] focus:ring-[#008080] border-gray-300 cursor-pointer"
+              />
+            </div>
+          )}
           <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 text-[#008080] flex items-center justify-center flex-shrink-0 mt-0.5">
             <FileText className="w-5 h-5" />
           </div>
@@ -454,28 +610,136 @@ export function DocumentStatusCard({
         </div>
 
         {/* Real-time Incremental Generation Progress Bar */}
-        {currentProgress && currentProgress.total > 0 && (isGenerating || isPartial || (currentProgress.completed > 0 && !isAllGenerated)) && (
-          <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl space-y-1.5">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="text-teal-900 font-semibold flex items-center gap-1.5">
-                {isGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3 text-[#008080]" />}
-                {isGenerating
-                  ? "در حال پیشروی مرحله‌به‌مرحله تولید هوشمند..."
-                  : isPartial
-                  ? "تولید مرحله‌ای تا کنون ذخیره شده است (قابل ادامه)"
-                  : "پیشرفت ذخیره‌شده در دیتابیس:"}
+        {isGenerating && (
+          <div className="p-3.5 bg-teal-50 dark:bg-teal-950/20 border border-teal-200 dark:border-teal-800/60 rounded-2xl space-y-2.5 transition-all">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs">
+              <span className="text-teal-900 dark:text-teal-200 font-bold flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#008080] dark:text-teal-400 shrink-0" />
+                <span>
+                  در حال تولید {getJobContentPersianTitle(job?.type)}: «{document.original_name}»
+                </span>
               </span>
-              <span className="text-[#008080] font-mono font-bold">
-                {formatPersianOf(currentProgress.completed, currentProgress.total)} مورد ({toPersianDigits(Math.round((currentProgress.completed / currentProgress.total) * 100))}٪)
+              <span className="text-[#008080] dark:text-teal-400 font-mono font-bold text-xs shrink-0 self-end sm:self-auto">
+                {currentProgress && currentProgress.total > 0
+                  ? `${formatPersianOf(safeCompleted, safeTotal)} مورد (${toPersianDigits(percent)}٪)`
+                  : "در صف انتظار..."}
               </span>
             </div>
-            <div className="w-full h-1.5 bg-teal-100 rounded-full overflow-hidden">
+            <div className="w-full h-2 bg-teal-100 dark:bg-teal-900/40 rounded-full overflow-hidden">
               <div
-                className="h-full bg-[#008080] transition-all duration-500 rounded-full"
+                className="h-full bg-[#008080] dark:bg-teal-500 transition-all duration-500 rounded-full"
                 style={{
-                  width: `${Math.min(100, Math.max(5, Math.round((currentProgress.completed / currentProgress.total) * 100)))}%`,
+                  width: `${Math.min(100, Math.max(5, percent))}%`,
                 }}
               />
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-teal-800/80 dark:text-teal-300/80">
+              <span>
+                مرحله: {getJobStagePersianLabel(currentProgress?.currentStage ?? job?.generationProgress?.stage)}
+              </span>
+              <span className="text-teal-700/60 dark:text-teal-400/60">پردازش خودکار هوش مصنوعی</span>
+            </div>
+          </div>
+        )}
+
+        {!isGenerating && isPartial && (
+          <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/60 rounded-xl space-y-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-amber-900 dark:text-amber-200 font-semibold flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                <span>تولید مرحله‌ای تا کنون ذخیره شده است (قابل ادامه):</span>
+              </span>
+              <span className="text-amber-700 dark:text-amber-400 font-mono font-bold">
+                {formatPersianOf(safeCompleted, safeTotal)} مورد ({toPersianDigits(percent)}٪)
+              </span>
+            </div>
+            <div className="w-full h-1.5 bg-amber-100 dark:bg-amber-900/40 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-amber-500 transition-all duration-500 rounded-full"
+                style={{
+                  width: `${Math.min(100, Math.max(5, percent))}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Content Readiness Summary (Aligns with AVANA Admin Content Studio) */}
+        {isExtracted && (
+          <div className="pt-2 border-t border-[var(--color-border)] space-y-2">
+            <div className="text-[11px] font-semibold text-[var(--color-text-muted)]">
+              وضعیت بخش‌های محتوای آموزشی این سند:
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div
+                className={`p-2 rounded-xl border flex items-center gap-2 text-xs transition-colors ${
+                  contentStatus?.lesson?.generated
+                    ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300"
+                    : "bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200/80 dark:border-zinc-700/50 text-zinc-500 dark:text-zinc-400"
+                }`}
+              >
+                <BookOpen className="w-3.5 h-3.5 shrink-0 text-[#008080] dark:text-teal-400" />
+                <div className="min-w-0">
+                  <div className="font-bold truncate">درسنامه</div>
+                  <div className="text-[10px] opacity-80">
+                    {contentStatus?.lesson?.generated
+                      ? `آماده (${toPersianDigits(contentStatus.lesson.count ?? 0)})`
+                      : "تولید نشده"}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className={`p-2 rounded-xl border flex items-center gap-2 text-xs transition-colors ${
+                  contentStatus?.flashcards?.generated
+                    ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300"
+                    : "bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200/80 dark:border-zinc-700/50 text-zinc-500 dark:text-zinc-400"
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5 shrink-0 text-[#008080] dark:text-teal-400" />
+                <div className="min-w-0">
+                  <div className="font-bold truncate">فلش‌کارت‌ها</div>
+                  <div className="text-[10px] opacity-80">
+                    {contentStatus?.flashcards?.generated
+                      ? `آماده (${toPersianDigits(contentStatus.flashcards.count ?? 0)})`
+                      : "تولید نشده"}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className={`p-2 rounded-xl border flex items-center gap-2 text-xs transition-colors ${
+                  contentStatus?.exam?.generated
+                    ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300"
+                    : "bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200/80 dark:border-zinc-700/50 text-zinc-500 dark:text-zinc-400"
+                }`}
+              >
+                <HelpCircle className="w-3.5 h-3.5 shrink-0 text-[#008080] dark:text-teal-400" />
+                <div className="min-w-0">
+                  <div className="font-bold truncate">آزمون و تست‌ها</div>
+                  <div className="text-[10px] opacity-80">
+                    {contentStatus?.exam?.generated
+                      ? `آماده (${toPersianDigits(contentStatus.exam.count ?? 0)})`
+                      : "تولید نشده"}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className={`p-2 rounded-xl border flex items-center gap-2 text-xs transition-colors ${
+                  contentStatus?.review_summary?.generated
+                    ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300"
+                    : "bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200/80 dark:border-zinc-700/50 text-zinc-500 dark:text-zinc-400"
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 shrink-0 text-[#008080] dark:text-teal-400" />
+                <div className="min-w-0">
+                  <div className="font-bold truncate">خلاصه مرور</div>
+                  <div className="text-[10px] opacity-80">
+                    {contentStatus?.review_summary?.generated ? "آماده" : "تولید نشده"}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -542,14 +806,37 @@ export function DocumentStatusCard({
           <span>{generateError}</span>
         </div>
       )}
-      {jobQuery.data?.job?.status === "failed" && (
-        <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-xs">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          <span>
-            {isPartial
-              ? "تولید بخش‌هایی از محتوا با خطا متوقف شد؛ خروجی‌های سالم تولیدشده تا این مرحله در سیستم حفظ شده‌اند و می‌توانید تولید بخش‌های باقیمانده را ادامه دهید."
-              : formatGenerationErrorMessage(jobQuery.data.job?.error_message)}
-          </span>
+      {isFailedAlertVisible && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-xs">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>
+              {isPartial
+                ? "تولید بخش‌هایی از محتوا با خطا متوقف شد؛ خروجی‌های سالم تولیدشده تا این مرحله در سیستم حفظ شده‌اند و می‌توانید تولید بخش‌های باقیمانده را ادامه دهید."
+                : formatGenerationErrorMessage(job?.error_message)}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setDismissedFailedJobId(job?.id ?? "dismissed");
+                setIsModalOpen(true);
+              }}
+              className="px-2.5 py-1 bg-red-100 dark:bg-red-900/40 hover:bg-red-200 text-red-800 dark:text-red-200 rounded-lg font-bold transition-colors"
+            >
+              تلاش مجدد
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismissedFailedJobId(job?.id ?? "dismissed")}
+              className="p-1 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg text-red-700 dark:text-red-300 transition-colors"
+              title="بستن پیام"
+              aria-label="بستن پیام"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -595,13 +882,13 @@ export function DocumentStatusCard({
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     <span>
-                      در حال تولید هوشمند محتوا... {currentProgress ? `(${formatPersianOf(currentProgress.completed, currentProgress.total)})` : ""}
+                      در حال تولید هوشمند محتوا... {currentProgress && currentProgress.total > 0 ? `(${formatPersianOf(safeCompleted, safeTotal)})` : ""}
                     </span>
                   </>
                 ) : isPartial ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 text-amber-600" />
-                    <span>ادامه تولید هوشمند محتوا ({currentProgress ? formatPersianOf(currentProgress.completed, currentProgress.total) : ""})</span>
+                    <span>ادامه تولید هوشمند محتوا ({currentProgress && currentProgress.total > 0 ? formatPersianOf(safeCompleted, safeTotal) : ""})</span>
                   </>
                 ) : (
                   <>
@@ -645,27 +932,46 @@ export function DocumentStatusCard({
       </div>
 
       {/* Generation success alert */}
-      {jobQuery.data?.job?.status === "succeeded" && (
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 p-3.5 bg-teal-50 border border-teal-200 rounded-2xl text-teal-900 text-xs font-bold">
+      {isSuccessAlertVisible && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 p-3.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl text-emerald-900 dark:text-emerald-200 text-xs font-bold transition-all">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-[#008080] shrink-0" />
-            <span>پیش‌نویس درس‌ها، فلش‌کارت‌ها و آزمون‌ها با موفقیت تولید شد.</span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>
+              {job?.type === "lesson"
+                ? "پیش‌نویس درسنامه با موفقیت تولید شد."
+                : job?.type === "flashcard"
+                ? "پیش‌نویس فلش‌کارت‌ها با موفقیت تولید شد."
+                : job?.type === "quiz"
+                ? "پیش‌نویس آزمون با موفقیت تولید شد."
+                : "پیش‌نویس درس‌ها، فلش‌کارت‌ها و آزمون‌ها با موفقیت تولید شد."}
+            </span>
           </div>
-          {onNavigateToReview && (
+          <div className="flex items-center gap-3 self-end sm:self-auto shrink-0">
+            {onNavigateToReview && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isGenerationPermitted) {
+                    setIsComingSoonOpen(true);
+                    return;
+                  }
+                  onNavigateToReview();
+                }}
+                className="underline hover:text-emerald-700 dark:hover:text-emerald-100 text-emerald-800 dark:text-emerald-300 text-xs font-bold"
+              >
+                {isGenerationPermitted ? "مشاهده صف بازبینی" : "صف بازبینی (به‌زودی)"}
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => {
-                if (!isGenerationPermitted) {
-                  setIsComingSoonOpen(true);
-                  return;
-                }
-                onNavigateToReview();
-              }}
-              className="underline hover:text-[#006666] text-[#008080] text-xs font-bold self-end sm:self-auto shrink-0"
+              onClick={() => setDismissedCompletedJobId(job?.id ?? "dismissed")}
+              className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 rounded-lg text-emerald-700 dark:text-emerald-300 transition-colors"
+              title="بستن پیام"
+              aria-label="بستن پیام"
             >
-              {isGenerationPermitted ? "مشاهده صف بازبینی" : "صف بازبینی (به‌زودی)"}
+              <X className="w-3.5 h-3.5" />
             </button>
-          )}
+          </div>
         </div>
       )}
 

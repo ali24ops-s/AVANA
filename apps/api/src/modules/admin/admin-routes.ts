@@ -7,10 +7,11 @@ import type { FastifyPluginAsync } from "fastify";
 import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
 import { makeAuthMiddleware } from "../../http/authMiddleware.js";
 import { AdminService } from "./admin-service.js";
-import type { AdminStore } from "./admin-store.js";
+import type { AdminStore, AdminLessonDetailRecord } from "./admin-store.js";
 import {
   Roles,
   asUserId,
+  asCourseId,
   asOrganizationId,
   asDocumentId,
   asProductId,
@@ -52,6 +53,8 @@ import {
 } from "../generation/question-patterns-store.js";
 import { PatternExtractionService } from "../generation/pattern-extraction-service.js";
 import {
+  isQuestionPatternId,
+  isQuestionPatternExampleId,
   parseQuestionPatternId,
   parseQuestionPatternExampleId,
 } from "@avana/domain";
@@ -88,6 +91,7 @@ import {
   parseModuleId,
   parseSubCourseGroupId,
   asSubCourseGroupId,
+  auditContentReportStatusChanged,
   type SubCourseGroupId,
   type ModuleId,
   type ExamBlueprintItem,
@@ -176,10 +180,46 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       ? new DrizzleQuestionPatternStore((opts.adminStore as any).db)
       : new InMemoryQuestionPatternStore());
 
-  // All routes here require platform_admin, EXCEPT content management, studio, export/import, generation, and content-reports routes for content workers
+  // All routes here require platform_admin, EXCEPT authorized workspaces for support_agent, content_worker, course_editor, and organization_admin
   app.addHook("preHandler", requireAuth);
   app.addHook("preHandler", async (request, reply) => {
     const rawPath = request.url.split("?")[0];
+    const user = (request as unknown as { user?: { userId: string; email: string; role: string; globalRole?: string | null } }).user;
+    if (!user) {
+      throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    // Superuser platform admin has full access
+    if (user.globalRole === Roles.platform_admin || user.role === Roles.platform_admin) {
+      return;
+    }
+
+    // Support Agent explicit operational boundaries:
+    // Allowed: content problem reports, content repair (preview & apply & audit)
+    // Strictly Denied: dashboard, users, commerce, system, settings, courses, documents, generation, export/import
+    const isSupport = user.globalRole === Roles.support_agent || user.role === Roles.support_agent;
+    if (isSupport) {
+      const isSupportAllowed =
+        rawPath.includes("/content-reports") ||
+        rawPath.includes("/content-repair");
+
+      if (isSupportAllowed) {
+        return;
+      }
+      throw new DomainError("forbidden", "Access denied. Insufficient permissions.");
+    }
+
+    const normalizedPath = rawPath.replace(/\/+$/, "");
+    if (normalizedPath.endsWith("/prompts") || normalizedPath.includes("/prompts/")) {
+      if (
+        user.globalRole === Roles.content_worker ||
+        user.role === Roles.content_worker
+      ) {
+        return;
+      }
+      throw new DomainError("forbidden", "Access denied. Insufficient permissions.");
+    }
+
     const isWorkerAllowed =
       rawPath.endsWith("/courses") ||
       rawPath.includes("/courses/") ||
@@ -188,22 +228,20 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       rawPath.includes("/documents/") ||
       rawPath.endsWith("/generation") ||
       rawPath.includes("/generation/") ||
-      rawPath.endsWith("/prompts") ||
       rawPath.includes("/content/") ||
       rawPath.includes("/content-reports") ||
       rawPath.includes("/content-repair") ||
+      rawPath.includes("/course-submissions") ||
+      rawPath.includes("/content-packs") ||
       (rawPath.includes("/question-patterns") && (request.method === "GET" || rawPath.endsWith("/extract")));
 
     if (isWorkerAllowed) {
-      const user = (request as unknown as { user?: { userId: string; email: string; role: string; globalRole?: string | null } }).user;
       if (
-        user &&
-        (user.globalRole === Roles.platform_admin ||
-          user.role === Roles.platform_admin ||
-          user.globalRole === Roles.content_worker ||
-          user.role === Roles.content_worker ||
-          user.role === Roles.organization_admin ||
-          user.role === Roles.course_editor)
+        user.globalRole === Roles.content_worker ||
+        user.role === Roles.content_worker ||
+        user.role === Roles.organization_admin ||
+        user.role === Roles.course_editor ||
+        user.globalRole === Roles.course_editor
       ) {
         return;
       }
@@ -405,17 +443,41 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         asDocumentId(params.id as unknown as import("@avana/domain").UUID)
       );
 
-      reply
-        .header("Content-Type", mimeType)
-        .header("Content-Disposition", `attachment; filename="${originalName}"`)
+      const ext = (originalName || "").includes(".") ? `.${(originalName || "").split(".").pop()}` : "";
+      let safeAsciiFallback = (originalName || "document")
+        .replace(/[^\x20-\x7E]/g, "")
+        .replace(/["\\]/g, "")
+        .trim();
+      const base = safeAsciiFallback.replace(/\.[^/.]+$/, "");
+      if (!base || /^[_.\s-]+$/.test(base)) {
+        safeAsciiFallback = `document${ext}`;
+      }
+      const encodedFilename = encodeURIComponent(originalName || "document");
+
+      return reply
+        .header("Content-Type", mimeType || "application/octet-stream")
+        .header(
+          "Content-Disposition",
+          `attachment; filename="${safeAsciiFallback}"; filename*=UTF-8''${encodedFilename}`
+        )
         .header("Content-Length", sizeBytes)
         .header("Cache-Control", "private, max-age=3600")
         .send(stream);
     } catch (error: unknown) {
       const err = error as { code?: string; message?: string };
       request.log.error({ err: error }, "Failed to download document");
-      if (err.code === "not_found" || err.message === "Document not found") {
-        return reply.status(404).send({ code: "not_found" });
+      if (
+        err.code === "not_found" ||
+        err.message === "Document not found" ||
+        err.message === "Document file not found in storage"
+      ) {
+        return reply.status(404).send({ code: "not_found", message: "Document not found" });
+      }
+      if (
+        err.code === "forbidden" ||
+        err.message?.includes("Only platform admins")
+      ) {
+        return reply.status(403).send({ code: "forbidden", message: err.message || "Forbidden" });
       }
       return reply.status(500).send({ code: "internal_error", message: err.message || "Unknown error" });
     }
@@ -447,16 +509,24 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   app.get("/system/audit", async (request, reply) => {
     try {
       const query = request.query as { page?: string; pageSize?: string; search?: string; action?: string; entityType?: string; adminEmail?: string };
-      const page = parseInt(query.page || "1", 10);
-      const pageSize = parseInt(query.pageSize || "20", 10);
+      const rawPage = parseInt(query.page || "1", 10);
+      const rawPageSize = parseInt(query.pageSize || "20", 10);
+      const page = Math.max(1, isNaN(rawPage) ? 1 : rawPage);
+      const pageSize = Math.min(100, Math.max(1, isNaN(rawPageSize) ? 20 : rawPageSize));
+      const search = typeof query.search === "string" ? query.search.trim() || undefined : undefined;
+      const action = typeof query.action === "string" ? query.action.trim() || undefined : undefined;
+      const entityType = typeof query.entityType === "string" ? query.entityType.trim() || undefined : undefined;
+      const adminEmail = typeof query.adminEmail === "string" ? query.adminEmail.trim() || undefined : undefined;
+
       const data = await opts.adminStore.listAuditLogs({
         page,
         pageSize,
-        search: query.search,
-        action: query.action,
-        entityType: query.entityType,
-        adminEmail: query.adminEmail,
+        search,
+        action,
+        entityType,
+        adminEmail,
       });
+      reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
       return reply.send(data);
     } catch (error) {
       request.log.error({ err: error }, "Failed to get audit logs");
@@ -766,6 +836,84 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     }
   });
 
+  app.get<{
+    Params: { id: string };
+    Querystring: { submissionId?: string; courseId?: string };
+  }>("/content/lessons/:id", async (request, reply) => {
+    try {
+      const lessonId = request.params.id;
+      const { submissionId, courseId } = request.query;
+
+      // 1. Live database lookup via adminStore
+      if (typeof opts.adminStore.getLesson === "function") {
+        const liveLesson = await opts.adminStore.getLesson(lessonId);
+        if (liveLesson) {
+          return reply.send(liveLesson);
+        }
+      }
+
+      // 2. Publication snapshot lookup for submitted courses
+      if (opts.coursePublicationStore) {
+        let pub: import("@avana/domain").CoursePublicationRecord | undefined;
+        if (submissionId) {
+          pub = await opts.coursePublicationStore.findById(
+            asCoursePublicationId(submissionId as any),
+          );
+        } else if (courseId) {
+          pub = await opts.coursePublicationStore.findLatestByCourse(
+            asCourseId(courseId as any),
+          );
+        }
+
+        if (pub && pub.snapshot && Array.isArray(pub.snapshot.chapters)) {
+          for (const ch of pub.snapshot.chapters) {
+            const lesson = ch.lessons?.find((l) => l.id === lessonId);
+            if (lesson) {
+              const snapshotLesson: AdminLessonDetailRecord = {
+                id: lesson.id,
+                title: lesson.title,
+                courseName: pub.snapshot.title || pub.title,
+                moduleTitle: ch.title,
+                moduleId: ch.id,
+                publicationStatus: pub.status,
+                contentMarkdown: lesson.contentMarkdown,
+                createdAt: pub.createdAt
+                  ? new Date(pub.createdAt).toISOString()
+                  : new Date().toISOString(),
+                flashcards:
+                  ch.flashcards?.map((fc, idx) => ({
+                    id: `pub-fc-${idx}`,
+                    front: fc.front,
+                    back: fc.back,
+                    explanation: fc.explanation,
+                    difficulty: fc.difficulty,
+                  })) || [],
+                quizQuestions:
+                  ch.quiz?.questions?.map((qq, idx) => ({
+                    id: `pub-qq-${idx}`,
+                    question: qq.question,
+                    choices: qq.choices,
+                    correctAnswer: qq.correctAnswer,
+                    explanation: qq.explanation,
+                    difficulty: qq.difficulty,
+                  })) || [],
+              };
+              return reply.send(snapshotLesson);
+            }
+          }
+        }
+      }
+
+      return reply.status(404).send({
+        code: "not_found",
+        message: "درس مورد نظر یافت نشد.",
+      });
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to get lesson details");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
   app.get("/content/flashcards", async (request, reply) => {
     try {
       const query = request.query as { page?: string; pageSize?: string; search?: string };
@@ -799,14 +947,36 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   app.post("/content-repair/preview", async (request, reply) => {
     try {
       const user = (request as any).user;
+      const isSupport = user?.globalRole === Roles.support_agent || user?.role === Roles.support_agent;
       const body = (request.body || {}) as {
         content?: string;
         lessonId?: string;
         generatedContentId?: string;
         organizationId?: string;
+        reportId?: string;
         appliedRuleIds?: any[];
         appliedBlockIndices?: number[];
       };
+
+      if (isSupport) {
+        if (!body.reportId) {
+          throw new DomainError("bad_request", "ارسال شناسه گزارش (reportId) برای پشتیبان الزامی است.");
+        }
+        const report = await contentReportStore.findById(body.reportId);
+        if (!report) {
+          throw new DomainError("not_found", "گزارش مورد نظر یافت نشد.");
+        }
+        if (body.lessonId && body.lessonId !== report.lessonId) {
+          throw new DomainError("forbidden", "شناسه درس ارسالی با درسنامه این گزارش تطابق ندارد.");
+        }
+        if (report.status === "resolved" || report.status === "dismissed") {
+          throw new DomainError("bad_request", "این گزارش قبلاً تعیین تکلیف شده است.");
+        }
+        body.lessonId = report.lessonId;
+        delete body.content;
+        delete body.generatedContentId;
+      }
+
       const result = await contentRepairService.preview({
         ...body,
         organizationId: (body.organizationId || user?.organizationId) as OrganizationId,
@@ -830,14 +1000,19 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     }
   });
 
+  const activeRepairLocks = new Set<string>();
+
   app.post("/content-repair/apply", async (request, reply) => {
+    let lockKey: string | null = null;
     try {
       const user = (request as any).user;
+      const isSupport = user?.globalRole === Roles.support_agent || user?.role === Roles.support_agent;
       const body = (request.body || {}) as {
         content?: string;
         lessonId?: string;
         generatedContentId?: string;
         organizationId?: string;
+        reportId?: string;
         originalHash: string;
         appliedRuleIds?: any[];
         appliedBlockIndices?: number[];
@@ -853,15 +1028,156 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         );
       }
 
-      const result = await contentRepairService.apply({
-        ...body,
-        organizationId: (body.organizationId || user?.organizationId) as OrganizationId,
-        actor: {
-          userId: user?.userId || "00000000-0000-0000-0000-000000000001",
-          role: user?.role || user?.globalRole || "platform_admin",
-        },
+      lockKey = body.reportId
+        ? `report:${body.reportId}`
+        : body.lessonId
+          ? `lesson:${body.lessonId}`
+          : body.generatedContentId
+            ? `gen:${body.generatedContentId}`
+            : null;
+
+      if (lockKey && activeRepairLocks.has(lockKey)) {
+        return writeErrorEnvelope(
+          reply,
+          request,
+          "conflict",
+          "یک عملیات اصلاح محتوا برای این مورد هم‌اکنون در حال پردازش است. لطفاً چند لحظه بعد تلاش کنید.",
+          409,
+        );
+      }
+      if (lockKey) {
+        activeRepairLocks.add(lockKey);
+      }
+
+      let boundReport: any = null;
+      let acquiredClaimStatus: string | null = null;
+      if (isSupport || body.reportId) {
+        if (!body.reportId) {
+          throw new DomainError("bad_request", "ارسال شناسه گزارش (reportId) برای پشتیبان الزامی است.");
+        }
+        boundReport = await contentReportStore.findById(body.reportId);
+        if (!boundReport) {
+          throw new DomainError("not_found", "گزارش مورد نظر یافت نشد.");
+        }
+        if (body.lessonId && body.lessonId !== boundReport.lessonId) {
+          throw new DomainError("forbidden", "شناسه درس ارسالی با درسنامه این گزارش تطابق ندارد.");
+        }
+        if (boundReport.status === "resolved" || boundReport.status === "dismissed") {
+          throw new DomainError("bad_request", "این گزارش قبلاً تعیین تکلیف شده است.");
+        }
+
+        // Multi-process concurrency lock via atomic DB Compare-And-Swap (CAS):
+        // If two requests arrive concurrently across separate API processes, only one will successfully update the row.
+        if (boundReport.status === "pending") {
+          const claimResult = await contentReportStore.updateStatus(
+            body.reportId,
+            "in_review",
+            "pending",
+          );
+          if (!claimResult) {
+            return writeErrorEnvelope(
+              reply,
+              request,
+              "conflict",
+              "این گزارش هم‌اکنون توسط پردازه یا کاربر دیگری در حال تعیین تکلیف است.",
+              409,
+            );
+          }
+          acquiredClaimStatus = "pending";
+        }
+
+        body.lessonId = boundReport.lessonId;
+        delete body.content;
+        delete body.generatedContentId;
+      }
+
+      let result: any;
+      try {
+        result = await contentRepairService.apply({
+          ...body,
+          organizationId: (body.organizationId || user?.organizationId) as OrganizationId,
+          actor: {
+            userId: user?.userId || "00000000-0000-0000-0000-000000000001",
+            role: user?.role || user?.globalRole || "platform_admin",
+          },
+        });
+      } catch (applyErr) {
+        // Rollback claimed status if repair failed (e.g. 409 conflict on lesson content)
+        if (acquiredClaimStatus && body.reportId) {
+          try {
+            await contentReportStore.updateStatus(body.reportId, acquiredClaimStatus, "in_review");
+          } catch {
+            // Ignore rollback failure
+          }
+        }
+        throw applyErr;
+      }
+
+      // If content was successfully repaired and stored, and this repair was tied to a report:
+      // transition report to resolved, emit audit log, and notify user
+      let finalReportStatus: string | undefined = undefined;
+      let reportUpdateFailed = false;
+
+      if (result.success && boundReport && body.reportId) {
+        const oldStatus = boundReport.status;
+        try {
+          const expectedPrev = acquiredClaimStatus ? "in_review" : boundReport.status;
+          const updatedRecord = await contentReportStore.updateStatus(body.reportId, "resolved", expectedPrev);
+          if (updatedRecord) {
+            finalReportStatus = "resolved";
+          } else {
+            reportUpdateFailed = true;
+          }
+        } catch (reportErr) {
+          reportUpdateFailed = true;
+          request.log.error(reportErr, "Failed to update report status to resolved after content repair");
+        }
+
+        if (finalReportStatus === "resolved") {
+          if (opts.notificationService && boundReport.userId) {
+            try {
+              await opts.notificationService.notifyContentReportStatus(
+                boundReport.userId as UserId,
+                {
+                  reportId: body.reportId,
+                  lessonId: boundReport.lessonId,
+                  courseId: boundReport.courseId,
+                  lessonTitle: boundReport.lessonTitle,
+                  oldStatus,
+                  newStatus: "resolved",
+                },
+              );
+            } catch (notifErr) {
+              request.log.error(notifErr, "Failed to send notification for resolved report");
+            }
+          }
+
+          if (opts.auditService) {
+            const reqUser = (request as unknown as { user?: { userId: string } }).user;
+            const actorId = reqUser?.userId ? asUserId(reqUser.userId as any) : (boundReport.userId as UserId);
+            try {
+              await opts.auditService.emit([
+                auditContentReportStatusChanged(
+                  actorId,
+                  body.reportId,
+                  oldStatus,
+                  "resolved",
+                  boundReport.lessonId,
+                  boundReport.courseId,
+                ),
+              ]);
+            } catch (auditErr) {
+              request.log.error(auditErr, "Failed to emit audit event for content report status change");
+            }
+          }
+        }
+      }
+
+      return reply.send({
+        ...result,
+        reportStatus: finalReportStatus,
+        reportUpdateFailed: boundReport ? reportUpdateFailed : undefined,
       });
-      return reply.send(result);
     } catch (error: any) {
       if (error instanceof DomainError || error?.name === "DomainError") {
         const statusMap: Record<string, number> = {
@@ -877,6 +1193,10 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       }
       request.log.error({ err: error }, "Failed to apply content repair");
       return writeErrorEnvelope(reply, request, "internal_error", "خطا در اعمال اصلاح محتوا", 500);
+    } finally {
+      if (lockKey) {
+        activeRepairLocks.delete(lockKey);
+      }
     }
   });
 
@@ -1247,26 +1567,43 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   };
 
   app.get("/prompts", handlePrompts);
+  app.get("/prompts/", handlePrompts);
   app.get("/generation/prompts", handlePrompts);
+  app.get("/generation/prompts/", handlePrompts);
 
   // -------------------------------------------------------------------------
   // Question Patterns Endpoints (Admin Reference Patterns)
   // -------------------------------------------------------------------------
 
-  // 1. List question patterns (supports ?status=active)
+  // 1. List question patterns (supports ?status=active and ?category=...)
   app.get<{
-    Querystring: { status?: string };
+    Querystring: { status?: string; category?: string };
   }>("/question-patterns", async (request, reply) => {
     const activeOnly = request.query?.status === "active";
-    const patterns = await questionPatternStore.listPatterns({ activeOnly });
+    const category = request.query?.category as import("@avana/domain").QuestionPatternCategory | undefined;
+    const patterns = await questionPatternStore.listPatterns({ activeOnly, category });
     return reply.send({ patterns });
   });
+
+  const validatePatternId = (rawId: string) => {
+    if (!isQuestionPatternId(rawId)) {
+      throw new DomainError("bad_request", "شناسه الگوی سؤال نامعتبر است.");
+    }
+    return parseQuestionPatternId(rawId);
+  };
+
+  const validateExampleId = (rawId: string) => {
+    if (!isQuestionPatternExampleId(rawId)) {
+      throw new DomainError("bad_request", "شناسه نمونه سؤال نامعتبر است.");
+    }
+    return parseQuestionPatternExampleId(rawId);
+  };
 
   // 2. Get single pattern definition with examples
   app.get<{
     Params: { id: string };
   }>("/question-patterns/:id", async (request, reply) => {
-    const patternId = parseQuestionPatternId(request.params.id);
+    const patternId = validatePatternId(request.params.id);
     const pattern = await questionPatternStore.findById(patternId);
     if (!pattern) {
       throw new DomainError("not_found", "الگوی سؤال یافت نشد.");
@@ -1279,6 +1616,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     Body: {
       title: string;
       description?: string | null;
+      category?: import("@avana/domain").QuestionPatternCategory;
       cognitiveLevel?: string;
       skills?: string[];
       systemInstructions: string;
@@ -1296,6 +1634,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     const pattern = await questionPatternStore.create({
       title: body.title.trim(),
       description: body.description?.trim() || null,
+      category: body.category,
       cognitiveLevel: body.cognitiveLevel?.trim() || "recall",
       skills: Array.isArray(body.skills) ? body.skills : undefined,
       systemInstructions: body.systemInstructions.trim(),
@@ -1305,21 +1644,37 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   });
 
   // 4. Update question pattern (bumps version if instructions, cognitiveLevel, or skills change)
+  const handleUpdatePattern = async (request: any, reply: any) => {
+    const patternId = validatePatternId(request.params.id);
+    const pattern = await questionPatternStore.update(patternId, request.body || {});
+    return reply.send({ success: true, pattern });
+  };
+
   app.patch<{
     Params: { id: string };
     Body: {
       title?: string;
       description?: string | null;
+      category?: import("@avana/domain").QuestionPatternCategory;
       cognitiveLevel?: string;
       skills?: string[];
       systemInstructions?: string;
       isActive?: boolean;
     };
-  }>("/question-patterns/:id", async (request, reply) => {
-    const patternId = parseQuestionPatternId(request.params.id);
-    const pattern = await questionPatternStore.update(patternId, request.body || {});
-    return reply.send({ success: true, pattern });
-  });
+  }>("/question-patterns/:id", handleUpdatePattern);
+
+  app.put<{
+    Params: { id: string };
+    Body: {
+      title?: string;
+      description?: string | null;
+      category?: import("@avana/domain").QuestionPatternCategory;
+      cognitiveLevel?: string;
+      skills?: string[];
+      systemInstructions?: string;
+      isActive?: boolean;
+    };
+  }>("/question-patterns/:id", handleUpdatePattern);
 
   // 5. AI Extract pattern from sample questions
   app.post<{
@@ -1359,7 +1714,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   app.delete<{
     Params: { id: string };
   }>("/question-patterns/:id", async (request, reply) => {
-    const patternId = parseQuestionPatternId(request.params.id);
+    const patternId = validatePatternId(request.params.id);
     const deleted = await questionPatternStore.softDelete(patternId);
     if (!deleted) {
       throw new DomainError("not_found", "الگوی سؤال یافت نشد یا از قبل حذف شده است.");
@@ -1380,14 +1735,14 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       sortOrder?: number;
     };
   }>("/question-patterns/:id/examples", async (request, reply) => {
-    const patternId = parseQuestionPatternId(request.params.id);
+    const patternId = validatePatternId(request.params.id);
     const body = request.body || {};
 
     let question = body.question;
     let choices = body.choices;
     let correctAnswer = body.correctAnswer;
     let explanation = body.explanation;
-    let clinicalContext = body.clinicalContext;
+    const clinicalContext = body.clinicalContext;
 
     // If sourceQuizQuestionId provided, snapshot fields from existing quiz question
     if (body.sourceQuizQuestionId && opts.quizQuestionStore) {
@@ -1428,8 +1783,8 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   app.delete<{
     Params: { id: string; exampleId: string };
   }>("/question-patterns/:id/examples/:exampleId", async (request, reply) => {
-    const patternId = parseQuestionPatternId(request.params.id);
-    const exampleId = parseQuestionPatternExampleId(request.params.exampleId);
+    const patternId = validatePatternId(request.params.id);
+    const exampleId = validateExampleId(request.params.exampleId);
     const deleted = await questionPatternStore.deleteExample(patternId, exampleId);
     if (!deleted) {
       throw new DomainError("not_found", "نمونه سؤال یافت نشد.");
@@ -1535,6 +1890,82 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
            return reply.status(409).send({ code: "conflict", message: "User belongs to multiple organizations; explicit organization handling is required." });
         }
         return reply.status(500).send({ code: "internal_error" });
+      }
+    }
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    "/users/:id",
+    async (request, reply) => {
+      const user = (request as unknown as { user?: { userId: string; email: string; role: string; globalRole?: string | null } }).user;
+      if (!user) {
+        return reply.status(401).send({ code: "unauthorized", message: "احراز هویت الزامی است." });
+      }
+
+      const isPlatformAdmin = user.globalRole === Roles.platform_admin || user.role === Roles.platform_admin;
+      if (!isPlatformAdmin) {
+        return reply.status(403).send({ code: "forbidden", message: "تنها مدیر پلتفرم مجاز به حذف حساب کاربران است." });
+      }
+
+      const adminId = user.userId;
+      const { id } = request.params;
+
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!id || typeof id !== "string" || !UUID_REGEX.test(id)) {
+        return reply.status(400).send({ code: "invalid_input", message: "شناسه کاربر نامعتبر است." });
+      }
+
+      if (adminId === id) {
+        return reply.status(409).send({ code: "conflict", message: "امکان حذف حساب کاربری جاری خودتان وجود ندارد." });
+      }
+
+      try {
+        await adminService.deleteUser(adminId, id);
+
+        // Revoke active sessions for target user
+        if (sessionService) {
+          try {
+            await sessionService.revokeAllUserSessions(id as UserId, "account_deleted");
+          } catch (e: unknown) {
+            request.log.warn({ err: e }, "Failed to revoke user sessions on delete");
+          }
+        }
+
+        if (opts.auditService) {
+          try {
+            await opts.auditService.emit([
+              {
+                actorId: asUserId(adminId as unknown as UserId),
+                organizationId: null,
+                action: "admin.delete_user",
+                entityType: "user",
+                entityId: id,
+                createdAt: new Date().toISOString(),
+                details: {
+                  admin_user_id: adminId,
+                  target_user_id: id,
+                  reason: "account_deleted_by_platform_admin",
+                  timestamp: new Date().toISOString(),
+                },
+              },
+            ]);
+          } catch (e: unknown) {
+            request.log.warn({ err: e }, "Failed to emit audit event for delete user");
+          }
+        }
+
+        return reply.status(200).send({ success: true, message: "حساب کاربر با موفقیت حذف شد." });
+      } catch (error: unknown) {
+        const err = error as { code?: string; message?: string };
+        request.log.error({ err: error }, "Failed to delete user");
+
+        if (err.code === "not_found" || err.message === "user_not_found" || err.message?.includes("یافت نشد")) {
+          return reply.status(404).send({ code: "not_found", message: err.message || "کاربر یافت نشد." });
+        }
+        if (err.code === "conflict" || err instanceof DomainError) {
+          return reply.status(409).send({ code: "conflict", message: err.message || "امکان حذف این کاربر وجود ندارد." });
+        }
+        return reply.status(500).send({ code: "internal_error", message: "خطای سرور در حذف حساب کاربر." });
       }
     }
   );
@@ -2371,6 +2802,24 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   });
 
   app.get<{
+    Querystring: {
+      page?: string;
+      pageSize?: string;
+      promotionId?: string;
+    };
+  }>("/commerce/promotions/redemptions", async (request, reply) => {
+    const page = parseInt(request.query.page || "1", 10);
+    const pageSize = parseInt(request.query.pageSize || "20", 10);
+    const promotionId = request.query.promotionId;
+
+    const result = await adminService.listCommercePromotionRedemptions(promotionId, {
+      page,
+      pageSize,
+    });
+    return reply.status(200).send(result);
+  });
+
+  app.get<{
     Params: { promotionId: string };
   }>("/commerce/promotions/:promotionId", async (request, reply) => {
     const { promotionId } = request.params;
@@ -2605,10 +3054,29 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
 
     // 8. Publish Official Course (Course: published, Product: active)
     app.post<{ Params: { id: string } }>("/content-studio/courses/:id/publish", async (request, reply) => {
-      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+      const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
       const { id } = request.params;
       const result = await officialContentService.publishOfficialCourse(
-        { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role },
+        {
+          userId: asUserId(user.userId as unknown as import("@avana/domain").UUID),
+          role: user.role,
+          globalRole: (user.globalRole as Role) ?? null,
+        },
+        id as CourseId,
+      );
+      return reply.send(result);
+    });
+
+    // 8b. Unpublish Official Course (Course: draft, Product: inactive)
+    app.post<{ Params: { id: string } }>("/content-studio/courses/:id/unpublish", async (request, reply) => {
+      const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
+      const { id } = request.params;
+      const result = await officialContentService.unpublishOfficialCourse(
+        {
+          userId: asUserId(user.userId as unknown as import("@avana/domain").UUID),
+          role: user.role,
+          globalRole: (user.globalRole as Role) ?? null,
+        },
         id as CourseId,
       );
       return reply.send(result);
@@ -2616,10 +3084,29 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
 
     // 9. Archive Official Course
     app.post<{ Params: { id: string } }>("/content-studio/courses/:id/archive", async (request, reply) => {
-      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+      const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
       const { id } = request.params;
       const result = await officialContentService.archiveOfficialCourse(
-        { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role },
+        {
+          userId: asUserId(user.userId as unknown as import("@avana/domain").UUID),
+          role: user.role,
+          globalRole: (user.globalRole as Role) ?? null,
+        },
+        id as CourseId,
+      );
+      return reply.send(result);
+    });
+
+    // 9b. Unarchive / Restore Official Course (Course: draft)
+    app.post<{ Params: { id: string } }>("/content-studio/courses/:id/unarchive", async (request, reply) => {
+      const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
+      const { id } = request.params;
+      const result = await officialContentService.unarchiveOfficialCourse(
+        {
+          userId: asUserId(user.userId as unknown as import("@avana/domain").UUID),
+          role: user.role,
+          globalRole: (user.globalRole as Role) ?? null,
+        },
         id as CourseId,
       );
       return reply.send(result);
@@ -2630,7 +3117,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       Params: { id: string };
       Body: { confirmationName: string; deleteSourceDocuments?: boolean };
     }>("/content-studio/courses/:id", async (request, reply) => {
-      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+      const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
       const { id } = request.params;
       const body = request.body || ({} as any);
 
@@ -2642,7 +3129,11 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       }
 
       const result = await officialContentService.deleteOfficialCourse(
-        { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role },
+        {
+          userId: asUserId(user.userId as unknown as import("@avana/domain").UUID),
+          role: user.role,
+          globalRole: (user.globalRole as Role) ?? null,
+        },
         id as CourseId,
         {
           confirmationName: body.confirmationName,
@@ -2791,8 +3282,19 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       Params: { id: string };
       Body?: { sessionId?: string };
     }>("/content-studio/courses/:id/publish-draft", async (request, reply) => {
-      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
-      const actor = { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role };
+      const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
+      if (
+        user.role !== Roles.platform_admin &&
+        user.globalRole !== Roles.platform_admin &&
+        user.role !== Roles.organization_admin
+      ) {
+        throw new DomainError("forbidden", "دسترسی مدیریت به انتشار نسخه رسمی دوره الزامی است.");
+      }
+      const actor = {
+        userId: asUserId(user.userId as unknown as import("@avana/domain").UUID),
+        role: user.role,
+        globalRole: (user.globalRole as Role) ?? null,
+      };
       const courseId = parseCourseId(request.params.id);
       const session = request.body?.sessionId
         ? await courseDraftService.getSession(actor, asCourseDraftSessionId(request.body.sessionId as any))
@@ -2805,8 +3307,12 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     app.get<{
       Params: { id: string };
     }>("/content-studio/courses/:id/releases", async (request, reply) => {
-      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
-      const actor = { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role };
+      const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
+      const actor = {
+        userId: asUserId(user.userId as unknown as import("@avana/domain").UUID),
+        role: user.role,
+        globalRole: (user.globalRole as Role) ?? null,
+      };
       const courseId = parseCourseId(request.params.id);
       const releases = await courseDraftService.listReleases(actor, courseId);
       return reply.send({ releases });
@@ -2817,8 +3323,19 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       Params: { id: string };
       Body: { targetVersion: number; reason?: string };
     }>("/content-studio/courses/:id/rollback", async (request, reply) => {
-      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
-      const actor = { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role };
+      const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
+      if (
+        user.role !== Roles.platform_admin &&
+        user.globalRole !== Roles.platform_admin &&
+        user.role !== Roles.organization_admin
+      ) {
+        throw new DomainError("forbidden", "دسترسی مدیریت به بازگردانی نسخه دوره الزامی است.");
+      }
+      const actor = {
+        userId: asUserId(user.userId as unknown as import("@avana/domain").UUID),
+        role: user.role,
+        globalRole: (user.globalRole as Role) ?? null,
+      };
       const courseId = parseCourseId(request.params.id);
       const result = await courseDraftService.rollbackRelease(
         actor,
@@ -3260,6 +3777,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       pageSize?: string;
       status?: string;
       search?: string;
+      courseId?: string;
     };
     const page = Math.max(1, query.page ? parseInt(query.page, 10) : 1);
     const pageSize = Math.max(
@@ -3270,6 +3788,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     const { items, totalCount } = await opts.coursePublicationStore.listAll({
       status: query.status,
       search: query.search,
+      courseId: query.courseId,
       page,
       limit: pageSize,
     });
@@ -3315,11 +3834,11 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
             quizQuestionsCount: 0,
             estimatedMinutes: 0,
           },
-          accessType: pub.metadata.accessType ?? "paid",
-          rejectionReason: pub.metadata.rejectionReason ?? null,
-          reviewedAt: pub.metadata.reviewedAt ?? null,
+          accessType: pub.metadata?.accessType ?? "paid",
+          rejectionReason: pub.metadata?.rejectionReason ?? null,
+          reviewedAt: pub.metadata?.reviewedAt ?? null,
           pricing: {
-            is_free: pub.metadata.accessType === "free",
+            is_free: pub.metadata?.accessType === "free",
             price: product?.price ?? 0,
             currency: product?.currency ?? "toman",
             product_id: product?.id ?? null,
@@ -3918,6 +4437,29 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
           request.log.error(
             notifErr,
             "Failed to send content report status notification",
+          );
+        }
+      }
+
+      // Emit audit event for content report status transition
+      if (opts.auditService) {
+        const reqUser = (request as unknown as { user?: { userId: string } }).user;
+        const actorId = reqUser?.userId ? asUserId(reqUser.userId as any) : (currentReport.userId as UserId);
+        try {
+          await opts.auditService.emit([
+            auditContentReportStatusChanged(
+              actorId,
+              id,
+              oldStatus,
+              newStatus,
+              currentReport.lessonId,
+              currentReport.courseId,
+            ),
+          ]);
+        } catch (auditErr) {
+          request.log.error(
+            auditErr,
+            "Failed to emit audit event for content report status change",
           );
         }
       }

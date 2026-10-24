@@ -394,9 +394,18 @@ describe("GenerationService", () => {
       const docId = randomUUID() as DocumentId;
       const doc = makeDocument({ id: docId }, organizationId);
       await documentStore.create(doc);
-      // Create 5 distinct chunks
-      const chunks = makeChunks(docId, organizationId, 5);
-      await chunkStore.createMany(chunks);
+      // Primary notes chunks (0 and 1)
+      const primaryChunks = makeChunks(docId, organizationId, 2);
+      await chunkStore.createMany(primaryChunks);
+
+      // Supplementary reference chunks (2, 3, 4)
+      const refDocId = randomUUID() as DocumentId;
+      const refDoc = makeDocument({ id: refDocId, originalName: "reference.pdf" }, organizationId);
+      await documentStore.create(refDoc);
+      const suppChunks = makeChunks(refDocId, organizationId, 3);
+      await chunkStore.createMany(suppChunks);
+
+      const chunks = [...primaryChunks, ...suppChunks];
 
       const capturedRequests: Array<{ prompt: string; schemaType?: string }> = [];
 
@@ -469,6 +478,10 @@ describe("GenerationService", () => {
 
       const res = await spyService.generateForDocument(actor, organizationId, docId, {
         types: ["lesson"],
+        sources: [
+          { documentId: docId, order: 0, role: "primary_notes" },
+          { documentId: refDocId, order: 1, role: "supplementary_reference" },
+        ],
       });
 
       // Filter Stage 2 requests (schemaType === "session")

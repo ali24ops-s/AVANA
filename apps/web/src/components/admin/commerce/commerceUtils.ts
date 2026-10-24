@@ -122,7 +122,8 @@ export function getSubscriptionStatusBadge(status: string) {
     case "active_pending_payment_review":
       return {
         label: "فعال (در انتظار بررسی)",
-        className: "bg-indigo-500/15 text-indigo-300 border border-indigo-500/30",
+        className:
+          "bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60",
       };
     case "expired":
       return {

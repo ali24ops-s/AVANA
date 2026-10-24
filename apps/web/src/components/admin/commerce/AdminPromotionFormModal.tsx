@@ -57,39 +57,50 @@ export function AdminPromotionFormModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const safeFormatDate = (val?: string | null): string => {
+    if (!val) return "";
+    try {
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return "";
+      return d.toISOString().split("T")[0];
+    } catch {
+      return "";
+    }
+  };
+
   useEffect(() => {
     if (promotionToEdit) {
-      setName(promotionToEdit.name);
-      setDescription(promotionToEdit.description || "");
-      setBenefitType(promotionToEdit.benefitType);
-      setBenefitValue(promotionToEdit.benefitValue);
-      setMaxDiscountAmount(promotionToEdit.maxDiscountAmount ?? "");
-      setMinOrderAmount(promotionToEdit.minOrderAmount ?? "");
-      setTotalUsageLimit(promotionToEdit.totalUsageLimit ?? "");
-      setPerUserUsageLimit(promotionToEdit.perUserUsageLimit ?? "");
-      setActive(promotionToEdit.active);
-      setStartsAt(
-        promotionToEdit.startsAt
-          ? new Date(promotionToEdit.startsAt).toISOString().split("T")[0]
-          : "",
-      );
-      setEndsAt(
-        promotionToEdit.endsAt
-          ? new Date(promotionToEdit.endsAt).toISOString().split("T")[0]
-          : "",
-      );
-      setInitialCode("");
+      const wrapped = promotionToEdit as unknown as { promotion?: AdminPromotionDetail };
+      const p = wrapped?.promotion || promotionToEdit;
+      setName(p.name || "");
+      setDescription(p.description || "");
+      setBenefitType(p.benefitType || "percentage_discount");
+      setBenefitValue(p.benefitValue ?? "");
+      setMaxDiscountAmount(p.maxDiscountAmount ?? "");
+      setMinOrderAmount(p.minOrderAmount ?? "");
+      setTotalUsageLimit(p.totalUsageLimit ?? "");
+      setPerUserUsageLimit(p.perUserUsageLimit ?? "");
+      setActive(Boolean(p.active));
+      setStartsAt(safeFormatDate(p.startsAt));
+      setEndsAt(safeFormatDate(p.endsAt));
+      const firstCode = p.codes && p.codes.length > 0 ? p.codes[0].code : ((p as unknown as { primaryCode?: string }).primaryCode || "");
+      setInitialCode(firstCode || "");
 
-      if (promotionToEdit.productRestrictions && promotionToEdit.productRestrictions.length > 0) {
-        const first = promotionToEdit.productRestrictions[0];
+      const productRestrictions = p.productRestrictions || promotionToEdit.productRestrictions;
+      if (productRestrictions && productRestrictions.length > 0) {
+        const first = productRestrictions[0];
         setProductTypeRestriction(first.productType || "all");
       } else {
         setProductTypeRestriction("all");
       }
 
-      if (promotionToEdit.userRestrictions && promotionToEdit.userRestrictions.length > 0) {
+      const userRestrictions = p.userRestrictions || promotionToEdit.userRestrictions;
+      if (userRestrictions && userRestrictions.length > 0) {
         setUserRestrictionsText(
-          promotionToEdit.userRestrictions.map((u) => u.userId).join("\n"),
+          userRestrictions
+            .map((u: { userEmail?: string; userId: string }) => u.userEmail || u.userId)
+            .filter(Boolean)
+            .join("\n"),
         );
       } else {
         setUserRestrictionsText("");
@@ -149,9 +160,31 @@ export function AdminPromotionFormModal({
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
 
+    const formatStartsAt = (val: string): string | null => {
+      if (!val) return null;
+      try {
+        return new Date(`${val}T00:00:00.000Z`).toISOString();
+      } catch {
+        return null;
+      }
+    };
+
+    const formatEndsAt = (val: string): string | null => {
+      if (!val) return null;
+      try {
+        return new Date(`${val}T23:59:59.999Z`).toISOString();
+      } catch {
+        return null;
+      }
+    };
+
     setIsSubmitting(true);
     try {
-      if (isEdit && promotionToEdit) {
+      const wrapped = promotionToEdit as unknown as { promotion?: AdminPromotionDetail };
+      const p = wrapped?.promotion || promotionToEdit;
+      const targetId = p?.id;
+
+      if (isEdit && targetId) {
         const payload: UpdateAdminPromotionInput = {
           name: name.trim(),
           description: description.trim() || null,
@@ -162,12 +195,12 @@ export function AdminPromotionFormModal({
           totalUsageLimit: totalUsageLimit !== "" ? Number(totalUsageLimit) : null,
           perUserUsageLimit: perUserUsageLimit !== "" ? Number(perUserUsageLimit) : null,
           active,
-          startsAt: startsAt ? new Date(startsAt).toISOString() : null,
-          endsAt: endsAt ? new Date(endsAt).toISOString() : null,
+          startsAt: formatStartsAt(startsAt),
+          endsAt: formatEndsAt(endsAt),
           productRestrictions,
           userRestrictions,
         };
-        await adminApi.updateCommercePromotion(promotionToEdit.id, payload);
+        await adminApi.updateCommercePromotion(targetId, payload);
       } else {
         const payload: CreateAdminPromotionInput = {
           name: name.trim(),
@@ -179,8 +212,8 @@ export function AdminPromotionFormModal({
           totalUsageLimit: totalUsageLimit !== "" ? Number(totalUsageLimit) : null,
           perUserUsageLimit: perUserUsageLimit !== "" ? Number(perUserUsageLimit) : null,
           active,
-          startsAt: startsAt ? new Date(startsAt).toISOString() : null,
-          endsAt: endsAt ? new Date(endsAt).toISOString() : null,
+          startsAt: formatStartsAt(startsAt),
+          endsAt: formatEndsAt(endsAt),
           code: initialCode.trim() || undefined,
           productRestrictions,
           userRestrictions,

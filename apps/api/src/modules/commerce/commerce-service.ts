@@ -254,6 +254,7 @@ export class CommerceService {
       }
     }
 
+    try {
     const now = new Date().toISOString();
     const orderId = asOrderId(randomUUID());
     const paymentId = asPaymentId(randomUUID());
@@ -539,12 +540,21 @@ export class CommerceService {
       ]);
     }
 
-    return {
-      order_id: orderId,
-      payment_id: paymentId,
-      payment_url: gatewayResult.redirectUrl,
-      authority: gatewayResult.authority,
-    };
+      return {
+        order_id: orderId,
+        payment_id: paymentId,
+        payment_url: gatewayResult.redirectUrl,
+        authority: gatewayResult.authority,
+      };
+    } catch (err) {
+      if (promoEvalResult && this.promotionService) {
+        await this.promotionService.cancelPromotionRedemptionById?.(
+          promoEvalResult.redemptionId,
+          "initiate_payment_failed",
+        ).catch(() => {});
+      }
+      throw err;
+    }
   }
 
   /**
@@ -1006,6 +1016,7 @@ export class CommerceService {
       }
     }
 
+    try {
     if (product.type === "wallet_topup") {
       payableAmount = input.amount;
       if (!input.amount || !Number.isInteger(input.amount) || input.amount <= 0) {
@@ -1308,6 +1319,15 @@ export class CommerceService {
             ? "پرداخت شما ثبت شد و اشتراک شما فعال شده است. اطلاعات پرداخت برای بررسی نهایی ارسال شد."
             : "پرداخت شما ثبت شد و دسترسی فعال گردید. اطلاعات پرداخت برای بررسی نهایی ارسال شد.",
     };
+    } catch (err) {
+      if (promoEvalResult && this.promotionService) {
+        await this.promotionService.cancelPromotionRedemptionById?.(
+          promoEvalResult.redemptionId,
+          "card_to_card_submission_failed",
+        ).catch(() => {});
+      }
+      throw err;
+    }
   }
 
   /**

@@ -101,7 +101,7 @@ export function AdminTeachersPage() {
     <div className="space-y-6 font-sans text-[var(--color-text)]" dir="rtl">
       {/* Page Header & Quick Action */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="space-y-1 text-center sm:text-right">
+        <div className="space-y-1 text-start min-w-0 flex-1">
           <h1 className="text-2xl font-bold text-[var(--color-text)]">
             مدیریت اساتید
           </h1>
@@ -110,7 +110,7 @@ export function AdminTeachersPage() {
           </p>
         </div>
 
-        <div className="flex items-center justify-center sm:justify-end gap-3 shrink-0">
+        <div className="flex items-center justify-start sm:justify-end gap-3 shrink-0">
           <Link
             to="/teacher"
             className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] rounded-xl text-sm font-semibold transition-all shadow-sm cursor-pointer"
@@ -124,12 +124,12 @@ export function AdminTeachersPage() {
       </div>
 
       {/* Summary KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 sm:p-5 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] flex items-center justify-center shrink-0">
-            <GraduationCap className="w-6 h-6" />
+      <div className="grid grid-cols-1 min-[380px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="p-3.5 sm:p-5 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-sm flex items-center gap-3 sm:gap-4">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] flex items-center justify-center shrink-0">
+            <GraduationCap className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <span className="text-xs text-[var(--color-text-muted)] block font-medium">
               کل اساتید
             </span>
@@ -139,11 +139,11 @@ export function AdminTeachersPage() {
           </div>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-600 flex items-center justify-center shrink-0">
-            <Layers className="w-6 h-6" />
+        <div className="p-3.5 sm:p-5 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-sm flex items-center gap-3 sm:gap-4">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-indigo-500/10 text-indigo-600 flex items-center justify-center shrink-0">
+            <Layers className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <span className="text-xs text-[var(--color-text-muted)] block font-medium">
               کلاس‌ها
             </span>
@@ -153,11 +153,11 @@ export function AdminTeachersPage() {
           </div>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-600 flex items-center justify-center shrink-0">
-            <FileText className="w-6 h-6" />
+        <div className="p-3.5 sm:p-5 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-sm flex items-center gap-3 sm:gap-4">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-blue-500/10 text-blue-600 flex items-center justify-center shrink-0">
+            <FileText className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <span className="text-xs text-[var(--color-text-muted)] block font-medium">
               آزمون‌ها
             </span>
@@ -167,11 +167,11 @@ export function AdminTeachersPage() {
           </div>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0">
-            <Users className="w-6 h-6" />
+        <div className="p-3.5 sm:p-5 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-sm flex items-center gap-3 sm:gap-4">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0">
+            <Users className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <span className="text-xs text-[var(--color-text-muted)] block font-medium">
               دانشجویان
             </span>
@@ -285,7 +285,7 @@ export function AdminTeachersPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-right text-xs" aria-label="جدول مدیریت اساتید">
+                <table className="w-full min-w-[700px] text-right text-xs" aria-label="جدول مدیریت اساتید">
                   <thead className="bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border-b border-[var(--color-border)] font-semibold select-none">
                     <tr>
                       <th className="py-3.5 px-4 sm:px-6">استاد</th>
@@ -316,6 +316,11 @@ export function AdminTeachersPage() {
                               <span className="text-[11px] text-[var(--color-text-muted)] font-mono block truncate">
                                 {teacher.email}
                               </span>
+                              {teacher.university && (
+                                <span className="text-[11px] text-[#008080] font-medium block truncate">
+                                  {teacher.university}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </td>

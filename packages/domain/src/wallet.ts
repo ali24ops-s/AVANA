@@ -60,7 +60,8 @@ export type WalletTransactionSource =
   | "special_exam_refund"
   | "admin_adjustment"
   | "promotion_cashback"
-  | "referral_reward";
+  | "referral_reward"
+  | "welcome_gift";
 
 export const WALLET_TRANSACTION_SOURCES: readonly WalletTransactionSource[] = [
   "subscription_bonus",
@@ -72,6 +73,7 @@ export const WALLET_TRANSACTION_SOURCES: readonly WalletTransactionSource[] = [
   "admin_adjustment",
   "promotion_cashback",
   "referral_reward",
+  "welcome_gift",
 ] as const;
 
 export function isWalletTransactionSource(
@@ -89,7 +91,8 @@ export type WalletReferenceType =
   | "system"
   | "promotion"
   | "referral"
-  | "special_exam";
+  | "special_exam"
+  | "welcome_gift";
 
 export const WALLET_REFERENCE_TYPES: readonly WalletReferenceType[] = [
   "order",
@@ -101,6 +104,7 @@ export const WALLET_REFERENCE_TYPES: readonly WalletReferenceType[] = [
   "promotion",
   "referral",
   "special_exam",
+  "welcome_gift",
 ] as const;
 
 export function isWalletReferenceType(v: string): v is WalletReferenceType {

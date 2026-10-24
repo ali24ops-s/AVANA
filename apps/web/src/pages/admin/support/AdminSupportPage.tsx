@@ -27,6 +27,7 @@ import {
 } from "../../../components/support/supportUiHelpers.js";
 import { TicketConversationModal } from "../../../components/support/TicketConversationModal.js";
 import { FeedbackDetailModal } from "../../../components/support/FeedbackDetailModal.js";
+import { AdminContentReportsPanel } from "../../../components/admin/reports/AdminContentReportsPanel.js";
 import {
   useAdminFeedbacks,
   useAdminTickets,
@@ -42,10 +43,11 @@ import type {
 } from "@avana/domain";
 import { toPersianDigits, formatPersianOf } from "@avana/domain";
 
-type AdminSupportTab = "tickets" | "feedback";
+type AdminSupportTab = "tickets" | "feedback" | "reports";
 
 export function AdminSupportPage() {
   const [activeTab, setActiveTab] = useState<AdminSupportTab>("tickets");
+  const [reportsCount, setReportsCount] = useState<number | null>(null);
 
   // Ticket filters & pagination
   const [ticketCategory, setTicketCategory] = useState<string>("all");
@@ -111,11 +113,11 @@ export function AdminSupportPage() {
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] self-start sm:self-auto text-xs font-semibold">
+        <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] self-start sm:self-auto text-xs font-semibold overflow-x-auto no-scrollbar max-w-full w-full sm:w-auto">
           <button
             type="button"
             onClick={() => setActiveTab("tickets")}
-            className={`px-4 py-2 rounded-xl transition-all ${
+            className={`px-4 py-2 rounded-xl transition-all whitespace-nowrap shrink-0 ${
               activeTab === "tickets"
                 ? "bg-[var(--color-surface)] text-primary shadow-sm font-bold"
                 : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
@@ -126,13 +128,24 @@ export function AdminSupportPage() {
           <button
             type="button"
             onClick={() => setActiveTab("feedback")}
-            className={`px-4 py-2 rounded-xl transition-all ${
+            className={`px-4 py-2 rounded-xl transition-all whitespace-nowrap shrink-0 ${
               activeTab === "feedback"
                 ? "bg-[var(--color-surface)] text-primary shadow-sm font-bold"
                 : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
             }`}
           >
             پیشنهادات و بازخوردها ({toPersianDigits(feedbacksData?.total ?? 0)})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("reports")}
+            className={`px-4 py-2 rounded-xl transition-all whitespace-nowrap shrink-0 ${
+              activeTab === "reports"
+                ? "bg-[var(--color-surface)] text-primary shadow-sm font-bold"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            }`}
+          >
+            گزارش اشکالات محتوا {reportsCount !== null && `(${toPersianDigits(reportsCount)})`}
           </button>
         </div>
       </div>
@@ -548,6 +561,13 @@ export function AdminSupportPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ------------------------------------------------------------------- */}
+      {/* TAB 3: CONTENT REPORTS */}
+      {/* ------------------------------------------------------------------- */}
+      {activeTab === "reports" && (
+        <AdminContentReportsPanel onCountChange={setReportsCount} />
       )}
 
       {/* Admin Conversation Modal */}

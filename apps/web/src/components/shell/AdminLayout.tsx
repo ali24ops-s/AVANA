@@ -44,8 +44,10 @@ export function AdminLayout() {
     );
   }
 
-  // 1. Overall Admin/Workspace Access Check (platform_admin, content_worker, organization_admin, course_editor)
-  if (!user || !isContentManagerOrAdmin(user, memberships)) {
+  const isSupport = user?.role === "support_agent" || memberships?.some((m) => m.role === "support_agent");
+
+  // 1. Overall Admin/Workspace Access Check (platform_admin, content_worker, organization_admin, course_editor, support_agent)
+  if (!user || (!isContentManagerOrAdmin(user, memberships) && !isSupport)) {
     return <Navigate to="/home" replace />;
   }
 
@@ -53,8 +55,19 @@ export function AdminLayout() {
   const isContentWorker = user.role === "content_worker";
   const pathname = location.pathname;
 
-  // 2. Sub-route authorization for course editors & non-platform admins
-  if (!isPlatformAdmin) {
+  // 2. Sub-route authorization for support agent & other non-platform admins
+  if (isSupport && !isPlatformAdmin) {
+    if (pathname === "/admin" || pathname === "/admin/" || pathname === "/admin/dashboard") {
+      return <Navigate to="/admin/support" replace />;
+    }
+    const isAllowedSupportArea =
+      pathname === "/admin/support" ||
+      pathname.startsWith("/admin/support/");
+
+    if (!isAllowedSupportArea) {
+      return <Navigate to="/admin/support" replace />;
+    }
+  } else if (!isPlatformAdmin) {
     // If accessing root admin or platform-admin-only dashboard, redirect to primary workspace
     if (pathname === "/admin" || pathname === "/admin/" || pathname === "/admin/dashboard") {
       return <Navigate to="/admin/courses" replace />;
@@ -92,8 +105,8 @@ export function AdminLayout() {
         <AdminHeader onOpenMobileMenu={handleOpenMobile} />
 
         {/* Content Area */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-          <div className="max-w-7xl mx-auto">
+        <main className="flex-1 overflow-y-auto p-3.5 sm:p-6 lg:p-8">
+          <div className="max-w-7xl mx-auto w-full min-w-0">
             <Outlet />
           </div>
         </main>

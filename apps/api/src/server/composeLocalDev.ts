@@ -39,6 +39,7 @@ import {
 import { InMemoryGenerationProgressStore } from "../modules/generation/generation-progress-store.js";
 import { GenerationProgressService } from "../modules/generation/generation-progress-service.js";
 import { InMemoryQuestionPatternStore } from "../modules/generation/question-patterns-store.js";
+import { InMemorySourcePackStore } from "../modules/source-packs/index.js";
 import {
   InMemoryFlashcardStore,
   InMemoryFlashcardReviewStore,
@@ -333,6 +334,7 @@ export async function composeLocalDev(
     teacherExamAttemptStore,
     teacherExamAttemptAnswerStore,
     questionPatternStore: new InMemoryQuestionPatternStore(),
+    sourcePackStore: new InMemorySourcePackStore(),
   };
 
   // Seed demo data for local development — awaited before routes register

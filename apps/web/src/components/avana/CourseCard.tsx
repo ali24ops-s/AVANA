@@ -156,82 +156,116 @@ function CourseHeaderRow({
   const price = access?.price ?? 0;
   const hasAccess = access?.hasAccess ?? true;
 
+  const showGraduationCap = !hasCoverImage && variant !== "my-courses";
+  const showSubjectBadge = !hasCoverImage && Boolean(subject);
+  const showInProgressBadge = learningStatus === "in_progress" && variant !== "my-courses";
+  const showCompletedBadge = learningStatus === "completed" || Boolean(isCompleted);
+  const showNotStartedBadge = learningStatus === "not_started" && variant === "library";
+
+  const hasStartContent = showGraduationCap || showSubjectBadge;
+  const hasEndContent = Boolean(
+    showCompletedBadge ||
+    showInProgressBadge ||
+    showNotStartedBadge ||
+    isPurchased ||
+    isSubscription ||
+    isFree ||
+    price > 0 ||
+    !hasAccess ||
+    archived ||
+    onDelete,
+  );
+
+  if (!hasStartContent && !hasEndContent) {
+    return null;
+  }
+
   return (
-    <div className="flex items-start justify-between gap-2 mb-3">
-      {/* Subject & Icon */}
-      <div className="flex flex-wrap items-center gap-2 min-w-0">
-        {!hasCoverImage && (
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-primary/30 bg-primary/10 text-primary transition-transform group-hover:scale-105">
-            <GraduationCap className="h-5 w-5" />
-          </div>
-        )}
-        {!hasCoverImage && subject && (
-          <Badge variant="primary" size="sm">
-            {subject}
-          </Badge>
-        )}
-      </div>
+    <div
+      className={`flex justify-between gap-2 mb-3 ${
+        variant === "my-courses" ? "items-center min-h-[1.75rem]" : "items-start"
+      }`}
+    >
+      {/* Subject & Optional Icon */}
+      {hasStartContent ? (
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          {showGraduationCap && (
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-primary/30 bg-primary/10 text-primary transition-transform group-hover:scale-105">
+              <GraduationCap className="h-5 w-5" />
+            </div>
+          )}
+          {showSubjectBadge && (
+            <Badge variant="primary" size="sm">
+              {subject}
+            </Badge>
+          )}
+        </div>
+      ) : (
+        <div />
+      )}
 
       {/* Badges & Optional Delete Action */}
-      <div className="flex flex-wrap items-center gap-1.5 justify-end">
-        {learningStatus === "completed" || isCompleted ? (
-          <Badge variant="success" size="sm" icon={<CheckCircle2 className="h-3 w-3" />}>
-            تکمیل شده
-          </Badge>
-        ) : learningStatus === "in_progress" ? (
-          <Badge variant="primary" size="sm" icon={<Clock className="h-3 w-3" />}>
-            در حال یادگیری
-          </Badge>
-        ) : learningStatus === "not_started" && variant === "library" ? (
-          <Badge variant="neutral" size="sm">
-            شروع نشده
-          </Badge>
-        ) : null}
+      {hasEndContent && (
+        <div className="flex flex-wrap items-center gap-1.5 justify-end ms-auto">
+          {showCompletedBadge ? (
+            <Badge variant="success" size="sm" icon={<CheckCircle2 className="h-3 w-3" />}>
+              تکمیل شده
+            </Badge>
+          ) : showInProgressBadge ? (
+            <Badge variant="primary" size="sm" icon={<Clock className="h-3 w-3" />}>
+              در حال یادگیری
+            </Badge>
+          ) : showNotStartedBadge ? (
+            <Badge variant="neutral" size="sm">
+              شروع نشده
+            </Badge>
+          ) : null}
 
-        {isPurchased ? (
-          <Badge variant="success" size="sm" icon={<CheckCircle2 className="h-3 w-3" />}>
-            خریداری شده
-          </Badge>
-        ) : isSubscription ? (
-          <Badge variant="primary" size="sm" icon={<Zap className="h-3 w-3" />}>
-            در دسترس با اشتراک شما
-          </Badge>
-        ) : isFree ? (
-          <Badge variant="info" size="sm" icon={<Sparkles className="h-3 w-3" />}>
-            رایگان
-          </Badge>
-        ) : price > 0 ? (
-          <Badge variant="warning" size="sm" icon={<Lock className="h-3 w-3" />}>
-            {formatToman(price)}
-          </Badge>
-        ) : !hasAccess ? (
-          <Badge variant="warning" size="sm" icon={<Lock className="h-3 w-3" />}>
-            ویژه
-          </Badge>
-        ) : null}
+          {isPurchased ? (
+            <Badge variant="success" size="sm" icon={<CheckCircle2 className="h-3 w-3" />}>
+              خریداری شده
+            </Badge>
+          ) : isSubscription ? (
+            <Badge variant="primary" size="sm" icon={<Zap className="h-3 w-3" />}>
+              در دسترس با اشتراک شما
+            </Badge>
+          ) : isFree ? (
+            <Badge variant="info" size="sm" icon={<Sparkles className="h-3 w-3" />}>
+              رایگان
+            </Badge>
+          ) : price > 0 ? (
+            <Badge variant="warning" size="sm" icon={<Lock className="h-3 w-3" />}>
+              {formatToman(price)}
+            </Badge>
+          ) : !hasAccess ? (
+            <Badge variant="warning" size="sm" icon={<Lock className="h-3 w-3" />}>
+              ویژه
+            </Badge>
+          ) : null}
 
-        {archived && (
-          <Badge variant="warning" size="sm">
-            بایگانی شده
-          </Badge>
-        )}
+          {archived && (
+            <Badge variant="warning" size="sm">
+              بایگانی شده
+            </Badge>
+          )}
 
-        {onDelete && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onDelete();
-            }}
-            className="!p-1.5 !h-auto text-[var(--color-text-muted)] hover:text-red-500 hover:bg-red-500/10 rounded-[8px]"
-            title="حذف از دوره‌های من"
-            aria-label="حذف از دوره‌های من"
-            leftIcon={<Trash2 className="w-4 h-4" />}
-          />
-        )}
-      </div>
+          {onDelete && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="!p-1.5 !h-auto text-[var(--color-text-muted)] hover:text-red-500 hover:bg-red-500/10 rounded-[8px]"
+              title="حذف از دوره‌های من"
+              aria-label="حذف از دوره‌های من"
+              leftIcon={<Trash2 className="w-4 h-4" />}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -347,7 +381,7 @@ export function CourseCard({
               variant === "compact"
                 ? "text-sm line-clamp-2 min-h-[2.5rem] leading-snug"
                 : variant === "my-courses"
-                ? "text-base line-clamp-1 leading-snug"
+                ? "text-base line-clamp-2 min-h-[2.75rem] leading-snug"
                 : "text-base line-clamp-2 leading-snug"
             }`}
             title={cleanTitle}

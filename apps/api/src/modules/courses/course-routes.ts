@@ -77,12 +77,36 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
   const courseService = new CourseService(
     courseStore,
     async (actor, organizationId) => {
-      if (actor.role === "platform_admin") {
+      if (
+        actor.role === "platform_admin" ||
+        actor.globalRole === "platform_admin"
+      ) {
         const org = await organizationStore.findById(organizationId);
         if (!org) {
           throw new DomainError("not_found", "Organization not found");
         }
         return { role: "platform_admin" };
+      }
+      if (
+        actor.role === "course_editor" ||
+        actor.globalRole === "course_editor"
+      ) {
+        const org = await organizationStore.findById(organizationId);
+        if (!org) {
+          throw new DomainError("not_found", "Organization not found");
+        }
+        return { role: "course_editor" };
+      }
+      if (
+        systemOrganizationId &&
+        organizationId === systemOrganizationId &&
+        actor.globalRole === "content_worker"
+      ) {
+        const org = await organizationStore.findById(organizationId);
+        if (!org) {
+          throw new DomainError("not_found", "Organization not found");
+        }
+        return { role: "content_worker" };
       }
       const membership = await organizationStore.findMembership(
         organizationId,

@@ -208,7 +208,10 @@ export class LearningService {
     const isPrivilegedAdmin =
       fullActor.globalRole === "platform_admin" ||
       fullActor.role === "platform_admin" ||
-      fullActor.role === "organization_admin";
+      fullActor.role === "organization_admin" ||
+      fullActor.role === "course_editor" ||
+      fullActor.role === "content_worker" ||
+      fullActor.globalRole === "content_worker";
     if (
       course.isOfficial === true &&
       course.status !== "published" &&
@@ -234,7 +237,9 @@ export class LearningService {
     const moduleIds = activeModules.map((m) => m.id);
     const allLessons = await this.lessonStore.listByModules(moduleIds);
     const activeLessons = allLessons.filter(
-      (l) => l.deletedAt === null && l.publicationStatus === "published",
+      (l) =>
+        l.deletedAt === null &&
+        (l.publicationStatus === "published" || isPrivilegedAdmin),
     );
 
     // 6. Load user's lesson progress for this course

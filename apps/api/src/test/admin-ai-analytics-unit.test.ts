@@ -80,6 +80,7 @@ describe("DrizzleAdminStore getAiAnalytics - Unit & Edge Case Tests", () => {
         successful: 0,
         failed: 0,
         processing: 0,
+        queued: 0,
         successRate: 0,
         averageDurationMs: 0,
       },
@@ -108,6 +109,7 @@ describe("DrizzleAdminStore getAiAnalytics - Unit & Edge Case Tests", () => {
                   successful: 8,
                   failed: 1,
                   processing: 1,
+                  queued: 0,
                   averageDurationMs: 2450.5,
                 },
               ]),
@@ -145,7 +147,9 @@ describe("DrizzleAdminStore getAiAnalytics - Unit & Edge Case Tests", () => {
     expect(res.overview.successful).toBe(8);
     expect(res.overview.failed).toBe(1);
     expect(res.overview.processing).toBe(1);
-    expect(res.overview.successRate).toBe(80);
+    expect(res.overview.queued).toBe(0);
+    // 8 successful / (8 successful + 1 failed) * 100 = 88.9%
+    expect(res.overview.successRate).toBe(88.9);
     expect(res.overview.averageDurationMs).toBe(2450.5);
 
     expect(res.byType).toEqual({
@@ -193,5 +197,98 @@ describe("DrizzleAdminStore getAiAnalytics - Unit & Edge Case Tests", () => {
     expect(res.overview.averageDurationMs).toBe(0);
     expect(res.byType).toEqual({});
     expect(res.tokens.available).toBe(false);
+  });
+
+  it("Scenario 4: Active jobs in queue or running with 0 failures does not show 0% failure indication", async () => {
+    let callCount = 0;
+    const mockDb = {
+      select: vi.fn().mockImplementation(() => ({
+        from: vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            return {
+              where: vi.fn().mockResolvedValue([
+                {
+                  totalJobs: 5,
+                  successful: 0,
+                  failed: 0,
+                  processing: 2,
+                  queued: 3,
+                  averageDurationMs: 0,
+                },
+              ]),
+            };
+          } else if (callCount === 2) {
+            return {
+              where: vi.fn().mockReturnValue({
+                groupBy: vi.fn().mockResolvedValue([]),
+              }),
+            };
+          } else {
+            return {
+              where: vi.fn().mockResolvedValue([
+                { tokenRecordsCount: 0, totalInput: 0, totalOutput: 0 },
+              ]),
+            };
+          }
+        }),
+      })),
+    };
+
+    const store = new DrizzleAdminStore(mockDb as unknown as DbClient["db"]);
+    const res = await store.getAiAnalytics();
+
+    expect(res.overview.totalJobs).toBe(5);
+    expect(res.overview.successful).toBe(0);
+    expect(res.overview.failed).toBe(0);
+    expect(res.overview.processing).toBe(2);
+    expect(res.overview.queued).toBe(3);
+    // Because no jobs have finished yet, successRate is 0 (displayed as "بدون داده" in the UI)
+    expect(res.overview.successRate).toBe(0);
+  });
+
+  it("Scenario 5: All finished jobs failed yields 0% success rate", async () => {
+    let callCount = 0;
+    const mockDb = {
+      select: vi.fn().mockImplementation(() => ({
+        from: vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            return {
+              where: vi.fn().mockResolvedValue([
+                {
+                  totalJobs: 3,
+                  successful: 0,
+                  failed: 3,
+                  processing: 0,
+                  queued: 0,
+                  averageDurationMs: 1200,
+                },
+              ]),
+            };
+          } else if (callCount === 2) {
+            return {
+              where: vi.fn().mockReturnValue({
+                groupBy: vi.fn().mockResolvedValue([]),
+              }),
+            };
+          } else {
+            return {
+              where: vi.fn().mockResolvedValue([
+                { tokenRecordsCount: 0, totalInput: 0, totalOutput: 0 },
+              ]),
+            };
+          }
+        }),
+      })),
+    };
+
+    const store = new DrizzleAdminStore(mockDb as unknown as DbClient["db"]);
+    const res = await store.getAiAnalytics();
+
+    expect(res.overview.totalJobs).toBe(3);
+    expect(res.overview.successful).toBe(0);
+    expect(res.overview.failed).toBe(3);
+    expect(res.overview.successRate).toBe(0);
   });
 });

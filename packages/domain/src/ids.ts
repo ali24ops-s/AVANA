@@ -694,3 +694,42 @@ export function parseQuestionPatternExampleId(
   }
   return value as QuestionPatternExampleId;
 }
+
+export type SourcePackId = Brand<UUID, "sourcePackId">;
+export type SourcePackDocumentId = Brand<UUID, "sourcePackDocumentId">;
+
+export function asSourcePackId(id: UUID): SourcePackId {
+  return id as SourcePackId;
+}
+
+export function isSourcePackId(value: string): value is SourcePackId {
+  return isUUID(value);
+}
+
+export function parseSourcePackId(
+  value: string,
+  fieldName = "sourcePackId",
+): SourcePackId {
+  if (!isSourcePackId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as SourcePackId;
+}
+
+export function asSourcePackDocumentId(id: UUID): SourcePackDocumentId {
+  return id as SourcePackDocumentId;
+}
+
+export function isSourcePackDocumentId(value: string): value is SourcePackDocumentId {
+  return isUUID(value);
+}
+
+export function parseSourcePackDocumentId(
+  value: string,
+  fieldName = "sourcePackDocumentId",
+): SourcePackDocumentId {
+  if (!isSourcePackDocumentId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as SourcePackDocumentId;
+}

@@ -49,31 +49,52 @@ function createMockCoursesDb(
   courses: Array<{ id: string; name: string; subject: string | null; createdAt: Date }>,
   quizCounts: Array<{ courseId: string; count: number }>,
 ) {
-  const chain = {
-    where: () => ({
-      groupBy: () => Promise.resolve(quizCounts),
-      limit: () => ({
-        offset: () => ({
-          orderBy: () => Promise.resolve(courses),
-        }),
-      }),
-      then: (resolve: (val: unknown) => void) => resolve([{ count: courses.length }]),
-    }),
-    innerJoin: () => ({
-      where: () => ({
-        groupBy: () => Promise.resolve([]),
-      }),
-    }),
-    limit: () => ({
+  const makeQuery = (isCountSelect = false) => {
+    const promise = Promise.resolve([]) as any;
+    promise.groupBy = () => Promise.resolve(quizCounts);
+    promise.orderBy = () => Promise.resolve([]);
+    promise.limit = () => ({
       offset: () => ({
         orderBy: () => Promise.resolve(courses),
       }),
-    }),
+    });
+    promise.where = () => {
+      const p = Promise.resolve(isCountSelect ? [{ count: courses.length }] : []) as any;
+      p.groupBy = () => Promise.resolve(quizCounts);
+      p.orderBy = () => Promise.resolve([]);
+      p.limit = () => ({
+        offset: () => ({
+          orderBy: () => Promise.resolve(courses),
+        }),
+      });
+      return p;
+    };
+    promise.innerJoin = () => {
+      const p = Promise.resolve([]) as any;
+      p.where = () => {
+        const w = Promise.resolve([]) as any;
+        w.groupBy = () => Promise.resolve([]);
+        return w;
+      };
+      return p;
+    };
+    promise.leftJoin = () => {
+      const p = Promise.resolve([]) as any;
+      p.where = () => {
+        const w = Promise.resolve([]) as any;
+        w.groupBy = () => Promise.resolve([]);
+        return w;
+      };
+      return p;
+    };
+    return promise;
   };
+
   return {
-    select: () => ({
-      from: () => chain,
+    select: (fields?: any) => ({
+      from: () => makeQuery(Boolean(fields && "count" in fields)),
     }),
+    execute: async () => [{ official_count: 0, teacher_count: 0, user_count: 0 }],
   } as unknown as DbClient["db"];
 }
 

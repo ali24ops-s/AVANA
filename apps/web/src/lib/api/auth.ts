@@ -96,6 +96,8 @@ export function createAuthApi(client: ApiClient) {
       university?: string,
       faculty?: string,
       department?: string,
+      role?: string,
+      autoSendVerification?: boolean,
     ): Promise<RegisterResponse> {
       const body: RegisterRequest = {
         email,
@@ -109,6 +111,8 @@ export function createAuthApi(client: ApiClient) {
         university,
         faculty,
         department,
+        role,
+        autoSendVerification,
       };
       return client.post<RegisterResponse>("/v1/auth/register", body);
     },

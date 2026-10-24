@@ -7,6 +7,10 @@ import { AskAvanaSelectionDialog } from "../components/study/AskAvanaSelectionDi
 import { ExplainSimplyDialog } from "../components/study/ExplainSimplyDialog.js";
 import { LessonNoteDialog } from "../components/study/LessonNoteDialog.js";
 import { ReportIssueDialog } from "../components/study/ReportIssueDialog.js";
+import {
+  StudyAssistantChat,
+  type AssistantPendingAction,
+} from "../components/ai/StudyAssistantChat.js";
 import type { TextSelectionData } from "../hooks/useTextSelection.js";
 
 const createTestQueryClient = () =>
@@ -1523,6 +1527,652 @@ describe("Lesson Text Interaction & Selection Feature Suite", () => {
         expect(mark).toBeInTheDocument();
         expect(mark?.textContent).toBe("نیمه‌عمر");
       });
+    });
+  });
+
+  describe("9. Unified Selection Action & Assistant Side Panel Integration", () => {
+    it("1 & 5. clicks 'از آوانا بپرس' without opening independent modal, preserving selected text after browser selection clears", async () => {
+      const onAskAvana = vi.fn();
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-1"
+            lessonTitle="فارماکولوژی پنی‌سیلین‌ها"
+            content="پنی‌سیلین‌ها بر دیواره سلولی اثر می‌گذارند."
+            onAskAvana={onAskAvana}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Trigger selection with valid Range bounding rect
+      const p = container.querySelector("p");
+      if (p && p.firstChild) {
+        const range = document.createRange();
+        range.setStart(p.firstChild, 0);
+        range.setEnd(p.firstChild, 12);
+        range.getBoundingClientRect = () =>
+          ({
+            width: 150,
+            height: 20,
+            top: 100,
+            bottom: 120,
+            left: 50,
+            right: 200,
+            x: 50,
+            y: 100,
+            toJSON: () => {},
+          }) as DOMRect;
+        const mockSel = {
+          rangeCount: 1,
+          isCollapsed: false,
+          getRangeAt: () => range,
+          toString: () => "پنی‌سیلین‌ها",
+          removeAllRanges: vi.fn(),
+          addRange: vi.fn(),
+        };
+        vi.spyOn(window, "getSelection").mockReturnValue(mockSel as unknown as Selection);
+        document.dispatchEvent(new Event("selectionchange"));
+      }
+
+      const askBtn = await screen.findByText("از آوانا بپرس");
+      fireEvent.click(askBtn.closest("button") || askBtn);
+
+      // Expect callback called with preserved selection text
+      expect(onAskAvana).toHaveBeenCalledTimes(1);
+      const callArg = onAskAvana.mock.calls[0][0];
+      expect(callArg.selectedText).toContain("پنی‌سیلین‌ها");
+
+      // Verify no modal dialog was opened
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByLabelText("از آوانا بپرس درباره متن انتخاب‌شده")).toBeNull();
+    });
+
+    it("2 & 5. clicks 'توضیح ساده' without opening independent modal, preserving selected text after clearing", async () => {
+      const onExplainSimply = vi.fn();
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-1"
+            lessonTitle="فارماکولوژی پنی‌سیلین‌ها"
+            content="پنی‌سیلین‌ها بر دیواره سلولی باکتری اثر می‌گذارند."
+            onExplainSimply={onExplainSimply}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Trigger selection with valid Range bounding rect
+      const p = container.querySelector("p");
+      if (p && p.firstChild) {
+        const range = document.createRange();
+        range.setStart(p.firstChild, 0);
+        range.setEnd(p.firstChild, 12);
+        range.getBoundingClientRect = () =>
+          ({
+            width: 150,
+            height: 20,
+            top: 100,
+            bottom: 120,
+            left: 50,
+            right: 200,
+            x: 50,
+            y: 100,
+            toJSON: () => {},
+          }) as DOMRect;
+        const mockSel = {
+          rangeCount: 1,
+          isCollapsed: false,
+          getRangeAt: () => range,
+          toString: () => "پنی‌سیلین‌ها",
+          removeAllRanges: vi.fn(),
+          addRange: vi.fn(),
+        };
+        vi.spyOn(window, "getSelection").mockReturnValue(mockSel as unknown as Selection);
+        document.dispatchEvent(new Event("selectionchange"));
+      }
+
+      const explainBtn = await screen.findByText("توضیح ساده");
+      fireEvent.click(explainBtn.closest("button") || explainBtn);
+
+      // Expect callback called with preserved selection text
+      expect(onExplainSimply).toHaveBeenCalledTimes(1);
+      const callArg = onExplainSimply.mock.calls[0][0];
+      expect(callArg.selectedText).toContain("پنی‌سیلین‌ها");
+
+      // Verify no modal dialog was opened
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByLabelText("توضیح ساده متن انتخاب‌شده")).toBeNull();
+    });
+
+    it("3, 4 & 5. populates input box for 'از آوانا بپرس' without auto-sending, allows user editing, and sends on click", async () => {
+      let sentBody: { message?: string; context?: { type?: string; lessonId?: string } } | null = null;
+      let askCalls = 0;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url, opts) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/v1/ai/ask")) {
+          askCalls++;
+          sentBody = opts?.body ? JSON.parse(opts.body as string) : null;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              answer: "پنی‌سیلین‌ها با مهار آنزیم ترانس‌پپتیداز دیواره باکتری را ضعیف می‌کنند.",
+              conversationId: "conv-101",
+            }),
+          } as Response;
+        }
+        return { ok: true, json: async () => ({}) } as Response;
+      });
+
+      const onActionHandled = vi.fn();
+      const testAction: AssistantPendingAction = {
+        id: "act-ask-1",
+        type: "ask",
+        selectedText: "سنتز پپتیدوگلیکان دیواره باکتری",
+        lessonId: "lesson-1",
+      };
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <StudyAssistantChat
+            contextType="lesson"
+            lessonId="lesson-1"
+            courseId="course-1"
+            lessonTitle="پنی‌سیلین‌ها"
+            pendingAction={testAction}
+            onActionHandled={onActionHandled}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Verify action handled and marked
+      await waitFor(() => {
+        expect(onActionHandled).toHaveBeenCalledWith("act-ask-1");
+      });
+
+      // Verify NO fetch request was auto-sent!
+      expect(askCalls).toBe(0);
+
+      // Verify textarea contains the quote and prompt template
+      const textarea = screen.getByPlaceholderText("سوال خود را در مورد این درس بنویسید...") as HTMLTextAreaElement;
+      expect(textarea.value).toBe("متن مرجع از درسنامه:\n«سنتز پپتیدوگلیکان دیواره باکتری»\n\nسؤال من:\n");
+
+      // User adds their question to the input box
+      fireEvent.change(textarea, {
+        target: {
+          value: "متن مرجع از درسنامه:\n«سنتز پپتیدوگلیکان دیواره باکتری»\n\nسؤال من:\nآیا بتالاکتامازها روی این مکانیسم اثر دارند؟",
+        },
+      });
+      expect(textarea.value).toContain("آیا بتالاکتامازها روی این مکانیسم اثر دارند؟");
+
+      // User submits message
+      const sendButton = screen.getByRole("button", { name: "ارسال پیام" });
+      fireEvent.click(sendButton);
+
+      // Now fetch is called with both the selected text and the user's question in a single message!
+      await waitFor(() => {
+        expect(askCalls).toBe(1);
+        expect(screen.getByText(/با مهار آنزیم ترانس‌پپتیداز/)).toBeInTheDocument();
+      });
+
+      expect(sentBody?.message).toBe(
+        "متن مرجع از درسنامه:\n«سنتز پپتیدوگلیکان دیواره باکتری»\n\nسؤال من:\nآیا بتالاکتامازها روی این مکانیسم اثر دارند؟",
+      );
+      expect(sentBody?.context?.type).toBe("lesson");
+      expect(sentBody?.context?.lessonId).toBe("lesson-1");
+    });
+
+    it("3. preserves typed question when user selects a different text for 'از آوانا بپرس'", async () => {
+      const action1: AssistantPendingAction = {
+        id: "act-ask-init",
+        type: "ask",
+        selectedText: "متن اول",
+        lessonId: "lesson-1",
+      };
+
+      const { rerender } = render(
+        <QueryClientProvider client={queryClient}>
+          <StudyAssistantChat
+            contextType="lesson"
+            lessonId="lesson-1"
+            pendingAction={action1}
+          />
+        </QueryClientProvider>,
+      );
+
+      const textarea = screen.getByPlaceholderText("سوال خود را در مورد این درس بنویسید...") as HTMLTextAreaElement;
+      await waitFor(() => {
+        expect(textarea.value).toBe("متن مرجع از درسنامه:\n«متن اول»\n\nسؤال من:\n");
+      });
+
+      // User writes a question
+      fireEvent.change(textarea, {
+        target: { value: "متن مرجع از درسنامه:\n«متن اول»\n\nسؤال من:\nعوارضش چیه؟" },
+      });
+
+      // User selects a second text and triggers Ask Avana
+      const action2: AssistantPendingAction = {
+        id: "act-ask-second",
+        type: "ask",
+        selectedText: "متن دوم جدید",
+        lessonId: "lesson-1",
+      };
+
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <StudyAssistantChat
+            contextType="lesson"
+            lessonId="lesson-1"
+            pendingAction={action2}
+          />
+        </QueryClientProvider>,
+      );
+
+      // New selection is quoted while preserving the typed question!
+      await waitFor(() => {
+        expect(textarea.value).toBe("متن مرجع از درسنامه:\n«متن دوم جدید»\n\nسؤال من:\nعوارضش چیه؟");
+      });
+    });
+
+    it("3b. sends formatted guidance request when user sends without typing any question", async () => {
+      let sentBody: { message?: string } | null = null;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url, opts) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/v1/ai/ask")) {
+          sentBody = opts?.body ? JSON.parse(opts.body as string) : null;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              answer: "توضیحات آموزشی درباره این بخش",
+              conversationId: "conv-empty-q",
+            }),
+          } as Response;
+        }
+        return { ok: true, json: async () => ({}) } as Response;
+      });
+
+      const action: AssistantPendingAction = {
+        id: "act-ask-empty-q",
+        type: "ask",
+        selectedText: "بخش مهم درسنامه",
+        lessonId: "lesson-1",
+      };
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <StudyAssistantChat
+            contextType="lesson"
+            lessonId="lesson-1"
+            pendingAction={action}
+          />
+        </QueryClientProvider>,
+      );
+
+      const textarea = screen.getByPlaceholderText("سوال خود را در مورد این درس بنویسید...") as HTMLTextAreaElement;
+      await waitFor(() => {
+        expect(textarea.value).toBe("متن مرجع از درسنامه:\n«بخش مهم درسنامه»\n\nسؤال من:\n");
+      });
+
+      // User clicks send immediately without typing anything after 'سؤال من:\n'
+      const sendButton = screen.getByRole("button", { name: "ارسال پیام" });
+      fireEvent.click(sendButton);
+
+      await waitFor(() => {
+        expect(screen.getByText("توضیحات آموزشی درباره این بخش")).toBeInTheDocument();
+      });
+
+      expect(sentBody?.message).toBe(
+        "متن مرجع از درسنامه:\n«بخش مهم درسنامه»\n\nدرباره این بخش از درس راهنمایی و توضیح می‌خواهم.",
+      );
+    });
+
+    it("3c. verifies textarea auto-resize styling and anchored send button", () => {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <StudyAssistantChat
+            contextType="lesson"
+            lessonId="lesson-1"
+          />
+        </QueryClientProvider>,
+      );
+
+      const textarea = screen.getByPlaceholderText("سوال خود را در مورد این درس بنویسید...") as HTMLTextAreaElement;
+      expect(textarea).toHaveClass("max-h-[190px]");
+      expect(textarea).toHaveClass("custom-scrollbar");
+      expect(textarea).toHaveClass("pe-12");
+
+      const sendButton = screen.getByRole("button", { name: "ارسال پیام" });
+      expect(sendButton).toHaveClass("absolute");
+      expect(sendButton).toHaveClass("end-2.5");
+      expect(sendButton).toHaveClass("bottom-2.5");
+      expect(sendButton.parentElement).toHaveClass("items-end");
+    });
+
+    it("4 & 7. sends correct prompt for 'توضیح ساده' automatically and displays response in side assistant panel", async () => {
+      let sentBody: { message?: string } | null = null;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url, opts) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/v1/ai/ask")) {
+          sentBody = opts?.body ? JSON.parse(opts.body as string) : null;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              answer: "به زبان ساده: باکتری مانند یک بادکنک است و دیواره پوسته آن است؛ پنی‌سیلین پوسته را سوراخ می‌کند.",
+              conversationId: "conv-102",
+            }),
+          } as Response;
+        }
+        return { ok: true, json: async () => ({}) } as Response;
+      });
+
+      const testAction: AssistantPendingAction = {
+        id: "act-explain-1",
+        type: "explain",
+        selectedText: "لیز اسمزی باکتری در اثر مهار پپتیدوگلیکان",
+        lessonId: "lesson-1",
+      };
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <StudyAssistantChat
+            contextType="lesson"
+            lessonId="lesson-1"
+            pendingAction={testAction}
+          />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/باکتری مانند یک بادکنک است/)).toBeInTheDocument();
+      });
+
+      expect(sentBody?.message).toBe(
+        "لطفاً این بخش از متن درس را به زبان فارسی روان، ساده و قابل‌فهم با حفظ دقت علمی توضیح بده و در صورت نیاز مثال بزن:\n«لیز اسمزی باکتری در اثر مهار پپتیدوگلیکان»",
+      );
+      // Ensure it did not use the ask prompt format
+      expect(sentBody?.message?.includes("سؤالم:")).toBe(false);
+    });
+
+    it("6. does not re-dispatch action with same ID upon re-renders or unmount/mount", async () => {
+      let askCalls = 0;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/v1/ai/ask")) {
+          askCalls++;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ answer: "پاسخ اول", conversationId: "c1" }),
+          } as Response;
+        }
+        return { ok: true, json: async () => ({}) } as Response;
+      });
+
+      const testAction: AssistantPendingAction = {
+        id: "act-duplicate-check",
+        type: "explain",
+        selectedText: "متن تستی",
+        lessonId: "lesson-1",
+      };
+
+      const { rerender } = render(
+        <QueryClientProvider client={queryClient}>
+          <StudyAssistantChat
+            contextType="lesson"
+            lessonId="lesson-1"
+            pendingAction={testAction}
+          />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(askCalls).toBe(1);
+      });
+
+      // Re-render multiple times with same action
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <StudyAssistantChat
+            contextType="lesson"
+            lessonId="lesson-1"
+            pendingAction={testAction}
+          />
+        </QueryClientProvider>,
+      );
+
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <StudyAssistantChat
+            contextType="lesson"
+            lessonId="lesson-1"
+            pendingAction={testAction}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Ensure fetch was only called exactly once
+      expect(askCalls).toBe(1);
+    });
+
+    it("7 & 8. executes actions sequentially when a request is in flight and preserves sequential actions", async () => {
+      let resolveFirstReq: (res: Response | { ok: boolean; status: number; json: () => Promise<unknown> }) => void;
+      const firstReqPromise = new Promise((resolve) => {
+        resolveFirstReq = resolve;
+      });
+
+      const dispatchedMessages: string[] = [];
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url, opts) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/v1/ai/ask")) {
+          const body = opts?.body ? JSON.parse(opts.body as string) : {};
+          dispatchedMessages.push(body.message);
+
+          if (dispatchedMessages.length === 1) {
+            // First request waits
+            return firstReqPromise as Promise<Response>;
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ answer: "پاسخ دوم", conversationId: "c2" }),
+          } as Response;
+        }
+        return { ok: true, json: async () => ({}) } as Response;
+      });
+
+      const action1: AssistantPendingAction = {
+        id: "act-seq-1",
+        type: "explain",
+        selectedText: "متن اول",
+        lessonId: "lesson-1",
+      };
+      const action2: AssistantPendingAction = {
+        id: "act-seq-2",
+        type: "explain",
+        selectedText: "متن دوم",
+        lessonId: "lesson-1",
+      };
+
+      let queue = [action1, action2];
+      const handleHandled = (id: string) => {
+        queue = queue.filter((a) => a.id !== id);
+      };
+
+      const { rerender } = render(
+        <QueryClientProvider client={queryClient}>
+          <StudyAssistantChat
+            contextType="lesson"
+            lessonId="lesson-1"
+            pendingActions={queue}
+            onActionHandled={handleHandled}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Verify first action dispatched, second action is waiting because isLoading=true
+      await waitFor(() => {
+        expect(dispatchedMessages.length).toBe(1);
+        expect(dispatchedMessages[0]).toContain("متن اول");
+      });
+
+      // While request 1 is in-flight, action 2 must NOT be dispatched yet
+      expect(dispatchedMessages.length).toBe(1);
+
+      // Now resolve first request
+      resolveFirstReq!({
+        ok: true,
+        status: 200,
+        json: async () => ({ answer: "پاسخ اول", conversationId: "c1" }),
+      });
+
+      // Pass updated queue
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <StudyAssistantChat
+            contextType="lesson"
+            lessonId="lesson-1"
+            pendingActions={queue}
+            onActionHandled={handleHandled}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Now second request executes sequentially
+      await waitFor(() => {
+        expect(dispatchedMessages.length).toBe(2);
+        expect(dispatchedMessages[1]).toContain("متن دوم");
+      });
+    });
+
+    it("9. prevents action from previous lesson from executing in a new lesson", async () => {
+      let askCalls = 0;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/v1/ai/ask")) {
+          askCalls++;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ answer: "پاسخ", conversationId: "c1" }),
+          } as Response;
+        }
+        return { ok: true, json: async () => ({}) } as Response;
+      });
+
+      const onActionHandled = vi.fn();
+      const oldLessonAction: AssistantPendingAction = {
+        id: "act-old-lesson",
+        type: "ask",
+        selectedText: "متن درس ۱",
+        lessonId: "lesson-1", // Intended for lesson 1
+      };
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <StudyAssistantChat
+            contextType="lesson"
+            lessonId="lesson-2" // Currently on lesson 2!
+            pendingAction={oldLessonAction}
+            onActionHandled={onActionHandled}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Handled/discarded safely without sending API call to wrong lesson
+      await waitFor(() => {
+        expect(onActionHandled).toHaveBeenCalledWith("act-old-lesson");
+      });
+      expect(askCalls).toBe(0);
+    });
+
+    it("10. preserves assistant error behavior on send failure without infinite retry loop", async () => {
+      let callCount = 0;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/v1/ai/ask")) {
+          callCount++;
+          throw new Error("اختلال در اتصال به شبکه");
+        }
+        return { ok: true, json: async () => ({}) } as Response;
+      });
+
+      const errorAction: AssistantPendingAction = {
+        id: "act-error-test",
+        type: "explain",
+        selectedText: "متن همراه با خطا",
+        lessonId: "lesson-1",
+      };
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <StudyAssistantChat
+            contextType="lesson"
+            lessonId="lesson-1"
+            pendingAction={errorAction}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Verify error banner is displayed
+      await waitFor(() => {
+        expect(screen.getByText(/اختلال در اتصال به شبکه/)).toBeInTheDocument();
+      });
+
+      // Verify "تلاش دوباره" button is present
+      expect(screen.getByText("تلاش دوباره")).toBeInTheDocument();
+
+      // Ensure fetch was only called once, avoiding an infinite retry loop
+      expect(callCount).toBe(1);
+    });
+
+    it("11. preserves standalone dialog fallback when onAskAvana and onExplainSimply are omitted", async () => {
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-1"
+            lessonTitle="درس تستی"
+            content="متن آزمایشی برای بررسی رفتار پیش‌فرض."
+          />
+        </QueryClientProvider>,
+      );
+
+      const p = container.querySelector("p");
+      if (p && p.firstChild) {
+        const range = document.createRange();
+        range.setStart(p.firstChild, 0);
+        range.setEnd(p.firstChild, 11);
+        range.getBoundingClientRect = () =>
+          ({
+            width: 150,
+            height: 20,
+            top: 100,
+            bottom: 120,
+            left: 50,
+            right: 200,
+            x: 50,
+            y: 100,
+            toJSON: () => {},
+          }) as DOMRect;
+        const mockSel = {
+          rangeCount: 1,
+          isCollapsed: false,
+          getRangeAt: () => range,
+          toString: () => "متن آزمایشی",
+          removeAllRanges: vi.fn(),
+          addRange: vi.fn(),
+        };
+        vi.spyOn(window, "getSelection").mockReturnValue(mockSel as unknown as Selection);
+        document.dispatchEvent(new Event("selectionchange"));
+      }
+
+      // Click Ask Avana without handler prop
+      const askBtn = await screen.findByText("از آوانا بپرس");
+      fireEvent.click(askBtn.closest("button") || askBtn);
+
+      // Legacy fallback dialog opens
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByText("پاسخ هوشمند با اتکا به متن درسنامه")).toBeInTheDocument();
     });
   });
 });

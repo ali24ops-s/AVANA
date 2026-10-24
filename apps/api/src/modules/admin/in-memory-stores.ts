@@ -3,6 +3,7 @@
  * Used for local development (composeLocalDev) and testing.
  */
 
+import { randomUUID } from "node:crypto";
 import {
   Roles,
   STAGE_LABELS_FA,
@@ -15,6 +16,7 @@ import {
   DEFAULT_SUBSCRIPTION_CREDIT_BONUSES,
   generateBulkPromotionCodes,
   normalizePromotionCode,
+  DomainError,
 } from "@avana/domain";
 import type {
   DocumentGenerationProgressResource,
@@ -38,6 +40,7 @@ import type {
   AdminLogRecord,
   AdminAuditRecord,
   AdminLessonRecord,
+  AdminLessonDetailRecord,
   AdminFlashcardRecord,
   AdminExamRecord,
   AdminGenerationDetail,
@@ -82,7 +85,17 @@ export class InMemoryAdminStore implements AdminStore {
   }
 
   public memoryWallets: Array<{ userId: string; balance: number; currency: string }> = [];
+  public memoryAuditLogs: AdminAuditRecord[] = [];
   public walletStore?: import("../wallet/wallet-store.js").WalletStore;
+  private readonly inFlightDeletions = new Set<string>();
+
+  addAuditLog(record: AdminAuditRecord): void {
+    this.memoryAuditLogs.push(record);
+  }
+
+  setAuditLogs(records: AdminAuditRecord[]): void {
+    this.memoryAuditLogs = [...records];
+  }
 
   setWalletStore(ws: import("../wallet/wallet-store.js").WalletStore): void {
     this.walletStore = ws;
@@ -114,7 +127,9 @@ export class InMemoryAdminStore implements AdminStore {
       filtered = filtered.filter(
         (u) =>
           u.email.toLowerCase().includes(s) ||
-          (u.name && u.name.toLowerCase().includes(s))
+          (u.name && u.name.toLowerCase().includes(s)) ||
+          (u.phoneNumber && u.phoneNumber.toLowerCase().includes(s)) ||
+          u.id.toLowerCase().includes(s)
       );
     }
 
@@ -158,6 +173,7 @@ export class InMemoryAdminStore implements AdminStore {
           emailVerified,
           phoneVerified,
           isVerified,
+          phoneNumber: (u as unknown as { phoneNumber?: string }).phoneNumber ?? null,
           createdAt: (u as unknown as { createdAt?: string }).createdAt || new Date().toISOString(),
           lastActiveAt: (u as unknown as { updatedAt?: string }).updatedAt || new Date().toISOString(),
         };
@@ -468,15 +484,59 @@ export class InMemoryAdminStore implements AdminStore {
     return { logs: [], totalCount: 0 };
   }
 
-  async listAuditLogs(_params?: { page: number; pageSize: number; search?: string; action?: string; entityType?: string; adminEmail?: string; from?: string }): Promise<{ logs: AdminAuditRecord[]; totalCount: number }> {
-    return { logs: [], totalCount: 0 };
+  async listAuditLogs(params?: { page: number; pageSize: number; search?: string; action?: string; entityType?: string; adminEmail?: string; from?: string }): Promise<{ logs: AdminAuditRecord[]; totalCount: number }> {
+    const page = params?.page ?? 1;
+    const pageSize = params?.pageSize ?? 20;
+    const safePage = Math.max(1, isNaN(page) ? 1 : page);
+    const safePageSize = Math.min(100, Math.max(1, isNaN(pageSize) ? 20 : pageSize));
+    const offset = (safePage - 1) * safePageSize;
+
+    let filtered = [...this.memoryAuditLogs];
+
+    if (params?.action) {
+      filtered = filtered.filter((l) => l.action === params.action);
+    }
+    if (params?.entityType) {
+      filtered = filtered.filter((l) => l.entity === params.entityType);
+    }
+    if (params?.adminEmail) {
+      filtered = filtered.filter((l) => l.adminEmail === params.adminEmail);
+    }
+    if (params?.from) {
+      const fromDate = new Date(params.from);
+      if (!isNaN(fromDate.getTime())) {
+        filtered = filtered.filter((l) => new Date(l.timestamp).getTime() >= fromDate.getTime());
+      }
+    }
+    if (params?.search) {
+      const s = params.search.toLowerCase();
+      filtered = filtered.filter(
+        (l) =>
+          l.action.toLowerCase().includes(s) ||
+          l.entity.toLowerCase().includes(s) ||
+          l.adminEmail.toLowerCase().includes(s) ||
+          (l.metadata ? JSON.stringify(l.metadata).toLowerCase().includes(s) : false)
+      );
+    }
+
+    // Deterministic sort: timestamp DESC, id DESC
+    filtered.sort((a, b) => {
+      const timeDiff = new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return b.id.localeCompare(a.id);
+    });
+
+    const totalCount = filtered.length;
+    const logs = filtered.slice(offset, offset + safePageSize);
+
+    return { logs, totalCount };
   }
 
   async listLessons(_params?: { page: number; pageSize: number; search?: string }): Promise<{ lessons: AdminLessonRecord[]; totalCount: number }> {
     return { lessons: [], totalCount: 0 };
   }
 
-  async getLesson(id: string): Promise<(AdminLessonRecord & { contentMarkdown: string; moduleId?: string }) | null> {
+  async getLesson(id: string): Promise<AdminLessonDetailRecord | null> {
     if (this.learningStores?.lessonStore) {
       const l = await this.learningStores.lessonStore.findById(id);
       if (l) {
@@ -487,6 +547,8 @@ export class InMemoryAdminStore implements AdminStore {
           publicationStatus: l.publicationStatus || "draft",
           contentMarkdown: l.contentMarkdown || "",
           createdAt: l.createdAt || new Date().toISOString(),
+          flashcards: [],
+          quizQuestions: [],
         };
       }
     }
@@ -610,6 +672,7 @@ export class InMemoryAdminStore implements AdminStore {
         successful: 0,
         failed: 0,
         processing: 0,
+        queued: 0,
         successRate: 0,
         averageDurationMs: 0,
       },
@@ -667,6 +730,81 @@ export class InMemoryAdminStore implements AdminStore {
           });
         }
       }
+    }
+  }
+
+  async deleteUser(adminId: string, targetUserId: string): Promise<void> {
+    if (adminId === targetUserId) {
+      throw new DomainError("conflict", "امکان حذف حساب کاربری مدیر جاری وجود ندارد.");
+    }
+
+    if (!this.userStore) {
+      throw new DomainError("internal_error", "User store not initialized");
+    }
+
+    if (this.inFlightDeletions.has(targetUserId)) {
+      throw new DomainError("not_found", "کاربر مورد نظر یافت نشد.");
+    }
+    this.inFlightDeletions.add(targetUserId);
+
+    try {
+      const user = await this.userStore.findById(targetUserId as UserId);
+      if (!user) {
+        throw new DomainError("not_found", "کاربر مورد نظر یافت نشد.");
+      }
+
+      // Check financial & active subscription constraints if commerce profile is available
+      try {
+        const profile = await this.getUserCommerceProfile(targetUserId);
+        if (profile.wallet && profile.wallet.balance > 0) {
+          throw new DomainError(
+            "conflict",
+            "حساب کاربر دارای موجودی فعال در کیف پول است. لطفاً ابتدا موجودی را تسویه کنید.",
+          );
+        }
+        if (profile.activeSubscription) {
+          throw new DomainError(
+            "conflict",
+            "حساب کاربر دارای اشتراک فعال است. لطفاً ابتدا اشتراک کاربر را لغو کنید.",
+          );
+        }
+        const hasPaid = profile.payments?.some(
+          (p) => p.status === "paid" || p.status === "approved",
+        );
+        if (hasPaid) {
+          throw new DomainError(
+            "conflict",
+            "حساب کاربر دارای سوابق پرداخت مالی قطعی است. به دلیل الزامات قانونی نگهداری اسناد مالی، حذف مستقیم این حساب مجاز نیست.",
+          );
+        }
+      } catch (err: unknown) {
+        if (err instanceof DomainError && err.code === "conflict") {
+          throw err;
+        }
+        // Otherwise proceed
+      }
+
+      // Delete user from userStore
+      if (typeof this.userStore.deleteUser === "function") {
+        await this.userStore.deleteUser(targetUserId as UserId);
+      }
+
+      // Record audit log
+      this.memoryAuditLogs.push({
+        id: randomUUID(),
+        adminEmail: "admin@avana.test",
+        action: "admin.delete_user",
+        entity: "user",
+        entityId: targetUserId,
+        timestamp: new Date().toISOString(),
+        metadata: {
+          admin_user_id: adminId,
+          target_user_id: targetUserId,
+          reason: "account_deleted_by_platform_admin",
+        },
+      });
+    } finally {
+      this.inFlightDeletions.delete(targetUserId);
     }
   }
 
@@ -743,6 +881,16 @@ export class InMemoryAdminStore implements AdminStore {
 
   setCommerceStore(store: import("../commerce/commerce-store.js").InMemoryCommerceStore) {
     this.commerceStore = store;
+  }
+
+  setPromotionService(service: any) {
+    if (service && service.memoryPromotions !== undefined) {
+      service.memoryPromotions = this.memoryPromotions;
+      service.memoryCodes = this.memoryPromotionCodes;
+      service.memoryRedemptions = this.memoryPromotionRedemptions;
+      service.memoryProductRestrictions = this.memoryPromotionProducts;
+      service.memoryUserRestrictions = this.memoryPromotionUsers;
+    }
   }
 
   async getCommerceStats(): Promise<AdminCommerceStats> {
@@ -1659,9 +1807,17 @@ export class InMemoryAdminStore implements AdminStore {
     const promo = this.memoryPromotions.find((p) => p.id === id && p.deletedAt === null);
     if (!promo) return null;
 
-    const codes = this.memoryPromotionCodes.filter(
-      (c) => c.promotionId === id && c.deletedAt === null,
-    );
+    const codes = this.memoryPromotionCodes
+      .filter((c) => c.promotionId === id && c.deletedAt === null)
+      .map((c) => {
+        const timesUsed = this.memoryPromotionRedemptions.filter(
+          (r) => (r.codeId === c.id || r.code === c.code) && r.status === "completed",
+        ).length;
+        return {
+          ...c,
+          timesUsed,
+        };
+      });
     const productRestrictions = this.memoryPromotionProducts.filter(
       (pr) => pr.promotionId === id,
     );
@@ -1867,7 +2023,7 @@ export class InMemoryAdminStore implements AdminStore {
   async bulkGenerateCommercePromotionCodes(
     _adminId: string,
     id: string,
-    input: { count: number; prefix?: string; length?: number },
+    input: { count: number; prefix?: string; length?: number; maxUses?: number },
   ): Promise<{ generatedCount: number; sampleCodes: string[] }> {
     const promo = this.memoryPromotions.find((p) => p.id === id && p.deletedAt === null);
     if (!promo) throw new Error("not_found");
@@ -1884,12 +2040,13 @@ export class InMemoryAdminStore implements AdminStore {
     });
 
     const now = new Date().toISOString();
+    const maxUses = input.maxUses !== undefined && input.maxUses !== null && input.maxUses > 0 ? input.maxUses : 1;
     for (const code of generated) {
       this.memoryPromotionCodes.push({
         id: (await import("node:crypto")).randomUUID(),
         promotionId: id,
         code,
-        maxUses: 1,
+        maxUses,
         active: true,
         createdAt: now,
         deletedAt: null,
@@ -1903,15 +2060,36 @@ export class InMemoryAdminStore implements AdminStore {
   }
 
   async listCommercePromotionRedemptions(
-    id: string,
+    id: string | undefined,
     params: { page: number; pageSize: number },
-  ): Promise<{ items: any[]; totalCount: number }> {
-    const list = this.memoryPromotionRedemptions.filter((r) => r.promotionId === id);
+  ): Promise<{
+    items: any[];
+    totalCount: number;
+    stats?: {
+      totalCompleted: number;
+      totalDiscountGranted: number;
+      totalCashbackGranted: number;
+    };
+  }> {
+    const list = id
+      ? this.memoryPromotionRedemptions.filter((r) => r.promotionId === id)
+      : this.memoryPromotionRedemptions;
     const totalCount = list.length;
     const page = Math.max(1, params.page || 1);
-    const pageSize = Math.min(100, Math.max(1, params.pageSize || 20));
+    const pageSize = Math.min(500, Math.max(1, params.pageSize || 20));
     const start = (page - 1) * pageSize;
     const paged = list.slice(start, start + pageSize);
+
+    let totalCompleted = 0;
+    let totalDiscountGranted = 0;
+    let totalCashbackGranted = 0;
+    for (const r of list) {
+      if (r.status === "completed") {
+        totalCompleted += 1;
+        totalDiscountGranted += r.discountAmount || 0;
+        totalCashbackGranted += r.cashbackAmount || 0;
+      }
+    }
 
     const items = paged.map((r) => {
       let userName: string | undefined;
@@ -1944,7 +2122,15 @@ export class InMemoryAdminStore implements AdminStore {
       };
     });
 
-    return { items, totalCount };
+    return {
+      items,
+      totalCount,
+      stats: {
+        totalCompleted,
+        totalDiscountGranted,
+        totalCashbackGranted,
+      },
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -1985,27 +2171,37 @@ export class InMemoryAdminStore implements AdminStore {
 
     const teacherIdsWithClassrooms = new Set(allClassrooms.map((c) => c.teacherId));
 
-    let teachers = allUsers.filter(
+    const teacherRoleUsers = allUsers.filter(
       (u) => u.role === Roles.teacher || (u as any).globalRole === Roles.teacher || teacherIdsWithClassrooms.has(u.id)
     );
+
+    let teachers: UserRecord[] = [];
+    if (params.status && params.status !== "all") {
+      if (params.status === "approved" || params.status === "active") {
+        teachers = teacherRoleUsers.filter((u) => !u.teacherStatus || u.teacherStatus === "approved");
+      } else if (params.status === "pending" || params.status === "inactive") {
+        teachers = allUsers.filter((u) => u.teacherStatus === "pending");
+      } else if (params.status === "rejected") {
+        teachers = allUsers.filter((u) => u.teacherStatus === "rejected");
+      }
+    } else {
+      const teacherRoleIds = new Set(teacherRoleUsers.map((u) => u.id));
+      teachers = allUsers.filter(
+        (u) =>
+          teacherRoleIds.has(u.id) ||
+          u.teacherStatus === "pending" ||
+          u.teacherStatus === "rejected"
+      );
+    }
 
     if (params.search && params.search.trim()) {
       const s = params.search.trim().toLowerCase();
       teachers = teachers.filter(
         (u) =>
           u.email.toLowerCase().includes(s) ||
-          (u.name && u.name.toLowerCase().includes(s))
+          (u.name && u.name.toLowerCase().includes(s)) ||
+          (u.university && u.university.toLowerCase().includes(s))
       );
-    }
-
-    if (params.status && params.status !== "all") {
-      if (params.status === "approved" || params.status === "active") {
-        teachers = teachers.filter((u) => !u.teacherStatus || u.teacherStatus === "approved");
-      } else if (params.status === "pending" || params.status === "inactive") {
-        teachers = teachers.filter((u) => u.teacherStatus === "pending");
-      } else if (params.status === "rejected") {
-        teachers = teachers.filter((u) => u.teacherStatus === "rejected");
-      }
     }
 
     const totalCount = teachers.length;
@@ -2042,6 +2238,10 @@ export class InMemoryAdminStore implements AdminStore {
         classroomsCount: teacherClassrooms.length,
         examsCount: teacherExamsList.length,
         studentsCount: teacherStudentIds.size,
+        university: u.university ?? null,
+        faculty: u.faculty ?? null,
+        department: u.department ?? null,
+        phoneNumber: u.phoneNumber ?? null,
       };
     });
 
@@ -2178,6 +2378,10 @@ export class InMemoryAdminStore implements AdminStore {
         isVerified,
         createdAt: (user as any).createdAt || new Date().toISOString(),
         lastActiveAt: (user as any).updatedAt || new Date().toISOString(),
+        university: user.university ?? null,
+        faculty: user.faculty ?? null,
+        department: user.department ?? null,
+        phoneNumber: user.phoneNumber ?? null,
       },
       stats: {
         classroomsCount: teacherClassrooms.length,
@@ -2192,7 +2396,7 @@ export class InMemoryAdminStore implements AdminStore {
   }
 
   async approveTeacher(_adminId: string, teacherId: string): Promise<void> {
-    const userStoreAny = this.userStore as { listAllUsers?: () => Promise<UserRecord[]>; users?: UserRecord[] | Map<string, UserRecord> } | undefined;
+    const userStoreAny = this.userStore as { listAllUsers?: () => Promise<UserRecord[]>; users?: UserRecord[] | Map<string, UserRecord>; insert?(user: UserRecord): void } | undefined;
     let user: UserRecord | undefined;
     if (userStoreAny && userStoreAny.users instanceof Map) {
       user = userStoreAny.users.get(teacherId);
@@ -2205,11 +2409,37 @@ export class InMemoryAdminStore implements AdminStore {
     if (!user) {
       throw new Error("teacher_not_found");
     }
+    const prevStatus = user.teacherStatus || "approved";
     user.teacherStatus = "approved";
+    user.role = Roles.teacher;
+
+    if (this.organizationStore && typeof (this.organizationStore as any).listMembershipsByUserId === "function") {
+      const memberships = await (this.organizationStore as any).listMembershipsByUserId(teacherId as UserId);
+      if (memberships.length > 0) {
+        const studentMembership = memberships.find((m: any) => m.role === Roles.student);
+        if (studentMembership) {
+          studentMembership.role = Roles.teacher;
+          studentMembership.updatedAt = new Date().toISOString();
+        }
+      }
+    }
+    if (typeof userStoreAny?.insert === "function") {
+      userStoreAny.insert({ ...user, role: Roles.teacher, teacherStatus: "approved" });
+    }
+
+    this.addAuditLog({
+      id: randomUUID(),
+      adminEmail: _adminId,
+      action: "TEACHER_APPROVED",
+      entity: "teacher",
+      entityId: teacherId,
+      metadata: { previousStatus: prevStatus, newStatus: "approved" },
+      timestamp: new Date().toISOString(),
+    });
   }
 
   async rejectTeacher(_adminId: string, teacherId: string, _reason?: string): Promise<void> {
-    const userStoreAny = this.userStore as { listAllUsers?: () => Promise<UserRecord[]>; users?: UserRecord[] | Map<string, UserRecord> } | undefined;
+    const userStoreAny = this.userStore as { listAllUsers?: () => Promise<UserRecord[]>; users?: UserRecord[] | Map<string, UserRecord>; insert?(user: UserRecord): void } | undefined;
     let user: UserRecord | undefined;
     if (userStoreAny && userStoreAny.users instanceof Map) {
       user = userStoreAny.users.get(teacherId);
@@ -2222,6 +2452,31 @@ export class InMemoryAdminStore implements AdminStore {
     if (!user) {
       throw new Error("teacher_not_found");
     }
+    const prevStatus = user.teacherStatus || "approved";
     user.teacherStatus = "rejected";
+    user.role = Roles.student;
+
+    if (this.organizationStore && typeof (this.organizationStore as any).listMembershipsByUserId === "function") {
+      const memberships = await (this.organizationStore as any).listMembershipsByUserId(teacherId as UserId);
+      for (const m of memberships) {
+        if (m.role === Roles.teacher) {
+          m.role = Roles.student;
+          m.updatedAt = new Date().toISOString();
+        }
+      }
+    }
+    if (typeof userStoreAny?.insert === "function") {
+      userStoreAny.insert({ ...user, role: Roles.student, teacherStatus: "rejected" });
+    }
+
+    this.addAuditLog({
+      id: randomUUID(),
+      adminEmail: _adminId,
+      action: "TEACHER_REJECTED",
+      entity: "teacher",
+      entityId: teacherId,
+      metadata: { previousStatus: prevStatus, newStatus: "rejected", reason: _reason || null },
+      timestamp: new Date().toISOString(),
+    });
   }
 }

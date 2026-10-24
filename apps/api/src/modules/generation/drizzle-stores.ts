@@ -16,6 +16,7 @@ import {
   generatedContents,
   generatedContentCitations,
   generationJobs,
+  generationJobSources,
   generationChunks,
 } from "@avana/database/schema";
 import type {
@@ -27,6 +28,7 @@ import type {
 import type {
   GenerationJobStore,
   GenerationJobRecord,
+  GenerationJobSourceRecord,
 } from "./generation-jobs-store.js";
 import type {
   GenerationChunkStore,
@@ -51,6 +53,7 @@ import type {
   GeneratedContentStatus,
   GeneratedContentPayload,
   GenerationJobStatus,
+  SourcePackRole,
 } from "@avana/domain";
 
 // ---------------------------------------------------------------------------
@@ -706,6 +709,42 @@ export class DrizzleGenerationJobStore implements GenerationJobStore {
           isNull(generationJobs.deletedAt),
         ),
       );
+  }
+
+  async addSources(sources: GenerationJobSourceRecord[]): Promise<void> {
+    if (sources.length === 0) return;
+    await this.db
+      .insert(generationJobSources)
+      .values(
+        sources.map((s) => ({
+          id: s.id,
+          generationJobId: s.generationJobId,
+          documentId: s.documentId,
+          role: s.role ?? (s.orderIndex === 0 ? "primary_notes" : "supplementary_reference"),
+          orderIndex: s.orderIndex,
+          createdAt: s.createdAt ? new Date(s.createdAt) : new Date(),
+        })),
+      )
+      .onConflictDoNothing();
+  }
+
+  async listSourcesByJob(
+    generationJobId: GenerationJobId,
+  ): Promise<GenerationJobSourceRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(generationJobSources)
+      .where(eq(generationJobSources.generationJobId, generationJobId))
+      .orderBy(asc(generationJobSources.orderIndex));
+
+    return rows.map((r) => ({
+      id: r.id,
+      generationJobId: r.generationJobId as GenerationJobId,
+      documentId: r.documentId as DocumentId,
+      role: (r.role as SourcePackRole) ?? (r.orderIndex === 0 ? "primary_notes" : "supplementary_reference"),
+      orderIndex: r.orderIndex,
+      createdAt: r.createdAt.toISOString(),
+    }));
   }
 }
 

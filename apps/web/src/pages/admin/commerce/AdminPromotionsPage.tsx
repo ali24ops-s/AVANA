@@ -69,28 +69,36 @@ export function AdminPromotionsPage() {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await adminApi.listCommercePromotions();
+      const res = await adminApi.listCommercePromotions({ pageSize: 100 });
       setPromotions(res.items || res.promotions || []);
 
       // fetch redemptions stats
       try {
         const redemptionsRes = await adminApi.listCommercePromotionRedemptions({ limit: 500 });
-        let totalDisc = 0;
-        let totalCash = 0;
-        let count = 0;
-        const redemptionsList = redemptionsRes.items || redemptionsRes.redemptions || [];
-        for (const r of redemptionsList) {
-          if (r.status === "completed") {
-            count += 1;
-            totalDisc += r.discountAmount || 0;
-            totalCash += r.cashbackAmount || 0;
+        if (redemptionsRes.stats) {
+          setStats({
+            totalRedemptions: redemptionsRes.stats.totalCompleted,
+            totalDiscountAmount: redemptionsRes.stats.totalDiscountGranted,
+            totalCashbackAmount: redemptionsRes.stats.totalCashbackGranted,
+          });
+        } else {
+          let totalDisc = 0;
+          let totalCash = 0;
+          let count = 0;
+          const redemptionsList = redemptionsRes.items || redemptionsRes.redemptions || [];
+          for (const r of redemptionsList) {
+            if (r.status === "completed") {
+              count += 1;
+              totalDisc += r.discountAmount || 0;
+              totalCash += r.cashbackAmount || 0;
+            }
           }
+          setStats({
+            totalRedemptions: count,
+            totalDiscountAmount: totalDisc,
+            totalCashbackAmount: totalCash,
+          });
         }
-        setStats({
-          totalRedemptions: count,
-          totalDiscountAmount: totalDisc,
-          totalCashbackAmount: totalCash,
-        });
       } catch {
         // non-critical
       }
@@ -108,9 +116,10 @@ export function AdminPromotionsPage() {
 
   const handleToggleActive = async (promo: AdminPromotionRecord) => {
     try {
-      await adminApi.toggleCommercePromotionActive(promo.id, !promo.active);
+      const updated = await adminApi.toggleCommercePromotionActive(promo.id, !promo.active);
+      const newActive = updated?.active !== undefined ? updated.active : !promo.active;
       setPromotions((prev) =>
-        prev.map((p) => (p.id === promo.id ? { ...p, active: !p.active } : p))
+        prev.map((p) => (p.id === promo.id ? { ...p, active: newActive } : p))
       );
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "خطا در تغییر وضعیت پروموشن");
@@ -128,6 +137,8 @@ export function AdminPromotionsPage() {
     try {
       await adminApi.deleteCommercePromotion(promo.id);
       setPromotions((prev) => prev.filter((p) => p.id !== promo.id));
+      // Refresh to keep stats and list in sync
+      fetchPromotions();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "خطا در حذف پروموشن");
     }

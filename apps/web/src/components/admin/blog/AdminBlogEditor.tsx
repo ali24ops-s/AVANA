@@ -245,17 +245,17 @@ export function AdminBlogEditor({
   return (
     <div className="space-y-6" dir="rtl">
       {/* Top Header & Action Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-[var(--color-surface)] p-4 rounded-2xl border border-[var(--color-border)] backdrop-blur-md shadow-sm">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[var(--color-surface)] p-4 rounded-2xl border border-[var(--color-border)] backdrop-blur-md shadow-sm">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <Link
             to="/admin/blog"
-            className="p-2 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors"
+            className="p-2 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors shrink-0"
             title="بازگشت به لیست مقالات"
           >
             <ArrowRight className="w-5 h-5" />
           </Link>
-          <div>
-            <h1 className="text-lg font-bold text-[var(--color-text)]">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-base sm:text-lg font-bold text-[var(--color-text)] truncate">
               {initialPost ? `ویرایش مقاله: ${initialPost.title}` : "ایجاد مقاله جدید"}
             </h1>
             <p className="text-xs text-[var(--color-text-muted)]">
@@ -264,10 +264,10 @@ export function AdminBlogEditor({
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 shrink-0">
           {/* Status Badge */}
           <span
-            className={`text-xs px-3 py-1 rounded-full font-semibold border ${
+            className={`text-xs px-3 py-1 rounded-full font-semibold border whitespace-nowrap shrink-0 ${
               status === "published"
                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                 : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
@@ -281,10 +281,10 @@ export function AdminBlogEditor({
             type="button"
             onClick={handleSaveDraft}
             disabled={isSaving || uploadImageMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-hover)] text-[var(--color-text)] border border-[var(--color-border)] transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-semibold bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-hover)] text-[var(--color-text)] border border-[var(--color-border)] transition-colors disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Save className="w-4 h-4 text-[var(--color-primary-default)]" />
-            <span>ذخیره پیش‌نویس (Ctrl+S)</span>
+            <span>ذخیره پیش‌نویس</span>
           </button>
 
           {/* Publish / Update Button */}
@@ -292,7 +292,7 @@ export function AdminBlogEditor({
             type="button"
             onClick={handlePublishClick}
             disabled={isSaving || uploadImageMutation.isPending}
-            className="flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] transition-all shadow-md active:scale-95 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 sm:px-5 py-2 rounded-xl text-xs font-bold bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] transition-all shadow-md active:scale-95 disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Send className="w-4 h-4" />
             <span>{status === "published" ? "بروزرسانی و انتشار" : "انتشار رسمی مقاله"}</span>

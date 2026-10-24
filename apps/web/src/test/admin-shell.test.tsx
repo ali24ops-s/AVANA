@@ -31,7 +31,7 @@ function createMockFetch(userData: {
   id: string;
   email: string;
   name?: string;
-  role: "platform_admin" | "content_worker" | "student";
+  role: "platform_admin" | "content_worker" | "student" | "course_editor" | "support_agent";
 } | null) {
   return vi.fn().mockImplementation((url: string) => {
     if (url.includes("/v1/auth/sign-out")) {
@@ -230,10 +230,11 @@ describe("Admin Shell & Navigation Architecture", () => {
     });
 
     const editorItems = getVisibleNavItems("course_editor");
-    expect(editorItems).toHaveLength(2);
+    expect(editorItems).toHaveLength(3);
     expect(editorItems.map((i) => i.name)).toEqual([
       "آموزش و دوره‌ها",
       "استودیوی محتوا",
+      "محتوای ارسالی اساتید",
     ]);
 
     const desktopNav = screen.getByRole("complementary", { name: "ناوبری مدیریت" });
@@ -333,6 +334,143 @@ describe("Admin Shell & Navigation Architecture", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("course-hub-content")).toBeInTheDocument();
+    });
+  });
+
+  it("Case 2f — Support Agent sees exactly 2 workspaces and can access /admin/support", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      createMockFetch({
+        id: "support-1",
+        email: "support@avana.test",
+        name: "Support Agent User",
+        role: "support_agent",
+      }),
+    );
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route
+            path="support"
+            element={<div data-testid="support-content">مرکز پشتیبانی و بازخورد</div>}
+          />
+        </Route>
+      </Routes>,
+      { initialEntries: ["/admin/support"] },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("support-content")).toBeInTheDocument();
+    });
+
+    const supportItems = getVisibleNavItems("support_agent");
+    expect(supportItems).toHaveLength(1);
+    expect(supportItems.map((i) => i.name)).toEqual([
+      "پشتیبانی و بازخورد",
+    ]);
+
+    const desktopNav = screen.getByRole("complementary", { name: "ناوبری مدیریت" });
+    expect(desktopNav.querySelectorAll('a[href="/admin/support"]')).toHaveLength(1);
+    expect(desktopNav.querySelectorAll('a[href="/admin/content-studio"]')).toHaveLength(0);
+    expect(desktopNav.querySelectorAll('a[href="/admin/dashboard"]')).toHaveLength(0);
+    expect(desktopNav.querySelectorAll('a[href="/admin/users"]')).toHaveLength(0);
+    expect(desktopNav.querySelectorAll('a[href="/admin/courses"]')).toHaveLength(0);
+    expect(desktopNav.querySelectorAll('a[href="/admin/commerce"]')).toHaveLength(0);
+  });
+
+  it("Case 2g — Support Agent accessing /admin/dashboard is redirected to /admin/support", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      createMockFetch({
+        id: "support-1",
+        email: "support@avana.test",
+        name: "Support Agent User",
+        role: "support_agent",
+      }),
+    );
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route
+            path="dashboard"
+            element={<div data-testid="dashboard-content">داشبورد پلتفرم</div>}
+          />
+          <Route
+            path="support"
+            element={<div data-testid="support-content">فضای کاری پشتیبانی</div>}
+          />
+        </Route>
+      </Routes>,
+      { initialEntries: ["/admin/dashboard"] },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("support-content")).toBeInTheDocument();
+      expect(screen.queryByTestId("dashboard-content")).not.toBeInTheDocument();
+    });
+  });
+
+  it("Case 2h — Support Agent accessing unauthorized /admin/users is redirected to /admin/support", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      createMockFetch({
+        id: "support-1",
+        email: "support@avana.test",
+        name: "Support Agent User",
+        role: "support_agent",
+      }),
+    );
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route
+            path="users"
+            element={<div data-testid="users-content">مدیریت کاربران</div>}
+          />
+          <Route
+            path="support"
+            element={<div data-testid="support-content">فضای کاری پشتیبانی</div>}
+          />
+        </Route>
+      </Routes>,
+      { initialEntries: ["/admin/users"] },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("support-content")).toBeInTheDocument();
+      expect(screen.queryByTestId("users-content")).not.toBeInTheDocument();
+    });
+  });
+
+  it("Case 2i — Support Agent accessing unauthorized /admin/content-studio is redirected to /admin/support", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      createMockFetch({
+        id: "support-1",
+        email: "support@avana.test",
+        name: "Support Agent User",
+        role: "support_agent",
+      }),
+    );
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route
+            path="content-studio"
+            element={<div data-testid="studio-content">استودیوی محتوا</div>}
+          />
+          <Route
+            path="support"
+            element={<div data-testid="support-content">فضای کاری پشتیبانی</div>}
+          />
+        </Route>
+      </Routes>,
+      { initialEntries: ["/admin/content-studio"] },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("support-content")).toBeInTheDocument();
+      expect(screen.queryByTestId("studio-content")).not.toBeInTheDocument();
     });
   });
 

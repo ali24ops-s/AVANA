@@ -65,6 +65,7 @@ import type {
   ModuleStore,
   LessonStore,
   ProgressStore,
+  SubCourseGroupStore,
 } from "../learning/learning-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { CourseStore } from "../courses/course-store.js";
@@ -103,6 +104,7 @@ export interface StudyRouteOptions {
   flashcardStudySessionStore?: FlashcardStudySessionStore;
   entitlementService?: EntitlementService;
   studyService?: StudyService;
+  subCourseGroupStore?: SubCourseGroupStore;
   annotationStore?: LessonAnnotationStore;
   reportStore?: ContentReportStore;
   annotationService?: AnnotationService;
@@ -137,6 +139,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     flashcardStudySessionStore,
     entitlementService,
     studyService,
+    subCourseGroupStore,
     annotationStore,
     reportStore,
     annotationService: customAnnotationService,
@@ -165,6 +168,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       studySessionStore,
       flashcardStudySessionStore,
       entitlementService,
+      subCourseGroupStore,
     );
 
   const plannerService =
@@ -446,7 +450,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
           const lStats = matchedLessonId ? lessonMap.get(matchedLessonId) : null;
 
           const schedule = scheduleMap.get(f.id);
-          const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
+          const isReviewed = schedule ? schedule.reviewCount > 0 : reviewedCardIds.has(f.id);
           const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
           const intervalDays = schedule ? schedule.intervalDays : f.intervalDays;
 
@@ -772,7 +776,16 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   const handleFlashcardCustomQueue = async (request: unknown) => {
     const req = request as {
       params: { organizationId: string };
-      query: { courseIds?: string; documentIds?: string; limit?: string; mode?: string; aheadDays?: string };
+      query: {
+        courseIds?: string;
+        documentIds?: string;
+        moduleIds?: string;
+        lessonIds?: string;
+        limit?: string;
+        mode?: string;
+        aheadDays?: string;
+        onlyStudied?: string;
+      };
       id: string;
     };
     const actor = getActor(req);
@@ -780,11 +793,14 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
 
     const courseIds = req.query.courseIds ? req.query.courseIds.split(",").map(id => id.trim() as CourseId) : undefined;
     const documentIds = req.query.documentIds ? req.query.documentIds.split(",").map(id => id.trim()) : undefined;
-    const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
+    const moduleIds = req.query.moduleIds ? req.query.moduleIds.split(",").map(id => id.trim()) : undefined;
+    const lessonIds = req.query.lessonIds ? req.query.lessonIds.split(",").map(id => id.trim()) : undefined;
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : undefined;
     const aheadDays = req.query.aheadDays ? parseInt(req.query.aheadDays, 10) : 3;
     const mode = (req.query.mode || "weak") as "weak" | "forgotten" | "overdue" | "review_ahead" | "new" | "due" | "learned";
+    const onlyStudied = req.query.onlyStudied !== undefined ? req.query.onlyStudied === "true" || req.query.onlyStudied === "1" : undefined;
 
-    const dueCards = await service.getCustomStudyFlashcards(
+    const result = await service.getCustomStudyFlashcardsWithMeta(
       actor,
       organizationId,
       mode,
@@ -792,13 +808,20 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       limit,
       aheadDays,
       documentIds,
+      moduleIds,
+      lessonIds,
+      onlyStudied,
     );
 
-    const formatted = dueCards.map(formatFlashcardResource);
+    const formatted = result.cards.map(formatFlashcardResource);
     return {
       request_id: req.id,
       due_cards: formatted,
       items: formatted,
+      total_new_in_scope: result.totalNewInScope,
+      learned_today: result.learnedToday,
+      remaining_quota: result.remainingQuota,
+      completed_lessons_count: result.completedLessonsCount,
     };
   };
 
@@ -1074,6 +1097,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       modules: (c.modules || []).map((m) => ({
         moduleId: m.moduleId,
         moduleTitle: m.moduleTitle,
+        sortOrder: (m as { sortOrder?: number }).sortOrder ?? 0,
         questionCount: m.questionCount,
         easyCount: m.easyCount,
         mediumCount: m.mediumCount,
@@ -1554,6 +1578,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
 
     const body = req.body as {
       answers?: Array<{ questionId?: string; answer?: unknown; selectedChoice?: unknown }>;
+      questionIds?: string[];
     } | null;
 
     if (!body || !Array.isArray(body.answers)) {
@@ -1570,9 +1595,14 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       };
     });
 
+    if (body.questionIds !== undefined && !Array.isArray(body.questionIds)) {
+      throw new DomainError("bad_request", "questionIds must be an array of strings");
+    }
+
     const attempt = await service.submitQuizAttempt(actor, organizationId, {
       quizId,
       answers: formattedAnswers,
+      questionIds: body.questionIds !== undefined ? body.questionIds : undefined,
     });
 
     if (!req.params.organizationId) {

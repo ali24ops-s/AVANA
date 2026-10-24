@@ -13,13 +13,13 @@
  */
 
 import type { ComponentType } from "react";
-import { ShieldCheck, BookOpen, GraduationCap } from "lucide-react";
+import { ShieldCheck, BookOpen, GraduationCap, LifeBuoy } from "lucide-react";
 import type { Role, UserMembership, UserResource } from "@avana/contracts";
 import { isUserAdmin } from "./adminPermissions.js";
 import { canManageCourseContent } from "./coursePermissions.js";
 import { isTeacherOrAdmin } from "../components/teacher/TeacherRouteGuard.js";
 
-export type HeaderManagementActionId = "admin" | "course_management" | "teacher";
+export type HeaderManagementActionId = "admin" | "course_management" | "teacher" | "support";
 
 export interface HeaderManagementAction {
   id: HeaderManagementActionId;
@@ -40,7 +40,7 @@ export interface HeaderManagementAction {
  * 2. Course Editor: Users who are NOT admins but possess course content management privileges
  *    (course_editor) receive the Course Management action ("/admin/courses", BookOpen).
  *    Admins do NOT receive /admin/courses as an extra header action because /admin is their primary workspace.
- * 3. Teacher: Users with teaching privileges (teacher, organization_admin, platform_admin)
+ * 3. Teacher: Users with teaching privileges (teacher, platform_admin)
  *    receive the Teacher Platform action ("/teacher", "پنل اساتید", GraduationCap).
  * 4. Regular Learners (student): Receive an empty array.
  */
@@ -71,6 +71,17 @@ export function getHeaderManagementActions(
       icon: BookOpen,
       badgeVariant: "primary",
       ariaLabel: "مدیریت دوره‌ها",
+    });
+  } else if (user?.role === "support_agent" || memberships?.some((m) => m.role === "support_agent")) {
+    // Rule 2.5 — Support Agent
+    actions.push({
+      id: "support",
+      to: "/admin/support",
+      label: "مرکز پشتیبانی",
+      shortLabel: "پشتیبانی",
+      icon: LifeBuoy,
+      badgeVariant: "primary",
+      ariaLabel: "مرکز پشتیبانی",
     });
   }
 

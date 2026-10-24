@@ -25,7 +25,7 @@ import type { DeviceService } from "./device-service.js";
 import { detectDeviceType } from "./device-service.js";
 
 import type { NotificationService } from "../notifications/notification-service.js";
-import { attachSessionCookies } from "./cookie-utils.js";
+import { attachSessionCookies, clearSessionCookies } from "./cookie-utils.js";
 
 export interface AuthRouteOptions {
   identityAdapter?: IdentityAdapter;
@@ -41,6 +41,7 @@ export interface AuthRouteOptions {
   notificationService?: NotificationService;
   referralService?: import("../referral/referral-service.js").ReferralService;
   auditService?: AuditService;
+  welcomeGiftService?: import("./welcome-gift-service.js").WelcomeGiftService;
   appUrl?: string;
 }
 
@@ -346,6 +347,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         email: userRecord.email,
         name: userRecord.name,
         role: effectiveRole,
+        teacherStatus: userRecord.teacherStatus,
         phoneNumber: userRecord.phoneNumber ?? null,
         major: userRecord.major ?? null,
         university: userRecord.university ?? null,
@@ -552,6 +554,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         email: userRecord.email,
         name: userRecord.name,
         role: effectiveRole,
+        teacherStatus: userRecord.teacherStatus,
         phoneNumber: userRecord.phoneNumber ?? null,
         major: userRecord.major ?? null,
         university: userRecord.university ?? null,
@@ -632,6 +635,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     if (canonicalDeviceId) {
       reply.setCookie("avana_device_id", canonicalDeviceId, {
         path: "/",
+        domain: config.domain,
         httpOnly: true,
         secure: config.secure,
         sameSite: config.sameSite,
@@ -662,6 +666,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       department?: string;
       role?: string;
       referralCode?: string;
+      autoSendVerification?: boolean;
     };
 
     const firstName = body?.firstName !== undefined ? String(body.firstName).trim() : undefined;
@@ -775,6 +780,10 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       }
     }
 
+    const isTeacherApplication =
+      body?.role === "teacher" ||
+      Boolean(resolvedUniversity || resolvedFaculty || resolvedDepartment);
+
     const hashedPassword = await hashPassword(password);
     const userRecord = await userStore.createUserWithPassword({
       email,
@@ -785,6 +794,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       university: resolvedUniversity,
       faculty: resolvedFaculty,
       department: resolvedDepartment,
+      teacherStatus: isTeacherApplication ? "pending" : "approved",
     });
 
     if (organizationStore) {
@@ -826,14 +836,32 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       }
     }
 
-    // Generate initial email verification challenge
-    try {
-      await issueVerificationChallenge(userRecord.id, "email", userRecord.email);
-    } catch (err) {
-      app.log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        "Initial verification email dispatch failed or deferred; user can choose channel on verification page",
-      );
+    // Register Welcome Gift on successful signup lifecycle
+    if (opts.welcomeGiftService) {
+      try {
+        await opts.welcomeGiftService.registerOnSignup(userRecord.id);
+      } catch (err) {
+        request.log.warn(
+          {
+            err: err instanceof Error ? err.message : String(err),
+            userId: userRecord.id,
+          },
+          "Failed to register welcome gift during signup",
+        );
+      }
+    }
+
+    // Generate initial email verification challenge unless autoSendVerification is explicitly false
+    const shouldAutoSendVerification = body?.autoSendVerification !== false;
+    if (shouldAutoSendVerification) {
+      try {
+        await issueVerificationChallenge(userRecord.id, "email", userRecord.email);
+      } catch (err) {
+        app.log.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          "Initial verification email dispatch failed or deferred; user can choose channel on verification page",
+        );
+      }
     }
 
     // Issue session cookies (unverified session)
@@ -861,10 +889,6 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
 
     if (opts.auditService) {
       try {
-        const isTeacherApplication =
-          body?.role === "teacher" ||
-          Boolean(resolvedUniversity || resolvedFaculty || resolvedDepartment);
-
         const auditEvent = isTeacherApplication
           ? auditTeacherRequested(userRecord.id as UserId, {
               name: userRecord.name ?? undefined,
@@ -903,6 +927,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         email: userRecord.email,
         name: userRecord.name,
         role: effectiveRole,
+        teacherStatus: userRecord.teacherStatus,
         phoneNumber: userRecord.phoneNumber ?? null,
         major: userRecord.major ?? null,
         university: userRecord.university ?? null,
@@ -1165,19 +1190,6 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         isPlatformAdmin,
       );
 
-      if (opts.notificationService) {
-        void opts.notificationService
-          .notifyLogin(userRecord.id, {
-            ip: request.ip,
-          })
-          .catch((err) => {
-            app.log.warn(
-              { err: err instanceof Error ? err.message : String(err) },
-              "Failed to dispatch phone login notification",
-            );
-          });
-      }
-
       const memberships = await resolveMemberships(
         organizationStore,
         userRecord.id,
@@ -1309,19 +1321,6 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       userRecord.email,
       isPlatformAdmin,
     );
-
-    if (opts.notificationService) {
-      void opts.notificationService
-        .notifyLogin(userRecord.id, {
-          ip: request.ip,
-        })
-        .catch((err) => {
-          app.log.warn(
-            { err: err instanceof Error ? err.message : String(err) },
-            "Failed to dispatch sign-in notification",
-          );
-        });
-    }
 
     const memberships = await resolveMemberships(
       organizationStore,
@@ -1927,8 +1926,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       await sessionService.revokeSession(token, "sign_out");
     }
 
-    reply.clearCookie("avana_session", { path: "/" });
-    reply.clearCookie("avana_csrf", { path: "/" });
+    clearSessionCookies(reply, sessionService.getConfig());
 
     reply.code(204);
     return;
@@ -2056,6 +2054,70 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         isVerified: verificationState.isVerified,
       },
       memberships,
+    };
+  });
+
+  /**
+   * GET /v1/welcome-gift/status — Checks eligibility and returns or activates the welcome gift.
+   */
+  app.get("/v1/welcome-gift/status", async (request, _reply) => {
+    const token = extractSessionToken(request);
+    if (!token) {
+      throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    const sessionUser = await sessionService.validateSession(token);
+    if (!sessionUser) {
+      throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    if (!opts.welcomeGiftService) {
+      return {
+        request_id: request.id,
+        eligible: false,
+        granted: false,
+        popup_seen: true,
+        gift: null,
+      };
+    }
+
+    const status = await opts.welcomeGiftService.getOrActivateStatus(
+      sessionUser.userId,
+    );
+    return {
+      request_id: request.id,
+      ...status,
+    };
+  });
+
+  /**
+   * POST /v1/welcome-gift/acknowledge — Acknowledges that the user has seen the welcome popup.
+   */
+  app.post("/v1/welcome-gift/acknowledge", async (request, _reply) => {
+    const token = extractSessionToken(request);
+    if (!token) {
+      throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    const sessionUser = await sessionService.validateSession(token);
+    if (!sessionUser) {
+      throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    if (!opts.welcomeGiftService) {
+      return {
+        request_id: request.id,
+        success: true,
+        popup_seen_at: new Date().toISOString(),
+      };
+    }
+
+    const result = await opts.welcomeGiftService.acknowledgePopup(
+      sessionUser.userId,
+    );
+    return {
+      request_id: request.id,
+      ...result,
     };
   });
 };

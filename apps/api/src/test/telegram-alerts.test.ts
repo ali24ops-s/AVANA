@@ -1694,6 +1694,7 @@ describe("Telegram Operational Alerts Test Suite", () => {
 
       const mockAdminStore = {
         listCommercePayments: vi.fn().mockRejectedValue(
+          // secretlint-disable-next-line @secretlint/secretlint-rule-database-connection-string
           new Error("connect ECONNREFUSED postgres://postgres:superSecretPass123@10.0.0.5:5432/avana_db"),
         ),
       } as unknown as import("../modules/admin/admin-store.js").AdminStore;

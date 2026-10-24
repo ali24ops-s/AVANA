@@ -242,6 +242,14 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
         reviewedAt: past,
         reactionMs: 1000,
       });
+      userFlashcardScheduleStore.upsertSchedule({
+        userId,
+        flashcardId: dueCard,
+        dueAt: past,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        reviewCount: 1,
+      });
     }
 
     return { dueCard, futureCard };
@@ -389,14 +397,14 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
       expect(res1.statusCode).toBe(200);
       expect(JSON.parse(res1.body).due_cards.length).toBe(1);
 
-      // user2 (in same org, has not reviewed card yet) sees 1 card due for initial review
+      // user2 (in same org, but hasn't reviewed the card) sees 0 due cards
       const res2 = await app.inject({
         method: "GET",
         url: `/v1/organizations/${orgId}/courses/${courseId}/flashcards/review-queue`,
         cookies: { avana_session: user2Token },
       });
       expect(res2.statusCode).toBe(200);
-      expect(JSON.parse(res2.body).due_cards.length).toBe(1);
+      expect(JSON.parse(res2.body).due_cards.length).toBe(0);
     });
 
     it("POST .../flashcards/:flashcardId/review advances schedule and emits audit log", async () => {
@@ -553,9 +561,9 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
 
     it("GET .../study/recommendations returns study recommendations", async () => {
       const app = await buildApp();
-      const { token } = await signIn(app, "student@example.com", "student");
+      const { token, userId } = await signIn(app, "student@example.com", "student");
       const orgId = await createOrg(app, token, "Health Org");
-      seedFlashcards(orgId);
+      seedFlashcards(orgId, courseId, userId);
 
       const res = await app.inject({
         method: "GET",

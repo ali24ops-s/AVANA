@@ -346,16 +346,27 @@ function buildPayload(type: string, promptText = ""): unknown {
       };
     }
     case "sessions_batch": {
-      const chunkIdsMatch = promptText.match(
-        /AVAILABLE CHUNK IDs:\s*(\[[^\]]*\])/i,
-      );
+      const allChunkMatches = [
+        ...promptText.matchAll(/AVAILABLE CHUNK IDs(?: FOR SESSION \d+)?:\s*(\[[^\]]*\])/gi),
+      ];
       let availableChunkIds: string[] = [];
-      if (chunkIdsMatch && chunkIdsMatch[1]) {
+      for (const m of allChunkMatches) {
         try {
-          availableChunkIds = JSON.parse(chunkIdsMatch[1]);
+          const parsed = JSON.parse(m[1]);
+          if (Array.isArray(parsed)) {
+            availableChunkIds.push(...parsed);
+          }
         } catch {
           // ignore
         }
+      }
+      if (availableChunkIds.length === 0) {
+        const idMatches = [...promptText.matchAll(/\[Chunk ID:\s*([a-f0-9-]+)\]/gi)].map(
+          (m) => m[1],
+        );
+        availableChunkIds = Array.from(new Set(idMatches));
+      } else {
+        availableChunkIds = Array.from(new Set(availableChunkIds));
       }
 
       // Detect requested sessions from the prompt
@@ -372,11 +383,31 @@ function buildPayload(type: string, promptText = ""): unknown {
       const sessions = indices.map((idx, i) => {
         const title =
           sessionTitlesMatch[i] || `جلسه ${idx + 1}: مبحث شماره ${idx + 1} - تحلیل و آموزش مفاهیم`;
+        const sessionChunkMatch = promptText.match(
+          new RegExp(`AVAILABLE CHUNK IDs FOR SESSION ${idx}:\\s*(\\[[^\\]]*\\])`, "i"),
+        );
+        let sessionChunkIds: string[] = [];
+        if (sessionChunkMatch && sessionChunkMatch[1]) {
+          try {
+            sessionChunkIds = JSON.parse(sessionChunkMatch[1]);
+          } catch {
+            // ignore
+          }
+        }
+        const conceptMatches = [...promptText.matchAll(/"name"\s*:\s*"([^"]+)"/g)].map(
+          (m) => m[1],
+        );
+        const conceptsSection =
+          conceptMatches.length > 0
+            ? `\n\n## مفاهیم و سرفصل‌های کلیدی\n${conceptMatches.map((c) => `- **${c}**: تحلیل و آموزش بالینی`).join("\n")}`
+            : "";
+
         return {
           index: idx,
           title,
-          contentMarkdown: `# ${title}\n\n## ۱. تعاریف و مبانی\nاین مبحث به بررسی مکانیسم‌های سلولی، فیزیولوژیک و طبقه‌بندی‌های اصلی می‌پردازد.\n\n## ۲. جدول مقایسه‌ای داروها و اثرات فارماکودینامیک\n| نام دارو | مکانیسم اثر | کاربرد بالینی | عوارض جانبی |\n|---|---|---|---|\n| داروی خط اول | مهار اختصاصی آنزیم | درمان قطعی | سردرد، افت فشار |\n| داروی خط دوم | مسدودکننده گیرنده | درمان کمکی | تهوع، خواب‌آلودگی |\n\n## ۳. پاتوفیزیولوژی و درمان\nمکانیسم‌های فیزیوپاتولوژیک و پروتکل‌های درمانی بر اساس داده‌های منبع به طور دقیق سازمان‌دهی شده‌اند.`,
-          citationChunkIds: availableChunkIds,
+          contentMarkdown: `# ${title}\n\n## ۱. تعاریف و مبانی\nاین مبحث به بررسی مکانیسم‌های سلولی، فیزیولوژیک و طبقه‌بندی‌های اصلی می‌پردازد.\n\n## ۲. جدول مقایسه‌ای داروها و اثرات فارماکودینامیک\n| نام دارو | مکانیسم اثر | کاربرد بالینی | عوارض جانبی |\n|---|---|---|---|\n| داروی خط اول | مهار اختصاصی آنزیم | درمان قطعی | سردرد، افت فشار |\n| داروی خط دوم | مسدودکننده گیرنده | درمان کمکی | تهوع، خواب‌آلودگی |\n\n## ۳. پاتوفیزیولوژی و درمان\nمکانیسم‌های فیزیوپاتولوژیک و پروتکل‌های درمانی بر اساس داده‌های منبع به طور دقیق سازمان‌دهی شده‌اند.${conceptsSection}`,
+          citationChunkIds:
+            sessionChunkIds.length > 0 ? sessionChunkIds : availableChunkIds,
         };
       });
 
@@ -402,11 +433,25 @@ function buildPayload(type: string, promptText = ""): unknown {
           // ignore
         }
       }
+      if (availableChunkIds.length === 0) {
+        const idMatches = [...promptText.matchAll(/\[Chunk ID:\s*([a-f0-9-]+)\]/gi)].map(
+          (m) => m[1],
+        );
+        availableChunkIds = Array.from(new Set(idMatches));
+      }
+
+      const singleConceptMatches = [...promptText.matchAll(/"name"\s*:\s*"([^"]+)"/g)].map(
+        (m) => m[1],
+      );
+      const singleConceptsSection =
+        singleConceptMatches.length > 0
+          ? `\n\n## مفاهیم و سرفصل‌های کلیدی\n${singleConceptMatches.map((c) => `- **${c}**: تحلیل و آموزش بالینی`).join("\n")}`
+          : "";
 
       return {
         kind: "session",
         title: sessionTitle,
-        contentMarkdown: `# ${sessionTitle}\n\n## ۱. تعاریف و مبانی\nاین مبحث به بررسی مکانیسم‌های سلولی، فیزیولوژیک و طبقه‌بندی‌های اصلی می‌پردازد.\n\n## ۲. جدول مقایسه‌ای داروها و اثرات فارماکودینامیک\n| نام دارو | مکانیسم اثر | کاربرد بالینی | عوارض جانبی |\n|---|---|---|---|\n| داروی خط اول | مهار اختصاصی آنزیم | درمان قطعی | سردرد، افت فشار |\n| داروی خط دوم | مسدودکننده گیرنده | درمان کمکی | تهوع، خواب‌آلودگی |\n\n## ۳. پاتوفیزیولوژی و درمان\nمکانیسم‌های فیزیوپاتولوژیک و پروتکل‌های درمانی بر اساس داده‌های منبع به طور دقیق سازمان‌دهی شده‌اند.`,
+        contentMarkdown: `# ${sessionTitle}\n\n## ۱. تعاریف و مبانی\nاین مبحث به بررسی مکانیسم‌های سلولی، فیزیولوژیک و طبقه‌بندی‌های اصلی می‌پردازد.\n\n## ۲. جدول مقایسه‌ای داروها و اثرات فارماکودینامیک\n| نام دارو | مکانیسم اثر | کاربرد بالینی | عوارض جانبی |\n|---|---|---|---|\n| داروی خط اول | مهار اختصاصی آنزیم | درمان قطعی | سردرد، افت فشار |\n| داروی خط دوم | مسدودکننده گیرنده | درمان کمکی | تهوع، خواب‌آلودگی |\n\n## ۳. پاتوفیزیولوژی و درمان\nمکانیسم‌های فیزیوپاتولوژیک و پروتکل‌های درمانی بر اساس داده‌های منبع به طور دقیق سازمان‌دهی شده‌اند.${singleConceptsSection}`,
         citationChunkIds: availableChunkIds,
       };
     }

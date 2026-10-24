@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import {
   Sparkles,
   Send,
@@ -25,6 +25,9 @@ export interface ExamQuestionContext {
   questionText: string;
   choices?: string[] | null;
   selectedChoice?: string | null;
+  correctChoice?: string | null;
+  userAnswerStatus?: "correct" | "incorrect" | "unanswered" | "partial";
+  explanation?: string | null;
   topic?: string | null;
   keyPoint?: string | null;
   lessonId?: string | null;
@@ -52,8 +55,15 @@ export interface QuestionMentorState {
   error?: string | null;
 }
 
+export interface AssistantPendingAction {
+  id: string;
+  type: "ask" | "explain";
+  selectedText: string;
+  lessonId?: string;
+}
+
 export interface StudyAssistantChatProps {
-  contextType: "lesson" | "dashboard" | "exam_question";
+  contextType: "lesson" | "dashboard" | "exam_question" | "exam_analysis";
   lessonId?: string;
   courseId?: string;
   lessonTitle?: string;
@@ -67,6 +77,9 @@ export interface StudyAssistantChatProps {
   className?: string;
   compact?: boolean;
   initialPrompt?: string;
+  pendingAction?: AssistantPendingAction | null;
+  pendingActions?: AssistantPendingAction[];
+  onActionHandled?: (actionId: string) => void;
 }
 
 function buildExamMentorPrompt(q: ExamQuestionContext): string {
@@ -117,6 +130,95 @@ ${groundingDirectives}
 ۵. پاسخ را کوتاه، مستدل، متمرکز و به زبان فارسی بنویسید.`;
 }
 
+function buildExamAnalysisMentorPrompt(q: ExamQuestionContext): string {
+  const choicesText =
+    q.choices && q.choices.length > 0
+      ? q.choices.map((c, i) => `${String.fromCharCode(65 + i)}) ${c}`).join("\n")
+      : "بدون گزینه چهارجوابی";
+  const userChoice = q.selectedChoice
+    ? `گزینه انتخاب‌شده دانشجو: ${q.selectedChoice}`
+    : "دانشجو به این سوال پاسخی نداده است (بدون پاسخ).";
+  const correctChoice = q.correctChoice
+    ? `پاسخ صحیح: ${q.correctChoice}`
+    : "پاسخ صحیح در دسترس نیست.";
+  const statusMap: Record<string, string> = {
+    correct: "پاسخ دانشجو صحیح است.",
+    incorrect: "پاسخ دانشجو نادرست است.",
+    unanswered: "دانشجو در زمان آزمون پاسخی ثبت نکرده است.",
+    partial: "پاسخ دانشجو مشمول نمره جزئی است.",
+  };
+  const statusInfo = q.userAnswerStatus ? statusMap[q.userAnswerStatus] ?? "" : "";
+  const explanationInfo = q.explanation ? `توضیح رسمی موجود: ${q.explanation}` : "";
+  const topicInfo = q.topic ? `مبحث سوال: ${q.topic}` : "";
+  const keyPointInfo = q.keyPoint ? `نکته علمی: ${q.keyPoint}` : "";
+  const hasLesson = Boolean(q.lessonId);
+  const lessonInfo = hasLesson && q.lessonTitle ? `درس مرجع: ${q.lessonTitle}` : "";
+  const chapterInfo = q.chapterTitle ? `سرفصل: ${q.chapterTitle}` : "";
+
+  return `شما منتور هوشمند آموزشی آوانا هستید و در حال ارائه تحلیل کارنامه آزمون برای یک دانشجو هستید.
+آزمون به پایان رسیده و نتایج ثبت شده است. دانشجو مایل است درباره سوال شماره ${toPersianDigits(q.questionNumber)} راهنمایی و تحلیل آموزشی دریافت کند.
+
+متن سوال:
+${q.questionText}
+
+گزینه‌ها:
+${choicesText}
+
+وضعیت عملکرد دانشجو در این سوال:
+- ${statusInfo}
+- ${userChoice}
+- ${correctChoice}
+${explanationInfo ? `- ${explanationInfo}` : ""}
+${lessonInfo ? `- ${lessonInfo}` : ""}
+${chapterInfo ? `- ${chapterInfo}` : ""}
+${topicInfo ? `- ${topicInfo}` : ""}
+${keyPointInfo ? `- ${keyPointInfo}` : ""}
+
+دستورالعمل‌های آموزشی منتور:
+۱. تحلیل پاسخ: توضیح دهید که چرا گزینه صحیح درست است و چرا سایر گزینه‌ها (به‌ویژه گزینه‌ای که دانشجو انتخاب کرده) نادرست است.
+۲. مفهوم پایه: مفهوم علمی و ریشه سوال را با زبانی ساده، مستدل و آموزنده تشریح کنید.
+۳. در صورت نیاز به راهنمایی مرحله‌به‌مرحله، گام‌های فکری برای تسلط بر این مبحث را مشخص کنید.
+۴. لحن شما دلگرم‌کننده، حامی، آموزنده و محترمانه باشد.
+۵. پاسخ را به زبان فارسی روان، تمیز و ساختاریافته بنویسید.`;
+}
+
+function buildActionPrompt(action: AssistantPendingAction): string {
+  const text = action.selectedText.trim();
+  if (action.type === "explain") {
+    return `لطفاً این بخش از متن درس را به زبان فارسی روان، ساده و قابل‌فهم با حفظ دقت علمی توضیح بده و در صورت نیاز مثال بزن:\n«${text}»`;
+  }
+  return `درباره این بخش از درس راهنمایی می‌خواهم:\n«${text}»`;
+}
+
+export function extractReferenceAndQuestion(text: string): { reference: string | null; question: string } {
+  const marker = "سؤال من:";
+  const altMarker = "سؤالم:";
+  let markerIdx = text.indexOf(marker);
+  let markerLen = marker.length;
+
+  if (markerIdx === -1) {
+    markerIdx = text.indexOf(altMarker);
+    markerLen = altMarker.length;
+  }
+
+  if (markerIdx !== -1) {
+    const rawRefPart = text.slice(0, markerIdx).trim();
+    const question = text.slice(markerIdx + markerLen).trim();
+
+    const quoteMatch = rawRefPart.match(/«([\s\S]*?)»/);
+    const reference = quoteMatch ? quoteMatch[1].trim() : (rawRefPart || null);
+
+    return { reference, question };
+  }
+
+  const wholeQuoteMatch = text.trim().match(/^«([\s\S]*?)»$/);
+  if (wholeQuoteMatch) {
+    return { reference: wholeQuoteMatch[1].trim(), question: "" };
+  }
+
+  return { reference: null, question: text.trim() };
+}
+
 export function StudyAssistantChat({
   contextType,
   lessonId,
@@ -132,6 +234,9 @@ export function StudyAssistantChat({
   className = "",
   compact = false,
   initialPrompt,
+  pendingAction,
+  pendingActions,
+  onActionHandled,
 }: StudyAssistantChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => conversationState?.messages || []);
   const [inputMessage, setInputMessage] = useState(initialPrompt || "");
@@ -151,22 +256,34 @@ export function StudyAssistantChat({
     };
   }, []);
 
+  // Dynamic height adjustment for input textarea (auto-resizing up to 190px, shrinking when deleted)
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const minHeight = compact ? 52 : 64;
+    const maxHeight = 190;
+    const targetHeight = Math.min(Math.max(el.scrollHeight, minHeight), maxHeight);
+    el.style.height = `${targetHeight}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
+  }, [inputMessage, compact]);
+
   // Sync state if external conversationState changes while mounted
   useEffect(() => {
-    if (conversationState && contextType === "exam_question") {
+    if (conversationState) {
       setMessages(conversationState.messages);
       setConversationId(conversationState.conversationId || null);
       setIsLoading(Boolean(conversationState.isLoading));
       setError(conversationState.error || null);
     }
-  }, [conversationState, contextType]);
+  }, [conversationState]);
 
   // Track active educational study time for AI tutor sessions (disabled in exam mode to avoid double-tracking)
   useStudySessionTracker({
     activityType: "ai_tutor",
     courseId,
     lessonId,
-    enabled: contextType !== "exam_question",
+    enabled: contextType !== "exam_question" && contextType !== "exam_analysis",
   });
 
   // Auto-scroll ONLY the internal messages container without affecting window scroll
@@ -195,11 +312,16 @@ export function StudyAssistantChat({
       setError(null);
     }
 
-    const promptText = buildExamMentorPrompt(q);
+    const promptText = contextType === "exam_analysis"
+      ? buildExamAnalysisMentorPrompt(q)
+      : buildExamMentorPrompt(q);
+
     const userMsg: ChatMessage = {
       id: generateUUID(),
       role: "user",
-      content: `راهنمایی برای سوال ${toPersianDigits(q.questionNumber)}`,
+      content: contextType === "exam_analysis"
+        ? `راهنمایی و تحلیل سوال ${toPersianDigits(q.questionNumber)}`
+        : `راهنمایی برای سوال ${toPersianDigits(q.questionNumber)}`,
       createdAt: new Date(),
     };
     if (isMountedRef.current) {
@@ -289,10 +411,17 @@ export function StudyAssistantChat({
   useEffect(() => {
     activeRequestIdRef.current++;
     if (contextType === "lesson" && lessonId) {
+      if (conversationState && (conversationState.messages.length > 0 || conversationState.isLoading)) {
+        setMessages(conversationState.messages);
+        setConversationId(conversationState.conversationId || null);
+        setIsLoading(Boolean(conversationState.isLoading));
+        setError(conversationState.error || null);
+        return;
+      }
       setConversationId(null);
       setMessages([]);
       setError(null);
-    } else if (contextType === "exam_question" && examQuestionId && examQuestion) {
+    } else if ((contextType === "exam_question" || contextType === "exam_analysis") && examQuestionId && examQuestion) {
       // If an existing conversation already exists for this question (or is in-flight), restore it and DO NOT auto-generate!
       if (conversationState && (conversationState.messages.length > 0 || conversationState.isLoading)) {
         setMessages(conversationState.messages);
@@ -312,7 +441,14 @@ export function StudyAssistantChat({
   }, [lessonId, contextType, examQuestionId]);
 
   const quickPrompts =
-    contextType === "exam_question"
+    contextType === "exam_analysis"
+      ? [
+          "چرا پاسخ من اشتباه بود؟",
+          "مفهوم علمی این سوال را توضیح بده",
+          "راهنمایی مرحله‌به‌مرحله برای درک این سوال بده",
+          "علت رد سایر گزینه‌ها چیه؟",
+        ]
+      : contextType === "exam_question"
       ? [
           "یک سرنخ مرحله‌ای بیشتر بده",
           "گزینه‌ها را تحلیل کن بدون گفتن جواب",
@@ -335,11 +471,20 @@ export function StudyAssistantChat({
           ];
 
   async function handleSend(textToSend?: string) {
-    const message = (textToSend ?? inputMessage).trim();
+    let message = (textToSend ?? inputMessage).trim();
     if (!message || isLoading) return;
 
+    if (!textToSend) {
+      const parsed = extractReferenceAndQuestion(message);
+      if (parsed.reference && !parsed.question) {
+        message = `متن مرجع از درسنامه:\n«${parsed.reference}»\n\nدرباره این بخش از درس راهنمایی و توضیح می‌خواهم.`;
+      }
+    }
+
     setError(null);
-    setInputMessage("");
+    if (!textToSend) {
+      setInputMessage("");
+    }
 
     const userMsg: ChatMessage = {
       id: generateUUID(),
@@ -371,13 +516,14 @@ export function StudyAssistantChat({
         message,
         context: {
           type:
-            contextType === "lesson" || (contextType === "exam_question" && examQuestion?.lessonId)
+            contextType === "lesson" ||
+            ((contextType === "exam_question" || contextType === "exam_analysis") && examQuestion?.lessonId)
               ? "lesson"
               : "dashboard",
           lessonId:
             contextType === "lesson"
               ? lessonId
-              : contextType === "exam_question"
+              : (contextType === "exam_question" || contextType === "exam_analysis")
                 ? examQuestion?.lessonId || undefined
                 : undefined,
           courseId: contextType === "lesson" ? courseId : undefined,
@@ -442,6 +588,75 @@ export function StudyAssistantChat({
     }
   }
 
+  // Queue and lifecycle management for incoming contextual selection actions
+  const processedActionIdsRef = useRef<Set<string>>(new Set());
+
+  // Reset processed action IDs if lesson changes
+  useEffect(() => {
+    processedActionIdsRef.current.clear();
+  }, [lessonId]);
+
+  const allPendingActions = pendingActions ?? (pendingAction ? [pendingAction] : []);
+
+  useEffect(() => {
+    if (!allPendingActions || allPendingActions.length === 0) return;
+
+    // Find first unprocessed action
+    const nextAction = allPendingActions.find((act) => {
+      if (!act || !act.id || !act.selectedText?.trim()) return false;
+      if (processedActionIdsRef.current.has(act.id)) return false;
+      if (act.lessonId && lessonId && act.lessonId !== lessonId) {
+        // Discard action intended for a different lesson
+        processedActionIdsRef.current.add(act.id);
+        onActionHandled?.(act.id);
+        return false;
+      }
+      return true;
+    });
+
+    if (!nextAction) return;
+
+    // 1. «از آوانا بپرس» (ask): Populate input message and focus; DO NOT auto-send!
+    if (nextAction.type === "ask") {
+      processedActionIdsRef.current.add(nextAction.id);
+      onActionHandled?.(nextAction.id);
+
+      const quote = nextAction.selectedText.trim();
+      const template = `متن مرجع از درسنامه:\n«${quote}»\n\nسؤال من:\n`;
+
+      setInputMessage((prev) => {
+        if (!prev.trim()) {
+          return template;
+        }
+        const parsed = extractReferenceAndQuestion(prev);
+        if (parsed.question) {
+          return `متن مرجع از درسنامه:\n«${quote}»\n\nسؤال من:\n${parsed.question}`;
+        }
+        return template;
+      });
+
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus({ preventScroll: true });
+          inputRef.current.setSelectionRange(
+            inputRef.current.value.length,
+            inputRef.current.value.length,
+          );
+        }
+      }, 50);
+      return;
+    }
+
+    // 2. «توضیح ساده» (explain): Auto-send to assistant when not loading
+    if (isLoading) return;
+
+    processedActionIdsRef.current.add(nextAction.id);
+    onActionHandled?.(nextAction.id);
+
+    const prompt = buildActionPrompt(nextAction);
+    void handleSend(prompt);
+  }, [allPendingActions, isLoading, lessonId]);
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -478,7 +693,11 @@ export function StudyAssistantChat({
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              {contextType === "exam_question" ? (
+              {contextType === "exam_analysis" ? (
+                <h2 className="text-h3 text-[var(--color-text)] truncate">
+                  تحلیل سوال با منتور هوشمند
+                </h2>
+              ) : contextType === "exam_question" ? (
                 <h2 className="text-h3 text-[var(--color-text)] truncate">
                   تحلیل هوشمند آوانا
                 </h2>
@@ -487,11 +706,13 @@ export function StudyAssistantChat({
                   از آوانا بپرس
                 </h3>
               )}
-              <Badge variant="primary" size="sm" className="font-bold shrink-0">
-                {contextType === "exam_question" ? "منتور هوشمند" : "Cloudflare AI"}
-              </Badge>
+              {(contextType === "exam_question" || contextType === "exam_analysis") && (
+                <Badge variant="primary" size="sm" className="font-bold shrink-0">
+                  منتور هوشمند
+                </Badge>
+              )}
             </div>
-            {contextType === "exam_question" ? null : contextType === "lesson" && lessonTitle ? (
+            {contextType === "exam_question" || contextType === "exam_analysis" ? null : contextType === "lesson" && lessonTitle ? (
               <p className="text-[11px] text-primary truncate font-medium flex items-center gap-1 mt-0.5">
                 <BookOpen className="w-3 h-3 shrink-0" />
                 <span>درس: {lessonTitle}{moduleTitle ? ` (${moduleTitle})` : ""}</span>
@@ -535,12 +756,12 @@ export function StudyAssistantChat({
       </div>
 
       {/* Exam Question Conceptual Header */}
-      {contextType === "exam_question" && (
-        <div className="p-4 bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] space-y-3 shrink-0">
+      {(contextType === "exam_question" || contextType === "exam_analysis") && (
+        <div className="p-3.5 sm:p-4 bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] space-y-2.5 shrink-0">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="text-h4 text-[var(--color-primary-dark)] flex items-center gap-1.5">
+            <h3 className="text-h4 text-sm font-bold text-[var(--color-primary-dark)] flex items-center gap-1.5">
               <Lightbulb className="w-4 h-4 text-amber-500" aria-hidden="true" />
-              <span>راهنمای مفهومی سوال:</span>
+              <span>{contextType === "exam_analysis" ? `تحلیل آموزشی سوال ${toPersianDigits(examQuestion?.questionNumber ?? 1)}` : "راهنمای مفهومی سوال:"}</span>
             </h3>
             {onClose && (
               <button
@@ -548,7 +769,7 @@ export function StudyAssistantChat({
                 onClick={onClose}
                 className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] px-2.5 py-1 rounded-button bg-[var(--color-surface)] border border-[var(--color-border)] transition-colors font-medium cursor-pointer"
               >
-                متوجه شدم
+                {contextType === "exam_analysis" ? "بستن" : "متوجه شدم"}
               </button>
             )}
           </div>
@@ -572,13 +793,15 @@ export function StudyAssistantChat({
                 مبحث <span className="text-[var(--color-primary)] font-bold">{examQuestion.topic}</span> (تحلیل مفهومی و تکمیلی)
               </>
             ) : (
-              "مبحث مورد نظر"
+              "مباحث آزمون"
             )}{" "}
             است.
           </p>
-          <div className="p-2.5 bg-[#e8f4fb] border border-[#a7d0e6] rounded-xl text-xs text-[#2b6d8f]">
-            <span>💡 تحلیل تفصیلی، پاسخ صحیح و منبع پس از ثبت نهایی آزمون در دسترس قرار خواهد گرفت.</span>
-          </div>
+          {contextType === "exam_question" ? (
+            <div className="p-2.5 bg-[#e8f4fb] border border-[#a7d0e6] rounded-xl text-xs text-[#2b6d8f]">
+              <span>💡 تحلیل تفصیلی، پاسخ صحیح و منبع پس از ثبت نهایی آزمون در دسترس قرار خواهد گرفت.</span>
+            </div>
+          ) : null}
 
           {/* Key Point - rendered ONLY when real keyPoint data exists */}
           {examQuestion?.keyPoint ? (
@@ -607,14 +830,18 @@ export function StudyAssistantChat({
             </div>
             <div className="space-y-1.5 max-w-sm">
               <p className="text-sm font-bold text-[var(--color-text)]">
-                {contextType === "exam_question"
+                {contextType === "exam_analysis"
+                  ? "تحلیل سوال با منتور هوشمند آوانا"
+                  : contextType === "exam_question"
                   ? "راهنمایی از منتور هوشمند آوانا"
                   : contextType === "lesson"
                   ? "هر سوالی در حین مطالعه این درس داری بپرس!"
                   : "چطور می‌توانم در یادگیری به شما کمک کنم؟"}
               </p>
               <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-                {contextType === "exam_question"
+                {contextType === "exam_analysis"
+                  ? "می‌توانید درباره دلیل درستی یا نادرستی گزینه‌ها، مفاهیم علمی سوال و راهنمایی گام‌به‌گام سوالات خود را بپرسید."
+                  : contextType === "exam_question"
                   ? "من به شما کمک می‌کنم مفهوم این سوال را بهتر تحلیل کنید و بدون لو دادن پاسخ، مسیر فکری حل سوال را پیدا کنید."
                   : contextType === "lesson"
                   ? "من محتوای این درس را بررسی می‌کنم و نکات علمی و آموزشی را به شکل خلاصه و دقیق برایت توضیح می‌دهم."
@@ -740,7 +967,7 @@ export function StudyAssistantChat({
           }}
           className="w-full"
         >
-          <div className="relative flex items-center w-full">
+          <div className="relative flex items-end w-full">
             <textarea
               ref={inputRef}
               value={inputMessage}
@@ -756,7 +983,7 @@ export function StudyAssistantChat({
               }
               rows={compact ? 1 : 2}
               maxLength={4000}
-              className="w-full min-h-[50px] bg-[var(--color-surface)] border border-[var(--color-border)] focus:border-primary focus:ring-1 focus:ring-primary rounded-input pe-12 ps-4 py-3 text-xs sm:text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] resize-none outline-none transition-all leading-relaxed"
+              className="w-full min-h-[52px] sm:min-h-[64px] max-h-[190px] custom-scrollbar bg-[var(--color-surface)] border border-[var(--color-border)] focus:border-primary focus:ring-1 focus:ring-primary rounded-input pe-12 ps-3.5 sm:ps-4 py-3 text-xs sm:text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] resize-none outline-none transition-[border-color,box-shadow] leading-relaxed"
             />
 
             <button
@@ -764,7 +991,7 @@ export function StudyAssistantChat({
               disabled={!inputMessage.trim() || isLoading}
               aria-label="ارسال پیام"
               title="ارسال پیام"
-              className={`absolute end-2.5 top-1/2 -translate-y-1/2 w-8 h-8 sm:w-9 sm:h-9 rounded-button flex items-center justify-center transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+              className={`absolute end-2.5 bottom-2.5 w-8 h-8 sm:w-9 sm:h-9 rounded-button flex items-center justify-center transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                 inputMessage.trim() && !isLoading
                   ? "bg-primary hover:bg-primary-hover text-white shadow-sm active:scale-95 cursor-pointer opacity-100"
                   : "bg-[var(--color-surface-hover)] text-[var(--color-text-muted)] opacity-40 cursor-not-allowed"

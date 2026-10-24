@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   ArrowRight,
   RotateCcw,
-  Award,
   Loader2,
   AlertCircle,
   Sparkles,
@@ -28,6 +27,7 @@ import {
 } from "@avana/domain";
 import { RichContent } from "../markdown/MarkdownRenderer.js";
 import { AvaniAvatar } from "../brand/AvaniAvatar.js";
+import { useCardSwipeFlip } from "../../hooks/useCardSwipeFlip.js";
 
 export interface FlashcardExperienceProps {
   organizationId: string;
@@ -110,12 +110,74 @@ export function FlashcardExperience({
     staleTime: 0,
   });
 
-  // Fetch due cards for spaced-repetition / exam / custom review when not in a persistent session
-  const queueQuery = useQuery({
+  const effectiveCourseIdsKey = effectiveCourseIds.join(",");
+
+  const userDailyNewLimit = useMemo(() => {
+    if (limit !== undefined && limit > 0) return limit;
+    try {
+      const stored = localStorage.getItem("avana_flashcards_new_limit");
+      if (stored) {
+        const parsed = parseInt(stored, 10);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    } catch {
+      // fallback
+    }
+    return 40;
+  }, [limit]);
+
+  const [activeStudyTarget, setActiveStudyTarget] = useState<"due" | "new">(
+    customMode === "new" ? "new" : "due",
+  );
+
+  // Fetch due cards for spaced-repetition review in normal course mode
+  const dueQueueQuery = useQuery({
     queryKey: [
       "flashcards-queue",
+      "due",
       organizationId,
-      effectiveCourseIds,
+      effectiveCourseIdsKey,
+      documentIds,
+    ],
+    queryFn: () =>
+      studyApi.getMultiReviewQueue(
+        organizationId,
+        effectiveCourseIds.length > 0 ? effectiveCourseIds : undefined,
+        documentIds.length > 0 ? documentIds : undefined,
+      ),
+    enabled: Boolean(organizationId && !sessionId && mode === "normal"),
+  });
+
+  // Fetch daily new cards from completed lessons in normal course mode
+  const newQueueQuery = useQuery({
+    queryKey: [
+      "flashcards-queue",
+      "new",
+      organizationId,
+      effectiveCourseIdsKey,
+      documentIds,
+      userDailyNewLimit,
+    ],
+    queryFn: () =>
+      studyApi.getCustomQueue(
+        organizationId,
+        "new",
+        effectiveCourseIds.length > 0 ? effectiveCourseIds : undefined,
+        userDailyNewLimit,
+        aheadDays,
+        documentIds.length > 0 ? documentIds : undefined,
+        true, // onlyStudied = true
+      ),
+    enabled: Boolean(organizationId && !sessionId && mode === "normal"),
+  });
+
+  // Query for exam or custom modes
+  const singleQueueQuery = useQuery({
+    queryKey: [
+      "flashcards-queue",
+      "single",
+      organizationId,
+      effectiveCourseIdsKey,
       documentIds,
       mode,
       customMode,
@@ -131,23 +193,16 @@ export function FlashcardExperience({
           documentIds.length > 0 ? documentIds : undefined,
         );
       }
-      if (mode === "custom") {
-        return studyApi.getCustomQueue(
-          organizationId,
-          customMode,
-          effectiveCourseIds.length > 0 ? effectiveCourseIds : undefined,
-          limit,
-          aheadDays,
-          documentIds.length > 0 ? documentIds : undefined,
-        );
-      }
-      return studyApi.getMultiReviewQueue(
+      return studyApi.getCustomQueue(
         organizationId,
+        customMode,
         effectiveCourseIds.length > 0 ? effectiveCourseIds : undefined,
+        limit,
+        aheadDays,
         documentIds.length > 0 ? documentIds : undefined,
       );
     },
-    enabled: Boolean(organizationId && !sessionId),
+    enabled: Boolean(organizationId && !sessionId && mode !== "normal"),
   });
 
   // Fetch summary to get total counts
@@ -157,10 +212,56 @@ export function FlashcardExperience({
     enabled: !!organizationId,
   });
 
+  const scopedSummary = useMemo(() => {
+    const rawCourses = summaryQuery.data?.courses as Array<{
+      course_id?: string;
+      id?: string;
+      total_cards?: number;
+      due_cards?: number;
+      new_cards?: number;
+      learning_cards?: number;
+      overdue_cards?: number;
+    }> | undefined;
+
+    if (!rawCourses || rawCourses.length === 0) {
+      const topTotal = summaryQuery.data?.total_cards ?? 0;
+      const topDue = summaryQuery.data?.total_due ?? 0;
+      const topNew = summaryQuery.data?.total_new ?? 0;
+      return {
+        total: topTotal,
+        due: topDue,
+        newCards: topNew,
+        hasCourseData: false,
+      };
+    }
+
+    const relevantCourses = effectiveCourseIds.length > 0
+      ? rawCourses.filter((c) => effectiveCourseIds.includes(c.course_id || c.id || ""))
+      : rawCourses;
+
+    return {
+      total: relevantCourses.reduce((sum, c) => sum + (c.total_cards || 0), 0),
+      due: relevantCourses.reduce((sum, c) => sum + (c.due_cards || 0), 0),
+      newCards: relevantCourses.reduce((sum, c) => sum + (c.new_cards || 0), 0),
+      hasCourseData: true,
+    };
+  }, [summaryQuery.data, effectiveCourseIds]);
+
+  const sessionCards = sessionQuery.data?.cards as FlashcardResource[] | undefined;
+  const dueCardsList = useMemo(() => {
+    if (sessionId) return sessionCards ?? [];
+    if (mode === "normal") return dueQueueQuery.data?.due_cards ?? [];
+    return singleQueueQuery.data?.due_cards ?? [];
+  }, [sessionId, sessionCards, mode, dueQueueQuery.data, singleQueueQuery.data]);
+
+  const newCardsList = useMemo(() => {
+    if (sessionId || mode !== "normal") return [];
+    return newQueueQuery.data?.due_cards ?? [];
+  }, [sessionId, mode, newQueueQuery.data]);
+
   const [activeQueue, setActiveQueue] = useState<FlashcardResource[]>([]);
 
   // Guarantee clean state and queue when course scope or session parameters change
-  const effectiveCourseIdsKey = effectiveCourseIds.join(",");
   useEffect(() => {
     setActiveQueue([]);
     setCurrentIndex(0);
@@ -170,12 +271,26 @@ export function FlashcardExperience({
     setIsFlipped(false);
     setFlipTimestamp(0);
     setSelectedRating(null);
-  }, [effectiveCourseIdsKey, sessionId, mode, customMode]);
+  }, [effectiveCourseIdsKey, sessionId, mode, customMode, activeStudyTarget]);
 
-  const sessionCards = sessionQuery.data?.cards as FlashcardResource[] | undefined;
-  const dueCards = sessionId
-    ? (sessionCards ?? [])
-    : (queueQuery.data?.due_cards ?? []);
+  const handleSwitchTarget = useCallback((target: "due" | "new") => {
+    setActiveStudyTarget(target);
+    setActiveQueue([]);
+    setCurrentIndex(0);
+    setResults([]);
+    setCardEvaluations({});
+    setIsCompleted(false);
+    setIsFlipped(false);
+    setFlipTimestamp(0);
+    setSelectedRating(null);
+  }, []);
+
+  const targetCards = useMemo(() => {
+    if (sessionId || mode !== "normal") return dueCardsList;
+    return activeStudyTarget === "new" ? newCardsList : dueCardsList;
+  }, [sessionId, mode, activeStudyTarget, dueCardsList, newCardsList]);
+
+  const dueCards = targetCards;
 
   useEffect(() => {
     if (dueCards.length > 0 && activeQueue.length === 0) {
@@ -187,7 +302,9 @@ export function FlashcardExperience({
   const rawCurrentCard = effectiveCards[currentIndex] as FlashcardResource | undefined;
   const effectiveIsPreview =
     isPreview ||
-    (queueQuery.data as { is_preview?: boolean } | undefined)?.is_preview === true;
+    (dueQueueQuery.data as { is_preview?: boolean } | undefined)?.is_preview === true ||
+    (newQueueQuery.data as { is_preview?: boolean } | undefined)?.is_preview === true ||
+    (singleQueueQuery.data as { is_preview?: boolean } | undefined)?.is_preview === true;
 
   // Initialize index & results when resuming a persistent study session
   useEffect(() => {
@@ -382,11 +499,11 @@ export function FlashcardExperience({
       reactionMs: number;
       targetCourseId: string;
     }) => {
-      const isExamOrCustom = mode === "exam" || mode === "custom";
+      const isExam = mode === "exam";
       return studyApi.submitFlashcardReview(organizationId, targetCourseId, cardId, {
         rating,
         reaction_ms: reactionMs,
-        is_exam_mode: isExamOrCustom,
+        is_exam_mode: isExam,
       });
     },
     onSuccess: () => {
@@ -419,9 +536,19 @@ export function FlashcardExperience({
   });
 
   const handleFlip = useCallback(() => {
-    setIsFlipped(true);
-    setFlipTimestamp((prev) => (prev > 0 ? prev : Date.now()));
+    setIsFlipped((prev) => {
+      const next = !prev;
+      if (next) {
+        setFlipTimestamp((t) => (t > 0 ? t : Date.now()));
+      }
+      return next;
+    });
   }, []);
+
+  const { swipeProps } = useCardSwipeFlip({
+    onFlip: handleFlip,
+    enabled: Boolean(currentCard && !isCompleted && !isEditing && !isSubmitting),
+  });
 
   const handleRating = useCallback(
     (rating: FlashcardRating) => {
@@ -672,9 +799,40 @@ export function FlashcardExperience({
 
   const unseenCount = Math.max(0, totalSessionCards - finishedCount - reviewCount);
 
-  const isDataLoading = (sessionId ? sessionQuery.isLoading : queueQuery.isLoading) || summaryQuery.isLoading;
-  const isDataError = sessionId ? sessionQuery.isError : queueQuery.isError;
-  const dataErrorMessage = (sessionId ? sessionQuery.error?.message : queueQuery.error?.message) || "خطایی در دریافت کارت‌ها رخ داد.";
+  const isDataLoading =
+    (sessionId
+      ? sessionQuery.isLoading
+      : mode === "normal"
+        ? (dueQueueQuery.isLoading || newQueueQuery.isLoading)
+        : singleQueueQuery.isLoading) || summaryQuery.isLoading;
+
+  const isDataError =
+    (sessionId
+      ? sessionQuery.isError
+      : mode === "normal"
+        ? (dueQueueQuery.isError || newQueueQuery.isError)
+        : singleQueueQuery.isError) || summaryQuery.isError;
+
+  const dataErrorMessage =
+    (sessionId
+      ? sessionQuery.error?.message
+      : mode === "normal"
+        ? (dueQueueQuery.error?.message || newQueueQuery.error?.message)
+        : singleQueueQuery.error?.message) ||
+    summaryQuery.error?.message ||
+    "خطایی در دریافت کارت‌ها رخ داد.";
+
+  const refetchAllQueues = () => {
+    if (sessionId) {
+      void sessionQuery.refetch();
+    } else if (mode === "normal") {
+      void dueQueueQuery.refetch();
+      void newQueueQuery.refetch();
+    } else {
+      void singleQueueQuery.refetch();
+    }
+    void summaryQuery.refetch();
+  };
 
   // Loading state
   if (isDataLoading) {
@@ -702,14 +860,7 @@ export function FlashcardExperience({
               type="button"
               variant="primary"
               size="sm"
-              onClick={() => {
-                if (sessionId) {
-                  void sessionQuery.refetch();
-                } else {
-                  void queueQuery.refetch();
-                }
-                void summaryQuery.refetch();
-              }}
+              onClick={refetchAllQueues}
               className="rounded-[10px]"
             >
               تلاش مجدد
@@ -731,27 +882,296 @@ export function FlashcardExperience({
     );
   }
 
+  // Segmented switcher component for dual-queue navigation
+  const renderQueueSwitcher = () => {
+    if (sessionId || mode !== "normal") return null;
+    return (
+      <div className="flex items-center justify-center p-1 bg-[var(--color-surface-hover)] rounded-xl border border-[var(--color-border)] mb-4 inline-flex gap-1">
+        <button
+          type="button"
+          onClick={() => handleSwitchTarget("due")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+            activeStudyTarget === "due"
+              ? "bg-[var(--color-primary)] text-white shadow-xs"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+          }`}
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+          <span>مرور کارت‌های آماده ({toPersianDigits(dueCardsList.length)})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => handleSwitchTarget("new")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+            activeStudyTarget === "new"
+              ? "bg-[var(--color-primary)] text-white shadow-xs"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+          }`}
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>کارت‌های جدید امروز ({toPersianDigits(newCardsList.length)})</span>
+        </button>
+      </div>
+    );
+  };
+
   // Empty queue state
   if (dueCards.length === 0 && !isCompleted) {
-    let totalCount = 0;
-    if (summaryQuery.data?.courses) {
-      if (effectiveCourseIds.length > 0) {
-        totalCount = summaryQuery.data.courses
-          .filter((c: { course_id: string; total_cards: number }) =>
-            effectiveCourseIds.includes(c.course_id),
-          )
-          .reduce((sum: number, c: { total_cards: number }) => sum + c.total_cards, 0);
-      } else {
-        totalCount = summaryQuery.data.courses.reduce(
-          (sum: number, c: { total_cards: number }) => sum + c.total_cards,
-          0,
-        );
+    const totalCount = scopedSummary.total;
+
+    // Course has no flashcards at all
+    if (scopedSummary.hasCourseData && totalCount === 0) {
+      return (
+        <div className="w-full h-full h-[100dvh] flex items-center justify-center p-4 overflow-y-auto">
+          <Card variant="solid" className="max-w-lg w-full p-6 sm:p-10 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-6 shadow-[var(--shadow-card)]">
+            <div className="w-20 h-20 rounded-2xl bg-[var(--color-surface-hover)] text-[var(--color-text-muted)] border border-[var(--color-border)] flex items-center justify-center mx-auto shadow-xs">
+              <BookOpen className="w-10 h-10" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-[var(--color-text)]">
+                فلش‌کارتی یافت نشد
+              </h3>
+              <p className="text-xs text-[var(--color-text-muted)] mt-2 leading-relaxed">
+                برای این دوره هنوز فلش‌کارتی ایجاد یا منتشر نشده است.
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={refetchAllQueues}
+                className="rounded-[10px]"
+              >
+                تازه‌سازی
+              </Button>
+              {onBack && (
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={onBack}
+                  className="rounded-[10px]"
+                >
+                  بازگشت به درس‌ها
+                </Button>
+              )}
+            </div>
+          </Card>
+        </div>
+      );
+    }
+
+    // Normal mode empty state handling
+    if (mode === "normal" && !sessionId) {
+      const completedLessonsCount = newQueueQuery.data?.completed_lessons_count ?? 0;
+      const totalNewInScope = newQueueQuery.data?.total_new_in_scope ?? 0;
+      const learnedToday = newQueueQuery.data?.learned_today ?? 0;
+      const remainingQuota = newQueueQuery.data?.remaining_quota ?? userDailyNewLimit;
+
+      // 1. User is on "new" target, but no new cards
+      if (activeStudyTarget === "new") {
+        // Scenario A: User hasn't finished any lessons
+        if (completedLessonsCount === 0) {
+          return (
+            <div className="w-full h-full h-[100dvh] flex items-center justify-center p-4 overflow-y-auto">
+              <Card variant="solid" className="max-w-lg w-full p-6 sm:p-10 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-5 shadow-[var(--shadow-card)]">
+                {renderQueueSwitcher()}
+                <div className="w-20 h-20 rounded-2xl bg-[var(--color-surface-hover)] text-[var(--color-text-muted)] border border-[var(--color-border)] flex items-center justify-center mx-auto shadow-xs">
+                  <BookOpen className="w-10 h-10" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-[var(--color-text)]">
+                    هنوز درسی را به پایان نرسانده‌اید
+                  </h3>
+                  <p className="text-xs text-[var(--color-text-muted)] mt-2 leading-relaxed">
+                    برای فعال شدن و یادگیری فلش‌کارت‌های جدید، ابتدا درس‌های این دوره را در تب «درسنامه» مطالعه کنید تا کارت‌های مربوط به هر درس باز شوند.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-3 pt-2">
+                  {onBack && (
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="md"
+                      onClick={onBack}
+                      className="rounded-[10px] gap-2"
+                    >
+                      <BookOpen className="w-4 h-4" />
+                      <span>مشاهده درس‌های دوره</span>
+                    </Button>
+                  )}
+                  {dueCardsList.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="md"
+                      onClick={() => handleSwitchTarget("due")}
+                      className="rounded-[10px] gap-2"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      <span>مرور کارت‌های آماده ({toPersianDigits(dueCardsList.length)})</span>
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            </div>
+          );
+        }
+
+        // Scenario B: Daily quota reached today
+        if (remainingQuota === 0 || (learnedToday >= userDailyNewLimit && learnedToday > 0)) {
+          return (
+            <div className="w-full h-full h-[100dvh] flex items-center justify-center p-4 overflow-y-auto">
+              <Card variant="solid" className="max-w-lg w-full p-6 sm:p-10 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-5 shadow-[var(--shadow-card)]">
+                {renderQueueSwitcher()}
+                <div className="w-20 h-20 rounded-2xl bg-[var(--color-primary-soft)] text-[var(--color-primary)] border border-[var(--color-primary-muted)] flex items-center justify-center mx-auto shadow-xs">
+                  <Check className="w-10 h-10" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-[var(--color-text)]">
+                    سهمیه کارت‌های جدید امروز تکمیل شد
+                  </h3>
+                  <p className="text-xs text-[var(--color-text-muted)] mt-2 leading-relaxed">
+                    شما امروز {toPersianDigits(learnedToday)} کارت جدید مطالعه کرده‌اید و به سقف مجاز روزانه ({toPersianDigits(userDailyNewLimit)} کارت) رسیده‌اید. سهمیه جدید فردا در دسترس شما خواهد بود.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-3 pt-2">
+                  {dueCardsList.length > 0 ? (
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="md"
+                      onClick={() => handleSwitchTarget("due")}
+                      className="rounded-[10px] gap-2"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      <span>مرور کارت‌های آماده ({toPersianDigits(dueCardsList.length)})</span>
+                    </Button>
+                  ) : onBack ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="md"
+                      onClick={onBack}
+                      className="rounded-[10px]"
+                    >
+                      بازگشت به درس‌ها
+                    </Button>
+                  ) : null}
+                </div>
+              </Card>
+            </div>
+          );
+        }
+
+        // Scenario C: All cards from studied lessons already learned
+        if (totalNewInScope === 0 && completedLessonsCount > 0) {
+          return (
+            <div className="w-full h-full h-[100dvh] flex items-center justify-center p-4 overflow-y-auto">
+              <Card variant="solid" className="max-w-lg w-full p-6 sm:p-10 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-5 shadow-[var(--shadow-card)]">
+                {renderQueueSwitcher()}
+                <div className="w-20 h-20 rounded-2xl bg-[var(--color-primary-soft)] text-[var(--color-primary)] border border-[var(--color-primary-muted)] flex items-center justify-center mx-auto shadow-xs">
+                  <Sparkles className="w-10 h-10" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-[var(--color-text)]">
+                    همه کارت‌های درس‌های مطالعه‌شده را یاد گرفته‌اید!
+                  </h3>
+                  <p className="text-xs text-[var(--color-text-muted)] mt-2 leading-relaxed">
+                    تمامی فلش‌کارت‌های درس‌هایی که تاکنون به اتمام رسانده‌اید وارد چرخه مرور شده‌اند. برای یادگیری کارت‌های جدید بیشتر، درس‌های بعدی دوره را مطالعه کنید.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-3 pt-2">
+                  {onBack && (
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="md"
+                      onClick={onBack}
+                      className="rounded-[10px] gap-2"
+                    >
+                      <BookOpen className="w-4 h-4" />
+                      <span>ادامه یادگیری درس‌ها</span>
+                    </Button>
+                  )}
+                  {dueCardsList.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="md"
+                      onClick={() => handleSwitchTarget("due")}
+                      className="rounded-[10px] gap-2"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      <span>مرور کارت‌های آماده ({toPersianDigits(dueCardsList.length)})</span>
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            </div>
+          );
+        }
+      }
+
+      // 2. User is on "due" target, but no due cards
+      if (activeStudyTarget === "due") {
+        const newCardsCount = scopedSummary.newCards > 0 ? scopedSummary.newCards : newCardsList.length;
+        if (newCardsCount > 0) {
+          return (
+            <div className="w-full h-full h-[100dvh] flex items-center justify-center p-4 overflow-y-auto">
+              <Card variant="solid" className="max-w-lg w-full p-6 sm:p-10 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-6 shadow-[var(--shadow-card)]">
+                {renderQueueSwitcher()}
+                <div className="w-20 h-20 rounded-2xl bg-[var(--color-primary-soft)] text-[var(--color-primary)] border border-[var(--color-primary-muted)] flex items-center justify-center mx-auto shadow-xs">
+                  <Sparkles className="w-10 h-10" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-[var(--color-text)]">
+                    فلش‌کارت‌های جدید آماده یادگیری
+                  </h3>
+                  <p className="text-xs text-[var(--color-text-muted)] mt-2 leading-relaxed">
+                    شما {toPersianDigits(newCardsCount)} فلش‌کارت جدید در این دوره دارید که هنوز مطالعه نکرده‌اید. می‌توانید یادگیری را از همین‌جا شروع کنید.
+                  </p>
+                </div>
+                <div className="p-4 bg-[var(--color-surface-hover)] rounded-[12px] border border-[var(--color-border)] text-xs text-[var(--color-text-muted)]">
+                  تعداد کارت‌های جدید قابل مطالعه:{" "}
+                  <span className="font-bold text-[var(--color-primary)] text-sm">{toPersianDigits(newCardsCount)}</span>
+                </div>
+                <div className="flex items-center justify-center gap-3 pt-2">
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="md"
+                    onClick={() => handleSwitchTarget("new")}
+                    className="rounded-[10px] gap-2"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>شروع یادگیری فلش‌کارت‌های جدید</span>
+                  </Button>
+                  {onBack && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="md"
+                      onClick={onBack}
+                      className="rounded-[10px]"
+                    >
+                      بازگشت به درس‌ها
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            </div>
+          );
+        }
       }
     }
 
+    // Default empty queue state (both due and new queues are zero, or non-normal mode)
     return (
       <div className="w-full h-full h-[100dvh] flex items-center justify-center p-4 overflow-y-auto">
         <Card variant="solid" className="max-w-lg w-full p-6 sm:p-10 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-6 shadow-[var(--shadow-card)]">
+          {renderQueueSwitcher()}
           <div className="w-20 h-20 rounded-2xl bg-[var(--color-primary-soft)] text-[var(--color-primary)] border border-[var(--color-primary-muted)] flex items-center justify-center mx-auto shadow-xs">
             <AvaniAvatar variant="learning" size={60} alt="آوانی" asInlineSvg={true} />
           </div>
@@ -772,10 +1192,7 @@ export function FlashcardExperience({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => {
-                void queueQuery.refetch();
-                void summaryQuery.refetch();
-              }}
+              onClick={refetchAllQueues}
               className="rounded-[10px]"
             >
               تازه‌سازی صف مرور
@@ -892,7 +1309,31 @@ export function FlashcardExperience({
             </div>
           )}
 
-          <div className="flex items-center justify-center gap-4">
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            {mode === "normal" && !sessionId && activeStudyTarget === "due" && newCardsList.length > 0 && (
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                onClick={() => handleSwitchTarget("new")}
+                className="rounded-[10px] gap-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>یادگیری {toPersianDigits(newCardsList.length)} کارت جدید امروز</span>
+              </Button>
+            )}
+            {mode === "normal" && !sessionId && activeStudyTarget === "new" && dueCardsList.length > 0 && (
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                onClick={() => handleSwitchTarget("due")}
+                className="rounded-[10px] gap-2"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>مرور {toPersianDigits(dueCardsList.length)} کارت آماده</span>
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"
@@ -904,7 +1345,7 @@ export function FlashcardExperience({
                 setResults([]);
                 setCardEvaluations({});
                 setActiveQueue([]);
-                void queueQuery.refetch();
+                refetchAllQueues();
               }}
               className="rounded-[10px] gap-2"
             >
@@ -960,6 +1401,18 @@ export function FlashcardExperience({
                 پیش‌نمایش رایگان (۵ کارت)
               </Badge>
             )}
+            {mode === "normal" && activeStudyTarget === "new" && (
+              <Badge variant="info" size="sm" className="hidden sm:inline-flex gap-1 text-[10px] sm:text-xs">
+                <Sparkles className="w-3 h-3 text-amber-500" />
+                کارت جدید امروز
+              </Badge>
+            )}
+            {mode === "normal" && activeStudyTarget === "due" && (
+              <Badge variant="secondary" size="sm" className="hidden sm:inline-flex gap-1 text-[10px] sm:text-xs">
+                <RotateCcw className="w-3 h-3" />
+                مرور فاصله‌دار
+              </Badge>
+            )}
             {mode === "exam" && (
               <Badge variant="warning" size="sm" className="hidden md:inline-flex gap-1 text-[10px] sm:text-xs">
                 <Sparkles className="w-3 h-3" />
@@ -1006,6 +1459,43 @@ export function FlashcardExperience({
         </div>
       </header>
 
+      {/* Normal Course Dual Queue Switcher Sub-Header */}
+      {mode === "normal" && !sessionId && (
+        <div className="w-full px-3 sm:px-6 py-1.5 bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] flex items-center justify-between gap-2 shrink-0 text-xs">
+          <div className="flex items-center gap-1.5 bg-[var(--color-surface)] p-0.5 rounded-lg border border-[var(--color-border)]">
+            <button
+              type="button"
+              onClick={() => handleSwitchTarget("due")}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 ${
+                activeStudyTarget === "due"
+                  ? "bg-[var(--color-primary)] text-white shadow-xs"
+                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+              }`}
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>مرور کارت‌های آماده ({toPersianDigits(dueCardsList.length)})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSwitchTarget("new")}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 ${
+                activeStudyTarget === "new"
+                  ? "bg-[var(--color-primary)] text-white shadow-xs"
+                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+              }`}
+            >
+              <Sparkles className="w-3 h-3" />
+              <span>کارت‌های جدید امروز ({toPersianDigits(newCardsList.length)})</span>
+            </button>
+          </div>
+          <div className="text-[11px] text-[var(--color-text-muted)] hidden sm:block">
+            {activeStudyTarget === "new"
+              ? "فقط از درس‌های مطالعه‌شده"
+              : "بر اساس الگوریتم لایتنر فاصله‌دار"}
+          </div>
+        </div>
+      )}
+
       {/* Main Review Area */}
       <div className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 md:p-6 z-10 w-full max-w-4xl mx-auto min-h-0 overflow-hidden gap-2.5 sm:gap-3.5">
         {reviewMutation.isError && (
@@ -1034,6 +1524,7 @@ export function FlashcardExperience({
                 handleFlip();
               }
             }}
+            {...swipeProps}
             className="w-full flex-1 flex flex-col min-h-0 max-h-[460px] md:max-h-[480px] bg-[var(--color-surface)] rounded-[16px] sm:rounded-[18px] border border-[var(--color-border)] shadow-xs overflow-hidden transition-all duration-300 relative cursor-pointer group focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/40"
           >
             {/* Integrated Card Top Bar */}
@@ -1066,7 +1557,7 @@ export function FlashcardExperience({
             </div>
 
             {/* Central Card Body */}
-            <div className="flex-1 flex flex-col justify-center items-center text-center w-full px-4 sm:px-8 md:px-12 py-3 sm:py-4 md:py-5 overflow-y-auto min-h-0">
+            <div className="flex-1 flex flex-col justify-center items-center text-center w-full px-4 sm:px-8 md:px-12 py-3 sm:py-4 md:py-5 overflow-y-auto min-h-0 [perspective:1000px]">
               {isEditing ? (
                 <div
                   className="w-full my-auto space-y-3"
@@ -1114,16 +1605,28 @@ export function FlashcardExperience({
                   </div>
                 </div>
               ) : (
-                <>
+                <div className="w-full flex-1 flex flex-col justify-center items-center my-auto transition-transform duration-300 ease-out">
                   {/* Question View */}
-                  <div className={`w-full flex-col items-center justify-center my-auto ${isFlipped ? "hidden" : "flex"}`}>
+                  <div
+                    className={`w-full flex-col items-center justify-center my-auto transition-all duration-300 ease-out ${
+                      isFlipped
+                        ? "hidden opacity-0 scale-95 [transform:rotateY(40deg)]"
+                        : "flex opacity-100 scale-100 [transform:rotateY(0deg)]"
+                    }`}
+                  >
                     <h3 className="text-sm sm:text-base md:text-lg lg:text-xl font-bold text-[var(--color-text)] leading-relaxed max-w-3xl text-center break-words">
                       <RichContent content={currentCard.question} inline />
                     </h3>
                   </div>
 
                   {/* Answer View */}
-                  <div className={`w-full flex-col items-center justify-center my-auto space-y-3 sm:space-y-4 ${isFlipped ? "flex" : "hidden"}`}>
+                  <div
+                    className={`w-full flex-col items-center justify-center my-auto space-y-3 sm:space-y-4 transition-all duration-300 ease-out ${
+                      isFlipped
+                        ? "flex opacity-100 scale-100 [transform:rotateY(0deg)]"
+                        : "hidden opacity-0 scale-95 [transform:rotateY(-40deg)]"
+                    }`}
+                  >
                     <div className="text-sm sm:text-base md:text-lg lg:text-xl font-bold text-[var(--color-text)] leading-relaxed max-w-3xl text-center break-words">
                       <RichContent content={currentCard.answer} inline />
                     </div>
@@ -1139,7 +1642,7 @@ export function FlashcardExperience({
                       </div>
                     )}
                   </div>
-                </>
+                </div>
               )}
             </div>
 
@@ -1214,7 +1717,7 @@ export function FlashcardExperience({
               onClick={() => handleRating("again")}
               disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
               aria-label="تکرار"
-              className="flex flex-col items-center justify-center min-h-[48px] py-1.5 sm:py-2.5 md:py-3 px-1 sm:px-1.5 md:px-2 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-error)] hover:bg-[var(--color-error-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98] touch-manipulation"
+              className="flex flex-col items-center justify-center min-h-[48px] py-1.5 sm:py-2.5 md:py-3 px-1 sm:px-1.5 md:px-2 rounded-none sm:rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-error)] hover:bg-[var(--color-error-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98] touch-manipulation"
             >
               {selectedRating === "again" && isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--color-error)]" />
@@ -1234,7 +1737,7 @@ export function FlashcardExperience({
               onClick={() => handleRating("hard")}
               disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
               aria-label="سخت"
-              className="flex flex-col items-center justify-center min-h-[48px] py-1.5 sm:py-2.5 md:py-3 px-1 sm:px-1.5 md:px-2 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-warning)] hover:bg-[var(--color-warning-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98] touch-manipulation"
+              className="flex flex-col items-center justify-center min-h-[48px] py-1.5 sm:py-2.5 md:py-3 px-1 sm:px-1.5 md:px-2 rounded-none sm:rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-warning)] hover:bg-[var(--color-warning-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98] touch-manipulation"
             >
               {selectedRating === "hard" && isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--color-warning)]" />
@@ -1254,7 +1757,7 @@ export function FlashcardExperience({
               onClick={() => handleRating("good")}
               disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
               aria-label="خوب"
-              className="flex flex-col items-center justify-center min-h-[48px] py-1.5 sm:py-2.5 md:py-3 px-1 sm:px-1.5 md:px-2 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-secondary)] hover:bg-[var(--color-secondary-light)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98] touch-manipulation"
+              className="flex flex-col items-center justify-center min-h-[48px] py-1.5 sm:py-2.5 md:py-3 px-1 sm:px-1.5 md:px-2 rounded-none sm:rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-secondary)] hover:bg-[var(--color-secondary-light)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98] touch-manipulation"
             >
               {selectedRating === "good" && isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--color-secondary-dark)]" />
@@ -1274,7 +1777,7 @@ export function FlashcardExperience({
               onClick={() => handleRating("easy")}
               disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
               aria-label="آسان"
-              className="flex flex-col items-center justify-center min-h-[48px] py-1.5 sm:py-2.5 md:py-3 px-1 sm:px-1.5 md:px-2 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-success)] hover:bg-[var(--color-success-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98] touch-manipulation"
+              className="flex flex-col items-center justify-center min-h-[48px] py-1.5 sm:py-2.5 md:py-3 px-1 sm:px-1.5 md:px-2 rounded-none sm:rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-success)] hover:bg-[var(--color-success-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98] touch-manipulation"
             >
               {selectedRating === "easy" && isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--color-success)]" />

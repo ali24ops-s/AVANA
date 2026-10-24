@@ -10,6 +10,7 @@ import {
   Eye,
   RefreshCw,
   Search,
+  Wrench,
 } from "lucide-react";
 import {
   AdminTable,
@@ -27,7 +28,9 @@ import {
   Button,
 } from "@avana/ui";
 import { useAdmin } from "../../../hooks/useAdmin.js";
-import { toPersianDigits } from "@avana/domain";
+import { toPersianDigits, type RepairPreviewResult } from "@avana/domain";
+import { previewContentRepair } from "../../../lib/api/admin.js";
+import { ContentRepairModal } from "../repair/ContentRepairModal.js";
 import type {
   AdminContentReportItem,
   ContentReportCategory,
@@ -112,6 +115,37 @@ export function AdminContentReportsPanel({
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedReport, setSelectedReport] = useState<AdminContentReportItem | null>(null);
+
+  const [repairPreview, setRepairPreview] = useState<RepairPreviewResult | null>(null);
+  const [isRepairLoading, setIsRepairLoading] = useState(false);
+  const [repairNotice, setRepairNotice] = useState<string | null>(null);
+  const [repairSuccessMsg, setRepairSuccessMsg] = useState<string | null>(null);
+
+  const handleStartRepair = async () => {
+    if (!selectedReport?.lessonId) return;
+    setIsRepairLoading(true);
+    setRepairNotice(null);
+    setRepairSuccessMsg(null);
+    try {
+      const preview = await previewContentRepair({
+        lessonId: selectedReport.lessonId,
+        reportId: selectedReport.id,
+      });
+      if (!preview.hasRepairs || !preview.candidates || preview.candidates.length === 0) {
+        setRepairNotice(
+          "هیچ الگوی خرابی ساختاری یا فرمولی شناخته‌شده‌ای در این درسنامه تشخیص داده نشد. می‌توانید درسنامه را به‌صورت دستی مشاهده نمایید یا وضعیت را تغییر دهید.",
+        );
+      } else {
+        setRepairPreview(preview);
+      }
+    } catch (err: unknown) {
+      setRepairNotice(
+        err instanceof Error ? err.message : "خطا در دریافت پیش‌نمایش اصلاح درسنامه",
+      );
+    } finally {
+      setIsRepairLoading(false);
+    }
+  };
 
   // Fetch Reports
   const reportsQuery = useQuery({
@@ -389,16 +423,29 @@ export function AdminContentReportsPanel({
 
           <DialogContent className="p-5 sm:p-6 space-y-4 max-h-[70vh] overflow-y-auto">
             {/* Context breadcrumbs */}
-            <div className="p-3 bg-[var(--color-surface-subtle)] rounded-xl border border-[var(--color-border)] text-xs flex flex-wrap items-center gap-2 text-[var(--color-text-muted)]">
-              <span className="font-bold text-[var(--color-text)]">
-                {selectedReport.courseName || "دوره آموزشی"}
-              </span>
-              <ChevronLeft className="w-3.5 h-3.5" />
-              <span>{selectedReport.moduleTitle || "فصل"}</span>
-              <ChevronLeft className="w-3.5 h-3.5" />
-              <span className="font-bold text-[var(--color-primary-default)]">
-                {selectedReport.lessonTitle || "درسنامه"}
-              </span>
+            <div className="p-3 bg-[var(--color-surface-subtle)] rounded-xl border border-[var(--color-border)] text-xs flex flex-wrap items-center justify-between gap-2 text-[var(--color-text-muted)]">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-[var(--color-text)]">
+                  {selectedReport.courseName || "دوره آموزشی"}
+                </span>
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>{selectedReport.moduleTitle || "فصل"}</span>
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span className="font-bold text-[var(--color-primary-default)]">
+                  {selectedReport.lessonTitle || "درسنامه"}
+                </span>
+              </div>
+              {selectedReport.courseId && (
+                <a
+                  href={`/courses/${selectedReport.courseId}${selectedReport.lessonId ? `?lessonId=${selectedReport.lessonId}` : ""}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline font-semibold"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  مشاهده درسنامه
+                </a>
+              )}
             </div>
 
             {/* Selected Text excerpt */}
@@ -437,6 +484,36 @@ export function AdminContentReportsPanel({
                 <div className="p-3 rounded-xl bg-[var(--color-surface-subtle)] border border-[var(--color-border)] text-xs text-[var(--color-text)] leading-relaxed">
                   {selectedReport.comment}
                 </div>
+              </div>
+            )}
+
+            {/* Direct Content Repair Action */}
+            {selectedReport.lessonId && (
+              <div className="pt-3 border-t border-[var(--color-border)] space-y-2">
+                <span className="text-xs font-bold text-[var(--color-text)] block">
+                  اصلاح و عیب‌یابی ساختاری درسنامه:
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isRepairLoading}
+                    onClick={handleStartRepair}
+                    leftIcon={<Wrench className="w-3.5 h-3.5 text-primary" />}
+                  >
+                    {isRepairLoading ? "در حال بررسی الگوهای خرابی..." : "بررسی و عیب‌یابی خودکار درسنامه"}
+                  </Button>
+                </div>
+                {repairNotice && (
+                  <div className="text-xs p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400">
+                    {repairNotice}
+                  </div>
+                )}
+                {repairSuccessMsg && (
+                  <div className="text-xs p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400">
+                    {repairSuccessMsg}
+                  </div>
+                )}
               </div>
             )}
 
@@ -526,6 +603,26 @@ export function AdminContentReportsPanel({
             </Button>
           </DialogFooter>
         </Dialog>
+      )}
+
+      {/* Content Repair Modal */}
+      {repairPreview && (
+        <ContentRepairModal
+          isOpen={Boolean(repairPreview)}
+          onClose={() => setRepairPreview(null)}
+          previewData={repairPreview}
+          lessonId={selectedReport?.lessonId}
+          reportId={selectedReport?.id}
+          onRefreshPreview={handleStartRepair}
+          onApplySuccess={async () => {
+            setRepairPreview(null);
+            setRepairSuccessMsg("اصلاحات ساختاری با موفقیت در درسنامه اعمال و ذخیره شد.");
+            void queryClient.invalidateQueries({ queryKey: ["admin", "content-reports"] });
+            if (selectedReport) {
+              setSelectedReport({ ...selectedReport, status: "resolved" });
+            }
+          }}
+        />
       )}
     </div>
   );

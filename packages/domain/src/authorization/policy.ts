@@ -102,7 +102,17 @@ export type AuthAction =
   | "classroom_content:update"
   | "classroom_content:publish"
   | "classroom_content:archive"
-  | "classroom_content:delete";
+  | "classroom_content:delete"
+  | "support:read"
+  | "support:reply"
+  | "support:manage"
+  | "feedback:read"
+  | "feedback:reply"
+  | "feedback:manage"
+  | "content_report:read"
+  | "content_report:manage"
+  | "content_repair:preview"
+  | "content_repair:apply";
 
 
 
@@ -127,6 +137,8 @@ export type Actor = {
   globalRole?: Role | null;
   /** Organization memberships held by the actor. */
   memberships?: readonly OrganizationMembership[];
+  /** Teacher approval status */
+  teacherStatus?: "pending" | "approved" | "rejected" | null;
 };
 
 export interface BuildActorInput {
@@ -134,6 +146,7 @@ export interface BuildActorInput {
   globalRole?: Role | string | null;
   memberships?: readonly OrganizationMembership[];
   role?: Role | string;
+  teacherStatus?: "pending" | "approved" | "rejected" | null;
 }
 
 /**
@@ -160,6 +173,7 @@ export function buildActor(input: BuildActorInput): Actor {
     role,
     globalRole,
     memberships,
+    teacherStatus: input.teacherStatus ?? null,
   };
 }
 
@@ -193,6 +207,8 @@ export type ResourceType =
   | "content_export"
   | "content_import"
   | "support_ticket"
+  | "user_feedback"
+  | "content_report"
   | "commerce_order"
   | "classroom"
   | "teacher_exam";
@@ -396,6 +412,7 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "progress:read",
         "content:write",
         "content:publish",
+        "content:export",
         "document:upload",
         "document:read",
         "content:generate",
@@ -501,6 +518,12 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "classroom_content:publish",
         "classroom_content:archive",
         "classroom_content:delete",
+        "content_report:read",
+        "content_report:manage",
+        "content_repair:preview",
+        "content_repair:apply",
+        "support:read",
+        "feedback:read",
       ]),
     );
 
@@ -566,13 +589,38 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "classroom_content:publish",
         "classroom_content:archive",
         "classroom_content:delete",
+        "support:read",
+        "support:reply",
+        "support:manage",
+        "feedback:read",
+        "feedback:reply",
+        "feedback:manage",
+        "content_report:read",
+        "content_report:manage",
+        "content_repair:preview",
+        "content_repair:apply",
       ]),
     );
 
-    // Reserved support role
+    // Dedicated Support Agent role
     this.rolePermissions.set(
       "support_agent",
       new Set([
+        // Support Tickets
+        "support:read",
+        "support:reply",
+        "support:manage",
+        // User Feedback
+        "feedback:read",
+        "feedback:reply",
+        "feedback:manage",
+        // Content Problem Reports
+        "content_report:read",
+        "content_report:manage",
+        // Controlled Content Repair (bounded preview & apply, not arbitrary course management)
+        "content_repair:preview",
+        "content_repair:apply",
+        // Classroom read permissions
         "classroom:read",
         "teacher_exam:read",
         "teacher_exam:view_results",
@@ -602,6 +650,13 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
 
     // 3. Tenant-Scoped Resource Evaluation
     if (context?.organizationId) {
+      if (actor.globalRole === Roles.course_editor) {
+        const editorPermissions = this.rolePermissions.get("course_editor");
+        if (editorPermissions?.has(action)) {
+          return true;
+        }
+      }
+
       if (actor.memberships !== undefined) {
         const matchingMembership = actor.memberships.find(
           (m) => m.organizationId === context.organizationId,

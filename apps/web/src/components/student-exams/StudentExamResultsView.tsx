@@ -221,7 +221,7 @@ export function StudentExamResultsView({
                   {/* Question Header */}
                   <div className="flex items-center justify-between gap-3 pb-3 border-b border-[var(--color-border)]">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-[var(--color-text)] bg-neutral-100 px-2.5 py-1 rounded-lg">
+                      <span className="shrink-0 whitespace-nowrap text-xs font-bold text-[var(--color-text)] bg-neutral-100 px-2.5 py-1 rounded-lg">
                         سؤال {toPersianDigits(idx + 1)} {q.questionType === "true_false" ? "(صحیح / غلط)" : isDescriptive ? "(تشریحی)" : "(تستی)"}
                       </span>
                       {isDescriptive ? (

@@ -193,36 +193,45 @@ describe("PR-12: Sprint 1 E2E Critical Path", () => {
     expect(getCourseBody.course.subject).toBe("Science");
 
     // -----------------------------------------------------------------------
-    // Step 6: Update course
+    // Step 6: Update course (student cannot change title/subject, but can update exam_at)
     // -----------------------------------------------------------------------
-    const updateCourseRes = await app.inject({
+    const updateTitleRes = await app.inject({
       method: "PATCH",
       url: `/v1/organizations/${orgId}/courses/${courseId}`,
       cookies: { avana_session: token },
       payload: {
         title: "Biology 102",
         subject: "Advanced Science",
+      },
+    });
+    expect(updateTitleRes.statusCode).toBe(403);
+
+    const updateCourseRes = await app.inject({
+      method: "PATCH",
+      url: `/v1/organizations/${orgId}/courses/${courseId}`,
+      cookies: { avana_session: token },
+      payload: {
         exam_at: "2026-12-01T00:00:00Z",
       },
     });
     expect(updateCourseRes.statusCode).toBe(200);
     const updateCourseBody = JSON.parse(updateCourseRes.body) as {
-      course: { id: string; title: string; subject: string };
+      course: { id: string; title: string; subject: string; exam_at?: string };
     };
-    expect(updateCourseBody.course.title).toBe("Biology 102");
-    expect(updateCourseBody.course.subject).toBe("Advanced Science");
+    expect(updateCourseBody.course.title).toBe("Biology 101");
+    expect(updateCourseBody.course.subject).toBe("Science");
 
     // -----------------------------------------------------------------------
-    // Step 7: Archive course
+    // Step 7: Archive course (student is forbidden from archiving course)
     // -----------------------------------------------------------------------
     const archiveCourseRes = await app.inject({
       method: "DELETE",
       url: `/v1/organizations/${orgId}/courses/${courseId}`,
       cookies: { avana_session: token },
     });
-    expect(archiveCourseRes.statusCode).toBe(204);
+    expect(archiveCourseRes.statusCode).toBe(403);
 
-    // Verify archived course is no longer listed
+    // Verify course remains accessible to student since archive was forbidden
     const listAfterArchiveRes = await app.inject({
       method: "GET",
       url: `/v1/organizations/${orgId}/courses`,
@@ -232,10 +241,10 @@ describe("PR-12: Sprint 1 E2E Critical Path", () => {
     const listAfterArchiveBody = JSON.parse(listAfterArchiveRes.body) as {
       items: Array<{ id: string }>;
     };
-    const archivedInList = listAfterArchiveBody.items.find(
+    const activeInList = listAfterArchiveBody.items.find(
       (c) => c.id === courseId,
     );
-    expect(archivedInList).toBeUndefined();
+    expect(activeInList).toBeDefined();
 
     // -----------------------------------------------------------------------
     // Step 8: Sign out
@@ -291,7 +300,7 @@ describe("PR-12: Sprint 1 E2E Critical Path", () => {
     const courseActions = courseStore.getAuditEvents().map((e) => e.action);
     expect(courseActions).toContain("course.created");
     expect(courseActions).toContain("course.updated");
-    expect(courseActions).toContain("course.archived");
+    expect(courseActions).not.toContain("course.archived");
 
     // No aggregate events should have leaked into the standalone AuditService.
     expect((await auditService.listAll()).length).toBe(0);

@@ -5,7 +5,33 @@ import { useAdmin } from "../../hooks/useAdmin.js";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AdminStatusBadge, AdminConfirmModal } from "../../components/admin/AdminUI.js";
 import { toPersianDigits } from "@avana/domain";
-import { ArrowRight, Cpu, Clock, AlertTriangle, RefreshCw, User, Building, Book, FileText, Database, Code } from "lucide-react";
+import { ArrowRight, Cpu, Clock, AlertTriangle, RefreshCw, User, Building, Book, FileText, Database, Code, Download, Loader2, Layers } from "lucide-react";
+
+const SOURCE_ROLE_LABELS: Record<string, { label: string; className: string }> = {
+  primary_notes: {
+    label: "جزوه اصلی (مسیر تدریس)",
+    className: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
+  },
+  question_template: {
+    label: "قالب نمونه سؤال",
+    className: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20",
+  },
+  primary_reference: {
+    label: "منبع مرجع اصلی",
+    className: "bg-violet-500/10 text-violet-700 dark:text-violet-400 border-violet-500/20",
+  },
+  supplementary_reference: {
+    label: "منبع تکمیلی",
+    className: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
+  },
+};
+
+function formatFileSize(bytes?: number): string {
+  if (!bytes || bytes <= 0) return "";
+  if (bytes < 1024) return `${toPersianDigits(bytes)} بایت`;
+  if (bytes < 1024 * 1024) return `${toPersianDigits((bytes / 1024).toFixed(1))} کیلوبایت`;
+  return `${toPersianDigits((bytes / (1024 * 1024)).toFixed(1))} مگابایت`;
+}
 
 export function AdminGenerationDetailPage() {
   const { id } = useParams();
@@ -14,6 +40,19 @@ export function AdminGenerationDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [payloadExpanded, setPayloadExpanded] = useState(false);
+  const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null);
+
+  const handleDownload = async (docId: string, fallbackName?: string) => {
+    try {
+      setDownloadingDocId(docId);
+      await adminApi.downloadDocument(docId, fallbackName);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "خطا در دانلود فایل";
+      alert(msg);
+    } finally {
+      setDownloadingDocId(null);
+    }
+  };
 
   const [isRetryModalOpen, setIsRetryModalOpen] = useState(false);
   const queryClient = useQueryClient();
@@ -160,14 +199,104 @@ export function AdminGenerationDetailPage() {
               </div>
             )}
             {job.document && (
-              <div className="bg-[var(--color-surface-warm)]/60 p-3.5 rounded-xl border border-[var(--color-border)]">
-                <div className="flex items-center gap-2 text-[var(--color-text-muted)] mb-1"><FileText className="w-4 h-4"/> سند</div>
-                <div className="text-[var(--color-text)] font-semibold">{job.document.originalName}</div>
-                <div className="text-xs text-[var(--color-text-muted)] mt-1 font-mono" dir="ltr">{job.document.id}</div>
+              <div className="bg-[var(--color-surface-warm)]/60 p-3.5 rounded-xl border border-[var(--color-border)] flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between gap-2 text-[var(--color-text-muted)] mb-1">
+                    <span className="flex items-center gap-1.5"><FileText className="w-4 h-4"/> سند ورودی</span>
+                    {job.document.sizeBytes ? (
+                      <span className="text-xs text-[var(--color-text-muted)]">{formatFileSize(job.document.sizeBytes)}</span>
+                    ) : null}
+                  </div>
+                  <div className="text-[var(--color-text)] font-semibold truncate" title={job.document.originalName}>
+                    {job.document.originalName}
+                  </div>
+                  <div className="text-xs text-[var(--color-text-muted)] mt-1 font-mono truncate" dir="ltr">
+                    {job.document.id}
+                  </div>
+                </div>
+                {job.document.id && job.document.id !== "__unknown__" && (
+                  <div className="mt-3 pt-2 border-t border-[var(--color-border)]">
+                    <button
+                      type="button"
+                      onClick={() => handleDownload(job.document!.id, job.document!.originalName)}
+                      disabled={downloadingDocId === job.document.id}
+                      className="w-full flex items-center justify-center gap-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-primary-default)] px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+                    >
+                      {downloadingDocId === job.document.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                      دانلود فایل اصلی
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
+
+        {job.sources && job.sources.length > 0 && (
+          <div className="bg-[var(--color-surface)] p-6 rounded-2xl border border-[var(--color-border)] shadow-sm space-y-4 md:col-span-2">
+            <div className="flex justify-between items-center border-b border-[var(--color-border)] pb-2">
+              <h2 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
+                <Layers className="w-5 h-5 text-[var(--color-primary-default)]" />
+                منابع ورودی پکیج (Source Pack Documents)
+              </h2>
+              <span className="text-xs text-[var(--color-text-muted)]">
+                {toPersianDigits(job.sources.length)} منبع
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {job.sources.map((src) => {
+                const roleInfo = SOURCE_ROLE_LABELS[src.role] || {
+                  label: src.role,
+                  className: "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border-[var(--color-border)]",
+                };
+                return (
+                  <div
+                    key={src.documentId}
+                    className="bg-[var(--color-surface-warm)]/60 p-3.5 rounded-xl border border-[var(--color-border)] flex flex-col justify-between gap-3"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium border ${roleInfo.className}`}>
+                          {roleInfo.label}
+                        </span>
+                        {src.sizeBytes ? (
+                          <span className="text-xs text-[var(--color-text-muted)]">
+                            {formatFileSize(src.sizeBytes)}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="text-[var(--color-text)] font-semibold text-sm truncate" title={src.originalName}>
+                        {src.originalName}
+                      </div>
+                      <div className="text-xs text-[var(--color-text-muted)] mt-1 font-mono truncate" dir="ltr">
+                        {src.documentId}
+                      </div>
+                    </div>
+                    {src.documentId && src.documentId !== "__unknown__" && (
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(src.documentId, src.originalName)}
+                        disabled={downloadingDocId === src.documentId}
+                        className="flex items-center justify-center gap-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-primary-default)] px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+                      >
+                        {downloadingDocId === src.documentId ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5" />
+                        )}
+                        دانلود فایل
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="bg-[var(--color-surface)] p-6 rounded-2xl border border-[var(--color-border)] shadow-sm space-y-4">
           <h2 className="text-base font-bold text-[var(--color-text)] border-b border-[var(--color-border)] pb-2">مدل هوش مصنوعی</h2>

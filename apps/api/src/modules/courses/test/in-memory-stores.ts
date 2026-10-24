@@ -308,6 +308,7 @@ export class InMemoryCoursePublicationStore implements CoursePublicationStore {
   async listAll(options: {
     status?: string;
     search?: string;
+    courseId?: string;
     page?: number;
     limit?: number;
   }): Promise<{
@@ -317,6 +318,10 @@ export class InMemoryCoursePublicationStore implements CoursePublicationStore {
     let pubs = Array.from(this.publications.values()).filter(
       (p) => p.deletedAt === null,
     );
+
+    if (options.courseId) {
+      pubs = pubs.filter((p) => p.courseId === options.courseId);
+    }
 
     if (options.status && options.status !== "all") {
       pubs = pubs.filter((p) => p.status === options.status);

@@ -22,6 +22,7 @@ import {
 import { InMemoryContentPackStore } from "../modules/library/in-memory-stores.js";
 import { InMemoryAdminStore } from "../modules/admin/in-memory-stores.js";
 import { AdminService } from "../modules/admin/admin-service.js";
+import { InMemoryPromotionService } from "../modules/commerce/promotion-service.js";
 
 describe("Card-to-Card Payment System (کارت‌به‌کارت با فعال‌سازی فوری و تأیید نهایی ادمین)", () => {
   let commerceStore: InMemoryCommerceStore;
@@ -34,6 +35,7 @@ describe("Card-to-Card Payment System (کارت‌به‌کارت با فعال�
   let contentPackStore: InMemoryContentPackStore;
   let adminStore: InMemoryAdminStore;
   let adminService: AdminService;
+  let promotionService: InMemoryPromotionService;
 
   const testUser: Actor = {
     userId: asUserId(randomUUID() as any),
@@ -57,6 +59,7 @@ describe("Card-to-Card Payment System (کارت‌به‌کارت با فعال�
   beforeEach(async () => {
     commerceStore = new InMemoryCommerceStore();
     mockGateway = new MockPaymentGateway();
+    promotionService = new InMemoryPromotionService();
     commerceService = new CommerceService(
       commerceStore,
       mockGateway,
@@ -64,6 +67,13 @@ describe("Card-to-Card Payment System (کارت‌به‌کارت با فعال�
       undefined,
       undefined,
       c2cConfig,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      promotionService as any,
     );
 
     courseStore = new InMemoryCourseStore();
@@ -485,6 +495,110 @@ describe("Card-to-Card Payment System (کارت‌به‌کارت با فعال�
         "تکرار رد",
       );
       expect(repeatReject.success).toBe(true);
+    });
+  });
+
+  describe("6. Card-to-Card Payment with Promotion Codes", () => {
+    it("successfully applies coupon discount, links redemption to real orderId, and activates entitlement", async () => {
+      // 25% discount on monthly plan (199k)
+      const monthlyProduct = await commerceStore.findProductById(monthlyPlanId);
+      expect(monthlyProduct).toBeDefined();
+      const originalPrice = monthlyProduct!.price;
+
+      await promotionService.createPromotion({
+        name: "تخفیف ۲۵٪ کارت به کارت",
+        benefitType: "percentage_discount",
+        benefitValue: 25,
+        totalUsageLimit: 5,
+        code: "C2C25",
+        active: true,
+      });
+
+      const discountedPrice = Math.round(originalPrice * 0.75);
+
+      const result = await commerceService.submitCardToCardPayment(
+        testUser,
+        {
+          productId: monthlyPlanId,
+          amount: discountedPrice,
+          trackingNumber: "TRK-PROMO-SUCCESS-1",
+          sourceCardLast4: "1234",
+          couponCode: "C2C25",
+        },
+        "req-promo-1",
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.orderId).toBeDefined();
+
+      // Check that redemption exists and is linked to the REAL orderId
+      const red = promotionService.memoryRedemptions.find(
+        (r) => r.orderId === result.orderId,
+      );
+      expect(red).toBeDefined();
+      expect(red?.orderId).toBe(result.orderId);
+      expect(red?.orderId).not.toBe("00000000-0000-0000-0000-000000000000");
+      expect(red?.status).toBe("pending");
+
+      // Verify entitlement was granted
+      const accessCheck = await entitlementService.checkAccess(testUser, {
+        userId: testUser.userId,
+        resourceType: "course",
+        resourceId: asCourseId(randomUUID()),
+      });
+      expect(accessCheck.granted).toBe(true);
+      expect(accessCheck.reason).toBe("subscription");
+    });
+
+    it("rejects card-to-card submission when amount does not match discounted price and releases reservation", async () => {
+      await promotionService.createPromotion({
+        name: "تخفیف کارت به کارت آزمایشی",
+        benefitType: "fixed_discount",
+        benefitValue: 50_000,
+        totalUsageLimit: 1,
+        code: "DISC50K",
+        active: true,
+      });
+
+      // Submit with full price instead of discounted price
+      const monthlyProduct = await commerceStore.findProductById(monthlyPlanId);
+      const originalPrice = monthlyProduct!.price;
+
+      await expect(
+        commerceService.submitCardToCardPayment(
+          testUser,
+          {
+            productId: monthlyPlanId,
+            amount: originalPrice, // Wrong! Should be originalPrice - 50k
+            trackingNumber: "TRK-WRONG-AMT-1",
+            sourceCardLast4: "1234",
+            couponCode: "DISC50K",
+          },
+          "req-wrong-amt",
+        ),
+      ).rejects.toThrow("مطابقت ندارد");
+
+      // Reservation must have been cancelled
+      const red = promotionService.memoryRedemptions.find(
+        (r) => r.userId === testUser.userId,
+      );
+      expect(red?.status).toBe("cancelled");
+    });
+
+    it("rejects invalid or expired coupon code with bad_request without throwing 500", async () => {
+      await expect(
+        commerceService.submitCardToCardPayment(
+          testUser,
+          {
+            productId: monthlyPlanId,
+            amount: 199_000,
+            trackingNumber: "TRK-INVALID-COUPON",
+            sourceCardLast4: "1234",
+            couponCode: "DOES_NOT_EXIST",
+          },
+          "req-invalid-code",
+        ),
+      ).rejects.toThrow(DomainError);
     });
   });
 });

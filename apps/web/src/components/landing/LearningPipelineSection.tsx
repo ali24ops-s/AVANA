@@ -17,7 +17,6 @@ import {
   FileCheck2,
   Clock,
   ArrowLeft,
-  Sparkles,
 } from "lucide-react";
 import { formatPersianOf } from "@avana/domain";
 
@@ -78,17 +77,6 @@ export function LearningPipelineSection() {
     >
       {/* Section Header */}
       <div className="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
-          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-[#008080] text-xs font-bold mb-4 shadow-xs"
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>چرخه کامل یادگیری</span>
-        </motion.div>
-
         <motion.h2
           initial={{ opacity: 0, y: 15 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -129,11 +117,9 @@ export function LearningPipelineSection() {
                 className="p-5 rounded-2xl bg-white border border-[#E2E7EA] shadow-card hover:border-[#008080]/40 transition-all flex flex-col justify-between"
               >
                 <div>
-                  {/* Step number badge & icon */}
+                  {/* Step number & icon */}
                   <div className="flex items-center justify-between mb-4">
-                    <span
-                      className={`text-xs font-black px-2 py-0.5 rounded-md border ${stage.badgeColor}`}
-                    >
+                    <span className="text-sm font-black text-slate-400">
                       {stage.step}
                     </span>
                     <div

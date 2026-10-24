@@ -1263,7 +1263,8 @@ describe("Content Packs & Library Backend Test Suite", () => {
 
     it("16.9. organization_admin + document owned by another user -> Publish succeeds (role permission)", async () => {
       const app = await buildTestApp();
-      const { orgId, courseId, token: adminToken } = await setupUserAndOrg(app);
+      const { orgId, courseId, token: adminToken, userId: adminUserId } = await setupUserAndOrg(app);
+      orgStore.setMembershipRole(orgId, adminUserId, "organization_admin");
 
       // Student uploads document
       const otherStudentId = randomUUID() as UserId;

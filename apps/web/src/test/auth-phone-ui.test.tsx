@@ -77,6 +77,7 @@ describe("Auth UI - Register & Login Flow Tests", () => {
       const lastNameInput = container.querySelector("#lastName") as HTMLInputElement;
       const emailInput = container.querySelector("#email") as HTMLInputElement;
       const phoneInput = container.querySelector("#phoneNumber") as HTMLInputElement;
+      const majorSelect = container.querySelector("#major")!;
       const passwordInput = container.querySelector("#password") as HTMLInputElement;
       const confirmInput = container.querySelector("#confirmPassword") as HTMLInputElement;
 
@@ -84,6 +85,8 @@ describe("Auth UI - Register & Login Flow Tests", () => {
       fireEvent.change(lastNameInput, { target: { value: "محمدی" } });
       fireEvent.change(emailInput, { target: { value: "test@example.com" } });
       fireEvent.change(phoneInput, { target: { value: "09123456789" } });
+      fireEvent.click(majorSelect);
+      fireEvent.click(screen.getByRole("option", { name: "پزشکی" }));
       fireEvent.change(passwordInput, { target: { value: "password123" } });
       fireEvent.change(confirmInput, { target: { value: "password123" } });
 
@@ -116,6 +119,7 @@ describe("Auth UI - Register & Login Flow Tests", () => {
       const lastNameInput = container.querySelector("#lastName") as HTMLInputElement;
       const emailInput = container.querySelector("#email") as HTMLInputElement;
       const phoneInput = container.querySelector("#phoneNumber") as HTMLInputElement;
+      const majorSelect = container.querySelector("#major")!;
       const passwordInput = container.querySelector("#password") as HTMLInputElement;
       const confirmInput = container.querySelector("#confirmPassword") as HTMLInputElement;
 
@@ -123,6 +127,8 @@ describe("Auth UI - Register & Login Flow Tests", () => {
       fireEvent.change(lastNameInput, { target: { value: "محمدی" } });
       fireEvent.change(emailInput, { target: { value: "test@example.com" } });
       fireEvent.change(phoneInput, { target: { value: "08123456789" } }); // Invalid prefix 08
+      fireEvent.click(majorSelect);
+      fireEvent.click(screen.getByRole("option", { name: "پزشکی" }));
       fireEvent.change(passwordInput, { target: { value: "password123" } });
       fireEvent.change(confirmInput, { target: { value: "password123" } });
 
@@ -137,7 +143,7 @@ describe("Auth UI - Register & Login Flow Tests", () => {
   });
 
   describe("SignInPage Dual Login Methods (Email vs Phone OTP)", () => {
-    it("renders selector for «ورود با ایمیل» and «ورود با شماره موبایل»", async () => {
+    it("renders selector for «ورود با ایمیل» and «ورود با موبایل»", async () => {
       vi.spyOn(globalThis, "fetch").mockResolvedValue({
         ok: false,
         status: 401,
@@ -152,7 +158,7 @@ describe("Auth UI - Register & Login Flow Tests", () => {
 
       await waitFor(() => {
         expect(screen.getByText("ورود با ایمیل")).toBeInTheDocument();
-        expect(screen.getByText("ورود با شماره موبایل")).toBeInTheDocument();
+        expect(screen.getByText("ورود با موبایل")).toBeInTheDocument();
       });
     });
 
@@ -170,10 +176,10 @@ describe("Auth UI - Register & Login Flow Tests", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText("ورود با شماره موبایل")).toBeInTheDocument();
+        expect(screen.getByText("ورود با موبایل")).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText("ورود با شماره موبایل"));
+      fireEvent.click(screen.getByText("ورود با موبایل"));
 
       await waitFor(() => {
         expect(screen.getByText("دریافت کد ورود")).toBeInTheDocument();
@@ -196,16 +202,37 @@ describe("Auth UI - Register & Login Flow Tests", () => {
       role: "student" as const,
     };
 
-    it("Test 1 — Registration → Verification: directly displays enter_code step with 6-digit input", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () =>
-          Promise.resolve({
-            request_id: "test-req-1",
-            user: mockUnverifiedUser,
-          }),
-      } as Response);
+    it("Test 1 — Registration → Verification: renders select_channel step where user chooses channel before code dispatch", async () => {
+      const mockFetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes("/v1/me")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({
+                request_id: "test-req-1",
+                user: mockUnverifiedUser,
+              }),
+          });
+        }
+        if (url.includes("/v1/auth/verification/send")) {
+          const body = JSON.parse(init?.body as string);
+          expect(body.channel).toBe("email");
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({
+                request_id: "test-req-send",
+                message: "کد تأیید ۶ رقمی به ایمیل شما ارسال شد.",
+                cooldown_seconds: 60,
+              }),
+          });
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`));
+      });
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(mockFetch as unknown as typeof fetch);
 
       const { container } = renderWithProviders(
         <AuthProvider>
@@ -216,6 +243,26 @@ describe("Auth UI - Register & Login Flow Tests", () => {
         ["/verify-email"],
       );
 
+      // Verify that step 1 (select_channel) is shown first, with masked destinations
+      await waitFor(() => {
+        expect(screen.getByText("تأیید حساب کاربری")).toBeInTheDocument();
+        expect(screen.getByText("تأیید با ایمیل")).toBeInTheDocument();
+        expect(screen.getByText("u***d@example.com")).toBeInTheDocument();
+        expect(screen.getByText("تأیید با پیامک")).toBeInTheDocument();
+        expect(screen.getByText("+989 *** 6789")).toBeInTheDocument();
+      });
+
+      // No code send request was made yet
+      expect(mockFetch).not.toHaveBeenCalledWith(
+        expect.stringContaining("/v1/auth/verification/send"),
+        expect.anything(),
+      );
+
+      // User explicitly clicks "ارسال کد تأیید"
+      const sendBtn = screen.getByRole("button", { name: /ارسال کد تأیید/ });
+      fireEvent.click(sendBtn);
+
+      // Now code is dispatched, and page transitions to enter_code step
       await waitFor(() => {
         expect(screen.getByText("کد تأیید را وارد کنید")).toBeInTheDocument();
       });
@@ -227,7 +274,7 @@ describe("Auth UI - Register & Login Flow Tests", () => {
       expect(screen.getByText(/ارسال مجدد تا \d+ ثانیه دیگر/)).toBeInTheDocument();
     });
 
-    it("Test 2 — Existing code can be verified without resend", async () => {
+    it("Test 2 — Existing code can be verified in enter_code step without resend", async () => {
       const mockFetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
         if (url.includes("/v1/me")) {
           return Promise.resolve({
@@ -267,7 +314,7 @@ describe("Auth UI - Register & Login Flow Tests", () => {
             <Route path="/home" element={<div>Dashboard Home</div>} />
           </Routes>
         </AuthProvider>,
-        ["/verify-email"],
+        [{ pathname: "/verify-email", state: { step: "enter_code", channel: "email", cooldown: 60 } } as any],
       );
 
       await waitFor(() => {
@@ -317,7 +364,6 @@ describe("Auth UI - Register & Login Flow Tests", () => {
 
       vi.spyOn(globalThis, "fetch").mockImplementation(mockFetch as unknown as typeof fetch);
 
-      // Start with cooldown=0 in select_channel to simulate user choosing a channel and hitting 429
       const { container } = renderWithProviders(
         <AuthProvider>
           <Routes>
@@ -331,7 +377,7 @@ describe("Auth UI - Register & Login Flow Tests", () => {
         expect(screen.getByText("تأیید حساب کاربری")).toBeInTheDocument();
       });
 
-      const sendBtn = screen.getByRole("button", { name: /ارسال کد تأیید و ادامه/ });
+      const sendBtn = screen.getByRole("button", { name: /ارسال کد تأیید/ });
       fireEvent.click(sendBtn);
 
       // Should handle 429, show error message, and STILL transition to enter_code step
@@ -377,7 +423,6 @@ describe("Auth UI - Register & Login Flow Tests", () => {
 
       vi.spyOn(globalThis, "fetch").mockImplementation(mockFetch as unknown as typeof fetch);
 
-      // Initialize with cooldown=0 so resend button is immediately clickable
       renderWithProviders(
         <AuthProvider>
           <Routes>
@@ -400,16 +445,89 @@ describe("Auth UI - Register & Login Flow Tests", () => {
       });
     });
 
-    it("renders channel selector when user clicks «تغییر روش دریافت کد (ایمیل / پیامک)»", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () =>
-          Promise.resolve({
-            request_id: "test",
-            user: mockUnverifiedUser,
-          }),
-      } as Response);
+    it("renders prominent «تغییر روش تأیید» button in enter_code step and transitions to select_channel without auto-sending", async () => {
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/v1/me")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({
+                request_id: "test",
+                user: mockUnverifiedUser,
+              }),
+          });
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`));
+      });
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(mockFetch as unknown as typeof fetch);
+
+      renderWithProviders(
+        <AuthProvider>
+          <Routes>
+            <Route path="/verify-email" element={<EmailVerificationPage />} />
+          </Routes>
+        </AuthProvider>,
+        [{ pathname: "/verify-email", state: { step: "enter_code" } } as any],
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("کد تأیید را وارد کنید")).toBeInTheDocument();
+      });
+
+      // The prominent secondary CTA near destination info is visible
+      expect(screen.getByText("می‌خواهید کد را از روش دیگری دریافت کنید؟")).toBeInTheDocument();
+      const changeMethodBtn = screen.getByRole("button", { name: "تغییر روش تأیید" });
+      expect(changeMethodBtn).toBeInTheDocument();
+
+      fireEvent.click(changeMethodBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText("تأیید حساب کاربری")).toBeInTheDocument();
+        expect(screen.getByText("تأیید با پیامک")).toBeInTheDocument();
+        expect(screen.getByText("تأیید با ایمیل")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /ارسال کد تأیید/ })).toBeInTheDocument();
+      });
+
+      // Crucial: changing channel did NOT trigger any auto-send request
+      expect(mockFetch).not.toHaveBeenCalledWith(
+        expect.stringContaining("/v1/auth/verification/send"),
+        expect.anything(),
+      );
+    });
+
+    it("allows choosing SMS channel and sending OTP only after explicit user action", async () => {
+      const mockFetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes("/v1/me")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({
+                request_id: "test-req-sms",
+                user: mockUnverifiedUser,
+              }),
+          });
+        }
+        if (url.includes("/v1/auth/verification/send")) {
+          const body = JSON.parse(init?.body as string);
+          expect(body.channel).toBe("phone");
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({
+                request_id: "test-req-send-sms",
+                message: "کد تأیید ۶ رقمی به شماره موبایل شما ارسال شد.",
+                cooldown_seconds: 60,
+              }),
+          });
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`));
+      });
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(mockFetch as unknown as typeof fetch);
 
       renderWithProviders(
         <AuthProvider>
@@ -421,18 +539,294 @@ describe("Auth UI - Register & Login Flow Tests", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText("کد تأیید را وارد کنید")).toBeInTheDocument();
+        expect(screen.getByText("تأیید حساب کاربری")).toBeInTheDocument();
       });
 
-      const changeMethodBtn = screen.getByText("تغییر روش دریافت کد (ایمیل / پیامک)");
-      fireEvent.click(changeMethodBtn);
+      // Select SMS channel
+      const smsOptionBtn = screen.getByText("تأیید با پیامک").closest("button")!;
+      fireEvent.click(smsOptionBtn);
+
+      // Click send
+      const sendBtn = screen.getByRole("button", { name: /ارسال کد تأیید/ });
+      fireEvent.click(sendBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText("کد تأیید را وارد کنید")).toBeInTheDocument();
+        expect(screen.getByText("+989 *** 6789")).toBeInTheDocument();
+      });
+    });
+
+    it("displays error on send failure without requiring user to re-register", async () => {
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/v1/me")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({
+                request_id: "test-req-err",
+                user: mockUnverifiedUser,
+              }),
+          });
+        }
+        if (url.includes("/v1/auth/verification/send")) {
+          return Promise.resolve({
+            ok: false,
+            status: 500,
+            json: () =>
+              Promise.resolve({
+                error: {
+                  code: "internal_error",
+                  message: "ارسال پیامک با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+                },
+              }),
+          });
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`));
+      });
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(mockFetch as unknown as typeof fetch);
+
+      renderWithProviders(
+        <AuthProvider>
+          <Routes>
+            <Route path="/verify-email" element={<EmailVerificationPage />} />
+          </Routes>
+        </AuthProvider>,
+        ["/verify-email"],
+      );
 
       await waitFor(() => {
         expect(screen.getByText("تأیید حساب کاربری")).toBeInTheDocument();
-        expect(screen.getByText("تأیید با پیامک")).toBeInTheDocument();
-        expect(screen.getByText("تأیید با ایمیل")).toBeInTheDocument();
-        expect(screen.getByText("ارسال کد تأیید و ادامه")).toBeInTheDocument();
       });
+
+      const sendBtn = screen.getByRole("button", { name: /ارسال کد تأیید/ });
+      fireEvent.click(sendBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(/ارسال پیامک با خطا مواجه شد/)).toBeInTheDocument();
+      });
+
+      // User remains on select_channel and can retry or change channel
+      expect(screen.getByText("تأیید حساب کاربری")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /ارسال کد تأیید/ })).toBeInTheDocument();
+    });
+  });
+
+  describe("SignInPage UX & Smart Error Guidance Tests", () => {
+    it("renders prominent, accessible registration card in SignInPage footer", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({ error: { code: "unauthorized" } }),
+      } as Response);
+
+      renderWithProviders(
+        <AuthProvider>
+          <SignInPage />
+        </AuthProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("حساب کاربری ندارید؟")).toBeInTheDocument();
+        expect(screen.getByText("در کمتر از یک دقیقه در آوانا عضو شوید.")).toBeInTheDocument();
+      });
+
+      const registerLink = screen.getByRole("link", { name: "ثبت‌نام کنید" });
+      expect(registerLink).toBeInTheDocument();
+      expect(registerLink).toHaveAttribute("href", "/register");
+      expect(registerLink.className).toContain("min-h-[44px]");
+    });
+
+    it("displays smart guidance on phone 404 error with link to register pre-filling phone", async () => {
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/v1/me")) {
+          return Promise.resolve({
+            ok: false,
+            status: 401,
+            json: () => Promise.resolve({ error: { code: "unauthorized" } }),
+          });
+        }
+        if (url.includes("/v1/auth/phone/send-otp")) {
+          return Promise.resolve({
+            ok: false,
+            status: 404,
+            json: () =>
+              Promise.resolve({
+                error: {
+                  code: "not_found",
+                  message: "حساب کاربری با این شماره موبایل یافت نشد.",
+                },
+              }),
+          });
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`));
+      });
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(mockFetch as unknown as typeof fetch);
+
+      const { container } = renderWithProviders(
+        <AuthProvider>
+          <SignInPage />
+        </AuthProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("ورود با موبایل")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("ورود با موبایل"));
+
+      const phoneInput = container.querySelector("#phoneNumber") as HTMLInputElement;
+      fireEvent.change(phoneInput, { target: { value: "09123456789" } });
+
+      const submitBtn = screen.getByRole("button", { name: "دریافت کد ورود" });
+      fireEvent.click(submitBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText("حساب کاربری با این شماره موبایل یافت نشد.")).toBeInTheDocument();
+        expect(screen.getByText("اگر هنوز در آوانا حساب ندارید، ابتدا ثبت‌نام کنید.")).toBeInTheDocument();
+      });
+
+      const registerAction = screen.getByRole("link", { name: "رفتن به ثبت‌نام" });
+      expect(registerAction).toBeInTheDocument();
+      expect(registerAction).toHaveAttribute("href", "/register?phone=%2B989123456789");
+    });
+
+    it("displays non-assertive guidance on email 401 without claiming account non-existence", async () => {
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/v1/me")) {
+          return Promise.resolve({
+            ok: false,
+            status: 401,
+            json: () => Promise.resolve({ error: { code: "unauthorized" } }),
+          });
+        }
+        if (url.includes("/v1/auth/sign-in")) {
+          return Promise.resolve({
+            ok: false,
+            status: 401,
+            json: () =>
+              Promise.resolve({
+                error: {
+                  code: "unauthorized",
+                  message: "ایمیل یا رمز عبور نادرست است.",
+                },
+              }),
+          });
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`));
+      });
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(mockFetch as unknown as typeof fetch);
+
+      const { container } = renderWithProviders(
+        <AuthProvider>
+          <SignInPage />
+        </AuthProvider>,
+      );
+
+      await waitFor(() => {
+        expect(container.querySelector("#email")).toBeInTheDocument();
+      });
+
+      const emailInput = container.querySelector("#email") as HTMLInputElement;
+      const passInput = container.querySelector("#password") as HTMLInputElement;
+      fireEvent.change(emailInput, { target: { value: "user@example.com" } });
+      fireEvent.change(passInput, { target: { value: "wrongpassword" } });
+
+      const submitBtn = screen.getByRole("button", { name: "ورود به سیستم" });
+      fireEvent.click(submitBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText("ایمیل یا رمز عبور نادرست است.")).toBeInTheDocument();
+        expect(
+          screen.getByText("رمز عبور را اشتباه وارد کرده‌اید؟ یا هنوز در آوانا حساب کاربری نساخته‌اید؟"),
+        ).toBeInTheDocument();
+      });
+
+      const forgotLink = screen.getByRole("link", { name: "بازیابی رمز عبور" });
+      const registerLink = screen.getByRole("link", { name: "رفتن به ثبت‌نام" });
+      expect(forgotLink).toHaveAttribute("href", "/forgot-password?email=user%40example.com");
+      expect(registerLink).toHaveAttribute("href", "/register?email=user%40example.com");
+    });
+
+    it("does NOT display registration guidance on rate limit or wrong OTP", async () => {
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/v1/me")) {
+          return Promise.resolve({
+            ok: false,
+            status: 401,
+            json: () => Promise.resolve({ error: { code: "unauthorized" } }),
+          });
+        }
+        if (url.includes("/v1/auth/phone/send-otp")) {
+          return Promise.resolve({
+            ok: false,
+            status: 429,
+            json: () =>
+              Promise.resolve({
+                error: {
+                  code: "too_many_requests",
+                  message: "لطفاً پیش از درخواست مجدد ۶۰ ثانیه صبر کنید.",
+                },
+              }),
+          });
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`));
+      });
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(mockFetch as unknown as typeof fetch);
+
+      const { container } = renderWithProviders(
+        <AuthProvider>
+          <SignInPage />
+        </AuthProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("ورود با موبایل")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("ورود با موبایل"));
+
+      const phoneInput = container.querySelector("#phoneNumber") as HTMLInputElement;
+      fireEvent.change(phoneInput, { target: { value: "09123456789" } });
+
+      const submitBtn = screen.getByRole("button", { name: "دریافت کد ورود" });
+      fireEvent.click(submitBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(/لطفاً پیش از درخواست مجدد ۶۰ ثانیه صبر کنید/)).toBeInTheDocument();
+      });
+
+      // Must NOT display register guidance
+      expect(screen.queryByText(/اگر هنوز در آوانا حساب ندارید/)).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "رفتن به ثبت‌نام" })).not.toBeInTheDocument();
+    });
+
+    it("pre-fills phone and email from query params on RegisterPage", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({ error: { code: "unauthorized" } }),
+      } as Response);
+
+      const { container } = renderWithProviders(
+        <AuthProvider>
+          <RegisterPage />
+        </AuthProvider>,
+        ["/register?phone=09123456789&email=prefilled@example.com"],
+      );
+
+      await waitFor(() => {
+        expect(container.querySelector("#email")).toBeInTheDocument();
+      });
+
+      const emailInput = container.querySelector("#email") as HTMLInputElement;
+      const phoneInput = container.querySelector("#phoneNumber") as HTMLInputElement;
+      expect(emailInput.value).toBe("prefilled@example.com");
+      expect(phoneInput.value).toBe("09123456789");
     });
   });
 });

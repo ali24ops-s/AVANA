@@ -34,13 +34,13 @@ export function AdminIntegrityPage() {
     <div className="space-y-6" dir="rtl">
       <div className="flex items-center gap-3">
         <ShieldAlert className="w-8 h-8 text-[var(--color-primary-default)] shrink-0" />
-        <div>
-          <h2 className="text-2xl font-bold text-[var(--color-text)]">مرکز سلامت داده‌ها (Data Integrity)</h2>
-          <p className="text-sm text-[var(--color-text-muted)] mt-0.5">پایش مغایرت‌های ساختاری، داده‌های بدون والد و خطاهای فرآیند تولید</p>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-xl sm:text-2xl font-bold text-[var(--color-text)]">مرکز سلامت داده‌ها (Data Integrity)</h2>
+          <p className="text-xs sm:text-sm text-[var(--color-text-muted)] mt-0.5">پایش مغایرت‌های ساختاری، داده‌های بدون والد و خطاهای فرآیند تولید</p>
         </div>
       </div>
       
-      <div className={`p-5 rounded-2xl border ${
+      <div className={`p-4 sm:p-5 rounded-2xl border ${
         totalIssues > 0
           ? 'bg-amber-500/10 border-amber-500/20 text-amber-800 dark:text-amber-200'
           : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-800 dark:text-emerald-200'
@@ -50,7 +50,7 @@ export function AdminIntegrityPage() {
         ) : (
           <CheckCircle className="w-6 h-6 mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
         )}
-        <div>
+        <div className="min-w-0 flex-1">
           <h3 className="font-bold text-base sm:text-lg mb-1">
             {totalIssues > 0 ? `${toPersianDigits(totalIssues)} مشکل در یکپارچگی داده‌ها پیدا شد` : 'هیچ مشکلی در سلامت داده‌ها یافت نشد.'}
           </h3>
@@ -61,11 +61,11 @@ export function AdminIntegrityPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
         {checks.map((check, idx) => (
-          <div key={idx} className="bg-[var(--color-surface)] p-5 rounded-2xl border border-[var(--color-border)] shadow-sm flex items-center justify-between transition-colors">
-            <span className="text-[var(--color-text)] text-sm font-medium">{check.name}</span>
-            <span className={`px-3 py-1 rounded-full text-xs sm:text-sm font-bold border ${
+          <div key={idx} className="bg-[var(--color-surface)] p-4 sm:p-5 rounded-2xl border border-[var(--color-border)] shadow-sm flex items-center justify-between gap-3 transition-colors">
+            <span className="text-[var(--color-text)] text-xs sm:text-sm font-medium min-w-0 flex-1">{check.name}</span>
+            <span className={`px-3 py-1 rounded-full text-xs sm:text-sm font-bold border shrink-0 ${
               check.value > 0
                 ? 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400'
                 : 'bg-[var(--color-surface-subtle)] border-[var(--color-border)] text-[var(--color-text-muted)]'

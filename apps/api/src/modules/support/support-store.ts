@@ -56,6 +56,7 @@ export interface SupportMessageRecord {
   attachmentUrl: string | null;
   isInternalNote: boolean;
   createdAt: string;
+  readAt?: string | null;
 }
 
 export interface CreateFeedbackInput {
@@ -161,6 +162,11 @@ export interface SupportStore {
     ticketId: string,
     includeInternalNotes?: boolean,
   ): Promise<SupportMessageRecord[]>;
+  markMessagesAsRead(
+    ticketId: string,
+    messageIds: string[],
+    readAt: Date,
+  ): Promise<number>;
 
   // Ownership lookup for secure attachments
   findAttachmentOwner(

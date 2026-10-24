@@ -19,6 +19,7 @@ export interface UserRecord {
   faculty?: string | null;
   department?: string | null;
   teacherStatus?: "pending" | "approved" | "rejected";
+  createdAt?: string | Date | null;
   emailVerifiedAt?: string | null;
   emailVerified?: boolean;
   phoneVerifiedAt?: string | null;
@@ -50,6 +51,7 @@ export interface UserStore {
     faculty?: string | null;
     department?: string | null;
     globalRole?: string | null;
+    teacherStatus?: "pending" | "approved" | "rejected";
   }): Promise<UserRecord>;
 
   setEmailVerified(userId: UserId): Promise<void>;

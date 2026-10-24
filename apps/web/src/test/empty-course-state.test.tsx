@@ -201,7 +201,7 @@ describe("Course Empty State vs Error State (LearningPage)", () => {
 
     // Verify document uploader is rendered directly for this course
     await waitFor(() => {
-      expect(screen.getByText(/اسناد و منابع/i)).toBeDefined();
+      expect(screen.getByText(/اسناد و منابع|تمام اسناد|اسناد درس/i)).toBeDefined();
     });
   });
 

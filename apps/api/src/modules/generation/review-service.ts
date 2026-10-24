@@ -218,6 +218,12 @@ export type ContentReviewResource = {
     prompt_version: string | null;
     token_usage: { input_tokens: number; output_tokens: number } | null;
   };
+  document?: {
+    id: DocumentId;
+    originalName: string;
+    mimeType?: string;
+    sizeBytes?: number;
+  } | null;
 };
 
 export type AcceptContentResult = {
@@ -259,6 +265,7 @@ export class ReviewService {
     private readonly commerceStore?: CommerceStore,
     private readonly db?: DbClient,
     private readonly specialExamAutomationService?: SpecialExamAutomationService,
+    private readonly systemOrganizationId?: OrganizationId,
   ) {}
 
   /**
@@ -306,14 +313,23 @@ export class ReviewService {
       userId: actor.userId,
       globalRole:
         actor.globalRole ??
-        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+        (actor.role === "platform_admin"
+          ? "platform_admin"
+          : actor.role === "content_worker"
+            ? "content_worker"
+            : undefined),
       role: actor.role,
       memberships,
     });
 
+    const isSystemResource =
+      !!this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId;
+
     const resourceContext: ResourceContext = {
       organizationId,
       resourceType: "course",
+      isSystemResource,
     };
 
     if (!this.policy.can(fullActor, action, resourceContext)) {
@@ -373,15 +389,26 @@ export class ReviewService {
       userId: actor.userId,
       globalRole:
         actor.globalRole ??
-        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+        (actor.role === "platform_admin"
+          ? "platform_admin"
+          : actor.role === "content_worker"
+            ? "content_worker"
+            : actor.role === "course_editor"
+              ? "course_editor"
+              : undefined),
       role: actor.role,
       memberships,
     });
+
+    const isSystemResource =
+      !!this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId;
 
     const resourceContext: ResourceContext = {
       organizationId,
       resourceType: "course",
       resourceId: record.id,
+      isSystemResource,
     };
 
     const hasRolePermission = this.policy.can(
@@ -693,6 +720,14 @@ export class ReviewService {
             }
           : null,
       },
+      document: document
+        ? {
+            id: document.id,
+            originalName: document.originalName,
+            mimeType: document.mimeType,
+            sizeBytes: document.sizeBytes,
+          }
+        : null,
     };
   }
 
@@ -958,6 +993,10 @@ export class ReviewService {
       record.type === "quiz" && typeof payloadObj?.questionPatternVersion === "number"
         ? payloadObj.questionPatternVersion
         : undefined;
+    const existingPatternIds =
+      record.type === "quiz" && Array.isArray(payloadObj?.questionPatternIds)
+        ? (payloadObj.questionPatternIds as import("@avana/domain").QuestionPatternId[])
+        : undefined;
 
     const result = await this.queue.enqueueGenerationJob({
       actorUserId: actor.userId,
@@ -972,6 +1011,7 @@ export class ReviewService {
       generationContext,
       questionPatternId: existingPatternId,
       questionPatternVersion: existingPatternVersion,
+      questionPatternIds: existingPatternIds,
     });
 
     if (this.auditService) {
@@ -1074,7 +1114,11 @@ export class ReviewService {
       userId: actor.userId,
       globalRole:
         actor.globalRole ??
-        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+        (actor.role === "platform_admin"
+          ? "platform_admin"
+          : actor.role === "course_editor"
+            ? "course_editor"
+            : undefined),
       role: actor.role,
       memberships,
     });
@@ -1635,10 +1679,14 @@ export class ReviewService {
       throw new DomainError("bad_request", "Module store not initialized");
     }
 
-    // 1. Primary Identity: Check if a Module is already explicitly linked to this documentId
+    // 1. Primary Identity: Check if a Module is already explicitly linked to this documentId in this course
     let targetModule = record.documentId
       ? await moduleStore.findByDocument(record.documentId)
       : undefined;
+
+    if (targetModule && targetModule.courseId !== record.courseId) {
+      targetModule = undefined;
+    }
 
     // 2. Check previously materialized generated content records for this document
     if (!targetModule && generatedContentStore && record.documentId) {
@@ -1651,7 +1699,7 @@ export class ReviewService {
           const lesson = await lessonStore.findById(gc.materializedLessonId);
           if (lesson) {
             const mod = await moduleStore.findById(lesson.moduleId);
-            if (mod) {
+            if (mod && mod.courseId === record.courseId) {
               targetModule = mod;
               break;
             }
@@ -1814,7 +1862,7 @@ export class ReviewService {
         courseId: record.courseId,
         documentId: record.documentId,
         title: resolvedTitle,
-        description: "مباحث و جلسات آموزشی جامع",
+        description: null,
         sortOrder: existingModules.length,
         createdAt: now,
         updatedAt: now,

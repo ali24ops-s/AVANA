@@ -1275,26 +1275,26 @@ export class StudyPlannerService {
           if (streamIndex === 0) {
             // Freshest active stream
             if (lessonRankInStream === 0) {
-              baseLessonPriority = isPartiallyStudied ? 680 : 650;
+              baseLessonPriority = isPartiallyStudied ? 680 : 550;
             } else {
               baseLessonPriority = Math.max(
                 500,
-                560 - (lessonRankInStream ?? 1) * 10,
+                540 - (lessonRankInStream ?? 1) * 10,
               );
             }
           } else if (streamIndex === 1) {
             // Secondary parallel active stream
             if (lessonRankInStream === 0) {
-              baseLessonPriority = isPartiallyStudied ? 650 : 620;
+              baseLessonPriority = isPartiallyStudied ? 650 : 520;
             } else {
               baseLessonPriority = Math.max(
                 480,
-                540 - (lessonRankInStream ?? 1) * 10,
+                510 - (lessonRankInStream ?? 1) * 10,
               );
             }
           } else {
             // Other parallel streams
-            baseLessonPriority = Math.max(460, 580 - (streamIndex ?? 2) * 20);
+            baseLessonPriority = Math.max(460, 500 - (streamIndex ?? 2) * 20);
           }
         } else {
           // Fallback sequential progression (or when no active streams exist)

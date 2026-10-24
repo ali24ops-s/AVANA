@@ -38,6 +38,8 @@ export interface IdentityPluginOptions {
   notificationService?: NotificationService;
   referralService?: import("../referral/referral-service.js").ReferralService;
   auditService?: import("../../observability/audit-service.js").AuditService;
+  welcomeGiftStore?: import("./welcome-gift-store.js").WelcomeGiftStore;
+  welcomeGiftService?: import("./welcome-gift-service.js").WelcomeGiftService;
 }
 
 export async function registerIdentityModule(
@@ -75,6 +77,18 @@ export async function registerIdentityModule(
     options.deviceService ??
     (options.deviceStore ? new DeviceService(options.deviceStore) : undefined);
 
+  // Create welcome gift service if store or service provided
+  const welcomeGiftService =
+    options.welcomeGiftService ??
+    (options.welcomeGiftStore
+      ? new (await import("./welcome-gift-service.js")).WelcomeGiftService({
+          store: options.welcomeGiftStore,
+          userStore,
+          notificationService: options.notificationService,
+          auditService: options.auditService,
+        })
+      : undefined);
+
   // Register auth routes as a Fastify plugin with typed options
   const authOpts: AuthRouteOptions = {
     identityAdapter,
@@ -90,6 +104,7 @@ export async function registerIdentityModule(
     notificationService: options.notificationService,
     referralService: options.referralService,
     auditService: options.auditService,
+    welcomeGiftService,
     appUrl: config.appUrl,
   };
   await app.register(authRoutes, authOpts);

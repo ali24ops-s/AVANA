@@ -120,7 +120,7 @@ export function UserReferralPage() {
           icon: <Gift className="w-3.5 h-3.5" />,
         }}
         actions={
-          <Link to="/subscription">
+          <Link to="/account/subscription">
             <Button variant="outline" size="sm" className="gap-2">
               <Sparkles className="w-4 h-4 text-primary" />
               <span>مشاهده وضعیت اشتراک</span>
@@ -262,7 +262,7 @@ export function UserReferralPage() {
             ) : (
               <div className="mb-2">
                 <span className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400">
-                  {rewardedDays}
+                  {toPersianDigits(rewardedDays)}
                 </span>
                 <span className="text-xs font-medium text-[var(--color-text-muted)] me-1.5">
                   روز از ۶۰ روز سقف کل
@@ -278,7 +278,7 @@ export function UserReferralPage() {
 
           <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
             <Link
-              to="/subscription"
+              to="/account/subscription"
               className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
             >
               <span>مشاهده و مدیریت اشتراک</span>
@@ -299,7 +299,7 @@ export function UserReferralPage() {
               کل دوستان دعوت‌شده
             </span>
             <span className="text-lg font-black text-[var(--color-text)]">
-              {isSummaryLoading ? "..." : totalInvites} نفر
+              {isSummaryLoading ? "..." : toPersianDigits(totalInvites)} نفر
             </span>
           </div>
         </div>
@@ -313,7 +313,7 @@ export function UserReferralPage() {
               در انتظار اعتبارسنجی
             </span>
             <span className="text-lg font-black text-[var(--color-text)]">
-              {isSummaryLoading ? "..." : pendingInvites} نفر
+              {isSummaryLoading ? "..." : toPersianDigits(pendingInvites)} نفر
             </span>
           </div>
         </div>
@@ -327,7 +327,7 @@ export function UserReferralPage() {
               دعوت‌های موفق
             </span>
             <span className="text-lg font-black text-[var(--color-text)]">
-              {isSummaryLoading ? "..." : `${successfulInvites} از ۴`}
+              {isSummaryLoading ? "..." : `${toPersianDigits(successfulInvites)} از ۴`}
             </span>
           </div>
         </div>
@@ -482,8 +482,8 @@ export function UserReferralPage() {
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-[var(--color-text-muted)]">پاداش اشتراک:</span>
                     {(item.reward_amount ?? item.rewardAmount ?? 0) > 0 ? (
-                      <span className="text-emerald-600 dark:text-emerald-400 font-mono font-bold">
-                        +{item.reward_amount ?? item.rewardAmount} روز
+                      <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                        +{toPersianDigits(item.reward_amount ?? item.rewardAmount)} روز
                       </span>
                     ) : (
                       <span className="text-[var(--color-text-muted)]">---</span>
@@ -537,8 +537,8 @@ export function UserReferralPage() {
                       </td>
                       <td className="px-4 py-3.5 font-semibold text-[var(--color-text)] whitespace-nowrap">
                         {(item.reward_amount ?? item.rewardAmount ?? 0) > 0 ? (
-                          <span className="text-emerald-600 dark:text-emerald-400 font-mono">
-                            +{item.reward_amount ?? item.rewardAmount} روز
+                          <span className="text-emerald-600 dark:text-emerald-400">
+                            +{toPersianDigits(item.reward_amount ?? item.rewardAmount)} روز
                           </span>
                         ) : (
                           <span className="text-[var(--color-text-muted)]">---</span>

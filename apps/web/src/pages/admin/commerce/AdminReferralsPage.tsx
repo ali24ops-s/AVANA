@@ -60,6 +60,7 @@ export function AdminReferralsPage() {
   const [configMaxReferrals, setConfigMaxReferrals] = useState<number | null>(null);
   const [configEnabled, setConfigEnabled] = useState<boolean | null>(null);
   const [configSavedSuccess, setConfigSavedSuccess] = useState(false);
+  const [configSaveError, setConfigSaveError] = useState<string | null>(null);
   const [retryResultMsg, setRetryResultMsg] = useState<string | null>(null);
 
   const activeRewardDays =
@@ -78,6 +79,7 @@ export function AdminReferralsPage() {
       : configData?.config?.enabled ?? true;
 
   const handleSaveConfig = async () => {
+    setConfigSaveError(null);
     try {
       await updateConfigMutation.mutateAsync({
         enabled: activeEnabled,
@@ -85,10 +87,21 @@ export function AdminReferralsPage() {
         maxRewardedReferrals: activeMaxReferrals,
       });
       setConfigSavedSuccess(true);
+      setConfigRewardDays(null);
+      setConfigMaxReferrals(null);
+      setConfigEnabled(null);
       setTimeout(() => setConfigSavedSuccess(false), 3000);
-      refetchConfig();
-    } catch {
-      // Error handled by mutation
+      try {
+        await refetchConfig();
+      } catch {
+        // Non-fatal: cache was already updated with server response via mutation
+      }
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "خطا در ذخیره تنظیمات. لطفاً مجدداً تلاش کنید.";
+      setConfigSaveError(message);
     }
   };
 
@@ -161,6 +174,12 @@ export function AdminReferralsPage() {
           </Alert>
         )}
 
+        {configSaveError && (
+          <Alert variant="error" className="mb-4">
+            {configSaveError}
+          </Alert>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
           {/* Enable/Disable Toggle */}
           <div>
@@ -196,10 +215,18 @@ export function AdminReferralsPage() {
             <div className="flex items-center rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-warm)] focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20 overflow-hidden transition-colors shadow-2xs">
               <input
                 type="number"
-                min="1"
+                min="0"
                 max="365"
                 value={activeRewardDays}
-                onChange={(e) => setConfigRewardDays(parseInt(e.target.value, 10) || 0)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "") {
+                    setConfigRewardDays(0);
+                  } else {
+                    const parsed = parseInt(val, 10);
+                    setConfigRewardDays(isNaN(parsed) ? 0 : parsed);
+                  }
+                }}
                 disabled={updateConfigMutation.isPending}
                 className="w-full bg-transparent px-3 py-2.5 text-xs font-mono text-[var(--color-text)] focus:outline-none placeholder:text-[var(--color-text-muted)] min-w-0 disabled:opacity-50 disabled:cursor-not-allowed"
                 dir="ltr"
@@ -222,7 +249,15 @@ export function AdminReferralsPage() {
                 min="1"
                 max="50"
                 value={activeMaxReferrals}
-                onChange={(e) => setConfigMaxReferrals(parseInt(e.target.value, 10) || 0)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "") {
+                    setConfigMaxReferrals(1);
+                  } else {
+                    const parsed = parseInt(val, 10);
+                    setConfigMaxReferrals(isNaN(parsed) ? 1 : parsed);
+                  }
+                }}
                 disabled={updateConfigMutation.isPending}
                 className="w-full bg-transparent px-3 py-2.5 text-xs font-mono text-[var(--color-text)] focus:outline-none placeholder:text-[var(--color-text-muted)] min-w-0 disabled:opacity-50 disabled:cursor-not-allowed"
                 dir="ltr"

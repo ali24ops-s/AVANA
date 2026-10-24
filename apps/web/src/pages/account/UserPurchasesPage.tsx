@@ -34,8 +34,16 @@ import { PageHeader } from "../../components/ui/index.js";
 
 type PurchasesTab = "entitlements" | "orders";
 
-export function UserPurchasesPage() {
-  const [activeTab, setActiveTab] = useState<PurchasesTab>("entitlements");
+export interface UserPurchasesPageProps {
+  isEmbedded?: boolean;
+  defaultSubTab?: PurchasesTab;
+}
+
+export function UserPurchasesPage(props: UserPurchasesPageProps = {}) {
+  const isEmbedded = props.isEmbedded ?? false;
+  const [activeTab, setActiveTab] = useState<PurchasesTab>(
+    props.defaultSubTab ?? "entitlements",
+  );
 
   const { data: entitlementsData, isLoading: isEntLoading } = useMyEntitlements();
   const { data: ordersData, isLoading: isOrdersLoading } = useMyOrders();
@@ -65,31 +73,40 @@ export function UserPurchasesPage() {
   const totalPermanentCount = courseEntitlements.length + packEntitlements.length;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8" dir="rtl">
-      {/* 1. Header Banner */}
-      <PageHeader
-        title="خریدهای من و تاریخچه سفارش‌ها"
-        description="مشاهده دوره‌ها و خریدهای دائمی و صورت‌حساب تراکنش‌ها"
-        actions={
-          <>
-            <Link
-              to="/account/wallet"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs"
-            >
-              <Wallet className="w-4 h-4 text-primary" />
-              <span>کیف پول من</span>
-            </Link>
+    <div
+      className={
+        isEmbedded
+          ? "space-y-6"
+          : "max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8"
+      }
+      dir="rtl"
+    >
+      {/* 1. Header Banner (only in standalone mode) */}
+      {!isEmbedded && (
+        <PageHeader
+          title="خریدهای من و تاریخچه سفارش‌ها"
+          description="مشاهده دوره‌ها و خریدهای دائمی و صورت‌حساب تراکنش‌ها"
+          actions={
+            <>
+              <Link
+                to="/account/wallet"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs"
+              >
+                <Wallet className="w-4 h-4 text-primary" />
+                <span>کیف پول من</span>
+              </Link>
 
-            <Link
-              to="/account/subscription"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs"
-            >
-              <Crown className="w-4 h-4 text-amber-500 dark:text-amber-400" />
-              <span>مدیریت اشتراک</span>
-            </Link>
-          </>
-        }
-      />
+              <Link
+                to="/account/subscription"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs"
+              >
+                <Crown className="w-4 h-4 text-amber-500 dark:text-amber-400" />
+                <span>مدیریت اشتراک</span>
+              </Link>
+            </>
+          }
+        />
+      )}
 
       {/* 2. Navigation Tabs */}
       <div className="flex items-center gap-2 border-b border-[var(--color-border)] pb-4">

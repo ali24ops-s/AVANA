@@ -106,7 +106,10 @@ export function useUpdateReferralConfig() {
       rewardAmount?: number;
       maxRewardedReferrals?: number;
     }) => api.updateConfig(data),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (data?.config) {
+        queryClient.setQueryData(["referral-config"], data);
+      }
       queryClient.invalidateQueries({ queryKey: ["referral-config"] });
     },
   });

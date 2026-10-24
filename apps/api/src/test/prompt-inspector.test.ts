@@ -159,6 +159,20 @@ describe("Prompt Inspector Admin API Endpoint", () => {
       "orgadmin@avana.test",
       Roles.organization_admin,
     );
+    const courseEditor = await createUserWithRole(
+      "editor@avana.test",
+      Roles.course_editor,
+    );
+    const supportAgent = await createUserWithRole(
+      "support@avana.test",
+      Roles.support_agent,
+    );
+    const contentWorker = await userStore.createUserWithPassword({
+      email: "worker@avana.test",
+      passwordHash: "x",
+      globalRole: Roles.content_worker,
+    });
+    const workerSession = await sessionService.createSession(contentWorker.id);
 
     const app = createApp({ config });
     await app.register(v1Routes, {
@@ -169,36 +183,72 @@ describe("Prompt Inspector Admin API Endpoint", () => {
       adminStore,
     });
 
-    return { app, platformAdmin, student, orgAdmin };
+    return { app, platformAdmin, student, orgAdmin, courseEditor, supportAgent, contentWorker: { user: contentWorker, sessionToken: workerSession.sessionToken } };
   }
 
   it("denies access to unauthenticated requests (401)", async () => {
     const { app } = await setupTestApp();
 
-    const res = await app.inject({
-      method: "GET",
-      url: "/v1/admin/prompts",
-    });
-
-    expect(res.statusCode).toBe(401);
+    for (const testUrl of [
+      "/v1/admin/prompts",
+      "/v1/admin/prompts/",
+      "/v1/admin/generation/prompts",
+      "/v1/admin/generation/prompts/",
+    ]) {
+      const res = await app.inject({
+        method: "GET",
+        url: testUrl,
+      });
+      expect(res.statusCode).toBe(401);
+    }
   });
 
-  it("denies access to non-platform_admin users (403)", async () => {
-    const { app, student, orgAdmin } = await setupTestApp();
+  it("denies access to unauthorized roles across prompt routes with or without trailing slash (403)", async () => {
+    const { app, student, orgAdmin, courseEditor, supportAgent } = await setupTestApp();
 
-    const studentRes = await app.inject({
-      method: "GET",
-      url: "/v1/admin/prompts",
-      cookies: { avana_session: student.sessionToken },
-    });
-    expect(studentRes.statusCode).toBe(403);
+    const unauthorizedUsers = [student, orgAdmin, courseEditor, supportAgent];
+    const testUrls = [
+      "/v1/admin/prompts",
+      "/v1/admin/prompts/",
+      "/v1/admin/generation/prompts",
+      "/v1/admin/generation/prompts/",
+    ];
 
-    const orgAdminRes = await app.inject({
-      method: "GET",
-      url: "/v1/admin/prompts",
-      cookies: { avana_session: orgAdmin.sessionToken },
-    });
-    expect(orgAdminRes.statusCode).toBe(403);
+    for (const testUrl of testUrls) {
+      for (const unauthorizedUser of unauthorizedUsers) {
+        const res = await app.inject({
+          method: "GET",
+          url: testUrl,
+          cookies: { avana_session: unauthorizedUser.sessionToken },
+        });
+        expect(res.statusCode).toBe(403);
+      }
+    }
+  });
+
+  it("allows content_worker and platform_admin on prompt routes with or without trailing slash (200)", async () => {
+    const { app, platformAdmin, contentWorker } = await setupTestApp();
+
+    const authorizedUsers = [platformAdmin, contentWorker];
+    const testUrls = [
+      "/v1/admin/prompts",
+      "/v1/admin/prompts/",
+      "/v1/admin/generation/prompts",
+      "/v1/admin/generation/prompts/",
+    ];
+
+    for (const testUrl of testUrls) {
+      for (const authorizedUser of authorizedUsers) {
+        const res = await app.inject({
+          method: "GET",
+          url: testUrl,
+          cookies: { avana_session: authorizedUser.sessionToken },
+        });
+        expect(res.statusCode).toBe(200);
+        const data = JSON.parse(res.body);
+        expect(Array.isArray(data.prompts)).toBe(true);
+      }
+    }
   });
 
   it("allows platform_admin to inspect all real prompts via /v1/admin/prompts", async () => {

@@ -759,7 +759,7 @@ describe("Platform Admin Authorization Regression Tests", () => {
       const nonExistentOrgId = randomUUID() as OrganizationId;
 
       // 1. platform_admin on existing org -> succeeds
-      await expect(genService.authorize(adminActor, existingOrgId, "content:generate")).resolves.toBeUndefined();
+      await expect(genService.authorize(adminActor, existingOrgId, "content:generate")).resolves.toBeDefined();
 
       // 2. platform_admin on non-existent org -> fails with 404
       await expect(genService.authorize(adminActor, nonExistentOrgId, "content:generate")).rejects.toThrow(

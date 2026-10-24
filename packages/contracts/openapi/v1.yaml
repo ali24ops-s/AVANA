@@ -3546,6 +3546,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/QuizQuestionAnswerInput"
+        questionIds:
+          type: array
+          items:
+            type: string
 
     QuizAttemptResult:
       type: object

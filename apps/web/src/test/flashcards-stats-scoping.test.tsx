@@ -161,7 +161,8 @@ describe("Flashcards Statistics Scoping (4 Stat Tiles)", () => {
     const labelElem = screen.getByText(label);
     const tile = labelElem.closest("div");
     const h3 = tile?.querySelector("h3");
-    return h3?.textContent?.trim() || "";
+    const raw = h3?.textContent?.trim() || "";
+    return raw.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)));
   };
 
   it("Scenario A: Initial state ('All') displays global total statistics across all accessible courses", async () => {
@@ -345,17 +346,18 @@ describe("Flashcards Statistics Scoping (4 Stat Tiles)", () => {
       expect(screen.getByText("دوره B")).toBeDefined();
     });
 
-    // Expand Course A & Course B
+    // Activate Course A and select Chapter A1
     fireEvent.click(screen.getByText("دوره A"));
-    fireEvent.click(screen.getByText("دوره B"));
-
     await waitFor(() => {
       expect(screen.getByText("فصل A1")).toBeDefined();
+    });
+    fireEvent.click(screen.getByText("فصل A1"));
+
+    // Activate Course B and select Chapter B1
+    fireEvent.click(screen.getByText("دوره B"));
+    await waitFor(() => {
       expect(screen.getByText("فصل B1")).toBeDefined();
     });
-
-    // Select Chapter A1 and Chapter B1
-    fireEvent.click(screen.getByText("فصل A1"));
     fireEvent.click(screen.getByText("فصل B1"));
 
     await waitFor(() => {
@@ -628,6 +630,239 @@ describe("Flashcards Statistics Scoping (4 Stat Tiles)", () => {
       expect(capturedSessionPayload).not.toBeNull();
       expect(capturedSessionPayload.customMode).toBe("new");
       expect(capturedSessionPayload.limit).toBe(25);
+    });
+  });
+
+  describe("Regression: isAllSelected & Scoped Stats with Module-less Courses", () => {
+    const mockMixedSummary = {
+      request_id: "req-scoping-mixed",
+      total_cards: 60,
+      total_due: 14,
+      total_new: 21,
+      total_overdue: 7,
+      total_learning: 0,
+      courses: [
+        {
+          course_id: "course-with-modules",
+          title: "دوره ماژول‌دار",
+          total_cards: 40,
+          due_cards: 10,
+          new_cards: 15,
+          overdue_cards: 5,
+          learning_cards: 0,
+          modules: [
+            {
+              module_id: "mod-m1",
+              title: "فصل ۱",
+              total_cards: 25,
+              due_cards: 6,
+              new_cards: 10,
+              overdue_cards: 3,
+              learning_cards: 0,
+              lessons: [],
+            },
+            {
+              module_id: "mod-m2",
+              title: "فصل ۲",
+              total_cards: 15,
+              due_cards: 4,
+              new_cards: 5,
+              overdue_cards: 2,
+              learning_cards: 0,
+              lessons: [],
+            },
+          ],
+        },
+        {
+          course_id: "course-without-modules",
+          title: "دوره سطح دوره",
+          total_cards: 20,
+          due_cards: 4,
+          new_cards: 6,
+          overdue_cards: 2,
+          learning_cards: 0,
+          modules: [],
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      global.fetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/v1/organizations") && !url.includes("flashcard-summary") && !url.includes("flashcard-sessions")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-orgs",
+              items: [{ id: mockOrgId, name: "Test Health Org" }],
+            }),
+          });
+        }
+        if (url.includes(`/v1/organizations/${mockOrgId}/study/flashcard-summary`)) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => mockMixedSummary,
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ items: [] }),
+        });
+      });
+    });
+
+    it("Scenario A: Selecting all modules of Course A while Course B (no modules) is unselected keeps isAllSelected=false and scopes stats only to Course A", async () => {
+      const queryClient = createTestQueryClient();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <FlashcardsPage />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("دوره ماژول‌دار")).toBeDefined();
+        expect(screen.getByText("دوره سطح دوره")).toBeDefined();
+      });
+
+      // Activate Course A to view modules
+      fireEvent.click(screen.getByText("دوره ماژول‌دار"));
+      await waitFor(() => {
+        expect(screen.getByText("فصل ۱")).toBeDefined();
+        expect(screen.getByText("فصل ۲")).toBeDefined();
+      });
+
+      // Select both modules of Course A
+      fireEvent.click(screen.getByText("فصل ۱"));
+      fireEvent.click(screen.getByText("فصل ۲"));
+
+      await waitFor(() => {
+        // Global button must still say "انتخاب همه" because Course B is not selected!
+        expect(screen.getByLabelText("انتخاب همه مباحث")).toBeDefined();
+        expect(screen.queryByLabelText("لغو انتخاب همه مباحث")).toBeNull();
+
+        // Stats must be scoped to Course A only (40 cards, 5 overdue, 15 new, 10 due, 15 learned)
+        // NOT the global total of 60 cards
+        expect(getStatTileValue("کارت فراموش شده")).toBe("5");
+        expect(getStatTileValue("کارت‌های جدید")).toBe("15");
+        expect(getStatTileValue("نیاز به مرور")).toBe("10");
+        expect(getStatTileValue("یادگرفته شده")).toBe("15");
+      });
+    });
+
+    it("Scenario B: isAllSelected becomes true and scopes stats to all items ONLY when both all modules and module-less courses are selected", async () => {
+      const queryClient = createTestQueryClient();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <FlashcardsPage />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("دوره ماژول‌دار")).toBeDefined();
+        expect(screen.getByText("دوره سطح دوره")).toBeDefined();
+      });
+
+      // 1. Select both modules of Course A
+      fireEvent.click(screen.getByText("دوره ماژول‌دار"));
+      await waitFor(() => {
+        expect(screen.getByText("فصل ۱")).toBeDefined();
+      });
+      fireEvent.click(screen.getByText("فصل ۱"));
+      fireEvent.click(screen.getByText("فصل ۲"));
+
+      // 2. Also select Course B (module-less) via its checkbox
+      const courseBCheckbox = screen.getByLabelText("انتخاب کل دوره دوره سطح دوره");
+      fireEvent.click(courseBCheckbox);
+
+      await waitFor(() => {
+        // Now ALL selectable items are selected -> button becomes "لغو انتخاب همه"
+        expect(screen.getByLabelText("لغو انتخاب همه مباحث")).toBeDefined();
+
+        // Stats should now reflect all 60 cards: 7 overdue, 21 new, 14 due, 25 learned
+        expect(getStatTileValue("کارت فراموش شده")).toBe("7");
+        expect(getStatTileValue("کارت‌های جدید")).toBe("21");
+        expect(getStatTileValue("نیاز به مرور")).toBe("14");
+        expect(getStatTileValue("یادگرفته شده")).toBe("25");
+      });
+    });
+
+    it("Scenario C: Clicking 'لغو انتخاب همه' cleanly clears all selections and restores default unconstrained state", async () => {
+      const queryClient = createTestQueryClient();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <FlashcardsPage />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("دوره ماژول‌دار")).toBeDefined();
+      });
+
+      // Use global "انتخاب همه" button to select everything
+      const selectAllBtn = screen.getByLabelText("انتخاب همه مباحث");
+      fireEvent.click(selectAllBtn);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("لغو انتخاب همه مباحث")).toBeDefined();
+      });
+
+      // Click "لغو انتخاب همه"
+      fireEvent.click(screen.getByLabelText("لغو انتخاب همه مباحث"));
+
+      await waitFor(() => {
+        // Button reverts to "انتخاب همه"
+        expect(screen.getByLabelText("انتخاب همه مباحث")).toBeDefined();
+        expect(screen.queryByLabelText("لغو انتخاب همه مباحث")).toBeNull();
+
+        // Topic chips indicate all topics without filter
+        expect(screen.getByText("همه مباحث به صورت پیش‌فرض فعال هستند (مطالعه جامع).")).toBeDefined();
+
+        // Stats return to initial global summary
+        expect(getStatTileValue("کارت فراموش شده")).toBe("7");
+        expect(getStatTileValue("کارت‌های جدید")).toBe("21");
+        expect(getStatTileValue("نیاز به مرور")).toBe("14");
+        expect(getStatTileValue("یادگرفته شده")).toBe("25");
+      });
+    });
+
+    it("Scenario D: Partially selecting Course A (only 1 module) scopes stats exclusively to that single module", async () => {
+      const queryClient = createTestQueryClient();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <FlashcardsPage />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("دوره ماژول‌دار")).toBeDefined();
+      });
+
+      // Activate Course A and pick only Module 1
+      fireEvent.click(screen.getByText("دوره ماژول‌دار"));
+      await waitFor(() => {
+        expect(screen.getByText("فصل ۱")).toBeDefined();
+      });
+      fireEvent.click(screen.getByText("فصل ۱"));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("انتخاب همه مباحث")).toBeDefined();
+
+        // Mod 1 only: 25 cards, 3 overdue, 10 new, 6 due, learned: 25 - (6 + 10) = 9
+        expect(getStatTileValue("کارت فراموش شده")).toBe("3");
+        expect(getStatTileValue("کارت‌های جدید")).toBe("10");
+        expect(getStatTileValue("نیاز به مرور")).toBe("6");
+        expect(getStatTileValue("یادگرفته شده")).toBe("9");
+      });
     });
   });
 });

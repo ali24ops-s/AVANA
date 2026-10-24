@@ -175,6 +175,7 @@ export class PromotionService {
     rawCode: string,
     userId: UserId,
     items: { productId: ProductId | string; productType?: string | null; price: number }[],
+    txOrDb: DbClient = this.db,
   ): Promise<PromotionValidationResult> {
     const code = normalizePromotionCode(rawCode);
     if (!code) {
@@ -187,10 +188,10 @@ export class PromotionService {
     }
 
     // Lazy cleanup of expired reservations first
-    await this.lazyExpirePendingRedemptions();
+    await this.lazyExpirePendingRedemptions(txOrDb);
 
     // 1. Find Code
-    const [codeRecord] = await this.db
+    const [codeRecord] = await txOrDb
       .select()
       .from(promotionCodes)
       .where(
@@ -211,7 +212,7 @@ export class PromotionService {
     }
 
     // 2. Find Promotion
-    const [promoRow] = await this.db
+    const [promoRow] = await txOrDb
       .select()
       .from(promotions)
       .where(
@@ -232,18 +233,18 @@ export class PromotionService {
     }
 
     // 3. Load Restrictions
-    const productRestRows = await this.db
+    const productRestRows = await txOrDb
       .select()
       .from(promotionProducts)
       .where(eq(promotionProducts.promotionId, promoRow.id));
 
-    const userRestRows = await this.db
+    const userRestRows = await txOrDb
       .select()
       .from(promotionUsers)
       .where(eq(promotionUsers.promotionId, promoRow.id));
 
     // 4. Count Active Redemptions (Completed + Non-Expired Pending)
-    const [totalCountRow] = await this.db
+    const [totalCountRow] = await txOrDb
       .select({ count: sql<number>`count(*)::int` })
       .from(promotionRedemptions)
       .where(
@@ -253,7 +254,7 @@ export class PromotionService {
         ),
       );
 
-    const [userCountRow] = await this.db
+    const [userCountRow] = await txOrDb
       .select({ count: sql<number>`count(*)::int` })
       .from(promotionRedemptions)
       .where(
@@ -263,6 +264,28 @@ export class PromotionService {
           sql`(${promotionRedemptions.status} = 'completed' OR (${promotionRedemptions.status} = 'pending' AND ${promotionRedemptions.reservationExpiresAt} > NOW()))`,
         ),
       );
+
+    // Check specific Code maxUses limit if configured
+    if (codeRecord.maxUses !== null && codeRecord.maxUses !== undefined && codeRecord.maxUses > 0) {
+      const [codeCountRow] = await txOrDb
+        .select({ count: sql<number>`count(*)::int` })
+        .from(promotionRedemptions)
+        .where(
+          and(
+            eq(promotionRedemptions.codeId, codeRecord.id),
+            sql`(${promotionRedemptions.status} = 'completed' OR (${promotionRedemptions.status} = 'pending' AND ${promotionRedemptions.reservationExpiresAt} > NOW()))`,
+          ),
+        );
+
+      if ((codeCountRow?.count ?? 0) >= codeRecord.maxUses) {
+        return {
+          valid: false,
+          reason: "سقف استفاده از این کد تخفیف تکمیل شده است.",
+          eligibleSubtotal: 0,
+          orderTotal: items.reduce((sum, it) => sum + Math.max(0, it.price), 0),
+        };
+      }
+    }
 
     const promoDomain: PromotionRecord = {
       id: asPromotionId(promoRow.id),
@@ -347,83 +370,193 @@ export class PromotionService {
     benefitType: PromotionBenefitType;
     benefitValue: number;
   }> {
-    const validation = (await this.validateCoupon(params.code, params.userId, [
-      {
-        productId: params.productId,
-        productType: params.productType,
-        price: params.orderAmount,
-      },
-    ])) as PromotionValidationResult & {
-      promotion?: PromotionRecord;
-      code?: import("@avana/domain").PromotionCodeRecord;
-    };
+    return this.db.transaction(async (tx) => {
+      const normalizedCode = normalizePromotionCode(params.code);
+      if (!normalizedCode) {
+        throw new DomainError("bad_request", "کد تخفیف معتبر نیست.");
+      }
 
-    if (!validation.valid || !validation.benefit || !validation.promotion || !validation.code) {
-      throw new DomainError("bad_request", validation.reason || "کد تخفیف معتبر نیست.");
-    }
+      // 1. Identify code and acquire strict row-level lock on the promotion FIRST
+      const [codeRow] = await tx
+        .select({ promotionId: promotionCodes.promotionId, id: promotionCodes.id })
+        .from(promotionCodes)
+        .where(and(sql`UPPER(${promotionCodes.code}) = ${normalizedCode}`, isNull(promotionCodes.deletedAt)))
+        .limit(1);
 
-    const now = new Date();
-    const reservationExpiresAt = new Date(
-      now.getTime() + REDEMPTION_RESERVATION_TTL_MINUTES * 60 * 1000,
-    );
+      if (codeRow) {
+        // Concurrency lock on promotion row serialized under the transaction
+        await tx
+          .select({ id: promotions.id })
+          .from(promotions)
+          .where(eq(promotions.id, codeRow.promotionId))
+          .for("update")
+          .limit(1);
 
-    const snapshot = {
-      promotionId: validation.promotion.id,
-      promotionName: validation.promotion.name,
-      code: validation.code.code,
-      benefitType: validation.promotion.benefitType,
-      benefitValue: validation.promotion.benefitValue,
-      maxDiscountAmount: validation.promotion.maxDiscountAmount,
-      minOrderAmount: validation.promotion.minOrderAmount,
-      appliedAt: now.toISOString(),
-    };
+        // Concurrency lock on specific code row serialized under the transaction
+        await tx
+          .select({ id: promotionCodes.id })
+          .from(promotionCodes)
+          .where(eq(promotionCodes.id, codeRow.id))
+          .for("update")
+          .limit(1);
 
-    const redemptionId = randomUUID();
+        // Pre-cleanup: Cancel any unlinked stale pending reservation for THIS user and code
+        // under the lock, BEFORE validateCoupon to prevent retry lockout when perUserUsageLimit is enforced.
+        await tx
+          .update(promotionRedemptions)
+          .set({
+            status: "cancelled",
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(promotionRedemptions.userId, params.userId),
+              eq(promotionRedemptions.promotionId, codeRow.promotionId),
+              eq(promotionRedemptions.status, "pending"),
+              isNull(promotionRedemptions.orderId),
+            ),
+          );
+      }
 
-    const [insertedRedemption] = await this.db
-      .insert(promotionRedemptions)
-      .values({
-        id: redemptionId,
+      // 2. Lazy cleanup of expired reservations inside transaction under lock
+      await this.lazyExpirePendingRedemptions(tx);
+
+      // 3. Validate coupon and calculate benefit under strict lock
+      const validation = (await this.validateCoupon(
+        params.code,
+        params.userId,
+        [
+          {
+            productId: params.productId,
+            productType: params.productType,
+            price: params.orderAmount,
+          },
+        ],
+        tx,
+      )) as PromotionValidationResult & {
+        promotion?: PromotionRecord;
+        code?: import("@avana/domain").PromotionCodeRecord;
+      };
+
+      if (!validation.valid || !validation.benefit || !validation.promotion || !validation.code) {
+        throw new DomainError("bad_request", validation.reason || "کد تخفیف معتبر نیست.");
+      }
+
+      const now = new Date();
+      const reservationExpiresAt = new Date(
+        now.getTime() + REDEMPTION_RESERVATION_TTL_MINUTES * 60 * 1000,
+      );
+
+      const snapshot = {
         promotionId: validation.promotion.id,
-        codeId: validation.code.id,
-        userId: params.userId,
-        orderId: "00000000-0000-0000-0000-000000000000",
-        paymentId: null,
+        promotionName: validation.promotion.name,
+        code: validation.code.code,
         benefitType: validation.promotion.benefitType,
         benefitValue: validation.promotion.benefitValue,
+        maxDiscountAmount: validation.promotion.maxDiscountAmount,
+        minOrderAmount: validation.promotion.minOrderAmount,
+        appliedAt: now.toISOString(),
+      };
+
+      const redemptionId = randomUUID();
+
+      const [insertedRedemption] = await tx
+        .insert(promotionRedemptions)
+        .values({
+          id: redemptionId,
+          promotionId: validation.promotion.id,
+          codeId: validation.code.id,
+          userId: params.userId,
+          orderId: null,
+          paymentId: null,
+          benefitType: validation.promotion.benefitType,
+          benefitValue: validation.promotion.benefitValue,
+          discountAmount: validation.benefit.discountAmount,
+          cashbackAmount: validation.benefit.cashbackAmount,
+          orderOriginalAmount: params.orderAmount,
+          orderFinalAmount: validation.benefit.payableAmount,
+          status: "pending",
+          reservationExpiresAt,
+          promotionSnapshot: snapshot,
+          redeemedAt: now,
+          completedAt: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+
+      return {
+        promotionId: asPromotionId(validation.promotion.id),
+        redemptionId: asPromotionRedemptionId(insertedRedemption.id),
         discountAmount: validation.benefit.discountAmount,
         cashbackAmount: validation.benefit.cashbackAmount,
-        orderOriginalAmount: params.orderAmount,
-        orderFinalAmount: validation.benefit.payableAmount,
-        status: "pending",
-        reservationExpiresAt,
-        promotionSnapshot: snapshot,
-        redeemedAt: now,
-        completedAt: null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
-
-    return {
-      promotionId: asPromotionId(validation.promotion.id),
-      redemptionId: asPromotionRedemptionId(insertedRedemption.id),
-      discountAmount: validation.benefit.discountAmount,
-      cashbackAmount: validation.benefit.cashbackAmount,
-      payableAmount: validation.benefit.payableAmount,
-      benefitType: validation.promotion.benefitType,
-      benefitValue: validation.promotion.benefitValue,
-    };
+        payableAmount: validation.benefit.payableAmount,
+        benefitType: validation.promotion.benefitType,
+        benefitValue: validation.promotion.benefitValue,
+      };
+    });
   }
 
-  async linkRedemptionToOrder(redemptionId: string, orderId: OrderId): Promise<void> {
-    await this.db
+  async linkRedemptionToOrder(
+    redemptionId: string,
+    orderId: OrderId,
+    txOrDb: DbClient = this.db,
+  ): Promise<void> {
+    if (!orderId || typeof orderId !== "string" || orderId.trim() === "" || orderId === "00000000-0000-0000-0000-000000000000") {
+      throw new DomainError("bad_request", "شناسه سفارش برای انتساب به تخفیف نامعتبر است.");
+    }
+
+    const [existing] = await txOrDb
+      .select({
+        id: promotionRedemptions.id,
+        orderId: promotionRedemptions.orderId,
+        status: promotionRedemptions.status,
+      })
+      .from(promotionRedemptions)
+      .where(eq(promotionRedemptions.id, redemptionId))
+      .limit(1);
+
+    if (!existing) {
+      throw new DomainError("not_found", "رکورد رزرو تخفیف یافت نشد.");
+    }
+
+    if (existing.status !== "pending") {
+      throw new DomainError("bad_request", "تنها رزروهای معلق قابل اتصال به سفارش هستند.");
+    }
+
+    if (existing.orderId !== null && existing.orderId !== orderId) {
+      throw new DomainError("bad_request", "این رزرو قبلاً به سفارش دیگری متصل شده است.");
+    }
+
+    await txOrDb
       .update(promotionRedemptions)
       .set({
         orderId,
         updatedAt: new Date(),
       })
       .where(eq(promotionRedemptions.id, redemptionId));
+  }
+
+  async cancelPromotionRedemptionById(
+    redemptionId: string,
+    _reason?: string,
+    txOrDb: DbClient = this.db,
+  ): Promise<boolean> {
+    const result = await txOrDb
+      .update(promotionRedemptions)
+      .set({
+        status: "cancelled",
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(promotionRedemptions.id, redemptionId),
+          eq(promotionRedemptions.status, "pending"),
+        ),
+      )
+      .returning({ id: promotionRedemptions.id });
+
+    return result.length > 0;
   }
 
   // -------------------------------------------------------------------------
@@ -622,7 +755,7 @@ export class PromotionService {
         promotionId: asPromotionId(insertedRedemption.promotionId),
         codeId: asPromotionCodeId(insertedRedemption.codeId),
         userId: asUserId(insertedRedemption.userId),
-        orderId: asOrderId(insertedRedemption.orderId),
+        orderId: insertedRedemption.orderId ? asOrderId(insertedRedemption.orderId) : null,
         paymentId: insertedRedemption.paymentId as PaymentId | null,
         benefitType: insertedRedemption.benefitType as PromotionBenefitType,
         benefitValue: insertedRedemption.benefitValue,
@@ -712,32 +845,53 @@ export class PromotionService {
       if (typeof paidAtOrPaymentId === "string") paidAt = paidAtOrPaymentId;
     }
 
-    const [redemption] = await txOrDb
-      .select()
-      .from(promotionRedemptions)
-      .where(eq(promotionRedemptions.orderId, orderId))
-      .limit(1);
+    const runInTx = async (
+      fn: (client: DbClient) => Promise<{ finalized: boolean; cashbackGranted: number }>,
+    ): Promise<{ finalized: boolean; cashbackGranted: number }> => {
+      if (typeof (txOrDb as unknown as { transaction: unknown }).transaction === "function") {
+        return (txOrDb as unknown as { transaction: (cb: (tx: DbClient) => Promise<{ finalized: boolean; cashbackGranted: number }>) => Promise<{ finalized: boolean; cashbackGranted: number }> }).transaction(fn);
+      }
+      return fn(txOrDb);
+    };
 
-    if (!redemption) {
-      return { finalized: false, cashbackGranted: 0 };
-    }
+    return runInTx(async (client) => {
+      let query = client
+        .select()
+        .from(promotionRedemptions)
+        .where(eq(promotionRedemptions.orderId, orderId));
 
-    // Idempotency check: if already completed, return immediately
-    if (redemption.status === "completed") {
-      return { finalized: true, cashbackGranted: redemption.cashbackAmount };
-    }
+      if (typeof (query as unknown as { for: unknown }).for === "function") {
+        query = (query as unknown as { for: (mode: string) => typeof query }).for("update");
+      }
 
-    // If previously cancelled, do not finalize
-    if (redemption.status === "cancelled") {
-      return { finalized: false, cashbackGranted: 0 };
-    }
+      const [redemption] = await query.limit(1);
 
-    const now = new Date(paidAt);
+      if (!redemption) {
+        return { finalized: false, cashbackGranted: 0 };
+      }
 
-    // 1. Credit Cashback if applicable
-    if (redemption.cashbackAmount > 0 && this.walletService) {
-      try {
-        await this.walletService.credit({
+      // Idempotency check: if already completed, return immediately
+      if (redemption.status === "completed") {
+        return { finalized: true, cashbackGranted: redemption.cashbackAmount };
+      }
+
+      // If previously cancelled, do not finalize
+      if (redemption.status === "cancelled") {
+        return { finalized: false, cashbackGranted: 0 };
+      }
+
+      const now = new Date(paidAt);
+
+      // 1. Credit Cashback if applicable (WalletService uses its own atomic mutation & idempotency lock)
+      if (redemption.cashbackAmount > 0) {
+        if (!this.walletService) {
+          throw new DomainError(
+            "internal_error",
+            "سرویس کیف پول برای تسویه کش‌بک در دسترس نیست.",
+          );
+        }
+
+        const creditResult = await this.walletService.credit({
           userId: asUserId(redemption.userId),
           amount: redemption.cashbackAmount,
           source: "promotion_cashback",
@@ -756,23 +910,28 @@ export class PromotionService {
             grantedAt: paidAt,
           },
         });
-      } catch {
-        // Log silently or throw depending on transaction boundary
+
+        if (!creditResult || !creditResult.transaction) {
+          throw new DomainError(
+            "internal_error",
+            "خطا در شارژ کش‌بک کیف پول؛ تراکنش ثبت نشد.",
+          );
+        }
       }
-    }
 
-    // 2. Mark Redemption Completed
-    await txOrDb
-      .update(promotionRedemptions)
-      .set({
-        status: "completed",
-        paymentId,
-        completedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(promotionRedemptions.id, redemption.id));
+      // 2. Mark Redemption Completed (Only after wallet credit is verified)
+      await client
+        .update(promotionRedemptions)
+        .set({
+          status: "completed",
+          paymentId,
+          completedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(promotionRedemptions.id, redemption.id));
 
-    return { finalized: true, cashbackGranted: redemption.cashbackAmount };
+      return { finalized: true, cashbackGranted: redemption.cashbackAmount };
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -1025,7 +1184,7 @@ export class PromotionService {
   async bulkGenerateCodes(
     _adminId: string,
     promoId: PromotionId,
-    input: { count: number; prefix?: string; length?: number },
+    input: { count: number; prefix?: string; length?: number; maxUses?: number | null },
   ): Promise<{ generatedCount: number; sampleCodes: string[] }> {
     const [promo] = await this.db
       .select()
@@ -1055,12 +1214,13 @@ export class PromotionService {
     });
 
     const now = new Date();
+    const maxUses = input.maxUses !== undefined && input.maxUses !== null && input.maxUses > 0 ? input.maxUses : 1;
     for (const c of generatedCodes) {
       await this.db.insert(promotionCodes).values({
         id: randomUUID(),
         promotionId: promoId,
         code: c,
-        maxUses: 1, // Default single use for bulk codes
+        maxUses,
         active: true,
         createdAt: now,
       });
@@ -1068,7 +1228,7 @@ export class PromotionService {
 
     return {
       generatedCount: generatedCodes.length,
-      sampleCodes: generatedCodes.slice(0, 10),
+      sampleCodes: generatedCodes,
     };
   }
 
@@ -1282,13 +1442,36 @@ export class PromotionService {
         updatedAt: r.updatedAt.toISOString(),
         deletedAt: r.deletedAt ? r.deletedAt.toISOString() : null,
       },
-      codes: codes.map((c) => ({
-        id: c.id,
-        code: c.code,
-        maxUses: c.maxUses,
-        active: c.active,
-        createdAt: c.createdAt.toISOString(),
-      })),
+      codes: await (async () => {
+        // Calculate timesUsed per code
+        const codeUsageRows = await this.db
+          .select({
+            codeId: promotionRedemptions.codeId,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(promotionRedemptions)
+          .where(
+            and(
+              eq(promotionRedemptions.promotionId, promoId),
+              eq(promotionRedemptions.status, "completed"),
+            ),
+          )
+          .groupBy(promotionRedemptions.codeId);
+
+        const usageMap = new Map<string, number>();
+        for (const row of codeUsageRows) {
+          usageMap.set(row.codeId, row.count);
+        }
+
+        return codes.map((c) => ({
+          id: c.id,
+          code: c.code,
+          maxUses: c.maxUses,
+          timesUsed: usageMap.get(c.id) ?? 0,
+          active: c.active,
+          createdAt: c.createdAt.toISOString(),
+        }));
+      })(),
       productRestrictions: productRestrictions.map((pr) => ({
         id: pr.id,
         productId: pr.productId,
@@ -1312,19 +1495,45 @@ export class PromotionService {
   }
 
   async listPromotionRedemptions(
-    promoId: PromotionId,
-    params: { page: number; pageSize: number },
-  ): Promise<{ items: any[]; totalCount: number }> {
+    promoId?: PromotionId,
+    params: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ): Promise<{
+    items: unknown[];
+    totalCount: number;
+    stats?: {
+      totalCompleted: number;
+      totalDiscountGranted: number;
+      totalCashbackGranted: number;
+    };
+  }> {
     const page = Math.max(1, params.page || 1);
-    const pageSize = Math.min(100, Math.max(1, params.pageSize || 20));
+    const pageSize = Math.min(500, Math.max(1, params.pageSize || 20));
     const offset = (page - 1) * pageSize;
 
-    const [countRow] = await this.db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(promotionRedemptions)
-      .where(eq(promotionRedemptions.promotionId, promoId));
+    const whereClause = promoId
+      ? eq(promotionRedemptions.promotionId, promoId)
+      : undefined;
 
-    const rows = await this.db
+    const countQuery = this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(promotionRedemptions);
+    const [countRow] = whereClause
+      ? await countQuery.where(whereClause)
+      : await countQuery;
+
+    const summaryQuery = this.db
+      .select({
+        totalCompleted: sql<number>`count(*) filter (where ${promotionRedemptions.status} = 'completed')::int`,
+        totalDiscountGranted: sql<number>`coalesce(sum(${promotionRedemptions.discountAmount}) filter (where ${promotionRedemptions.status} = 'completed'), 0)::int`,
+        totalCashbackGranted: sql<number>`coalesce(sum(${promotionRedemptions.cashbackAmount}) filter (where ${promotionRedemptions.status} = 'completed'), 0)::int`,
+      })
+      .from(promotionRedemptions);
+
+    const [summaryRow] = whereClause
+      ? await summaryQuery.where(whereClause)
+      : await summaryQuery;
+
+    const selectQuery = this.db
       .select({
         redemption: promotionRedemptions,
         user: { id: users.id, name: users.name, email: users.email },
@@ -1332,23 +1541,23 @@ export class PromotionService {
         code: promotionCodes.code,
       })
       .from(promotionRedemptions)
-      .innerJoin(users, eq(promotionRedemptions.userId, users.id))
-      .innerJoin(orders, eq(promotionRedemptions.orderId, orders.id))
-      .innerJoin(promotionCodes, eq(promotionRedemptions.codeId, promotionCodes.id))
-      .where(eq(promotionRedemptions.promotionId, promoId))
-      .orderBy(desc(promotionRedemptions.createdAt))
-      .limit(pageSize)
-      .offset(offset);
+      .leftJoin(users, eq(promotionRedemptions.userId, users.id))
+      .leftJoin(orders, eq(promotionRedemptions.orderId, orders.id))
+      .leftJoin(promotionCodes, eq(promotionRedemptions.codeId, promotionCodes.id));
+
+    const rows = whereClause
+      ? await selectQuery.where(whereClause).orderBy(desc(promotionRedemptions.createdAt)).limit(pageSize).offset(offset)
+      : await selectQuery.orderBy(desc(promotionRedemptions.createdAt)).limit(pageSize).offset(offset);
 
     return {
       items: rows.map((r) => ({
         id: r.redemption.id,
-        userId: r.user.id,
-        userName: r.user.name,
-        userEmail: r.user.email,
-        orderId: r.order.id,
-        orderNumber: r.order.orderNumber,
-        code: r.code,
+        userId: r.user?.id || r.redemption.userId,
+        userName: r.user?.name || undefined,
+        userEmail: r.user?.email || undefined,
+        orderId: r.order?.id || r.redemption.orderId,
+        orderNumber: r.order?.orderNumber || (r.redemption.orderId ? r.redemption.orderId.slice(0, 8) : "—"),
+        code: r.code || (r.redemption.promotionSnapshot as { code?: string } | null)?.code || "—",
         benefitType: r.redemption.benefitType,
         benefitValue: r.redemption.benefitValue,
         discountAmount: r.redemption.discountAmount,
@@ -1362,6 +1571,11 @@ export class PromotionService {
           : null,
       })),
       totalCount: countRow?.count ?? 0,
+      stats: {
+        totalCompleted: summaryRow?.totalCompleted ?? 0,
+        totalDiscountGranted: summaryRow?.totalDiscountGranted ?? 0,
+        totalCashbackGranted: summaryRow?.totalCashbackGranted ?? 0,
+      },
     };
   }
 }
@@ -1427,6 +1641,18 @@ export class InMemoryPromotionService {
     );
 
     const userRedemptions = activeRedemptions.filter((r) => r.userId === userId);
+
+    if (codeRec.maxUses !== null && codeRec.maxUses !== undefined && codeRec.maxUses > 0) {
+      const codeRedemptions = activeRedemptions.filter((r) => r.codeId === codeRec.id);
+      if (codeRedemptions.length >= codeRec.maxUses) {
+        return {
+          valid: false,
+          reason: "سقف استفاده از این کد تخفیف تکمیل شده است.",
+          eligibleSubtotal: 0,
+          orderTotal,
+        };
+      }
+    }
 
     const eligibility = validatePromotionEligibility(promo, codeRec, {
       userId,
@@ -1518,6 +1744,25 @@ export class InMemoryPromotionService {
   }> {
     const release = await this.acquireReservationLock();
     try {
+      const codeNorm = normalizePromotionCode(params.code);
+      const codeRec = this.memoryCodes.find(
+        (c) => normalizePromotionCode(c.code) === codeNorm && !c.deletedAt && c.active,
+      );
+      if (codeRec) {
+        const nowIso = new Date().toISOString();
+        for (const r of this.memoryRedemptions) {
+          if (
+            r.userId === params.userId &&
+            r.promotionId === codeRec.promotionId &&
+            r.status === "pending" &&
+            r.orderId === null
+          ) {
+            r.status = "cancelled";
+            r.updatedAt = nowIso;
+          }
+        }
+      }
+
       const items = params.items || (params.productId ? [{
         productId: params.productId,
         productType: params.productType,
@@ -1572,11 +1817,21 @@ export class InMemoryPromotionService {
   }
 
   async linkRedemptionToOrder(redemptionId: string, orderId: string): Promise<void> {
-    const red = this.memoryRedemptions.find((r) => r.id === redemptionId);
-    if (red) {
-      red.orderId = orderId;
-      red.updatedAt = new Date().toISOString();
+    if (!orderId || typeof orderId !== "string" || orderId.trim() === "" || orderId === "00000000-0000-0000-0000-000000000000") {
+      throw new DomainError("bad_request", "شناسه سفارش برای انتساب به تخفیف نامعتبر است.");
     }
+    const red = this.memoryRedemptions.find((r) => r.id === redemptionId);
+    if (!red) {
+      throw new DomainError("not_found", "رکورد رزرو تخفیف یافت نشد.");
+    }
+    if (red.status !== "pending") {
+      throw new DomainError("bad_request", "تنها رزروهای معلق قابل اتصال به سفارش هستند.");
+    }
+    if (red.orderId !== null && red.orderId !== orderId) {
+      throw new DomainError("bad_request", "این رزرو قبلاً به سفارش دیگری متصل شده است.");
+    }
+    red.orderId = orderId;
+    red.updatedAt = new Date().toISOString();
   }
 
   async cancelPromotionRedemption(orderId: string, _reason?: string): Promise<void> {
@@ -1587,34 +1842,79 @@ export class InMemoryPromotionService {
     }
   }
 
-  async finalizePromotionForPaidOrder(orderId: string, paymentId: string): Promise<void> {
-    const red = this.memoryRedemptions.find(
-      (r) => r.orderId === orderId && (r.status === "pending" || r.status === "completed"),
-    );
-    if (!red) return;
+  async cancelPromotionRedemptionById(redemptionId: string, _reason?: string): Promise<boolean> {
+    const red = this.memoryRedemptions.find((r) => r.id === redemptionId && r.status === "pending");
+    if (red) {
+      red.status = "cancelled";
+      red.updatedAt = new Date().toISOString();
+      return true;
+    }
+    return false;
+  }
 
-    if (red.status === "completed") return; // Idempotent
+  async finalizePromotionForPaidOrder(
+    orderId: string,
+    paymentId: string,
+  ): Promise<{ finalized: boolean; cashbackGranted: number }> {
+    const release = await this.acquireReservationLock();
+    try {
+      const red = this.memoryRedemptions.find(
+        (r) => r.orderId === orderId && (r.status === "pending" || r.status === "completed"),
+      );
+      if (!red) return { finalized: false, cashbackGranted: 0 };
 
-    const now = new Date().toISOString();
-    red.status = "completed";
-    red.paymentId = paymentId;
-    red.completedAt = now;
-    red.updatedAt = now;
+      if (red.status === "completed") {
+        return { finalized: true, cashbackGranted: red.cashbackAmount }; // Idempotent
+      }
 
-    if (red.cashbackAmount > 0 && this.walletService) {
-      await this.walletService.credit({
-        userId: red.userId,
-        amount: red.cashbackAmount,
-        source: "promotion_cashback",
-        referenceType: "promotion",
-        referenceId: red.id,
-        idempotencyKey: `cashback:redemption:${red.id}`,
-        metadata: {
-          promotionId: red.promotionId,
-          orderId: red.orderId,
-          codeId: red.codeId,
-        },
-      });
+      if (red.status === "cancelled") {
+        return { finalized: false, cashbackGranted: 0 };
+      }
+
+      // 1. Credit Cashback if applicable (WalletService uses its own atomic mutation & idempotency lock)
+      if (red.cashbackAmount > 0) {
+        if (!this.walletService) {
+          throw new DomainError(
+            "internal_error",
+            "سرویس کیف پول برای تسویه کش‌بک در دسترس نیست.",
+          );
+        }
+
+        const creditResult = await this.walletService.credit({
+          userId: red.userId,
+          amount: red.cashbackAmount,
+          source: "promotion_cashback",
+          referenceType: "order",
+          referenceId: orderId,
+          idempotencyKey: `cashback:redemption:${red.id}`,
+          metadata: {
+            promotionId: red.promotionId,
+            orderId: red.orderId,
+            codeId: red.codeId,
+            paymentId,
+            redemptionId: red.id,
+            cashbackAmount: red.cashbackAmount,
+          },
+        });
+
+        if (!creditResult || !creditResult.transaction) {
+          throw new DomainError(
+            "internal_error",
+            "خطا در شارژ کش‌بک کیف پول؛ تراکنش ثبت نشد.",
+          );
+        }
+      }
+
+      // 2. Mark Redemption Completed (Only after wallet credit is verified)
+      const now = new Date().toISOString();
+      red.status = "completed";
+      red.paymentId = paymentId;
+      red.completedAt = now;
+      red.updatedAt = now;
+
+      return { finalized: true, cashbackGranted: red.cashbackAmount };
+    } finally {
+      release();
     }
   }
 

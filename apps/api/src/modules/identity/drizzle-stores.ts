@@ -131,6 +131,7 @@ function toUserRecord(
     email: string;
     name: string;
     globalRole?: string | null;
+    teacherStatus?: string | null;
     phoneNumber?: string | null;
     major?: string | null;
     university?: string | null;
@@ -138,6 +139,7 @@ function toUserRecord(
     department?: string | null;
     emailVerifiedAt?: Date | string | null;
     phoneVerifiedAt?: Date | string | null;
+    createdAt?: Date | string | null;
   },
   effectiveRole: Role = "student",
 ): UserRecord {
@@ -147,11 +149,13 @@ function toUserRecord(
     name: row.name,
     role: effectiveRole,
     globalRole: row.globalRole ?? null,
+    teacherStatus: (row.teacherStatus as "pending" | "approved" | "rejected") ?? undefined,
     phoneNumber: row.phoneNumber ?? null,
     major: row.major ?? null,
     university: row.university ?? null,
     faculty: row.faculty ?? null,
     department: row.department ?? null,
+    createdAt: toISOStringSafe(row.createdAt),
     emailVerifiedAt: toISOStringSafe(row.emailVerifiedAt),
     emailVerified: row.emailVerifiedAt != null,
     phoneVerifiedAt: toISOStringSafe(row.phoneVerifiedAt),
@@ -730,6 +734,7 @@ export class DrizzleUserStore implements UserStore {
     faculty?: string | null;
     department?: string | null;
     globalRole?: string | null;
+    teacherStatus?: "pending" | "approved" | "rejected";
   }): Promise<UserRecord> {
     const normalizedEmail = params.email.trim().toLowerCase();
     const [row] = await this.db
@@ -745,12 +750,14 @@ export class DrizzleUserStore implements UserStore {
         faculty: params.faculty ?? null,
         department: params.department ?? null,
         globalRole: params.globalRole ?? null,
+        teacherStatus: params.teacherStatus ?? "approved",
       })
       .returning({
         id: users.id,
         email: users.email,
         name: users.name,
         globalRole: users.globalRole,
+        teacherStatus: users.teacherStatus,
         phoneNumber: users.phoneNumber,
         major: users.major,
         university: users.university,

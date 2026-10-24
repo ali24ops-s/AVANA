@@ -18,7 +18,7 @@ describe("Admin Promotions & Coupon Management Service", () => {
   let adminService: AdminService;
 
   const adminActor: Actor = {
-    userId: asUserId(randomUUID() as any),
+    userId: asUserId(randomUUID()),
     role: "admin",
   };
 
@@ -99,7 +99,7 @@ describe("Admin Promotions & Coupon Management Service", () => {
     expect(afterDeleteList.items.length).toBe(0);
   });
 
-  it("2. Bulk generates unique promotion codes with prefix", async () => {
+  it("2. Bulk generates unique promotion codes with prefix and custom maxUses", async () => {
     const promo = await adminService.createCommercePromotion(adminActor.userId, {
       name: "کدهای هدیه سمینار",
       benefitType: "fixed_discount",
@@ -111,7 +111,7 @@ describe("Admin Promotions & Coupon Management Service", () => {
       count: 25,
       prefix: "SEMINAR-",
       length: 6,
-      maxUses: 1,
+      maxUses: 5,
     });
 
     expect(bulkRes.count).toBe(25);
@@ -124,8 +124,92 @@ describe("Admin Promotions & Coupon Management Service", () => {
       expect(c.startsWith("SEMINAR-")).toBe(true);
     }
 
-    // Verify detail reflects the new codes
+    // Verify detail reflects the new codes and maxUses
     const detail = await adminService.getCommercePromotion(promo.id);
     expect(detail.codes.length).toBe(25);
+    expect(detail.codes[0].maxUses).toBe(5);
+  });
+
+  it("3. Validates inputs and rejects invalid promotion payloads", async () => {
+    // Empty name
+    await expect(
+      adminService.createCommercePromotion(adminActor.userId, {
+        name: "   ",
+        benefitType: "percentage_discount",
+        benefitValue: 10,
+      }),
+    ).rejects.toThrow("نام پروموشن الزامی است.");
+
+    // Negative benefitValue
+    await expect(
+      adminService.createCommercePromotion(adminActor.userId, {
+        name: "تخفیف منفی",
+        benefitType: "fixed_discount",
+        benefitValue: -500,
+      }),
+    ).rejects.toThrow("مقدار تخفیف باید بیشتر از صفر باشد.");
+
+    // Percentage > 100
+    await expect(
+      adminService.createCommercePromotion(adminActor.userId, {
+        name: "تخفیف نجومی",
+        benefitType: "percentage_discount",
+        benefitValue: 120,
+      }),
+    ).rejects.toThrow("درصد تخفیف یا کش‌بک نمی‌تواند بیشتر از 100 باشد.");
+  });
+
+  it("4. Accurately tracks timesUsed per code and lists global redemptions", async () => {
+    const promo = await adminService.createCommercePromotion(adminActor.userId, {
+      name: "پروموشن تست مصرف کد",
+      benefitType: "percentage_cashback",
+      benefitValue: 15,
+      code: "CASH15",
+    });
+
+    const promoDetailBefore = await adminService.getCommercePromotion(promo.id);
+    expect(promoDetailBefore.codes[0].timesUsed).toBe(0);
+
+    // Simulate completed redemptions in store
+    const codeId = promoDetailBefore.codes[0].id;
+    adminStore.memoryPromotionRedemptions.push({
+      id: randomUUID(),
+      promotionId: promo.id,
+      codeId,
+      code: "CASH15",
+      userId: randomUUID(),
+      orderId: randomUUID(),
+      orderNumber: "ORD-9999",
+      benefitType: "percentage_cashback",
+      benefitValue: 15,
+      discountAmount: 0,
+      cashbackAmount: 15_000,
+      orderOriginalAmount: 100_000,
+      orderFinalAmount: 100_000,
+      status: "completed",
+      redeemedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    });
+
+    // Verify timesUsed is now 1
+    const promoDetailAfter = await adminService.getCommercePromotion(promo.id);
+    expect(promoDetailAfter.codes[0].timesUsed).toBe(1);
+
+    // Verify global redemptions listing (when promoId is undefined)
+    const globalRedemptions = await adminService.listCommercePromotionRedemptions(undefined, {
+      page: 1,
+      pageSize: 50,
+    });
+    expect(globalRedemptions.totalCount).toBe(1);
+    expect(globalRedemptions.items[0].code).toBe("CASH15");
+    expect(globalRedemptions.items[0].cashbackAmount).toBe(15_000);
+
+    // Verify specific promo redemptions listing
+    const specificRedemptions = await adminService.listCommercePromotionRedemptions(promo.id, {
+      page: 1,
+      pageSize: 50,
+    });
+    expect(specificRedemptions.totalCount).toBe(1);
+    expect(specificRedemptions.items[0].orderNumber).toBe("ORD-9999");
   });
 });

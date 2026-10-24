@@ -59,7 +59,9 @@ export function AdminPromotionDetailModal({
     setErrorMsg(null);
     try {
       const res = await adminApi.getCommercePromotion(id);
-      setPromotion(res);
+      const resRecord = res as unknown as { promotion?: AdminPromotionDetail };
+      const normalized = resRecord?.promotion ? { ...resRecord.promotion, ...res } : res;
+      setPromotion(normalized);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "خطا در دریافت جزئیات پروموشن";
       setErrorMsg(msg);

@@ -180,8 +180,8 @@ describe("Pre-Exam Configuration Chapter-Level Presentation & Lesson Ownership I
     const chapterElement = screen.getByText("سیستم عصبی خودکار");
     fireEvent.click(chapterElement);
 
-    // Summary should show 0 دوره، 1 بخش (selected by chapter)
-    expect(screen.getByText(/[۰0] دوره، [۱1] بخش/)).toBeInTheDocument();
+    // Summary should show 1 فصل (selected by chapter)
+    expect(screen.getByText(/[۱1] فصل/)).toBeInTheDocument();
 
     // Eligible questions should be 45
     expect(screen.getAllByText(/[۴4][۵5] س[وؤ]ال/).length).toBeGreaterThanOrEqual(1);

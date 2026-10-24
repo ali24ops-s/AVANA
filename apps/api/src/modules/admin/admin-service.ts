@@ -80,6 +80,13 @@ export class AdminService {
     return this.store.listUsers({ page, pageSize, search, role, status });
   }
 
+  async deleteUser(adminId: string, targetUserId: string): Promise<void> {
+    if (!targetUserId || typeof targetUserId !== "string") {
+      throw new DomainError("bad_request", "شناسه کاربر الزامی است.");
+    }
+    return this.store.deleteUser(adminId, targetUserId);
+  }
+
   async listTeachers(page: number, pageSize: number, search?: string, status?: string): Promise<AdminTeachersList> {
     if (page < 1) throw new DomainError("bad_request", "Page must be >= 1");
     if (pageSize < 1 || pageSize > 100) throw new DomainError("bad_request", "Page size must be between 1 and 100");
@@ -830,6 +837,16 @@ export class AdminService {
     ) {
       throw new DomainError("bad_request", "درصد تخفیف یا کش‌بک نمی‌تواند بیشتر از 100 باشد.");
     }
+    if (payload.startsAt && payload.endsAt) {
+      const s = new Date(payload.startsAt).getTime();
+      const e = new Date(payload.endsAt).getTime();
+      if (Number.isNaN(s) || Number.isNaN(e)) {
+        throw new DomainError("bad_request", "فرمت تاریخ شروع یا پایان نامعتبر است.");
+      }
+      if (s > e) {
+        throw new DomainError("bad_request", "تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد.");
+      }
+    }
     return this.store.createCommercePromotion(adminId, payload);
   }
 
@@ -843,6 +860,23 @@ export class AdminService {
       throw new DomainError("bad_request", "نام پروموشن نمی‌تواند خالی باشد.");
     if (payload.benefitValue !== undefined && payload.benefitValue <= 0)
       throw new DomainError("bad_request", "مقدار تخفیف باید بیشتر از صفر باشد.");
+    if (
+      (payload.benefitType === "percentage_discount" || payload.benefitType === "percentage_cashback") &&
+      payload.benefitValue !== undefined &&
+      payload.benefitValue > 100
+    ) {
+      throw new DomainError("bad_request", "درصد تخفیف یا کش‌بک نمی‌تواند بیشتر از 100 باشد.");
+    }
+    if (payload.startsAt && payload.endsAt) {
+      const s = new Date(payload.startsAt).getTime();
+      const e = new Date(payload.endsAt).getTime();
+      if (Number.isNaN(s) || Number.isNaN(e)) {
+        throw new DomainError("bad_request", "فرمت تاریخ شروع یا پایان نامعتبر است.");
+      }
+      if (s > e) {
+        throw new DomainError("bad_request", "تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد.");
+      }
+    }
     return this.store.updateCommercePromotion(adminId, id, payload);
   }
 
@@ -874,13 +908,20 @@ export class AdminService {
   }
 
   async listCommercePromotionRedemptions(
-    id: string,
-    params: { page: number; pageSize: number },
-  ): Promise<{ items: AdminPromotionRedemptionListItem[]; totalCount: number }> {
-    if (!id) throw new DomainError("bad_request", "Promotion ID is required");
+    id?: string,
+    params: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ): Promise<{
+    items: AdminPromotionRedemptionListItem[];
+    totalCount: number;
+    stats?: {
+      totalCompleted: number;
+      totalDiscountGranted: number;
+      totalCashbackGranted: number;
+    };
+  }> {
     if (params.page < 1) throw new DomainError("bad_request", "Page must be >= 1");
-    if (params.pageSize < 1 || params.pageSize > 100)
-      throw new DomainError("bad_request", "Page size must be between 1 and 100");
+    if (params.pageSize < 1 || params.pageSize > 500)
+      throw new DomainError("bad_request", "Page size must be between 1 and 500");
     return this.store.listCommercePromotionRedemptions(id, params);
   }
 }

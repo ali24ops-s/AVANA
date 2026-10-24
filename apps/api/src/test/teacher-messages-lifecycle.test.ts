@@ -127,7 +127,7 @@ describe("Teacher Student Messaging (پیام‌های دانشجویان) — B
 
     app = createApp({ config });
     await app.register(v1Routes, {
-      config: config.session,
+      config,
       sessionStore,
       userStore,
       organizationStore: orgStore,

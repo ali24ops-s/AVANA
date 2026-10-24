@@ -1,4 +1,4 @@
-import { count, eq, ne, sql, gte, lte, gt, ilike, or, desc, isNull, isNotNull, and, inArray, notInArray, type SQL } from "drizzle-orm";
+import { count, eq, ne, sql, gte, lte, gt, ilike, or, desc, asc, isNull, isNotNull, and, inArray, notInArray, type SQL } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import { randomUUID } from "node:crypto";
 import {
@@ -11,10 +11,12 @@ import {
   quizzes,
   documents,
   generationJobs,
+  generationJobSources,
   documentGenerationProgress,
   quizQuestions,
   auditLogs,
   generatedContents,
+  organizations,
   organizationMemberships,
   products,
   orders,
@@ -30,6 +32,8 @@ import {
   teacherExamAttempts,
   coursePublications,
   wallets,
+  courseReleases,
+  feedbacks,
 } from "@avana/database/schema";
 import {
   resolveEffectiveRole,
@@ -52,11 +56,13 @@ import {
   SUBSCRIPTION_CREDIT_BONUSES_CONFIG_KEY,
   asPromotionId,
   normalizeAcademicFields,
+  DomainError,
 } from "@avana/domain";
 import { PromotionService } from "../commerce/promotion-service.js";
 import { checkRedisHealth } from "./redis-health.js";
 import type {
   AdminStore,
+  AdminPromotionDetail,
   DashboardStats,
   AdminUsersList,
   AdminGenerationJobRecord,
@@ -80,6 +86,7 @@ import type {
   AdminLogRecord,
   AdminAuditRecord,
   AdminLessonRecord,
+  AdminLessonDetailRecord,
   AdminFlashcardRecord,
   AdminExamRecord,
   AdminGenerationDetail,
@@ -156,6 +163,7 @@ export class DrizzleAdminStore implements AdminStore {
       documentsCount,
       generationsTodayTotal,
       generationsTodaySuccess,
+      generationsTodayFailed,
     ] = await Promise.all([
       this.db.select({ count: count() }).from(users).where(isNull(users.deletedAt)).then((res) => res[0].count),
       this.db.select({ count: count() }).from(users).where(and(gte(users.createdAt, today), isNull(users.deletedAt))).then((res) => res[0].count),
@@ -165,11 +173,13 @@ export class DrizzleAdminStore implements AdminStore {
       this.db.select({ count: count() }).from(quizzes).where(isNull(quizzes.deletedAt)).then((res) => res[0].count),
       this.db.select({ count: count() }).from(documents).where(isNull(documents.deletedAt)).then((res) => res[0].count),
       this.db.select({ count: count() }).from(generationJobs).where(and(gte(generationJobs.createdAt, today), isNull(generationJobs.deletedAt))).then((res) => res[0].count),
-      this.db.select({ count: count() }).from(generationJobs).where(and(gte(generationJobs.createdAt, today), eq(generationJobs.status, "completed"), isNull(generationJobs.deletedAt))).then((res) => res[0].count),
+      this.db.select({ count: count() }).from(generationJobs).where(and(gte(generationJobs.createdAt, today), or(eq(generationJobs.status, "succeeded"), eq(generationJobs.status, "completed")), isNull(generationJobs.deletedAt))).then((res) => res[0].count),
+      this.db.select({ count: count() }).from(generationJobs).where(and(gte(generationJobs.createdAt, today), eq(generationJobs.status, "failed"), isNull(generationJobs.deletedAt))).then((res) => res[0].count),
     ]);
 
-    const generationSuccessRate = generationsTodayTotal > 0 
-      ? Math.round((generationsTodaySuccess / generationsTodayTotal) * 100) 
+    const finishedToday = generationsTodaySuccess + generationsTodayFailed;
+    const generationSuccessRate = finishedToday > 0
+      ? Math.round((generationsTodaySuccess / finishedToday) * 100)
       : 0;
 
     return {
@@ -191,11 +201,14 @@ export class DrizzleAdminStore implements AdminStore {
 
     const conditions: Array<SQL | undefined> = [isNull(users.deletedAt)];
 
-    if (search) {
+    if (search && search.trim()) {
+      const trimmed = search.trim();
       conditions.push(
         or(
-          ilike(users.email, `%${search}%`),
-          ilike(users.name, `%${search}%`)
+          ilike(users.email, `%${trimmed}%`),
+          ilike(users.name, `%${trimmed}%`),
+          ilike(users.phoneNumber, `%${trimmed}%`),
+          sql`cast(${users.id} as text) ilike ${`%${trimmed}%`}`
         )
       );
     }
@@ -321,6 +334,7 @@ export class DrizzleAdminStore implements AdminStore {
           emailVerified,
           phoneVerified,
           isVerified,
+          phoneNumber: u.phoneNumber ?? null,
           createdAt: u.createdAt.toISOString(),
           lastActiveAt: u.updatedAt.toISOString(), // proxy for last active
         };
@@ -334,7 +348,13 @@ export class DrizzleAdminStore implements AdminStore {
 
     const conditions: Array<SQL | undefined> = [isNull(generationJobs.deletedAt)];
     if (status) {
-      conditions.push(eq(generationJobs.status, status));
+      if (status === "completed" || status === "succeeded") {
+        conditions.push(or(eq(generationJobs.status, "succeeded"), eq(generationJobs.status, "completed")));
+      } else if (status === "processing" || status === "running") {
+        conditions.push(or(eq(generationJobs.status, "running"), eq(generationJobs.status, "processing")));
+      } else {
+        conditions.push(eq(generationJobs.status, status));
+      }
     }
     const whereClause = and(...conditions);
 
@@ -529,6 +549,7 @@ export class DrizzleAdminStore implements AdminStore {
           name: users.name,
           email: users.email,
           role: organizationMemberships.role,
+          globalRole: users.globalRole,
           teacherStatus: users.teacherStatus,
         }).from(organizationMemberships)
           .innerJoin(users, eq(users.id, organizationMemberships.userId))
@@ -538,6 +559,7 @@ export class DrizzleAdminStore implements AdminStore {
           actorId: auditLogs.actorId,
           name: users.name,
           email: users.email,
+          globalRole: users.globalRole,
           teacherStatus: users.teacherStatus,
         }).from(auditLogs)
           .leftJoin(users, eq(users.id, auditLogs.actorId))
@@ -627,7 +649,7 @@ export class DrizzleAdminStore implements AdminStore {
     for (const pr of productRows) {
       if (pr.targetId && !productByCourseId.has(pr.targetId)) {
         productByCourseId.set(pr.targetId, pr);
-      } else if (pr.code.startsWith("course_")) {
+      } else if (pr.code?.startsWith("course_")) {
         const cId = pr.code.replace("course_", "");
         if (!productByCourseId.has(cId)) {
           productByCourseId.set(cId, pr);
@@ -648,8 +670,10 @@ export class DrizzleAdminStore implements AdminStore {
       const orgMembers = orgMembersByOrgId.get(c.organizationId) || [];
       const creatorAudit = creatorByCourseId.get(c.id);
 
-      const teacherMember = orgMembers.find((m) => m.teacherStatus === "approved" || m.role === "teacher");
-      const creatorIsTeacher = creatorAudit?.teacherStatus === "approved";
+      const teacherMember = orgMembers.find(
+        (m) => m.role === "teacher" || (m.globalRole === "teacher" && m.teacherStatus === "approved"),
+      );
+      const creatorIsTeacher = creatorAudit?.globalRole === "teacher" && creatorAudit?.teacherStatus === "approved";
       const isTeacher = !isOfficial && (Boolean(linkedClassroom) || Boolean(teacherMember) || creatorIsTeacher);
 
       let scope: AdminCourseScope = "user";
@@ -789,7 +813,7 @@ export class DrizzleAdminStore implements AdminStore {
         OR ${courses.organizationId} IN (
           SELECT om.organization_id FROM organization_memberships om
           JOIN users u ON u.id = om.user_id
-          WHERE u.teacher_status = 'approved' OR om.role = 'teacher'
+          WHERE om.role = 'teacher' OR (u.global_role = 'teacher' AND u.teacher_status = 'approved')
         )
       )
     )`;
@@ -816,7 +840,7 @@ export class DrizzleAdminStore implements AdminStore {
           OR organization_id IN (
             SELECT om.organization_id FROM organization_memberships om
             JOIN users u ON u.id = om.user_id
-            WHERE u.teacher_status = 'approved' OR om.role = 'teacher'
+            WHERE om.role = 'teacher' OR (u.global_role = 'teacher' AND u.teacher_status = 'approved')
           )
         ))::int AS teacher_count,
         COUNT(*) FILTER (WHERE deleted_at IS NULL AND NOT (organization_id = ${this.systemOrganizationId} AND is_official = true) AND NOT (
@@ -824,7 +848,7 @@ export class DrizzleAdminStore implements AdminStore {
           OR organization_id IN (
             SELECT om.organization_id FROM organization_memberships om
             JOIN users u ON u.id = om.user_id
-            WHERE u.teacher_status = 'approved' OR om.role = 'teacher'
+            WHERE om.role = 'teacher' OR (u.global_role = 'teacher' AND u.teacher_status = 'approved')
           )
         ))::int AS user_count
       FROM courses
@@ -836,7 +860,10 @@ export class DrizzleAdminStore implements AdminStore {
       countsPromise,
     ]);
 
-    const countsRow = Array.isArray(countsRaw) ? countsRaw[0] : (countsRaw as any)?.rows?.[0] || {};
+    const countsRow =
+      (Array.isArray(countsRaw)
+        ? countsRaw[0]
+        : (countsRaw as { rows?: Record<string, unknown>[] })?.rows?.[0]) ?? {};
     const categoryCounts = {
       official: Number(countsRow.official_count ?? 0),
       teacher: Number(countsRow.teacher_count ?? 0),
@@ -1087,7 +1114,9 @@ export class DrizzleAdminStore implements AdminStore {
 
   async listAuditLogs(params: { page: number; pageSize: number; search?: string; action?: string; entityType?: string; adminEmail?: string; from?: string }): Promise<{ logs: AdminAuditRecord[]; totalCount: number }> {
     const { page, pageSize, search, action, entityType, adminEmail, from } = params;
-    const offset = (page - 1) * pageSize;
+    const safePage = Math.max(1, isNaN(page) ? 1 : page);
+    const safePageSize = Math.min(100, Math.max(1, isNaN(pageSize) ? 20 : pageSize));
+    const offset = (safePage - 1) * safePageSize;
 
     const conditions: Array<SQL | undefined> = [];
     if (action) conditions.push(eq(auditLogs.action, action));
@@ -1122,13 +1151,13 @@ export class DrizzleAdminStore implements AdminStore {
       .from(auditLogs)
       .leftJoin(users, eq(auditLogs.actorId, users.id))
       .where(whereClause)
-      .limit(pageSize)
+      .limit(safePageSize)
       .offset(offset)
-      .orderBy(sql`${auditLogs.createdAt} DESC`),
+      .orderBy(sql`${auditLogs.createdAt} DESC, ${auditLogs.id} DESC`),
     ]);
 
     return {
-      totalCount: totalRes[0].count,
+      totalCount: Number(totalRes[0]?.count ?? 0),
       logs: rows.map(r => ({
         id: r.log.id,
         adminEmail: r.adminEmail || "system",
@@ -1180,7 +1209,7 @@ export class DrizzleAdminStore implements AdminStore {
     };
   }
 
-  async getLesson(id: string): Promise<(AdminLessonRecord & { contentMarkdown: string; moduleId?: string }) | null> {
+  async getLesson(id: string): Promise<AdminLessonDetailRecord | null> {
     const rows = await this.db
       .select({
         lesson: lessons,
@@ -1195,6 +1224,32 @@ export class DrizzleAdminStore implements AdminStore {
 
     if (rows.length === 0) return null;
     const r = rows[0];
+
+    const [fcRows, qqRows] = await Promise.all([
+      this.db
+        .select({
+          id: flashcards.id,
+          question: flashcards.question,
+          answer: flashcards.answer,
+          explanation: flashcards.explanation,
+          difficulty: flashcards.difficulty,
+        })
+        .from(flashcards)
+        .where(and(eq(flashcards.lessonId, id), isNull(flashcards.deletedAt))),
+      this.db
+        .select({
+          id: quizQuestions.id,
+          question: quizQuestions.question,
+          choices: quizQuestions.choices,
+          correctAnswer: quizQuestions.correctAnswer,
+          explanation: quizQuestions.explanation,
+          difficulty: quizQuestions.difficulty,
+        })
+        .from(quizQuestions)
+        .where(and(eq(quizQuestions.lessonId, id), isNull(quizQuestions.deletedAt)))
+        .orderBy(quizQuestions.sortOrder),
+    ]);
+
     return {
       id: r.lesson.id,
       title: r.lesson.title,
@@ -1204,6 +1259,21 @@ export class DrizzleAdminStore implements AdminStore {
       publicationStatus: r.lesson.publicationStatus,
       contentMarkdown: r.lesson.contentMarkdown,
       createdAt: r.lesson.createdAt.toISOString(),
+      flashcards: fcRows.map((fc) => ({
+        id: fc.id,
+        front: fc.question,
+        back: fc.answer,
+        explanation: fc.explanation,
+        difficulty: fc.difficulty,
+      })),
+      quizQuestions: qqRows.map((qq) => ({
+        id: qq.id,
+        question: qq.question,
+        choices: Array.isArray(qq.choices) ? (qq.choices as string[]) : undefined,
+        correctAnswer: qq.correctAnswer,
+        explanation: qq.explanation,
+        difficulty: qq.difficulty,
+      })),
     };
   }
 
@@ -1274,7 +1344,7 @@ export class DrizzleAdminStore implements AdminStore {
       .offset(offset)
       .orderBy(sql`${quizzes.createdAt} DESC`),
     ]);
-    
+
     // fetch question counts for rows
     const examIds = rows.map(r => r.exam.id);
     const questionCounts = new Map<string, number>();
@@ -1330,20 +1400,20 @@ export class DrizzleAdminStore implements AdminStore {
       }).from(lessons)
       .where(and(inArray(lessons.moduleId, moduleIds), isNull(lessons.deletedAt)))
       .orderBy(lessons.sortOrder);
-      
+
       const lessonIds = dbLessons.map((l) => l.id);
-      
+
       if (lessonIds.length > 0) {
         const fcCounts = await this.db.select({ lessonId: flashcards.lessonId, count: count() })
           .from(flashcards)
           .where(and(inArray(flashcards.lessonId, lessonIds), isNull(flashcards.deletedAt)))
           .groupBy(flashcards.lessonId);
-          
+
         const qCounts = await this.db.select({ lessonId: quizQuestions.lessonId, count: count() })
           .from(quizQuestions)
           .where(and(inArray(quizQuestions.lessonId, lessonIds), isNull(quizQuestions.deletedAt)))
           .groupBy(quizQuestions.lessonId);
-          
+
         const fcMap = new Map(fcCounts.map((r) => [r.lessonId, r.count]));
         const qMap = new Map(qCounts.map((r) => [r.lessonId, r.count]));
 
@@ -1407,9 +1477,23 @@ export class DrizzleAdminStore implements AdminStore {
   async getGenerationJob(id: string): Promise<AdminGenerationDetail | null> {
     const res = await this.db.select({
       job: generationJobs,
+      documentName: documents.originalName,
+      documentId: documents.id,
+      documentSizeBytes: documents.sizeBytes,
+      documentMimeType: documents.mimeType,
+      userEmail: users.email,
+      userId: users.id,
+      courseId: courses.id,
+      courseName: courses.name,
+      organizationId: organizations.id,
+      organizationName: organizations.name,
     })
     .from(generationJobs)
-    .where(eq(generationJobs.id, id))
+    .leftJoin(documents, eq(generationJobs.documentId, documents.id))
+    .leftJoin(users, eq(documents.ownerUserId, users.id))
+    .leftJoin(courses, eq(generationJobs.courseId, courses.id))
+    .leftJoin(organizations, eq(generationJobs.organizationId, organizations.id))
+    .where(and(eq(generationJobs.id, id), isNull(generationJobs.deletedAt)))
     .limit(1);
 
     if (res.length === 0) return null;
@@ -1419,6 +1503,39 @@ export class DrizzleAdminStore implements AdminStore {
     if (row.job.startedAt && row.job.completedAt) {
       durationMs = row.job.completedAt.getTime() - row.job.startedAt.getTime();
     }
+
+    // Retrieve multi-source documents if present
+    const sourcesRows = await this.db.select({
+      sourceId: generationJobSources.id,
+      documentId: generationJobSources.documentId,
+      role: generationJobSources.role,
+      orderIndex: generationJobSources.orderIndex,
+      originalName: documents.originalName,
+      mimeType: documents.mimeType,
+      sizeBytes: documents.sizeBytes,
+      status: documents.status,
+    })
+    .from(generationJobSources)
+    .leftJoin(documents, eq(generationJobSources.documentId, documents.id))
+    .where(eq(generationJobSources.generationJobId, id))
+    .orderBy(asc(generationJobSources.orderIndex));
+
+    const sources = sourcesRows.map((s) => ({
+      documentId: s.documentId,
+      originalName: s.originalName || "فایل منبع",
+      role: s.role,
+      orderIndex: s.orderIndex,
+      sizeBytes: s.sizeBytes ?? undefined,
+      mimeType: s.mimeType ?? undefined,
+      status: s.status ?? undefined,
+    }));
+
+    const docInfo = row.documentId && row.documentName ? {
+      id: row.documentId,
+      originalName: row.documentName,
+      sizeBytes: row.documentSizeBytes ?? undefined,
+      mimeType: row.documentMimeType ?? undefined,
+    } : undefined;
 
     return {
       id: row.job.id,
@@ -1431,6 +1548,13 @@ export class DrizzleAdminStore implements AdminStore {
       durationMs,
       retryCount: row.job.attempts,
       errorType: row.job.errorCode || undefined,
+      documentName: row.documentName ?? undefined,
+      userEmail: row.userEmail ?? undefined,
+      document: docInfo,
+      user: row.userId && row.userEmail ? { id: row.userId, email: row.userEmail } : undefined,
+      course: row.courseId ? { id: row.courseId, name: row.courseName || undefined } : undefined,
+      organization: row.organizationId && row.organizationName ? { id: row.organizationId, name: row.organizationName } : undefined,
+      sources: sources.length > 0 ? sources : undefined,
     };
   }
 
@@ -1450,7 +1574,7 @@ export class DrizzleAdminStore implements AdminStore {
         this.db.select({ count: count() }).from(flashcards).where(and(gte(flashcards.createdAt, date), isNull(flashcards.deletedAt))).then(r => r[0].count),
         this.db.select({ count: count() }).from(quizzes).where(and(gte(quizzes.createdAt, date), isNull(quizzes.deletedAt))).then(r => r[0].count),
         this.db.select({ count: count() }).from(generationJobs).where(and(gte(generationJobs.createdAt, date), isNull(generationJobs.deletedAt))).then(r => r[0].count),
-        this.db.select({ count: count() }).from(generationJobs).where(and(gte(generationJobs.createdAt, date), eq(generationJobs.status, 'completed'), isNull(generationJobs.deletedAt))).then(r => r[0].count),
+        this.db.select({ count: count() }).from(generationJobs).where(and(gte(generationJobs.createdAt, date), or(eq(generationJobs.status, 'succeeded'), eq(generationJobs.status, 'completed')), isNull(generationJobs.deletedAt))).then(r => r[0].count),
         this.db.select({ count: count() }).from(generationJobs).where(and(gte(generationJobs.createdAt, date), eq(generationJobs.status, 'failed'), isNull(generationJobs.deletedAt))).then(r => r[0].count),
       ]);
       return { newUsers: u, courses: cu, lessons: l, flashcards: f, quizzes: q, aiJobs: g, aiSuccess: gs, aiFailed: gf };
@@ -1486,10 +1610,11 @@ export class DrizzleAdminStore implements AdminStore {
       this.db
         .select({
           totalJobs: count(),
-          successful: sql<number>`count(case when ${generationJobs.status} = 'completed' then 1 end)`,
+          successful: sql<number>`count(case when ${generationJobs.status} in ('succeeded', 'completed') then 1 end)`,
           failed: sql<number>`count(case when ${generationJobs.status} = 'failed' then 1 end)`,
-          processing: sql<number>`count(case when ${generationJobs.status} = 'processing' then 1 end)`,
-          averageDurationMs: sql<number>`coalesce(avg(extract(epoch from (${generationJobs.completedAt} - ${generationJobs.startedAt})) * 1000), 0)`,
+          processing: sql<number>`count(case when ${generationJobs.status} in ('running', 'processing') then 1 end)`,
+          queued: sql<number>`count(case when ${generationJobs.status} = 'queued' then 1 end)`,
+          averageDurationMs: sql<number>`coalesce(avg(case when ${generationJobs.completedAt} is not null and ${generationJobs.startedAt} is not null then extract(epoch from (${generationJobs.completedAt} - ${generationJobs.startedAt})) * 1000 end), 0)`,
         })
         .from(generationJobs)
         .where(isNull(generationJobs.deletedAt)),
@@ -1498,7 +1623,7 @@ export class DrizzleAdminStore implements AdminStore {
         .select({
           type: generationJobs.type,
           total: count(),
-          success: sql<number>`count(case when ${generationJobs.status} = 'completed' then 1 end)`,
+          success: sql<number>`count(case when ${generationJobs.status} in ('succeeded', 'completed') then 1 end)`,
         })
         .from(generationJobs)
         .where(isNull(generationJobs.deletedAt))
@@ -1519,6 +1644,7 @@ export class DrizzleAdminStore implements AdminStore {
       successful: 0,
       failed: 0,
       processing: 0,
+      queued: 0,
       averageDurationMs: 0,
     };
 
@@ -1526,8 +1652,12 @@ export class DrizzleAdminStore implements AdminStore {
     const successful = Number(overview.successful) || 0;
     const failed = Number(overview.failed) || 0;
     const processing = Number(overview.processing) || 0;
+    const queued = Number(overview.queued) || 0;
     const averageDurationMs = Number(overview.averageDurationMs) || 0;
-    const successRate = totalJobs > 0 ? (successful / totalJobs) * 100 : 0;
+    const finishedJobs = successful + failed;
+    const successRate = finishedJobs > 0
+      ? Math.round((successful / finishedJobs) * 1000) / 10
+      : 0;
 
     const byType: Record<string, { total: number; success: number }> = {};
     if (Array.isArray(byTypeRows)) {
@@ -1553,6 +1683,7 @@ export class DrizzleAdminStore implements AdminStore {
         successful,
         failed,
         processing,
+        queued,
         successRate,
         averageDurationMs,
       },
@@ -1569,7 +1700,7 @@ export class DrizzleAdminStore implements AdminStore {
   // ---------------------------------------------------------------------------
   // Phase 4: Mutations
   // ---------------------------------------------------------------------------
-  
+
   async updateUserRole(adminId: string, targetUserId: string, newRole: string): Promise<void> {
     await this.db.transaction(async (tx) => {
       const memberships = await tx.select().from(organizationMemberships)
@@ -1621,7 +1752,148 @@ export class DrizzleAdminStore implements AdminStore {
       });
     });
   }
-  
+
+  async deleteUser(adminId: string, targetUserId: string): Promise<void> {
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!targetUserId || !UUID_REGEX.test(targetUserId)) {
+      throw new DomainError("bad_request", "شناسه کاربر نامعتبر است.");
+    }
+    if (adminId === targetUserId) {
+      throw new DomainError("conflict", "امکان حذف حساب کاربری مدیر جاری وجود ندارد.");
+    }
+
+    await this.db.transaction(async (tx) => {
+      const userRows = await tx.select().from(users).where(eq(users.id, targetUserId)).for("update");
+      if (userRows.length === 0) {
+        throw new DomainError("not_found", "کاربر مورد نظر یافت نشد.");
+      }
+
+      // Check financial & operational constraints
+      const walletRows = await tx.select().from(wallets).where(eq(wallets.userId, targetUserId));
+      if (walletRows.length > 0 && walletRows[0].balance > 0) {
+        throw new DomainError(
+          "conflict",
+          "حساب کاربر دارای موجودی فعال در کیف پول است. لطفاً ابتدا موجودی را تسویه کنید.",
+        );
+      }
+
+      const now = new Date();
+      const activeSubs = await tx
+        .select()
+        .from(userSubscriptions)
+        .where(
+          and(
+            eq(userSubscriptions.userId, targetUserId),
+            eq(userSubscriptions.status, "active"),
+            gte(userSubscriptions.expiresAt, now),
+          ),
+        );
+      if (activeSubs.length > 0) {
+        throw new DomainError(
+          "conflict",
+          "حساب کاربر دارای اشتراک فعال است. لطفاً ابتدا اشتراک کاربر را لغو کنید.",
+        );
+      }
+
+      const paidPayments = await tx
+        .select()
+        .from(payments)
+        .where(
+          and(
+            eq(payments.userId, targetUserId),
+            or(eq(payments.status, "paid"), eq(payments.status, "approved")),
+          ),
+        );
+      if (paidPayments.length > 0) {
+        throw new DomainError(
+          "conflict",
+          "حساب کاربر دارای سوابق پرداخت مالی قطعی است. به دلیل الزامات قانونی نگهداری اسناد مالی، حذف مستقیم این حساب مجاز نیست.",
+        );
+      }
+
+      const userClassrooms = await tx
+        .select()
+        .from(classrooms)
+        .where(
+          and(eq(classrooms.teacherId, targetUserId), eq(classrooms.status, "active")),
+        );
+      if (userClassrooms.length > 0) {
+        throw new DomainError(
+          "conflict",
+          "کاربر دارای کلاس‌های آموزشی فعال به عنوان معلم است. لطفاً ابتدا کلاس‌ها را آرشیو یا منتقل کنید.",
+        );
+      }
+
+      const publishedReleases = await tx
+        .select()
+        .from(courseReleases)
+        .where(eq(courseReleases.publishedBy, targetUserId));
+      if (publishedReleases.length > 0) {
+        throw new DomainError(
+          "conflict",
+          "کاربر به عنوان ناشر نسخه دوره‌های آموزشی ثبت شده است و امکان حذف حساب آن وجود ندارد.",
+        );
+      }
+
+      // 1. Detach non-cascading FK references to users.id
+      // Anonymize actor in audit logs to preserve historical audit logs without breaking FK constraint
+      await tx
+        .update(auditLogs)
+        .set({ actorId: null })
+        .where(eq(auditLogs.actorId, targetUserId));
+
+      // Anonymize reviewer/acceptor/editor in generated contents
+      await tx
+        .update(generatedContents)
+        .set({ acceptedBy: null })
+        .where(eq(generatedContents.acceptedBy, targetUserId));
+      await tx
+        .update(generatedContents)
+        .set({ reviewedBy: null })
+        .where(eq(generatedContents.reviewedBy, targetUserId));
+      await tx
+        .update(generatedContents)
+        .set({ editedBy: null })
+        .where(eq(generatedContents.editedBy, targetUserId));
+
+      // Anonymize feedbacks respondedBy
+      await tx
+        .update(feedbacks)
+        .set({ respondedBy: null })
+        .where(eq(feedbacks.respondedBy, targetUserId));
+
+      // Anonymize payments reviewedBy
+      await tx
+        .update(payments)
+        .set({ reviewedBy: null })
+        .where(eq(payments.reviewedBy, targetUserId));
+
+      // Anonymize systemConfigurations updatedBy
+      await tx
+        .update(systemConfigurations)
+        .set({ updatedBy: null })
+        .where(eq(systemConfigurations.updatedBy, targetUserId));
+
+      // 2. Delete user row (cascading tables will be removed atomically)
+      await tx.delete(users).where(eq(users.id, targetUserId));
+
+      // 3. Record admin audit log in the transaction
+      await tx.insert(auditLogs).values({
+        id: randomUUID(),
+        actorId: adminId,
+        action: "admin.delete_user",
+        entityType: "user",
+        entityId: targetUserId,
+        details: {
+          admin_user_id: adminId,
+          target_user_id: targetUserId,
+          reason: "account_deleted_by_platform_admin",
+        },
+        createdAt: new Date(),
+      });
+    });
+  }
+
   async updateCourseMetadata(
     adminId: string,
     courseId: string,
@@ -1639,14 +1911,14 @@ export class DrizzleAdminStore implements AdminStore {
       if (payload.targetAcademicFields !== undefined) {
         updateData.targetAcademicFields = normalizeAcademicFields(payload.targetAcademicFields);
       }
-      
+
       const [res] = await tx.update(courses)
         .set(updateData)
         .where(eq(courses.id, courseId))
         .returning({ id: courses.id });
-        
+
       if (!res) throw new Error("not_found");
-      
+
       await tx.insert(auditLogs).values({
         id: randomUUID(),
         actorId: adminId,
@@ -1658,7 +1930,7 @@ export class DrizzleAdminStore implements AdminStore {
       });
     });
   }
-  
+
   async retryDocumentProcessing(adminId: string, documentId: string): Promise<void> {
     await this.db.insert(auditLogs).values({
       id: randomUUID(),
@@ -1670,7 +1942,7 @@ export class DrizzleAdminStore implements AdminStore {
       createdAt: new Date()
     });
   }
-  
+
   async retryGenerationJob(adminId: string, jobId: string): Promise<void> {
     await this.db.insert(auditLogs).values({
       id: randomUUID(),
@@ -3843,6 +4115,39 @@ export class DrizzleAdminStore implements AdminStore {
     return this._promotionService;
   }
 
+  private _toAdminPromotionDetail(res: any): AdminPromotionDetail | null {
+    if (!res) return null;
+    const p = res.promotion || res;
+    return {
+      id: p.id,
+      name: p.name,
+      description: p.description ?? null,
+      benefitType: p.benefitType,
+      benefitValue: p.benefitValue,
+      maxDiscountAmount: p.maxDiscountAmount ?? null,
+      minOrderAmount: p.minOrderAmount ?? null,
+      totalUsageLimit: p.totalUsageLimit ?? null,
+      perUserUsageLimit: p.perUserUsageLimit ?? null,
+      active: p.active,
+      startsAt: p.startsAt ?? null,
+      endsAt: p.endsAt ?? null,
+      codes: res.codes || p.codes || [],
+      productRestrictions: res.productRestrictions || p.productRestrictions || [],
+      userRestrictions: res.userRestrictions || p.userRestrictions || [],
+      stats: res.stats || p.stats || {
+        totalRedemptions: 0,
+        completedRedemptions: 0,
+        pendingRedemptions: 0,
+        totalDiscountGranted: 0,
+        totalCashbackGranted: 0,
+        remainingUsage: null,
+      },
+      metadata: p.metadata || {},
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+    };
+  }
+
   async listCommercePromotions(params: {
     page: number;
     pageSize: number;
@@ -3853,9 +4158,10 @@ export class DrizzleAdminStore implements AdminStore {
     return this.promotionService.listPromotions(params);
   }
 
-  async getCommercePromotion(id: string): Promise<any | null> {
+  async getCommercePromotion(id: string): Promise<AdminPromotionDetail | null> {
     try {
-      return await this.promotionService.getPromotionDetails(asPromotionId(id as any));
+      const details = await this.promotionService.getPromotionDetails(asPromotionId(id as any));
+      return this._toAdminPromotionDetail(details);
     } catch {
       return null;
     }
@@ -3864,24 +4170,31 @@ export class DrizzleAdminStore implements AdminStore {
   async createCommercePromotion(
     adminId: string,
     input: any,
-  ): Promise<any> {
-    return this.promotionService.createPromotion(adminId, input);
+  ): Promise<AdminPromotionDetail> {
+    const res = await this.promotionService.createPromotion(adminId, input);
+    return this._toAdminPromotionDetail(res)!;
   }
 
   async updateCommercePromotion(
     adminId: string,
     id: string,
     patch: any,
-  ): Promise<any> {
-    return this.promotionService.updatePromotion(adminId, asPromotionId(id as any), patch);
+  ): Promise<AdminPromotionDetail> {
+    const res = await this.promotionService.updatePromotion(adminId, asPromotionId(id as any), patch);
+    return this._toAdminPromotionDetail(res)!;
   }
 
   async toggleCommercePromotionActive(
     adminId: string,
     id: string,
     active: boolean,
-  ): Promise<any> {
-    return this.promotionService.togglePromotionActive(adminId, asPromotionId(id as any), active);
+  ): Promise<AdminPromotionDetail> {
+    await this.promotionService.togglePromotionActive(adminId, asPromotionId(id as any), active);
+    const updated = await this.getCommercePromotion(id);
+    if (!updated) {
+      throw new DomainError("not_found", "پروموشن یافت نشد.");
+    }
+    return updated;
   }
 
   async deleteCommercePromotion(adminId: string, id: string): Promise<boolean> {
@@ -3891,16 +4204,16 @@ export class DrizzleAdminStore implements AdminStore {
   async bulkGenerateCommercePromotionCodes(
     adminId: string,
     id: string,
-    input: { count: number; prefix?: string; length?: number },
+    input: { count: number; prefix?: string; length?: number; maxUses?: number },
   ): Promise<{ generatedCount: number; sampleCodes: string[] }> {
     return this.promotionService.bulkGenerateCodes(adminId, asPromotionId(id as any), input);
   }
 
   async listCommercePromotionRedemptions(
-    id: string,
+    id: string | undefined,
     params: { page: number; pageSize: number },
   ): Promise<{ items: any[]; totalCount: number }> {
-    return this.promotionService.listPromotionRedemptions(asPromotionId(id as any), params);
+    return this.promotionService.listPromotionRedemptions(id ? asPromotionId(id as any) : undefined, params);
   }
 
   // ---------------------------------------------------------------------------
@@ -3950,7 +4263,6 @@ export class DrizzleAdminStore implements AdminStore {
 
     const conditions: Array<SQL | undefined> = [
       isNull(users.deletedAt),
-      or(...teacherRoleConditions),
     ];
 
     if (search && search.trim()) {
@@ -3958,19 +4270,36 @@ export class DrizzleAdminStore implements AdminStore {
       conditions.push(
         or(
           ilike(users.email, s),
-          ilike(users.name, s)
+          ilike(users.name, s),
+          ilike(users.university, s),
         )
       );
     }
 
     if (status && status !== "all") {
       if (status === "approved" || status === "active") {
-        conditions.push(eq(users.teacherStatus, "approved"));
+        conditions.push(
+          and(
+            eq(users.teacherStatus, "approved"),
+            or(...teacherRoleConditions),
+          )
+        );
       } else if (status === "pending" || status === "inactive") {
         conditions.push(eq(users.teacherStatus, "pending"));
       } else if (status === "rejected") {
         conditions.push(eq(users.teacherStatus, "rejected"));
       }
+    } else {
+      conditions.push(
+        or(
+          and(
+            eq(users.teacherStatus, "approved"),
+            or(...teacherRoleConditions),
+          ),
+          eq(users.teacherStatus, "pending"),
+          eq(users.teacherStatus, "rejected"),
+        )
+      );
     }
 
     const whereClause = and(...conditions);
@@ -4064,6 +4393,10 @@ export class DrizzleAdminStore implements AdminStore {
         classroomsCount,
         examsCount,
         studentsCount: teacherStudentSet.size,
+        university: u.university ?? null,
+        faculty: u.faculty ?? null,
+        department: u.department ?? null,
+        phoneNumber: u.phoneNumber ?? null,
       };
     });
 
@@ -4257,6 +4590,10 @@ export class DrizzleAdminStore implements AdminStore {
         isVerified: !!(userRecord.emailVerifiedAt || userRecord.phoneVerifiedAt),
         createdAt: safeToIsoString(userRecord.createdAt),
         lastActiveAt: safeToIsoString(userRecord.updatedAt),
+        university: userRecord.university ?? null,
+        faculty: userRecord.faculty ?? null,
+        department: userRecord.department ?? null,
+        phoneNumber: userRecord.phoneNumber ?? null,
       },
       stats: {
         classroomsCount: classroomRows.length,
@@ -4292,6 +4629,64 @@ export class DrizzleAdminStore implements AdminStore {
         .set({ teacherStatus: "approved", updatedAt: new Date() })
         .where(eq(users.id, teacherId));
 
+      const memberships = await tx
+        .select()
+        .from(organizationMemberships)
+        .where(eq(organizationMemberships.userId, teacherId));
+
+      if (memberships.length > 0) {
+        const hasTeacherMembership = memberships.some((m) => m.role === Roles.teacher);
+        if (!hasTeacherMembership) {
+          const studentMembership = memberships.find((m) => m.role === Roles.student);
+          if (studentMembership) {
+            await tx
+              .update(organizationMemberships)
+              .set({ role: Roles.teacher, updatedAt: new Date() })
+              .where(eq(organizationMemberships.id, studentMembership.id));
+          } else {
+            // User does not have a student membership to upgrade (e.g. holds higher roles like org_admin).
+            // Create a dedicated personal workspace with teacher role without downgrading existing memberships.
+            const orgId = randomUUID();
+            const orgName = existing.name ? `فضای یادگیری ${existing.name}` : "فضای یادگیری آوانا";
+            const slug = `${existing.id.slice(0, 8)}-teacher`;
+            await tx.insert(organizations).values({
+              id: orgId,
+              name: orgName,
+              slug,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+            await tx.insert(organizationMemberships).values({
+              id: randomUUID(),
+              organizationId: orgId,
+              userId: teacherId,
+              role: Roles.teacher,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+          }
+        }
+      } else {
+        const orgId = randomUUID();
+        const orgName = existing.name ? `فضای یادگیری ${existing.name}` : "فضای یادگیری آوانا";
+        const slug = `${existing.id.slice(0, 8)}-teacher`;
+        await tx.insert(organizations).values({
+          id: orgId,
+          name: orgName,
+          slug,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+        await tx.insert(organizationMemberships).values({
+          id: randomUUID(),
+          organizationId: orgId,
+          userId: teacherId,
+          role: Roles.teacher,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+
       await tx.insert(auditLogs).values({
         id: randomUUID(),
         actorId: adminId,
@@ -4325,6 +4720,27 @@ export class DrizzleAdminStore implements AdminStore {
         .update(users)
         .set({ teacherStatus: "rejected", updatedAt: new Date() })
         .where(eq(users.id, teacherId));
+
+      const memberships = await tx
+        .select()
+        .from(organizationMemberships)
+        .where(eq(organizationMemberships.userId, teacherId));
+
+      for (const m of memberships) {
+        if (m.role === Roles.teacher) {
+          await tx
+            .update(organizationMemberships)
+            .set({ role: Roles.student, updatedAt: new Date() })
+            .where(eq(organizationMemberships.id, m.id));
+        }
+      }
+
+      if (existing.globalRole === Roles.teacher) {
+        await tx
+          .update(users)
+          .set({ globalRole: null, updatedAt: new Date() })
+          .where(eq(users.id, teacherId));
+      }
 
       await tx.insert(auditLogs).values({
         id: randomUUID(),

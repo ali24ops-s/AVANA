@@ -1,12 +1,11 @@
 /**
- * User Wallet & Credit Balance Page.
+ * User Wallet & Balance Page.
  *
  * Route: `/account/wallet`
  *
  * Displays:
- * - Current Avana Credit balance (1 Avana Credit = 1 Toman)
- * - Equivalent value in Tomans
- * - Complete immutable transaction history ledger (Credits, Debits, Refunds, Adjustments)
+ * - Current wallet balance in Tomans
+ * - Complete immutable transaction history ledger (Deposits, Debits, Refunds, Adjustments)
  * - Loading, Error with Retry, and Empty states
  * - Quick cross-navigation to Subscriptions and Purchases
  */
@@ -64,7 +63,14 @@ const PRESET_AMOUNTS = [
   1_000_000,
 ];
 
-export function UserWalletPage() {
+export interface UserWalletPageProps {
+  isEmbedded?: boolean;
+  isTopupModalOpen?: boolean;
+  onTopupModalChange?: (isOpen: boolean) => void;
+}
+
+export function UserWalletPage(props: UserWalletPageProps = {}) {
+  const isEmbedded = props.isEmbedded ?? false;
   const navigate = useNavigate();
 
   const {
@@ -90,8 +96,17 @@ export function UserWalletPage() {
     refetch: refetchTopups,
   } = useMyWalletTopups();
 
-  // Top-up Modal State
-  const [isTopupModalOpen, setIsTopupModalOpen] = useState(false);
+  // Top-up Modal State (supports controlled from parent or internal state)
+  const [internalTopupOpen, setInternalTopupOpen] = useState(false);
+  const isTopupModalOpen =
+    props.isTopupModalOpen !== undefined
+      ? props.isTopupModalOpen
+      : internalTopupOpen;
+  const setTopupModalOpen = (open: boolean) => {
+    props.onTopupModalChange?.(open);
+    setInternalTopupOpen(open);
+  };
+
   const [selectedAmount, setSelectedAmount] = useState<number>(100_000);
   const [customAmountText, setCustomAmountText] = useState<string>("100,000");
   const [topupError, setTopupError] = useState<string | null>(null);
@@ -145,50 +160,59 @@ export function UserWalletPage() {
       setTopupError("حداقل مبلغ شارژ ۱۰,۰۰۰ تومان می‌باشد");
       return;
     }
-    setIsTopupModalOpen(false);
+    setTopupModalOpen(false);
     navigate(`/checkout/card-to-card?productId=wallet_topup&amount=${selectedAmount}`);
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8" dir="rtl">
-      {/* 1. Header Banner & Sub-Navigation */}
-      <PageHeader
-        title="کیف پول"
-        badge={{
-          text: "مدیریت مالی و اعتبار",
-          icon: <Wallet className="w-3.5 h-3.5 shrink-0" />,
-        }}
-        description="موجودی شما برای استفاده از خدمات و تولید محتوای هوشمند"
-        actions={
-          <>
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => setIsTopupModalOpen(true)}
-              leftIcon={<Plus className="w-4 h-4" />}
-              className="shadow-xs"
-            >
-              افزایش موجودی
-            </Button>
+    <div
+      className={
+        isEmbedded
+          ? "space-y-8"
+          : "max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8"
+      }
+      dir="rtl"
+    >
+      {/* 1. Header Banner & Sub-Navigation (only in standalone mode) */}
+      {!isEmbedded && (
+        <PageHeader
+          title="کیف پول"
+          badge={{
+            text: "مدیریت مالی و اعتبار",
+            icon: <Wallet className="w-3.5 h-3.5 shrink-0" />,
+          }}
+          description="موجودی شما برای استفاده از خدمات و تولید محتوای هوشمند"
+          actions={
+            <>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => setTopupModalOpen(true)}
+                leftIcon={<Plus className="w-4 h-4" />}
+                className="shadow-xs"
+              >
+                افزایش موجودی
+              </Button>
 
-            <Link
-              to="/account/subscription"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs whitespace-nowrap shrink-0"
-            >
-              <Crown className="w-4 h-4 text-amber-500 dark:text-amber-400" />
-              <span>مدیریت اشتراک</span>
-            </Link>
+              <Link
+                to="/account/subscription"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs whitespace-nowrap shrink-0"
+              >
+                <Crown className="w-4 h-4 text-amber-500 dark:text-amber-400" />
+                <span>مدیریت اشتراک</span>
+              </Link>
 
-            <Link
-              to="/account/purchases"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs whitespace-nowrap shrink-0"
-            >
-              <Receipt className="w-4 h-4 text-primary" />
-              <span>فاکتورها و خریدهای من</span>
-            </Link>
-          </>
-        }
-      />
+              <Link
+                to="/account/purchases"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs whitespace-nowrap shrink-0"
+              >
+                <Receipt className="w-4 h-4 text-primary" />
+                <span>فاکتورها و خریدهای من</span>
+              </Link>
+            </>
+          }
+        />
+      )}
 
       {/* 2. Error State with Retry Button */}
       {hasError && !isLoading && (
@@ -230,24 +254,13 @@ export function UserWalletPage() {
                 <span>موجودی کیف پول</span>
               </div>
 
-              {/* Primary Balance Display in Credits */}
+              {/* Primary Balance Display */}
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl sm:text-4xl font-extrabold text-[var(--color-text)] tracking-tight font-mono">
                   {balance.toLocaleString("fa-IR")}
                 </span>
                 <span className="text-sm sm:text-base font-bold text-primary">
-                  Credit
-                </span>
-              </div>
-
-              {/* Equivalent in Tomans */}
-              <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-[var(--color-text-muted)]">
-                <span>معادل</span>
-                <span className="font-bold text-[var(--color-text)]">
-                  {formatToman(balance)}
-                </span>
-                <span className="text-[11px] text-[var(--color-text-muted)] font-normal">
-                  (هر ۱ Credit برابر با ۱ تومان است)
+                  تومان
                 </span>
               </div>
 
@@ -256,7 +269,7 @@ export function UserWalletPage() {
                 <Button
                   size="md"
                   variant="primary"
-                  onClick={() => setIsTopupModalOpen(true)}
+                  onClick={() => setTopupModalOpen(true)}
                   leftIcon={<Plus className="w-4 h-4" />}
                   className="w-full sm:w-auto"
                 >
@@ -350,7 +363,7 @@ export function UserWalletPage() {
 
                     <div className="text-start sm:text-end">
                       <div className="text-sm sm:text-base font-extrabold font-mono text-emerald-600 dark:text-emerald-400">
-                        +{topup.amount.toLocaleString("fa-IR")} Credit
+                        +{topup.amount.toLocaleString("fa-IR")} تومان
                       </div>
                       <div className="text-[11px] text-[var(--color-text-muted)]">
                         {statusDisplay.subtext}
@@ -490,16 +503,11 @@ export function UserWalletPage() {
                     >
                       <span>{typeDisplay.signPrefix}</span>
                       <span>{tx.amount.toLocaleString("fa-IR")}</span>
-                      <span className="text-xs font-sans font-bold">Credit</span>
-                    </div>
-
-                    <div className="text-[10px] sm:text-[11px] text-[var(--color-text-muted)] font-medium">
-                      معادل {typeDisplay.signPrefix}
-                      {formatToman(tx.amount)}
+                      <span className="text-xs font-sans font-bold">تومان</span>
                     </div>
 
                     <div className="text-[10px] text-[var(--color-text-muted)] pt-0.5 hidden sm:block">
-                      مانده: {tx.balance_after.toLocaleString("fa-IR")} Credit
+                      مانده: {tx.balance_after.toLocaleString("fa-IR")} تومان
                     </div>
                   </div>
                 </div>
@@ -512,11 +520,11 @@ export function UserWalletPage() {
       {/* 6. Top-up Amount Selection Modal */}
       <Dialog
         isOpen={isTopupModalOpen}
-        onClose={() => setIsTopupModalOpen(false)}
+        onClose={() => setTopupModalOpen(false)}
         maxWidth="md"
         usePortal={false}
       >
-        <DialogHeader onClose={() => setIsTopupModalOpen(false)}>
+        <DialogHeader onClose={() => setTopupModalOpen(false)}>
           <h3 className="text-lg sm:text-xl font-bold text-[var(--color-text)] leading-snug">
             افزایش اعتبار کیف پول
           </h3>
@@ -571,7 +579,7 @@ export function UserWalletPage() {
               </p>
             )}
             <p className="text-[11px] text-[var(--color-text-muted)]">
-              حداقل مبلغ قابل پرداخت ۱۰,۰۰۰ تومان می‌باشد. (۱ تومان = ۱ Credit)
+              حداقل مبلغ قابل پرداخت ۱۰,۰۰۰ تومان می‌باشد.
             </p>
           </div>
 
@@ -590,7 +598,7 @@ export function UserWalletPage() {
         <DialogFooter>
           <Button
             variant="ghost"
-            onClick={() => setIsTopupModalOpen(false)}
+            onClick={() => setTopupModalOpen(false)}
             className="w-full sm:w-auto"
           >
             انصراف

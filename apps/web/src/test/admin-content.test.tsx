@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import React from "react";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { AdminContentPage } from "../pages/admin/AdminContentPage";
 import { api } from "../lib/api/admin";
+
+function renderWithRouter(ui: React.ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
 
 vi.mock("../lib/api/admin", () => ({
   api: {
@@ -40,16 +46,16 @@ describe("AdminContentPage", () => {
   });
 
   it("renders the stats overview correctly", async () => {
-    render(<AdminContentPage />);
+    renderWithRouter(<AdminContentPage />);
     await waitFor(() => {
       expect(screen.getByText("مدیریت محتوا")).toBeInTheDocument();
-      expect(screen.getByText("10")).toBeInTheDocument(); // total courses
-      expect(screen.getByText("500")).toBeInTheDocument(); // total flashcards
+      expect(screen.getByText("۱۰")).toBeInTheDocument(); // total courses
+      expect(screen.getByText("۵۰۰")).toBeInTheDocument(); // total flashcards
     });
   });
 
   it("renders the course list and expands to show hierarchy", async () => {
-    render(<AdminContentPage />);
+    renderWithRouter(<AdminContentPage />);
     
     // Wait for courses to load
     await waitFor(() => {
@@ -75,7 +81,7 @@ describe("AdminContentPage", () => {
       return {};
     });
     
-    render(<AdminContentPage />);
+    renderWithRouter(<AdminContentPage />);
     await waitFor(() => {
       expect(screen.getByText("دوره‌ای یافت نشد.")).toBeInTheDocument();
     });
@@ -87,7 +93,7 @@ describe("AdminContentPage", () => {
       return {};
     });
     
-    render(<AdminContentPage />);
+    renderWithRouter(<AdminContentPage />);
     await waitFor(() => {
       expect(screen.getByText("API Error")).toBeInTheDocument();
     });

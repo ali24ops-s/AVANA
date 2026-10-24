@@ -62,9 +62,9 @@ describe("AdminSystemHealthPage UI Component", () => {
       expect(screen.getByText("پایگاه داده (PostgreSQL)")).toBeInTheDocument();
       expect(screen.getByText("حافظه پنهان (Redis)")).toBeInTheDocument();
       expect(screen.getByText("هوش مصنوعی (AI Provider)")).toBeInTheDocument();
-      expect(screen.getByText("14 ms")).toBeInTheDocument();
-      expect(screen.getByText("4 ms")).toBeInTheDocument();
-      expect(screen.getByText("285 ms")).toBeInTheDocument();
+      expect(screen.getByText(/^(14|۱۴)\s*ms$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^(4|۴)\s*ms$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^(285|۲۸۵)\s*ms$/i)).toBeInTheDocument();
       expect(screen.getByText("GEMINI (gemini-3.6-flash)")).toBeInTheDocument();
     });
   });

@@ -217,6 +217,39 @@ export function PublicationActionCenter({
     },
   });
 
+  // 3b. Unpublish Course Mutation
+  const unpublishMutation = useMutation({
+    mutationFn: async () => {
+      setPublishError(null);
+      setPublishSuccessMsg(null);
+      const res = await fetch(
+        `/v1/admin/content-studio/courses/${course.id}/unpublish`,
+        {
+          method: "POST",
+          credentials: "include",
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "خطا در لغو انتشار دوره");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setPublishSuccessMsg(
+        "دوره به وضعیت پیش‌نویس بازگشت و محصول کاتالوگ غیرفعال شد. دسترسی خریداران قبلی محفوظ است.",
+      );
+      void queryClient.invalidateQueries({ queryKey: ["official-courses"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["official-consistency", course.id],
+      });
+      if (onSuccess) onSuccess();
+    },
+    onError: (err: Error) => {
+      setPublishError(err.message || "خطا در لغو انتشار دوره");
+    },
+  });
+
   // 4. Archive Course Mutation
   const archiveMutation = useMutation({
     mutationFn: async () => {
@@ -839,7 +872,31 @@ export function PublicationActionCenter({
 
         {/* Final Publish Button */}
         <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-t border-[var(--color-border)]">
-          <div>
+          <div className="flex items-center gap-2">
+            {course.status === "published" && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    confirm(
+                      "آیا از لغو انتشار این دوره اطمینان دارید؟ دوره به وضعیت پیش‌نویس بازگشته و محصول فروش غیرفعال می‌شود (دسترسی خریداران قبلی حفظ خواهد شد).",
+                    )
+                  ) {
+                    unpublishMutation.mutate();
+                  }
+                }}
+                disabled={unpublishMutation.isPending}
+                className="px-4 py-2 text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0"
+              >
+                {unpublishMutation.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-3.5 h-3.5" />
+                )}
+                <span>لغو انتشار دوره</span>
+              </button>
+            )}
+
             {course.status !== "archived" && (
               <button
                 type="button"

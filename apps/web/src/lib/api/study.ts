@@ -190,6 +190,7 @@ export function createStudyApi(client: ApiClient) {
       limit?: number,
       aheadDays?: number,
       documentIds?: string[],
+      onlyStudied?: boolean,
     ): Promise<FlashcardReviewQueueResponse> {
       const params = new URLSearchParams();
       params.set("mode", mode);
@@ -197,6 +198,7 @@ export function createStudyApi(client: ApiClient) {
       if (documentIds && documentIds.length > 0) params.set("documentIds", documentIds.join(","));
       if (limit) params.set("limit", limit.toString());
       if (aheadDays) params.set("aheadDays", aheadDays.toString());
+      if (onlyStudied !== undefined) params.set("onlyStudied", String(onlyStudied));
 
       const qs = params.toString() ? `?${params.toString()}` : "";
       return client.get<FlashcardReviewQueueResponse>(
@@ -249,6 +251,7 @@ export function createStudyApi(client: ApiClient) {
         modules: Array<{
           moduleId: string;
           moduleTitle: string;
+          sortOrder?: number;
           questionCount: number;
           easyCount: number;
           mediumCount: number;

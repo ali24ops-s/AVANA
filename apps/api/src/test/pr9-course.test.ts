@@ -524,6 +524,35 @@ describe("PR-9: Course vertical slice", () => {
       expect(archiveRes.statusCode).toBe(403);
       await app.close();
     });
+
+    it("rejects archive by student role", async () => {
+      const app = await buildApp();
+      const { token, userId } = await signIn(app, "student@example.com");
+      const org = await createOrg(app, token, "Student Org");
+
+      // Set role to student
+      setOrgMembershipRole(userId, org.id, "student");
+
+      // Create a course (students can create courses)
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${org.id}/courses`,
+        cookies: { avana_session: token },
+        payload: { title: "Student Course", subject: null, exam_at: null },
+      });
+      const created = JSON.parse(createRes.body) as {
+        course: { id: string };
+      };
+
+      // Try to archive (student does NOT have course:archive)
+      const archiveRes = await app.inject({
+        method: "DELETE",
+        url: `/v1/organizations/${org.id}/courses/${created.course.id}`,
+        cookies: { avana_session: token },
+      });
+      expect(archiveRes.statusCode).toBe(403);
+      await app.close();
+    });
   });
 
   describe("6. Cross-tenant isolation", () => {
@@ -636,8 +665,11 @@ describe("PR-9: Course vertical slice", () => {
   describe("8. Organization_admin permissions", () => {
     it("allows org_admin to manage courses fully (create, read, update, archive)", async () => {
       const app = await buildApp();
-      const { token } = await signIn(app, "orgadmin@example.com");
+      const { token, userId } = await signIn(app, "orgadmin@example.com");
       const org = await createOrg(app, token, "Admin Full Org");
+
+      // Set role to organization_admin
+      setOrgMembershipRole(userId, org.id, "organization_admin");
 
       // Create
       const createRes = await app.inject({

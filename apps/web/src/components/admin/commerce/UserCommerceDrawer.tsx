@@ -71,19 +71,19 @@ export function UserCommerceDrawer({ isOpen, userId, onClose }: UserCommerceDraw
         <div className="fixed inset-y-0 start-0 max-w-full flex ps-0 sm:ps-10" dir="rtl">
           <div className="w-full max-w-2xl bg-[var(--color-surface)] border-e border-[var(--color-border)] shadow-2xl flex flex-col">
             {/* Drawer Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)]">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/20 flex items-center justify-center text-[var(--color-primary-default)]">
-                  <CreditCard className="w-5 h-5" />
+            <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)]">
+              <div className="flex items-center gap-3 min-w-0 flex-1 me-2">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/20 flex items-center justify-center text-[var(--color-primary-default)] shrink-0">
+                  <CreditCard className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
-                <div>
-                  <h2 className="text-base font-bold text-[var(--color-text)]">پرونده مالی و دسترسی کاربر</h2>
-                  <p className="text-xs text-[var(--color-text-muted)] font-mono mt-0.5">
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-sm sm:text-base font-bold text-[var(--color-text)] truncate">پرونده مالی و دسترسی کاربر</h2>
+                  <p className="text-xs text-[var(--color-text-muted)] font-mono mt-0.5 truncate">
                     {profile?.user.email || userId}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => setIsGrantModalOpen(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] rounded-xl text-xs font-medium transition-colors cursor-pointer shadow-sm whitespace-nowrap shrink-0"
@@ -101,7 +101,7 @@ export function UserCommerceDrawer({ isOpen, userId, onClose }: UserCommerceDraw
             </div>
 
             {/* Drawer Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
               {isLoading && (
                 <div className="py-12 text-center text-[var(--color-text-muted)] text-sm">
                   در حال بارگذاری اطلاعات مالی و دسترسی کاربر...

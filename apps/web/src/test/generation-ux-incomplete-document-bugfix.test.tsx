@@ -237,7 +237,7 @@ describe("UX Bugfix: Incomplete Generation Lifecycle & Action Matrix (7 Scenario
     );
 
     // 1. Partial badge is shown (3/4)
-    expect(await screen.findByText(/تولید بخشی از محتوا \(3\/4\)/i)).toBeDefined();
+    expect(await screen.findByText(/تولید بخشی از محتوا \((3\/4|۳ از ۴)\)/i)).toBeDefined();
 
     // 2. Smart generation button is STILL visible and clickable
     const genBtn = screen.getByRole("button", { name: /ادامه تولید هوشمند محتوا/i });

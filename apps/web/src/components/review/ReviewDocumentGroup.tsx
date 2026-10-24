@@ -16,6 +16,7 @@ import {
   AlertCircle,
   RefreshCw,
   Loader2,
+  Download,
 } from "lucide-react";
 import type {
   ReviewDocumentGroupResource,
@@ -23,6 +24,7 @@ import type {
   GeneratedContentType,
 } from "@avana/contracts";
 import { toPersianDigits } from "@avana/domain";
+import { useAdmin } from "../../hooks/useAdmin.js";
 
 export interface ReviewDocumentGroupProps {
   group: ReviewDocumentGroupResource;
@@ -59,6 +61,23 @@ export function ReviewDocumentGroup({
   const doc = group.document;
   const filename = doc?.filename || doc?.title || "منبع نامشخص";
   const isUnknown = !doc;
+
+  const adminApi = useAdmin();
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadDocument = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!doc?.id || doc.id === "__unknown__") return;
+    try {
+      setIsDownloading(true);
+      await adminApi.downloadDocument(doc.id, filename);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "خطا در دانلود فایل اصلی";
+      alert(msg);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   const handleConfirmApproveAll = async () => {
     if (!onApproveAll || !group.document?.id) return;
@@ -221,8 +240,27 @@ export function ReviewDocumentGroup({
               )}
             </div>
 
-            {/* Bulk Approve Button & Toggle Chevron */}
+            {/* Download Original Document, Bulk Approve Button & Toggle Chevron */}
             <div className="flex items-center gap-2 ms-auto sm:ms-0">
+              {doc?.id && doc.id !== "__unknown__" && (
+                <button
+                  type="button"
+                  onClick={handleDownloadDocument}
+                  disabled={isDownloading}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] hover:text-[var(--color-primary-default)] font-bold text-xs border border-[var(--color-border)] shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)]"
+                  aria-label="دانلود فایل اصلی"
+                  title={`دانلود فایل اصلی: ${filename}`}
+                >
+                  {isDownloading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
+                  )}
+                  <span className="hidden sm:inline">دانلود فایل اصلی</span>
+                  <span className="sm:hidden">دانلود</span>
+                </button>
+              )}
+
               {onApproveAll && group.document?.id && (
                 <div className="flex items-center">
                   {group.stats.pending > 0 ? (
@@ -306,7 +344,13 @@ export function ReviewDocumentGroup({
                   </div>
 
                   <div className="flex items-center justify-between sm:justify-end gap-1 text-xs font-bold text-[var(--color-primary-default)] pt-2 sm:pt-0 border-t sm:border-t-0 border-[var(--color-border)]/50 group-hover:-translate-x-0.5 transition-transform shrink-0">
-                    <span className="sm:inline">بازبینی پیش‌نویس</span>
+                    <span className="sm:inline">
+                      {item.status === "accepted"
+                        ? "مشاهده محتوا"
+                        : item.status === "rejected"
+                        ? "مشاهده جزئیات"
+                        : "بازبینی پیش‌نویس"}
+                    </span>
                     <ChevronLeft className="w-4 h-4" />
                   </div>
                 </button>

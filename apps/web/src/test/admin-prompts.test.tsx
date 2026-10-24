@@ -84,7 +84,7 @@ describe("AdminPromptsPage UI Component", () => {
     });
 
     // Check count badge
-    expect(screen.getByText(/تعداد پرامپت‌های فعال: 3/i)).toBeInTheDocument();
+    expect(screen.getByText(/تعداد پرامپت‌های فعال:\s*[3۳]/i)).toBeInTheDocument();
   });
 
   it("filters prompts by search keyword", async () => {

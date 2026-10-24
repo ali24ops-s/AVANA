@@ -15,6 +15,7 @@ import {
   DollarSign,
   AlertTriangle,
   Trash2,
+  RotateCcw,
 } from "lucide-react";
 import { useAdmin } from "../../../hooks/useAdmin.js";
 import type { OfficialCourse } from "../../../lib/api/admin.js";
@@ -135,6 +136,33 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
       setArchiveError(e.message || "خطا در بایگانی دوره");
     } finally {
       setIsArchiving(false);
+    }
+  };
+
+  // Restore state
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoreSuccess, setRestoreSuccess] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+
+  const handleUnarchiveCourse = async () => {
+    try {
+      setIsRestoring(true);
+      setRestoreError(null);
+      setRestoreSuccess(false);
+
+      const res = await adminApi.unarchiveOfficialCourse(course.id);
+      if (res && res.success) {
+        setRestoreSuccess(true);
+        await onRefresh();
+        setTimeout(() => setRestoreSuccess(false), 3000);
+      } else {
+        throw new Error("عملیات بازگردانی از بایگانی با خطا مواجه شد.");
+      }
+    } catch (err: unknown) {
+      const e = err as Error;
+      setRestoreError(e.message || "خطا در بازگردانی دوره");
+    } finally {
+      setIsRestoring(false);
     }
   };
 
@@ -294,8 +322,37 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
             )}
 
             {course.status === "archived" ? (
-              <div className="text-xs font-bold text-rose-500 bg-rose-500/10 px-4 py-2.5 rounded-xl border border-rose-500/20 inline-block">
-                این دوره در حال حاضر بایگانی شده است.
+              <div className="space-y-3">
+                <div className="text-xs font-bold text-rose-500 bg-rose-500/10 px-4 py-2.5 rounded-xl border border-rose-500/20 inline-block">
+                  این دوره در حال حاضر بایگانی شده است.
+                </div>
+                {restoreError && (
+                  <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{restoreError}</span>
+                  </div>
+                )}
+                {restoreSuccess && (
+                  <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>دوره با موفقیت از بایگانی خارج و به پیش‌نویس تبدیل شد.</span>
+                  </div>
+                )}
+                <div>
+                  <button
+                    type="button"
+                    onClick={handleUnarchiveCourse}
+                    disabled={isRestoring}
+                    className="px-5 py-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-bold transition-colors flex items-center gap-2"
+                  >
+                    {isRestoring ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RotateCcw className="w-4 h-4" />
+                    )}
+                    <span>بازگردانی از بایگانی (تبدیل به پیش‌نویس)</span>
+                  </button>
+                </div>
               </div>
             ) : (
               <div>

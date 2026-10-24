@@ -36,16 +36,19 @@ import {
   InMemoryGenerationJobStore,
 } from "../modules/generation/test/in-memory-stores.js";
 import { InMemoryGenerationQueue } from "../modules/generation/generation-queue.js";
+import { InMemoryGenerationChunkStore } from "../modules/generation/generation-chunk-store.js";
 import { GenerationService } from "../modules/generation/index.js";
 import { createModelGateway } from "../modules/generation/index.js";
-import { defaultPolicy } from "@avana/domain";
+import { defaultPolicy, asWalletId } from "@avana/domain";
 import { LocalStorageProvider } from "../modules/storage/index.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
+import { InMemoryWalletStore, WalletService } from "../modules/wallet/index.js";
 import type { Actor, OrganizationId, UserId } from "@avana/domain";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 function makeTestConfig() {
   process.env.NODE_ENV = "test";
@@ -115,12 +118,15 @@ describe("PR6-5: AI generation API (async)", () => {
   let auditStore: InMemoryAuditStore;
   let auditService: AuditService;
   let queue: InMemoryGenerationQueue;
+  let walletStore: InMemoryWalletStore;
+  let walletService: WalletService;
+  let generationChunkStore: InMemoryGenerationChunkStore;
 
   beforeEach(async () => {
     config = makeTestConfig();
     sessionStore = new InMemorySessionStore();
-    userStore = new InMemoryUserStore();
     orgStore = new InMemoryOrganizationStore();
+    userStore = new InMemoryUserStore(orgStore);
     courseStore = new InMemoryCourseStore();
     moduleStore = new InMemoryModuleStore();
     lessonStore = new InMemoryLessonStore();
@@ -130,7 +136,10 @@ describe("PR6-5: AI generation API (async)", () => {
     generatedContentStore = new InMemoryGeneratedContentStore();
     generatedContentCitationStore = new InMemoryGeneratedContentCitationStore();
     generationJobStore = new InMemoryGenerationJobStore();
+    generationChunkStore = new InMemoryGenerationChunkStore();
     queue = new InMemoryGenerationQueue(generationJobStore);
+    walletStore = new InMemoryWalletStore();
+    walletService = new WalletService(walletStore);
     storageDir = await fs.mkdtemp(path.join(os.tmpdir(), "avana-gen-test-"));
     storageProvider = new LocalStorageProvider(storageDir);
     auditStore = new InMemoryAuditStore();
@@ -158,9 +167,12 @@ describe("PR6-5: AI generation API (async)", () => {
       generatedContentStore,
       generatedContentCitationStore,
       generationJobStore,
+      generationChunkStore,
       queue,
       gateway: createModelGateway("mock"),
       auditService,
+      walletStore,
+      walletService,
     });
     return app;
   }
@@ -213,9 +225,18 @@ describe("PR6-5: AI generation API (async)", () => {
     const body = JSON.parse(res.body) as {
       user: { id: string; email: string; role: string };
     };
+    const userId = body.user.id as UserId;
+    await walletStore.createWallet({
+      id: asWalletId(randomUUID()),
+      userId,
+      balance: 100_000,
+      currency: "toman",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
     return {
       token: extractSessionToken(res)!,
-      userId: body.user.id as UserId,
+      userId,
       email: body.user.email,
     };
   }
@@ -258,6 +279,7 @@ describe("PR6-5: AI generation API (async)", () => {
     app: Awaited<ReturnType<typeof buildApp>>,
     token: string,
     organizationId: string,
+    targetCourseId: string = courseId,
   ): Promise<{ id: string }> {
     // Upload.
     const multipart = buildMultipartBody({
@@ -267,7 +289,7 @@ describe("PR6-5: AI generation API (async)", () => {
     });
     const upload = await app.inject({
       method: "POST",
-      url: `/v1/organizations/${organizationId}/documents`,
+      url: `/v1/organizations/${organizationId}/documents?course_id=${targetCourseId}`,
       cookies: { avana_session: token },
       headers: { "content-type": multipart.contentType },
       payload: multipart.body,
@@ -327,8 +349,9 @@ describe("PR6-5: AI generation API (async)", () => {
 
     it("accepts a non-extracted document for async generation (status guard runs in worker)", async () => {
       const app = await buildApp();
-      const { token } = await signIn(app, "gen2@example.com");
+      const { token, userId } = await signIn(app, "gen2@example.com");
       const organizationId = await createOrg(app, token, "Gen Org 2");
+      orgStore.setMembershipRole(organizationId, userId, "course_editor");
 
       // Upload only — no extraction.
       const multipart = buildMultipartBody({
@@ -338,7 +361,7 @@ describe("PR6-5: AI generation API (async)", () => {
       });
       const upload = await app.inject({
         method: "POST",
-        url: `/v1/organizations/${organizationId}/documents`,
+        url: `/v1/organizations/${organizationId}/documents?course_id=${courseId}`,
         cookies: { avana_session: token },
         headers: { "content-type": multipart.contentType },
         payload: multipart.body,

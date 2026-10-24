@@ -857,6 +857,122 @@ export const generationJobs = pgTable(
 );
 
 /**
+ * Generation job sources join table (Multi-source Unified Generation MVP).
+ *
+ * Links multiple source documents to a single generation job with an explicit
+ * ordering sequence and semantic role (order_index = 0 represents the primary document).
+ */
+export const generationJobSources = pgTable(
+  "generation_job_sources",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    generationJobId: uuid("generation_job_id")
+      .notNull()
+      .references(() => generationJobs.id, { onDelete: "cascade" }),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    role: varchar("role", { length: 50 }).notNull().default("primary_notes"),
+    orderIndex: integer("order_index").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    jobDocUniqueIdx: uniqueIndex("idx_gen_job_sources_job_doc").on(
+      table.generationJobId,
+      table.documentId,
+    ),
+    jobOrderIdx: index("idx_gen_job_sources_job_order").on(
+      table.generationJobId,
+      table.orderIndex,
+    ),
+    docIdx: index("idx_gen_job_sources_doc").on(table.documentId),
+  }),
+);
+
+export type GenerationJobSourceRecord = typeof generationJobSources.$inferSelect;
+export type NewGenerationJobSourceRecord = typeof generationJobSources.$inferInsert;
+
+/**
+ * Source packs table (Source Pack MVP).
+ *
+ * Persistent grouping of course documents into named Source Packs,
+ * designating semantic roles (primary_notes, question_template, primary_reference, supplementary_reference)
+ * for unified content generation.
+ */
+export const sourcePacks = pgTable(
+  "source_packs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 255 }).notNull().default("پک منابع جدید"),
+    status: varchar("status", { length: 30 }).notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    orgCourseIdx: index("idx_source_packs_org_course").on(
+      table.organizationId,
+      table.courseId,
+    ),
+    courseIdx: index("idx_source_packs_course").on(table.courseId),
+  }),
+);
+
+export type SourcePackRecord = typeof sourcePacks.$inferSelect;
+export type NewSourcePackRecord = typeof sourcePacks.$inferInsert;
+
+/**
+ * Source pack documents join table.
+ *
+ * Links documents to a source pack with explicit semantic role
+ * and deterministic display/processing ordering.
+ */
+export const sourcePackDocuments = pgTable(
+  "source_pack_documents",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sourcePackId: uuid("source_pack_id")
+      .notNull()
+      .references(() => sourcePacks.id, { onDelete: "cascade" }),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    role: varchar("role", { length: 50 }).notNull().default("supplementary_reference"),
+    orderIndex: integer("order_index").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    packDocUniqueIdx: uniqueIndex("idx_source_pack_docs_pack_doc").on(
+      table.sourcePackId,
+      table.documentId,
+    ),
+    packRoleIdx: index("idx_source_pack_docs_pack_role").on(
+      table.sourcePackId,
+      table.role,
+    ),
+    docIdx: index("idx_source_pack_docs_doc").on(table.documentId),
+  }),
+);
+
+export type SourcePackDocumentRecord = typeof sourcePackDocuments.$inferSelect;
+export type NewSourcePackDocumentRecord = typeof sourcePackDocuments.$inferInsert;
+
+
+/**
  * Generation chunks table (PR Resumable / Incremental Generation).
  *
  * Tracks atomic AI generation chunks (planning, session lessons,
@@ -2540,9 +2656,9 @@ export const promotionRedemptions = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    orderId: uuid("order_id")
-      .notNull()
-      .references(() => orders.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id").references(() => orders.id, {
+      onDelete: "cascade",
+    }),
     paymentId: uuid("payment_id").references(() => payments.id, {
       onDelete: "set null",
     }),
@@ -2871,6 +2987,7 @@ export const supportMessages = pgTable(
     body: text("body").notNull(),
     attachmentUrl: varchar("attachment_url", { length: 512 }),
     isInternalNote: boolean("is_internal_note").notNull().default(false),
+    readAt: timestamp("read_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -3444,6 +3561,7 @@ export const questionPatterns = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
+    category: varchar("category", { length: 50 }).notNull().default("exam"),
     cognitiveLevel: varchar("cognitive_level", { length: 50 }).default("recall"),
     skills: jsonb("skills").$type<string[]>().notNull().default([]),
     systemInstructions: text("system_instructions").notNull(),
@@ -3459,6 +3577,7 @@ export const questionPatterns = pgTable(
   },
   (table) => ({
     activeIdx: index("idx_question_patterns_active").on(table.isActive),
+    categoryIdx: index("idx_question_patterns_category").on(table.category, table.isActive),
   }),
 );
 
@@ -3544,3 +3663,52 @@ export const telegramOutbox = pgTable(
 
 export type TelegramOutboxDbRecord = typeof telegramOutbox.$inferSelect;
 export type NewTelegramOutboxDbRecord = typeof telegramOutbox.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Avana User Welcome Gifts System (Migration 0082)
+// ---------------------------------------------------------------------------
+
+export const userWelcomeGifts = pgTable(
+  "user_welcome_gifts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: "cascade" }),
+    walletAmount: integer("wallet_amount").notNull().default(20000),
+    walletTransactionId: uuid("wallet_transaction_id").references(
+      () => walletTransactions.id,
+      { onDelete: "set null" },
+    ),
+    subscriptionDays: integer("subscription_days").notNull().default(7),
+    subscriptionId: uuid("subscription_id").references(
+      () => userSubscriptions.id,
+      { onDelete: "set null" },
+    ),
+    entitlementId: uuid("entitlement_id").references(
+      () => userEntitlements.id,
+      { onDelete: "set null" },
+    ),
+    status: varchar("status", { length: 30 }).notNull().default("completed"),
+    popupSeenAt: timestamp("popup_seen_at", { withTimezone: true }),
+    grantedAt: timestamp("granted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userIdx: uniqueIndex("idx_user_welcome_gifts_user_id").on(table.userId),
+    statusIdx: index("idx_user_welcome_gifts_status").on(table.status),
+    popupSeenIdx: index("idx_user_welcome_gifts_popup_seen").on(
+      table.userId,
+      table.popupSeenAt,
+    ),
+  }),
+);
+
+export type UserWelcomeGift = typeof userWelcomeGifts.$inferSelect;
+export type NewUserWelcomeGift = typeof userWelcomeGifts.$inferInsert;

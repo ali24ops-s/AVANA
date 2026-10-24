@@ -14,6 +14,7 @@ import {
   validateUpdateClassroomInput,
   validateJoinClassroomInput,
 } from "@avana/domain";
+import { assertTeacherClassroomAccess as assertAccess } from "./auth-helpers.js";
 import type {
   ClassroomStore,
   ClassroomMemberStore,
@@ -61,38 +62,18 @@ export class ClassroomService {
 
   /**
    * Helper: checks if actor has teacher access to a specific classroom.
-   * Enforces: platform_admin bypass OR org_admin in same tenant OR teacher owner.
+   * Enforces: platform_admin bypass OR org_admin in same tenant OR valid teacher owner.
    */
   async assertTeacherClassroomAccess(
     actor: Actor,
     classroomId: string,
   ): Promise<Classroom> {
-    const classroom = await this.classroomStore.getById(classroomId);
-    if (!classroom) {
-      throw new DomainError("not_found", "کلاس یافت نشد");
-    }
-
-    if (actor.globalRole === "platform_admin" || actor.role === "platform_admin") {
-      return classroom;
-    }
-
-    // Check if actor is the teacher who owns this classroom
-    if (classroom.teacherId === actor.userId) {
-      return classroom;
-    }
-
-    // Check if actor is an organization admin in the classroom's tenant
-    const membership = await this.organizationStore.findMembership(
-      asOrganizationId(classroom.organizationId),
-      asUserId(actor.userId),
+    return assertAccess(
+      this.classroomStore,
+      this.organizationStore,
+      actor,
+      classroomId,
     );
-
-    if (membership && membership.role === "organization_admin") {
-      return classroom;
-    }
-
-    // IDOR protection: return not_found instead of forbidden for security
-    throw new DomainError("not_found", "کلاس یافت نشد");
   }
 
   /**
@@ -110,8 +91,29 @@ export class ClassroomService {
       userId: asUserId(actor.userId),
       globalRole: actor.globalRole,
       role: actor.role,
+      teacherStatus: actor.teacherStatus,
       memberships,
     });
+
+    const targetMembership = memberships.find(
+      (m) => m.organizationId === input.organizationId,
+    );
+    const isOrgAdmin = targetMembership?.role === "organization_admin";
+    const isPlatformAdmin =
+      actor.globalRole === "platform_admin" || actor.role === "platform_admin";
+
+    // Unapproved or rejected teacher cannot create classroom
+    if (!isPlatformAdmin && !isOrgAdmin) {
+      if (
+        actor.teacherStatus === "rejected" ||
+        actor.teacherStatus === "pending"
+      ) {
+        throw new DomainError(
+          "forbidden",
+          "وضعیت تدریس شما تأیید نشده است و امکان ایجاد کلاس را ندارید.",
+        );
+      }
+    }
 
     if (
       !this.policy.can(fullActor, "classroom:create", {
@@ -193,13 +195,23 @@ export class ClassroomService {
       );
       if (membership?.role === "organization_admin") {
         classrooms = await this.classroomStore.listByOrganization(organizationId);
-      } else {
+      } else if (
+        actor.teacherStatus !== "rejected" &&
+        actor.teacherStatus !== "pending"
+      ) {
         classrooms = (await this.classroomStore.listByTeacher(actor.userId)).filter(
           (c) => c.organizationId === organizationId,
         );
+      } else {
+        classrooms = [];
       }
-    } else {
+    } else if (
+      actor.teacherStatus !== "rejected" &&
+      actor.teacherStatus !== "pending"
+    ) {
       classrooms = await this.classroomStore.listByTeacher(actor.userId);
+    } else {
+      classrooms = [];
     }
 
     const results: ClassroomWithDetails[] = [];

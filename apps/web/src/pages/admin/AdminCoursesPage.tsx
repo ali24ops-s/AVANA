@@ -362,13 +362,13 @@ export function AdminCoursesPage() {
       {/* 1. Education Workspace Header */}
       <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 sm:p-7 shadow-sm space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 min-w-0 flex-1">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/30 text-[var(--color-primary-default)] flex items-center justify-center shadow-sm">
-                <BookOpen className="w-6 h-6" />
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/30 text-[var(--color-primary-default)] flex items-center justify-center shadow-sm shrink-0">
+                <BookOpen className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
-              <div>
-                <h1 className="text-xl sm:text-2xl font-black text-[var(--color-text)] text-center sm:text-right">
+              <div className="min-w-0 flex-1">
+                <h1 className="text-xl sm:text-2xl font-black text-[var(--color-text)] text-start">
                   آموزش و دوره‌ها
                 </h1>
                 <p className="text-xs sm:text-sm text-[var(--color-text-muted)]">
@@ -378,7 +378,7 @@ export function AdminCoursesPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 self-start md:self-auto">
+          <div className="flex items-center gap-3 self-start md:self-auto shrink-0">
             <button
               type="button"
               onClick={() => {
@@ -401,7 +401,7 @@ export function AdminCoursesPage() {
                   setCreateError(null);
                   setIsCreateOpen(true);
                 }}
-                className="px-5 py-3 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] text-xs sm:text-sm font-bold transition-all shadow-sm flex items-center gap-2"
+                className="px-5 py-3 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] text-xs sm:text-sm font-bold transition-all shadow-sm flex items-center gap-2 whitespace-nowrap shrink-0"
               >
                 <Plus className="w-4 h-4" />
                 <span>ایجاد دوره جدید</span>
@@ -411,7 +411,7 @@ export function AdminCoursesPage() {
         </div>
 
         {/* 3 Mandatory Category Tabs */}
-        <div className="flex items-center gap-2 p-1.5 bg-[var(--color-surface-subtle)] rounded-xl border border-[var(--color-border)] overflow-x-auto">
+        <div className="flex items-center gap-2 p-1.5 bg-[var(--color-surface-subtle)] rounded-xl border border-[var(--color-border)] overflow-x-auto no-scrollbar">
           {/* Tab 1: Official Courses */}
           <button
             type="button"
@@ -697,11 +697,11 @@ export function AdminCoursesPage() {
               >
                 {/* Row 1: Identity, Category Badges & Metadata */}
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                  <div className="space-y-2 flex-1">
+                  <div className="space-y-2 flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2.5">
                       <Link
                         to={`/admin/courses/${course.id}?tab=structure`}
-                        className="text-base sm:text-lg font-black text-[var(--color-text)] hover:text-[var(--color-primary-default)] transition-colors"
+                        className="text-base sm:text-lg font-black text-[var(--color-text)] hover:text-[var(--color-primary-default)] transition-colors break-words"
                       >
                         {course.name}
                       </Link>
@@ -906,7 +906,7 @@ export function AdminCoursesPage() {
                         {/* Quick tab shortcuts for official courses */}
                         <Link
                           to={`/admin/courses/${course.id}?tab=structure`}
-                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
+                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
                           title="مشاهده سرفصل‌ها و ساختار دوره"
                         >
                           <Layers className="w-3 h-3 text-[var(--color-primary-default)]" />
@@ -915,7 +915,7 @@ export function AdminCoursesPage() {
 
                         <Link
                           to={`/admin/courses/${course.id}?tab=generation`}
-                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
+                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
                           title="منابع و تولید هوشمند محتوا"
                         >
                           <UploadCloud className="w-3 h-3 text-purple-500" />
@@ -924,7 +924,7 @@ export function AdminCoursesPage() {
 
                         <Link
                           to={`/admin/courses/${course.id}?tab=review`}
-                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
+                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
                           title="میز بازبینی پیش‌نویس‌ها"
                         >
                           <FileCheck className="w-3 h-3 text-amber-500" />
@@ -933,7 +933,7 @@ export function AdminCoursesPage() {
 
                         <Link
                           to={`/admin/courses/${course.id}?tab=publish`}
-                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
+                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
                           title="انتشار و قیمت‌گذاری"
                         >
                           <ShieldCheck className="w-3 h-3 text-emerald-500" />
@@ -942,7 +942,7 @@ export function AdminCoursesPage() {
 
                         <Link
                           to={`/admin/courses/${course.id}?tab=settings`}
-                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
+                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
                           title="تنظیمات و بایگانی"
                         >
                           <Settings className="w-3 h-3 text-[var(--color-text-muted)]" />
@@ -952,7 +952,7 @@ export function AdminCoursesPage() {
                         {/* Status-aware Primary Action */}
                         <Link
                           to={`/admin/courses/${course.id}?tab=${statusCta.tab}`}
-                          className="px-4 py-1.5 rounded-lg bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 me-1"
+                          className="px-4 py-1.5 rounded-lg bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 me-1 whitespace-nowrap shrink-0"
                         >
                           <StatusCtaIcon className="w-3.5 h-3.5" />
                           <span>{statusCta.label}</span>
@@ -963,7 +963,7 @@ export function AdminCoursesPage() {
                       /* Inspection CTA for Teacher and User Scopes */
                       <Link
                         to={`/admin/courses/${course.id}?tab=structure`}
-                        className="px-4 py-1.5 rounded-lg bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)] hover:border-[var(--color-primary-default)]/30 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 me-1"
+                        className="px-4 py-1.5 rounded-lg bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)] hover:border-[var(--color-primary-default)]/30 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 me-1 whitespace-nowrap shrink-0"
                       >
                         <Layers className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
                         <span>بررسی ساختار دوره</span>

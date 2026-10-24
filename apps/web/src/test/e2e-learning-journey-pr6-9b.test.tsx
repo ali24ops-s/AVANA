@@ -397,9 +397,8 @@ describe("PR6-9B: End-to-End Student Learning Journey", () => {
       ).toBeDefined();
     });
 
-    // Flip card via keyboard Enter
-    screen.getByRole("button", { name: /سوال فلش‌کارت/i });
-    fireEvent.keyDown(window, { key: "Enter" });
+    // Flip card via keyboard Space
+    fireEvent.keyDown(window, { code: "Space", key: " " });
 
     // Verify answer is visible
     await waitFor(() => {

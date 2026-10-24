@@ -99,6 +99,11 @@ export function resolveEffectiveRole(
     return Roles.content_worker;
   }
 
+  // If globalRole === support_agent, effective role is support_agent
+  if (globalRole === Roles.support_agent) {
+    return Roles.support_agent;
+  }
+
   // 2. Resolve organization-scoped roles (strictly excluding platform_admin)
   for (const candidate of ORGANIZATION_ROLE_PRECEDENCE) {
     if (orgRoles.includes(candidate)) {

@@ -21,7 +21,6 @@ import { LocalStorageProvider } from "../modules/storage/index.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
 import {
-  asUserId,
   type OrganizationId,
   type Role,
   type UserId,
@@ -320,8 +319,8 @@ describe("Support and Feedback System E2E & Integration", () => {
         headers: { cookie: studentCookie },
       });
       const userMessages = JSON.parse(userDetailRes.payload).ticket.messages;
-      expect(userMessages.some((m: any) => m.isInternalNote)).toBe(false);
-      expect(userMessages.some((m: any) => m.body.includes("یادداشت داخلی"))).toBe(false);
+      expect(userMessages.some((m: { isInternalNote: boolean }) => m.isInternalNote)).toBe(false);
+      expect(userMessages.some((m: { body: string }) => m.body.includes("یادداشت داخلی"))).toBe(false);
 
       // Admin fetches ticket: Internal note IS PRESENT
       const adminDetailRes = await app.inject({
@@ -330,7 +329,7 @@ describe("Support and Feedback System E2E & Integration", () => {
         headers: { cookie: platformAdminCookie },
       });
       const adminMessages = JSON.parse(adminDetailRes.payload).ticket.messages;
-      expect(adminMessages.some((m: any) => m.isInternalNote)).toBe(true);
+      expect(adminMessages.some((m: { isInternalNote: boolean }) => m.isInternalNote)).toBe(true);
 
       // 5. Admin closes ticket
       const closeRes = await app.inject({
@@ -449,13 +448,44 @@ describe("Support and Feedback System E2E & Integration", () => {
       });
       expect(user1Stream.statusCode).toBe(200);
 
-      // Admin can view attachment
+      // Admin can view attachment and gets sanitized UTF-8 Content-Disposition
       const adminStream = await app.inject({
         method: "GET",
         url: `/v1/support/attachments/${encodeURIComponent(storageKey)}`,
         headers: { cookie: platformAdminCookie },
       });
       expect(adminStream.statusCode).toBe(200);
+      expect(adminStream.headers["content-disposition"]).toMatch(
+        /inline; filename=".*"; filename\*=UTF-8''.*/,
+      );
+
+      // Support agent can view attachment
+      const agentStream = await app.inject({
+        method: "GET",
+        url: `/v1/support/attachments/${encodeURIComponent(storageKey)}`,
+        headers: { cookie: supportAgentCookie },
+      });
+      expect(agentStream.statusCode).toBe(200);
+
+      // Admin with globalRole: platform_admin can view attachment even if effective role is student
+      const globalAdmin = await userStore.createUserWithPassword({
+        email: "globaladmin@avana.test",
+        passwordHash: "password_hash_xyz",
+        name: "GlobalAdmin",
+      });
+      globalAdmin.globalRole = Roles.platform_admin;
+      globalAdmin.role = Roles.student;
+      userStore.insert({ ...globalAdmin });
+      const sessionService = new SessionService(sessionStore, config.session);
+      const globalAdminSession = await sessionService.createSession(globalAdmin.id);
+      const globalAdminCookie = `avana_session=${globalAdminSession.sessionToken}`;
+
+      const globalAdminStream = await app.inject({
+        method: "GET",
+        url: `/v1/support/attachments/${encodeURIComponent(storageKey)}`,
+        headers: { cookie: globalAdminCookie },
+      });
+      expect(globalAdminStream.statusCode).toBe(200);
 
       // User 2 CANNOT view attachment (403 Forbidden)
       const user2Stream = await app.inject({
@@ -631,6 +661,473 @@ describe("Support and Feedback System E2E & Integration", () => {
         payload: { body: "پاسخ غیرمجاز توسط کارگر محتوا" },
       });
       expect(workerMsgRes.statusCode).toBe(403);
+    });
+
+    it("10. support_agent full operational workflow: priority, category, status transition, reopening, and feedback response", async () => {
+      const app = await buildTestApp();
+
+      // 1. User creates a ticket
+      const ticketRes = await app.inject({
+        method: "POST",
+        url: "/v1/support/tickets",
+        headers: { cookie: studentCookie },
+        payload: {
+          category: "courses",
+          priority: "low",
+          title: "مشکل در اجرای ویدیو دوره",
+          description: "ویدیوهای بخش دوم دوره شیمی برای من لود نمی‌شوند و صفحه سفید می‌ماند.",
+        },
+      });
+      expect(ticketRes.statusCode).toBe(201);
+      const ticketId = JSON.parse(ticketRes.payload).ticket.id;
+
+      // 2. support_agent updates priority to urgent
+      const priorityRes = await app.inject({
+        method: "PATCH",
+        url: `/v1/admin/support/tickets/${ticketId}/priority`,
+        headers: { cookie: supportAgentCookie },
+        payload: { priority: "urgent" },
+      });
+      expect(priorityRes.statusCode).toBe(200);
+      expect(JSON.parse(priorityRes.payload).ticket.priority).toBe("urgent");
+
+      // 3. support_agent updates category to technical
+      const categoryRes = await app.inject({
+        method: "PATCH",
+        url: `/v1/admin/support/tickets/${ticketId}/category`,
+        headers: { cookie: supportAgentCookie },
+        payload: { category: "technical" },
+      });
+      expect(categoryRes.statusCode).toBe(200);
+      expect(JSON.parse(categoryRes.payload).ticket.category).toBe("technical");
+
+      // 4. support_agent replies and marks in_progress
+      const replyRes = await app.inject({
+        method: "POST",
+        url: `/v1/admin/support/tickets/${ticketId}/messages`,
+        headers: { cookie: supportAgentCookie },
+        payload: {
+          body: "در حال بررسی مشکل سرور پخش محتوا هستیم.",
+          new_status: "in_progress",
+        },
+      });
+      expect(replyRes.statusCode).toBe(201);
+
+      // 5. support_agent marks ticket closed
+      const closeRes = await app.inject({
+        method: "PATCH",
+        url: `/v1/admin/support/tickets/${ticketId}/status`,
+        headers: { cookie: supportAgentCookie },
+        payload: { status: "closed" },
+      });
+      expect(closeRes.statusCode).toBe(200);
+      expect(JSON.parse(closeRes.payload).ticket.status).toBe("closed");
+
+      // 6. support_agent reopens the closed ticket to in_progress
+      const reopenRes = await app.inject({
+        method: "PATCH",
+        url: `/v1/admin/support/tickets/${ticketId}/status`,
+        headers: { cookie: supportAgentCookie },
+        payload: { status: "in_progress" },
+      });
+      expect(reopenRes.statusCode).toBe(200);
+      expect(JSON.parse(reopenRes.payload).ticket.status).toBe("in_progress");
+
+      // 7. User creates a feedback
+      const fbCreateRes = await app.inject({
+        method: "POST",
+        url: "/v1/feedback",
+        headers: { cookie: studentCookie },
+        payload: {
+          type: "suggestion",
+          category: "courses",
+          title: "پیشنهاد افزایش کیفیت تصاویر شیمی",
+          description: "تصاویر ساختار شیمیایی در درس اول اگر ابعاد بزرگتری داشته باشند خواناتر خواهند بود.",
+        },
+      });
+      expect(fbCreateRes.statusCode).toBe(201);
+      const feedbackId = JSON.parse(fbCreateRes.payload).feedback.id;
+
+      // 8. support_agent responds to feedback and marks answered
+      const fbRespRes = await app.inject({
+        method: "PATCH",
+        url: `/v1/admin/feedback/${feedbackId}`,
+        headers: { cookie: supportAgentCookie },
+        payload: {
+          admin_response: "با تشکر، تصاویر با وضوح بالا در آپدیت بعدی جایگزین شدند.",
+          status: "answered",
+        },
+      });
+      expect(fbRespRes.statusCode).toBe(200);
+      const fbBody = JSON.parse(fbRespRes.payload).feedback;
+      expect(fbBody.status).toBe("answered");
+      expect(fbBody.adminResponse).toContain("با تشکر");
+    });
+
+    it("11. Attachment Key Variations & Security Isolation (support/<uuid>.<ext> vs support%2F<uuid>.<ext>)", async () => {
+      const app = await buildTestApp();
+
+      // Setup 2 files in storage
+      const uuid1 = randomUUID();
+      const uuid2 = randomUUID();
+      const storageKey1 = `support/${uuid1}.png`;
+      const storageKey2 = `support/${uuid2}.pdf`;
+
+      await storageProvider.save({
+        storageKey: storageKey1,
+        data: Buffer.from("image content 1"),
+        mimeType: "image/png",
+      });
+      await storageProvider.save({
+        storageKey: storageKey2,
+        data: Buffer.from("pdf content 2"),
+        mimeType: "application/pdf",
+      });
+
+      // User 1 creates Ticket 1 with encoded URL in DB
+      const t1Res = await app.inject({
+        method: "POST",
+        url: "/v1/support/tickets",
+        headers: { cookie: studentCookie },
+        payload: {
+          category: "technical",
+          title: "تیکت کاربر ۱ با ضمیمه انکودشده",
+          description: "توضیحات تیکت کاربر اول جهت تست ضمیمه.",
+          attachment_url: `/v1/support/attachments/${encodeURIComponent(storageKey1)}`,
+        },
+      });
+      expect(t1Res.statusCode).toBe(201);
+
+      // User 1 adds message with unencoded URL in DB
+      const ticket1Id = JSON.parse(t1Res.payload).ticket.id;
+      const msgRes = await app.inject({
+        method: "POST",
+        url: `/v1/support/tickets/${ticket1Id}/messages`,
+        headers: { cookie: studentCookie },
+        payload: {
+          body: "پیام با ضمیمه پی‌دی‌اف",
+          attachment_url: `/v1/support/attachments/${storageKey2}`,
+        },
+      });
+      expect(msgRes.statusCode).toBe(201);
+
+      // 1. Both encoded and unencoded request URLs work for User 1
+      const req1Encoded = await app.inject({
+        method: "GET",
+        url: `/v1/support/attachments/${encodeURIComponent(storageKey1)}`,
+        headers: { cookie: studentCookie },
+      });
+      expect(req1Encoded.statusCode).toBe(200);
+
+      const req1Unencoded = await app.inject({
+        method: "GET",
+        url: `/v1/support/attachments/${storageKey1}`,
+        headers: { cookie: studentCookie },
+      });
+      expect(req1Unencoded.statusCode).toBe(200);
+
+      // 2. Both work for the message attachment (storageKey2)
+      const req2Encoded = await app.inject({
+        method: "GET",
+        url: `/v1/support/attachments/${encodeURIComponent(storageKey2)}`,
+        headers: { cookie: studentCookie },
+      });
+      expect(req2Encoded.statusCode).toBe(200);
+      expect(req2Encoded.headers["content-type"]).toBe("application/pdf");
+
+      const req2Unencoded = await app.inject({
+        method: "GET",
+        url: `/v1/support/attachments/${storageKey2}`,
+        headers: { cookie: studentCookie },
+      });
+      expect(req2Unencoded.statusCode).toBe(200);
+
+      // 3. User 2 cannot access either attachment (Cross-ticket isolation)
+      const u2Req1 = await app.inject({
+        method: "GET",
+        url: `/v1/support/attachments/${encodeURIComponent(storageKey1)}`,
+        headers: { cookie: otherStudentCookie },
+      });
+      expect(u2Req1.statusCode).toBe(403);
+
+      const u2Req2 = await app.inject({
+        method: "GET",
+        url: `/v1/support/attachments/${encodeURIComponent(storageKey2)}`,
+        headers: { cookie: otherStudentCookie },
+      });
+      expect(u2Req2.statusCode).toBe(403);
+
+      // 4. Admin can access both attachments
+      const adminReq1 = await app.inject({
+        method: "GET",
+        url: `/v1/support/attachments/${encodeURIComponent(storageKey1)}`,
+        headers: { cookie: platformAdminCookie },
+      });
+      expect(adminReq1.statusCode).toBe(200);
+
+      const adminReq2 = await app.inject({
+        method: "GET",
+        url: `/v1/support/attachments/${encodeURIComponent(storageKey2)}`,
+        headers: { cookie: platformAdminCookie },
+      });
+      expect(adminReq2.statusCode).toBe(200);
+
+      // 5. Non-existent file handled with 404 for authorized user/admin
+      const nonExistentKey = `support/${randomUUID()}.png`;
+      // Link to ticket so authorization passes to storage check
+      await app.inject({
+        method: "POST",
+        url: `/v1/support/tickets/${ticket1Id}/messages`,
+        headers: { cookie: studentCookie },
+        payload: {
+          body: "پیام با فایل گم‌شده",
+          attachment_url: `/v1/support/attachments/${encodeURIComponent(nonExistentKey)}`,
+        },
+      });
+
+      const missingRes = await app.inject({
+        method: "GET",
+        url: `/v1/support/attachments/${encodeURIComponent(nonExistentKey)}`,
+        headers: { cookie: studentCookie },
+      });
+      expect(missingRes.statusCode).toBe(404);
+      expect(JSON.parse(missingRes.payload).error.message).toContain("فایل ضمیمه یافت نشد");
+    });
+  });
+
+  describe("Read Receipt Flow & Strict Security Isolation", () => {
+    it("Admin response has initial readAt = null, strictly omitted from user API, and correctly records first view upon user read receipt", async () => {
+      const app = await buildTestApp();
+
+      // 1. Student creates a ticket
+      const ticketRes = await app.inject({
+        method: "POST",
+        url: "/v1/support/tickets",
+        headers: { cookie: studentCookie },
+        payload: {
+          category: "technical",
+          title: "مشکل در ورود به جلسه آزمون",
+          description: "صفحه آزمون برای من باز نمیشود و خطای ارتباط میدهد.",
+        },
+      });
+      expect(ticketRes.statusCode).toBe(201);
+      const ticketId = JSON.parse(ticketRes.payload).ticket.id;
+
+      // 2. Admin sends two separate replies (msg1 public, msg2 public, msg3 internal note)
+      const adminReply1 = await app.inject({
+        method: "POST",
+        url: `/v1/admin/support/tickets/${ticketId}/messages`,
+        headers: { cookie: platformAdminCookie },
+        payload: {
+          body: "سلام، لطفاً کش مرورگر خود را پاک کنید.",
+        },
+      });
+      expect(adminReply1.statusCode).toBe(201);
+      const msg1Id = JSON.parse(adminReply1.payload).message.id;
+
+      const adminReply2 = await app.inject({
+        method: "POST",
+        url: `/v1/admin/support/tickets/${ticketId}/messages`,
+        headers: { cookie: platformAdminCookie },
+        payload: {
+          body: "همچنین اطمینان حاصل کنید اتصال فیلترشکن خاموش است.",
+        },
+      });
+      expect(adminReply2.statusCode).toBe(201);
+      const msg2Id = JSON.parse(adminReply2.payload).message.id;
+
+      const adminInternalNote = await app.inject({
+        method: "POST",
+        url: `/v1/admin/support/tickets/${ticketId}/messages`,
+        headers: { cookie: platformAdminCookie },
+        payload: {
+          body: "بررسی شد: آی‌پی کاربر مربوط به خارج از کشور بود.",
+          is_internal_note: true,
+        },
+      });
+      expect(adminInternalNote.statusCode).toBe(201);
+      const internalMsgId = JSON.parse(adminInternalNote.payload).message.id;
+
+      // 3. Admin checks ticket details: readAt is null initially for public admin messages
+      const adminViewInitial = await app.inject({
+        method: "GET",
+        url: `/v1/admin/support/tickets/${ticketId}`,
+        headers: { cookie: platformAdminCookie },
+      });
+      expect(adminViewInitial.statusCode).toBe(200);
+      const adminMsgs = JSON.parse(adminViewInitial.payload).ticket.messages;
+      const m1Admin = adminMsgs.find((m: { id: string }) => m.id === msg1Id);
+      const m2Admin = adminMsgs.find((m: { id: string }) => m.id === msg2Id);
+      expect(m1Admin.readAt).toBeNull();
+      expect(m2Admin.readAt).toBeNull();
+
+      // 4. User checks ticket details: STRICT SECURITY REQUIREMENT:
+      // readAt MUST NOT be present in user API response keys at all!
+      const userViewInitial = await app.inject({
+        method: "GET",
+        url: `/v1/support/tickets/${ticketId}`,
+        headers: { cookie: studentCookie },
+      });
+      expect(userViewInitial.statusCode).toBe(200);
+      const userMsgs = JSON.parse(userViewInitial.payload).ticket.messages;
+      expect(userMsgs.some((m: { id: string }) => m.id === internalMsgId)).toBe(false); // Internal note hidden
+      for (const m of userMsgs) {
+        expect("readAt" in m).toBe(false);
+      }
+
+      // 5. User actually views msg1 ONLY (msg2 is NOT viewed yet)
+      const readRes1 = await app.inject({
+        method: "POST",
+        url: `/v1/support/tickets/${ticketId}/messages/read`,
+        headers: { cookie: studentCookie },
+        payload: {
+          message_ids: [msg1Id],
+        },
+      });
+      expect(readRes1.statusCode).toBe(200);
+      expect(JSON.parse(readRes1.payload)).toEqual({ success: true, markedCount: 1 });
+
+      // 6. Admin checks again: msg1 now has valid readAt timestamp, msg2 is STILL null («دیده نشده»)
+      const adminViewAfterMsg1 = await app.inject({
+        method: "GET",
+        url: `/v1/admin/support/tickets/${ticketId}`,
+        headers: { cookie: platformAdminCookie },
+      });
+      const adminMsgsAfter1 = JSON.parse(adminViewAfterMsg1.payload).ticket.messages;
+      const m1Updated = adminMsgsAfter1.find((m: { id: string }) => m.id === msg1Id);
+      const m2StillNull = adminMsgsAfter1.find((m: { id: string }) => m.id === msg2Id);
+      expect(typeof m1Updated.readAt).toBe("string");
+      expect(m2StillNull.readAt).toBeNull();
+      const firstReadAtTime = m1Updated.readAt;
+
+      // 7. Idempotency test: User marks msg1 again (e.g. repeated scroll or refetch)
+      const readResRepeat = await app.inject({
+        method: "POST",
+        url: `/v1/support/tickets/${ticketId}/messages/read`,
+        headers: { cookie: studentCookie },
+        payload: {
+          message_ids: [msg1Id],
+        },
+      });
+      expect(readResRepeat.statusCode).toBe(200);
+      expect(JSON.parse(readResRepeat.payload)).toEqual({ success: true, markedCount: 0 });
+
+      // Check timestamp did NOT change
+      const adminViewAfterRepeat = await app.inject({
+        method: "GET",
+        url: `/v1/admin/support/tickets/${ticketId}`,
+        headers: { cookie: platformAdminCookie },
+      });
+      const m1Unchanged = JSON.parse(adminViewAfterRepeat.payload).ticket.messages.find(
+        (m: { id: string }) => m.id === msg1Id,
+      );
+      expect(m1Unchanged.readAt).toBe(firstReadAtTime);
+
+      // 8. User API response STILL never reveals readAt
+      const userViewAfter = await app.inject({
+        method: "GET",
+        url: `/v1/support/tickets/${ticketId}`,
+        headers: { cookie: studentCookie },
+      });
+      const userMsgsAfter = JSON.parse(userViewAfter.payload).ticket.messages;
+      for (const m of userMsgsAfter) {
+        expect("readAt" in m).toBe(false);
+      }
+
+      // 9. IDOR & Ownership Security Tests:
+      // Other student tries to mark student's ticket messages as read -> 403 Forbidden
+      const idorRes = await app.inject({
+        method: "POST",
+        url: `/v1/support/tickets/${ticketId}/messages/read`,
+        headers: { cookie: otherStudentCookie },
+        payload: {
+          message_ids: [msg2Id],
+        },
+      });
+      expect(idorRes.statusCode).toBe(403);
+
+      // 10. Student tries to mark internal note or fake/foreign message ID
+      const fakeMsgId = randomUUID();
+      const foreignRes = await app.inject({
+        method: "POST",
+        url: `/v1/support/tickets/${ticketId}/messages/read`,
+        headers: { cookie: studentCookie },
+        payload: {
+          message_ids: [internalMsgId, fakeMsgId],
+        },
+      });
+      expect(foreignRes.statusCode).toBe(200);
+      expect(JSON.parse(foreignRes.payload)).toEqual({ success: true, markedCount: 0 });
+
+      // 11. Validating messageIds payload limits and validation
+      const emptyPayloadRes = await app.inject({
+        method: "POST",
+        url: `/v1/support/tickets/${ticketId}/messages/read`,
+        headers: { cookie: studentCookie },
+        payload: {
+          message_ids: [],
+        },
+      });
+      expect(emptyPayloadRes.statusCode).toBe(400);
+
+      // 11b. Invalid UUID for ticket ID
+      const invalidTicketRes = await app.inject({
+        method: "POST",
+        url: "/v1/support/tickets/not-a-uuid/messages/read",
+        headers: { cookie: studentCookie },
+        payload: {
+          message_ids: [msg2Id],
+        },
+      });
+      expect(invalidTicketRes.statusCode).toBe(400);
+      expect(JSON.parse(invalidTicketRes.payload).error.code).toBe("bad_request");
+
+      // 11c. Invalid UUID in message_ids
+      const invalidMessageUuidRes = await app.inject({
+        method: "POST",
+        url: `/v1/support/tickets/${ticketId}/messages/read`,
+        headers: { cookie: studentCookie },
+        payload: {
+          message_ids: ["malicious-string-or-sql"],
+        },
+      });
+      expect(invalidMessageUuidRes.statusCode).toBe(400);
+      expect(JSON.parse(invalidMessageUuidRes.payload).error.code).toBe("bad_request");
+
+      // 11d. Array length limit exceeded (> 50)
+      const oversizedArray = Array.from({ length: 51 }, () => randomUUID());
+      const oversizedRes = await app.inject({
+        method: "POST",
+        url: `/v1/support/tickets/${ticketId}/messages/read`,
+        headers: { cookie: studentCookie },
+        payload: {
+          message_ids: oversizedArray,
+        },
+      });
+      expect(oversizedRes.statusCode).toBe(400);
+      expect(JSON.parse(oversizedRes.payload).error.code).toBe("bad_request");
+
+      // 12. Finally, user views msg2 -> msg2 becomes read
+      const readRes2 = await app.inject({
+        method: "POST",
+        url: `/v1/support/tickets/${ticketId}/messages/read`,
+        headers: { cookie: studentCookie },
+        payload: {
+          message_ids: [msg2Id],
+        },
+      });
+      expect(readRes2.statusCode).toBe(200);
+      expect(JSON.parse(readRes2.payload)).toEqual({ success: true, markedCount: 1 });
+
+      const adminViewFinal = await app.inject({
+        method: "GET",
+        url: `/v1/admin/support/tickets/${ticketId}`,
+        headers: { cookie: platformAdminCookie },
+      });
+      const m2Updated = JSON.parse(adminViewFinal.payload).ticket.messages.find(
+        (m: { id: string }) => m.id === msg2Id,
+      );
+      expect(typeof m2Updated.readAt).toBe("string");
     });
   });
 });

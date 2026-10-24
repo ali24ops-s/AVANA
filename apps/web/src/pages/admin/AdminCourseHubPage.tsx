@@ -23,8 +23,16 @@ import {
   School,
   AlertTriangle,
   Info,
+  X,
 } from "lucide-react";
-import type { AdminCourseRecord, OfficialCourse } from "../../lib/api/admin.js";
+import {
+  listCourseSubmissions,
+  approveCourseSubmission,
+  rejectCourseSubmission,
+  type AdminCourseRecord,
+  type OfficialCourse,
+  type AdminCourseSubmissionItem,
+} from "../../lib/api/admin.js";
 import { useAdmin } from "../../hooks/useAdmin.js";
 import { CourseStructurePanel } from "../../components/admin/studio/CourseStructurePanel.js";
 import { SourceProductionPanel } from "../../components/admin/studio/SourceProductionPanel.js";
@@ -76,6 +84,61 @@ export function AdminCourseHubPage() {
   // Export / Import Modals State
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+
+  // Course Submission Moderation State
+  const [rejectingSubmission, setRejectingSubmission] = useState<AdminCourseSubmissionItem | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [approvingSubmission, setApprovingSubmission] = useState<AdminCourseSubmissionItem | null>(null);
+  const [approvalNotes, setApprovalNotes] = useState("");
+  const [targetPrice, setTargetPrice] = useState<number | undefined>(undefined);
+  const [isSubmittingModeration, setIsSubmittingModeration] = useState(false);
+  const [moderationError, setModerationError] = useState<string | null>(null);
+
+  const submissionsQuery = useQuery({
+    queryKey: ["course-submissions", courseId],
+    queryFn: () => listCourseSubmissions({ courseId: courseId!, status: "pending_review" }),
+    enabled: Boolean(courseId),
+  });
+
+  const pendingSubmission = submissionsQuery.data?.items?.[0] || null;
+
+  const handleApproveSubmission = async () => {
+    if (!pendingSubmission) return;
+    try {
+      setIsSubmittingModeration(true);
+      setModerationError(null);
+      await approveCourseSubmission(pendingSubmission.id, {
+        reviewNotes: approvalNotes || undefined,
+        targetPrice: targetPrice !== undefined ? targetPrice : pendingSubmission.product?.priceAmount,
+      });
+      setApprovingSubmission(null);
+      void submissionsQuery.refetch();
+      void fetchCourse();
+      void queryClient.invalidateQueries({ queryKey: ["admin-courses"] });
+    } catch (err) {
+      setModerationError(err instanceof Error ? err.message : "خطا در تأیید و انتشار دوره");
+    } finally {
+      setIsSubmittingModeration(false);
+    }
+  };
+
+  const handleRejectSubmission = async () => {
+    if (!pendingSubmission || !rejectionReason.trim()) return;
+    try {
+      setIsSubmittingModeration(true);
+      setModerationError(null);
+      await rejectCourseSubmission(pendingSubmission.id, rejectionReason.trim());
+      setRejectingSubmission(null);
+      setRejectionReason("");
+      void submissionsQuery.refetch();
+      void fetchCourse();
+      void queryClient.invalidateQueries({ queryKey: ["admin-courses"] });
+    } catch (err) {
+      setModerationError(err instanceof Error ? err.message : "خطا در رد انتشار دوره");
+    } finally {
+      setIsSubmittingModeration(false);
+    }
+  };
 
   const fetchCourse = useCallback(async () => {
     if (!courseId) return;
@@ -504,6 +567,57 @@ export function AdminCourseHubPage() {
         </div>
       </div>
 
+      {/* Teacher/User Course Submission Moderation Banner */}
+      {pendingSubmission && (
+        <div className="bg-amber-500/10 border-2 border-amber-500/30 rounded-2xl p-5 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <h3 className="text-base font-black text-[var(--color-text)]">
+                  درخواست بررسی و انتشار دوره توسط مدرس
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                  نسخه {toPersianDigits(pendingSubmission.version)}
+                </span>
+              </div>
+              <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+                این دوره توسط <strong className="text-[var(--color-text)]">{pendingSubmission.creator.name}</strong> ({pendingSubmission.creator.email || "بدون ایمیل"}) برای بررسی و اشتراک در کاتالوگ عمومی ارسال شده است. شما می‌توانید تمام درس‌ها، فلش‌کارت‌ها و آزمون‌های دوره را در برگه «ساختار و سرفصل‌ها» بررسی نمایید.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setTargetPrice(pendingSubmission.product?.priceAmount ?? 0);
+                  setApprovalNotes("");
+                  setModerationError(null);
+                  setApprovingSubmission(pendingSubmission);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>تأیید و انتشار عمومی</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setRejectionReason("");
+                  setModerationError(null);
+                  setRejectingSubmission(pendingSubmission);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 font-bold text-xs transition-all cursor-pointer"
+              >
+                <AlertCircle className="w-4 h-4" />
+                <span>رد درخواست</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tabs Navigation */}
       {isOfficial ? (
         /* Official Course Tabs (Full Content Studio) */
@@ -776,6 +890,156 @@ export function AdminCourseHubPage() {
             void fetchCourse();
           }}
         />
+      )}
+
+      {/* Approve Submission Modal */}
+      {approvingSubmission && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-md bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
+              <h3 className="font-bold text-base text-[var(--color-text)] flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                <span>تأیید و انتشار عمومی دوره</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setApprovingSubmission(null)}
+                disabled={isSubmittingModeration}
+                className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+              با تأیید این درخواست، دوره «{course.name}» (نسخه {toPersianDigits(approvingSubmission.version)}) رسماً در فهرست دوره‌های آوانا منتشر شده و برای کاربران قابل مشاهده خواهد شد.
+            </p>
+
+            <div className="space-y-3 pt-1">
+              <div>
+                <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
+                  قیمت فروش نهایی (تومان)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1000"
+                  value={targetPrice ?? 0}
+                  onChange={(e) => setTargetPrice(parseInt(e.target.value || "0", 10))}
+                  placeholder="0 برای دوره رایگان"
+                  className="w-full px-3 py-2 text-xs bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)]"
+                />
+                <span className="text-[11px] text-[var(--color-text-muted)] mt-1 block">
+                  {targetPrice === 0 || !targetPrice ? "این دوره رایگان خواهد بود." : `${formatToman(targetPrice)}`}
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
+                  یادداشت بررسی (اختیاری)
+                </label>
+                <textarea
+                  rows={3}
+                  value={approvalNotes}
+                  onChange={(e) => setApprovalNotes(e.target.value)}
+                  placeholder="توضیحاتی برای مدرس یا ثبت در سابقه بازبینی..."
+                  className="w-full px-3 py-2 text-xs bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] resize-none"
+                />
+              </div>
+            </div>
+
+            {moderationError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-600 dark:text-rose-400 font-medium">
+                {moderationError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--color-border)]">
+              <button
+                type="button"
+                onClick={() => setApprovingSubmission(null)}
+                disabled={isSubmittingModeration}
+                className="px-4 py-2 text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] rounded-xl"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                onClick={handleApproveSubmission}
+                disabled={isSubmittingModeration}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
+              >
+                {isSubmittingModeration && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>تأیید و انتشار</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Submission Modal */}
+      {rejectingSubmission && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-md bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
+              <h3 className="font-bold text-base text-[var(--color-text)] flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-rose-500" />
+                <span>رد درخواست انتشار دوره</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setRejectingSubmission(null)}
+                disabled={isSubmittingModeration}
+                className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+              لطفاً علت رد درخواست انتشار دوره «{course.name}» را ذکر کنید. این بازخورد در اختیار مدرس قرار خواهد گرفت تا اصلاحات لازم را انجام دهد.
+            </p>
+
+            <div>
+              <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
+                علت رد درخواست <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                rows={4}
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                placeholder="مثلاً: کیفیت محتوای فصل ۲ نیازمند بازبینی و اصلاح است یا منابع کافی پیوست نشده است..."
+                className="w-full px-3 py-2 text-xs bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-rose-500 resize-none"
+              />
+            </div>
+
+            {moderationError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-600 dark:text-rose-400 font-medium">
+                {moderationError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--color-border)]">
+              <button
+                type="button"
+                onClick={() => setRejectingSubmission(null)}
+                disabled={isSubmittingModeration}
+                className="px-4 py-2 text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] rounded-xl"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                onClick={handleRejectSubmission}
+                disabled={isSubmittingModeration || !rejectionReason.trim()}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
+              >
+                {isSubmittingModeration && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>ثبت و رد درخواست</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

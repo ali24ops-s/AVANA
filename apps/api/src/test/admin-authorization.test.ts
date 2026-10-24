@@ -86,6 +86,7 @@ describe("Admin Authorization & Role Resolution", () => {
           };
         },
       } as unknown as import("../modules/admin/content-import-service.js").ContentImportService,
+      officialContentService: {} as any,
     });
 
     const endpoints = [
@@ -337,7 +338,7 @@ describe("Admin Authorization & Role Resolution", () => {
     });
     expect(workerSettingsRes.statusCode).toBe(403);
 
-    // support_agent is forbidden on admin content routes
+    // support_agent is forbidden on admin content authoring routes, users, generation, and dashboard
     const supportCoursesRes = await app.inject({
       method: "GET",
       url: "/v1/admin/courses",
@@ -351,6 +352,112 @@ describe("Admin Authorization & Role Resolution", () => {
       cookies: { avana_session: support.sessionToken },
     });
     expect(supportLessonsRes.statusCode).toBe(403);
+
+    const supportUsersRes = await app.inject({
+      method: "GET",
+      url: "/v1/admin/users",
+      cookies: { avana_session: support.sessionToken },
+    });
+    expect(supportUsersRes.statusCode).toBe(403);
+
+    const supportGenRes = await app.inject({
+      method: "GET",
+      url: "/v1/admin/generation",
+      cookies: { avana_session: support.sessionToken },
+    });
+    expect(supportGenRes.statusCode).toBe(403);
+
+    // support_agent is ALLOWED on content-reports and content-repair
+    const supportReportsRes = await app.inject({
+      method: "GET",
+      url: "/v1/admin/content-reports",
+      cookies: { avana_session: support.sessionToken },
+    });
+    expect(supportReportsRes.statusCode).toBe(200);
+
+    const supportRepairAuditRes = await app.inject({
+      method: "GET",
+      url: "/v1/admin/content-repair/audit",
+      cookies: { avana_session: support.sessionToken },
+    });
+    expect(supportRepairAuditRes.statusCode).toBe(200);
+
+    // support_agent cannot preview content repair without valid reportId (rejected with 400 Bad Request)
+    const supportRepairPreviewRes = await app.inject({
+      method: "POST",
+      url: "/v1/admin/content-repair/preview",
+      cookies: { avana_session: support.sessionToken },
+      payload: { content: "Sample text" },
+    });
+    expect(supportRepairPreviewRes.statusCode).toBe(400);
+
+    // support_agent is strictly forbidden from modifying courses, deleting documents, commerce, system, teachers
+    const supportPatchCourseRes = await app.inject({
+      method: "PATCH",
+      url: "/v1/admin/courses/00000000-0000-0000-0000-000000000001",
+      cookies: { avana_session: support.sessionToken },
+      payload: { name: "Hacked" },
+    });
+    expect(supportPatchCourseRes.statusCode).toBe(403);
+
+    const supportDeleteDocRes = await app.inject({
+      method: "DELETE",
+      url: "/v1/admin/documents/00000000-0000-0000-0000-000000000001",
+      cookies: { avana_session: support.sessionToken },
+    });
+    expect(supportDeleteDocRes.statusCode).toBe(403);
+
+    const supportCommerceRes = await app.inject({
+      method: "GET",
+      url: "/v1/admin/commerce/promotions",
+      cookies: { avana_session: support.sessionToken },
+    });
+    expect(supportCommerceRes.statusCode).toBe(403);
+
+    const supportSystemHealthRes = await app.inject({
+      method: "GET",
+      url: "/v1/admin/system/health",
+      cookies: { avana_session: support.sessionToken },
+    });
+    expect(supportSystemHealthRes.statusCode).toBe(403);
+
+    const supportTeachersRes = await app.inject({
+      method: "GET",
+      url: "/v1/admin/teachers",
+      cookies: { avana_session: support.sessionToken },
+    });
+    expect(supportTeachersRes.statusCode).toBe(403);
+
+    // Normal student is strictly forbidden from support-exclusive endpoints
+    const studentReportsRes = await app.inject({
+      method: "GET",
+      url: "/v1/admin/content-reports",
+      cookies: { avana_session: student.sessionToken },
+    });
+    expect(studentReportsRes.statusCode).toBe(403);
+
+    const studentRepairAuditRes = await app.inject({
+      method: "GET",
+      url: "/v1/admin/content-repair/audit",
+      cookies: { avana_session: student.sessionToken },
+    });
+    expect(studentRepairAuditRes.statusCode).toBe(403);
+
+    const studentRepairPreviewRes = await app.inject({
+      method: "POST",
+      url: "/v1/admin/content-repair/preview",
+      cookies: { avana_session: student.sessionToken },
+      payload: { content: "text" },
+    });
+    expect(studentRepairPreviewRes.statusCode).toBe(403);
+
+    const studentRepairApplyRes = await app.inject({
+      method: "POST",
+      url: "/v1/admin/content-repair/apply",
+      cookies: { avana_session: student.sessionToken },
+      payload: { content: "text", originalHash: "hash" },
+    });
+    expect(studentRepairApplyRes.statusCode).toBe(403);
 
     // teacher is forbidden on admin content routes
     const teacherCoursesRes = await app.inject({

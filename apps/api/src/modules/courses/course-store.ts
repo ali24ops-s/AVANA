@@ -129,6 +129,7 @@ export interface CoursePublicationStore {
   listAll(options: {
     status?: string;
     search?: string;
+    courseId?: string;
     page?: number;
     limit?: number;
   }): Promise<{

@@ -6,11 +6,13 @@
   "exports": {
     "./client": {
       "types": "./client.ts",
+      "development": "./client.ts",
       "import": "./dist/client.js",
       "default": "./client.ts"
     },
     "./schema": {
       "types": "./schema/index.ts",
+      "development": "./schema/index.ts",
       "import": "./dist/schema/index.js",
       "default": "./schema/index.ts"
     },

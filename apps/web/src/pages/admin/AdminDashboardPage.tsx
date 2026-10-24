@@ -144,7 +144,11 @@ export function AdminDashboardPage() {
       id: "generation",
       title: "پردازش‌های AI امروز",
       value: toPersianDigits(stats.generationsToday.toLocaleString("fa-IR")),
-      context: `نرخ موفقیت: ${toPersianDigits(stats.generationSuccessRate)}٪`,
+      context: stats.generationsToday === 0
+        ? "بدون پردازش امروز"
+        : stats.generationSuccessRate > 0
+        ? `نرخ موفقیت: ${toPersianDigits(stats.generationSuccessRate)}٪`
+        : "در انتظار تکمیل پردازش",
       icon: BrainCircuit,
       iconColor: "text-[var(--color-primary-default)]",
       bgColor: "bg-[var(--color-primary-default)]/10",
@@ -157,9 +161,9 @@ export function AdminDashboardPage() {
       {/* 1. Header & Quick Action Shortcuts */}
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-2 border-b border-[var(--color-border)]">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center justify-center sm:justify-start gap-2.5 text-center sm:text-right">
+          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center justify-start gap-2.5 text-start">
             <span>داشبورد مدیریت</span>
-            <span className="text-xs font-normal px-2.5 py-0.5 rounded-full bg-[var(--color-surface-warm)] text-[var(--color-primary-default)] border border-[var(--color-border)]">
+            <span className="text-xs font-normal px-2.5 py-0.5 rounded-full bg-[var(--color-surface-warm)] text-[var(--color-primary-default)] border border-[var(--color-border)] whitespace-nowrap">
               نمای عملیاتی پلتفرم
             </span>
           </h1>
@@ -227,10 +231,10 @@ export function AdminDashboardPage() {
       </section>
 
       {/* 3.5. Commerce & Revenue Summary Widget */}
-      <section aria-label="خلاصه وضعیت مالی و درآمد" className="bg-[var(--color-surface)] p-6 rounded-2xl border border-[var(--color-border)] shadow-sm">
+      <section aria-label="خلاصه وضعیت مالی و درآمد" className="bg-[var(--color-surface)] p-4 sm:p-6 rounded-2xl border border-[var(--color-border)] shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-[var(--color-border)] mb-5 gap-3">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-[var(--color-surface-warm)] text-[var(--color-primary-default)]">
+            <div className="p-2 rounded-lg bg-[var(--color-surface-warm)] text-[var(--color-primary-default)] shrink-0">
               <CircleDollarSign className="w-5 h-5" />
             </div>
             <div>
@@ -247,29 +251,29 @@ export function AdminDashboardPage() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="bg-[var(--color-surface-subtle)] p-4 rounded-xl border border-[var(--color-border)]">
+        <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+          <div className="bg-[var(--color-surface-subtle)] p-3.5 sm:p-4 rounded-xl border border-[var(--color-border)] min-w-0">
             <span className="text-xs text-[var(--color-text-muted)] block mb-1">درآمد کل واریزی:</span>
             <span className="text-base sm:text-lg font-bold text-[var(--color-text)]">
               {isCommerceLoading ? "..." : formatToman(commerceStats?.totalRevenue ?? 0)}
             </span>
           </div>
 
-          <div className="bg-[var(--color-surface-subtle)] p-4 rounded-xl border border-[var(--color-border)]">
+          <div className="bg-[var(--color-surface-subtle)] p-3.5 sm:p-4 rounded-xl border border-[var(--color-border)] min-w-0">
             <span className="text-xs text-[var(--color-text-muted)] block mb-1">فروش ماه جاری:</span>
             <span className="text-base sm:text-lg font-bold text-emerald-600 dark:text-emerald-400">
               {isCommerceLoading ? "..." : formatToman(commerceStats?.currentMonthRevenue ?? 0)}
             </span>
           </div>
 
-          <div className="bg-[var(--color-surface-subtle)] p-4 rounded-xl border border-[var(--color-border)]">
+          <div className="bg-[var(--color-surface-subtle)] p-3.5 sm:p-4 rounded-xl border border-[var(--color-border)] min-w-0">
             <span className="text-xs text-[var(--color-text-muted)] block mb-1">اشتراک‌های فعال:</span>
             <span className="text-base sm:text-lg font-bold text-[var(--color-primary-default)]">
               {isCommerceLoading ? "..." : toPersianDigits((commerceStats?.activeSubscriptions ?? 0).toLocaleString("fa-IR"))}
             </span>
           </div>
 
-          <div className="bg-[var(--color-surface-subtle)] p-4 rounded-xl border border-[var(--color-border)]">
+          <div className="bg-[var(--color-surface-subtle)] p-3.5 sm:p-4 rounded-xl border border-[var(--color-border)] min-w-0">
             <span className="text-xs text-[var(--color-text-muted)] block mb-1">خریدهای دائمی دوره‌ها:</span>
             <span className="text-base sm:text-lg font-bold text-purple-600 dark:text-purple-400">
               {isCommerceLoading ? "..." : toPersianDigits((commerceStats?.lifetimePurchases ?? 0).toLocaleString("fa-IR"))}
@@ -370,7 +374,9 @@ export function AdminDashboardPage() {
               <div className="flex items-center justify-between">
                 <span className="text-sm text-[var(--color-text)]">نرخ موفقیت پردازش‌ها</span>
                 <span className="text-lg font-bold text-[var(--color-text)]">
-                  {toPersianDigits(stats.generationSuccessRate)}٪
+                  {stats.generationsToday === 0 || stats.generationSuccessRate === 0
+                    ? "بدون داده"
+                    : `${toPersianDigits(stats.generationSuccessRate)}٪`}
                 </span>
               </div>
 
@@ -382,7 +388,7 @@ export function AdminDashboardPage() {
                       ? "bg-[var(--color-primary-default)]"
                       : stats.generationSuccessRate >= 70
                       ? "bg-amber-500"
-                      : stats.generationsToday === 0
+                      : stats.generationsToday === 0 || stats.generationSuccessRate === 0
                       ? "bg-[var(--color-text-muted)]"
                       : "bg-rose-500"
                   }`}
@@ -402,6 +408,10 @@ export function AdminDashboardPage() {
                   <div className="mt-1">
                     {stats.generationsToday === 0 ? (
                       <span className="text-xs font-medium text-[var(--color-text-muted)]">بدون درخواست امروز</span>
+                    ) : stats.generationSuccessRate === 0 ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-sky-600 dark:text-sky-400">
+                        <Activity className="w-3.5 h-3.5 animate-pulse" /> در انتظار تکمیل پردازش
+                      </span>
                     ) : stats.generationSuccessRate >= 90 ? (
                       <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--color-primary-default)]">
                         <CheckCircle2 className="w-3.5 h-3.5" /> عملکرد بهینه
@@ -590,7 +600,7 @@ function QuickNavLink({
   return (
     <Link
       to={to}
-      className="p-3 rounded-xl bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] hover:border-[var(--color-border)] transition-all text-[var(--color-text)] hover:text-[var(--color-primary-default)] shadow-sm flex items-center gap-2.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[var(--color-primary-default)]"
+      className="p-2.5 sm:p-3 rounded-xl bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] hover:border-[var(--color-border)] transition-all text-[var(--color-text)] hover:text-[var(--color-primary-default)] shadow-sm flex items-center gap-2 sm:gap-2.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[var(--color-primary-default)] min-w-0"
     >
       <Icon className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
       <span className="truncate">{label}</span>

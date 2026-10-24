@@ -241,7 +241,7 @@ describe("Admin Dashboard — Phase 3", () => {
       expect(screen.getByText(/۸۴ درس فعال/)).toBeInTheDocument(); // totalLessons
       expect(screen.getByRole("heading", { name: "۳۸" })).toBeInTheDocument(); // totalDocuments
       expect(screen.getByRole("heading", { name: "۶۴" })).toBeInTheDocument(); // generationsToday
-      expect(screen.getByText(/نرخ موفقیت: 96%/)).toBeInTheDocument();
+      expect(screen.getByText(/نرخ موفقیت: (?:96%|۹۶٪)/)).toBeInTheDocument();
 
       // Content Hierarchy
       expect(screen.getByText("۵۲۰")).toBeInTheDocument(); // totalFlashcards

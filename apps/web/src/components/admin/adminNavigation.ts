@@ -165,12 +165,37 @@ export const COURSE_EDITOR_NAV_ITEMS: AdminNavItem[] = [
     description: "تولید، بررسی و انتشار محتوای دوره",
     matchPrefixes: ["/admin/content-studio"],
   },
+  {
+    id: "community-content",
+    name: "محتوای ارسالی اساتید",
+    href: "/admin/community-content",
+    icon: GraduationCap,
+    description: "بررسی، تأیید و رد دوره‌ها و بسته‌های ارسالی",
+    matchPrefixes: ["/admin/community-content"],
+  },
+];
+
+/**
+ * Dedicated Workspace for support_agent
+ */
+export const SUPPORT_AGENT_NAV_ITEMS: AdminNavItem[] = [
+  {
+    id: "support",
+    name: "پشتیبانی و بازخورد",
+    href: "/admin/support",
+    icon: LifeBuoy,
+    description: "تیکت‌ها، بازخوردها و گزارش‌های مشکل محتوا",
+    matchPrefixes: ["/admin/support"],
+  },
 ];
 
 /**
  * Helper to resolve visible navigation items based on user role.
  */
 export function getVisibleNavItems(role?: string): AdminNavItem[] {
+  if (role === "support_agent") {
+    return SUPPORT_AGENT_NAV_ITEMS;
+  }
   if (role === "course_editor") {
     return COURSE_EDITOR_NAV_ITEMS;
   }

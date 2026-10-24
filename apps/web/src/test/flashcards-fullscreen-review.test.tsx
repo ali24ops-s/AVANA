@@ -137,7 +137,7 @@ describe("Flashcards Fullscreen & Header-Hidden Review Mode", () => {
     expect(await screen.findByText("سوال فلش‌کارت تستی")).toBeInTheDocument();
 
     // Progress bar with card counter should be visible
-    expect(screen.getByText("کارت ۱ از ۱")).toBeInTheDocument();
+    expect(screen.getByText(/کارت ۱ از ۱|[1۱]\s*\/\s*[1۱]/)).toBeInTheDocument();
 
     // Review statistics pill should be visible
     expect(screen.getByText("دیده‌نشده:")).toBeInTheDocument();

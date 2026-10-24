@@ -77,6 +77,11 @@ import { up as up0075 } from "./migrations/0075_question_patterns.js";
 import { up as up0077 } from "./migrations/0077_question_pattern_skills_and_cognitive_levels.js";
 import { up as up0078 } from "./migrations/0078_telegram_outbox.js";
 import { up as up0079 } from "./migrations/0079_telegram_outbox_lease_index.js";
+import { up as up0080 } from "./migrations/0080_source_packs_and_generation_sources.js";
+import { up as up0081 } from "./migrations/0081_question_pattern_categories_and_defaults.js";
+import { up as up0082 } from "./migrations/0082_user_welcome_gifts.js";
+import { up as up0083 } from "./migrations/0083_nullable_promotion_redemption_order.js";
+import { up as up0084 } from "./migrations/0084_support_message_read_receipt.js";
 
 function localConnectionString(): string {
   const user = "avana";
@@ -247,6 +252,16 @@ async function runMigrations() {
     await up0078(db);
     console.log("Applying 0079_telegram_outbox_lease_index...");
     await up0079(db);
+    console.log("Applying 0080_source_packs_and_generation_sources...");
+    await up0080(db);
+    console.log("Applying 0081_question_pattern_categories_and_defaults...");
+    await up0081(db);
+    console.log("Applying 0082_user_welcome_gifts...");
+    await up0082(db);
+    console.log("Applying 0083_nullable_promotion_redemption_order...");
+    await up0083(db);
+    console.log("Applying 0084_support_message_read_receipt...");
+    await up0084(db);
 
     console.log("All database migrations applied successfully.");
   } catch (error) {

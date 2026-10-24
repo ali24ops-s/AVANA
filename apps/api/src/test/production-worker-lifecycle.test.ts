@@ -100,7 +100,7 @@ describe("Production Generation Worker Lifecycle & Execution QA", () => {
       queueName: "content_generate",
       geminiApiKey: "mock-gemini-key",
       geminiApiKeys: ["mock-gemini-key"],
-      geminiModel: "gemini-3.6-flash",
+      geminiModel: "gemini-3.5-flash-lite",
       cloudflareAiModel: "@cf/zai-org/glm-4.7-flash",
       groqModel: "openai/gpt-oss-120b",
       gapgptModel: "gpt-5.6-luna",

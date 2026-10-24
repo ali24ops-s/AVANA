@@ -1,7 +1,6 @@
 import {
   DomainError,
   asUserId,
-  asOrganizationId,
   gradeAttempt,
   validateGradeDescriptiveAnswerInput,
   analyzeDescriptiveAnswerIntegrity,
@@ -30,6 +29,7 @@ import type {
 } from "../stores.js";
 import type { OrganizationStore } from "../../organizations/organization-store.js";
 import type { UserStore } from "../../identity/user-store.js";
+import { assertTeacherClassroomAccess as assertAccess } from "./auth-helpers.js";
 
 export interface ScoreDistribution {
   range: string;
@@ -127,29 +127,14 @@ export class TeacherExamResultService {
       throw new DomainError("not_found", "آزمون یافت نشد");
     }
 
-    const classroom = await this.classroomStore.getById(exam.classroomId);
-    if (!classroom) {
-      throw new DomainError("not_found", "کلاس یافت نشد");
-    }
-
-    if (actor.globalRole === "platform_admin" || actor.role === "platform_admin") {
-      return exam;
-    }
-
-    if (classroom.teacherId === actor.userId) {
-      return exam;
-    }
-
-    const membership = await this.organizationStore.findMembership(
-      asOrganizationId(classroom.organizationId),
-      asUserId(actor.userId),
+    await assertAccess(
+      this.classroomStore,
+      this.organizationStore,
+      actor,
+      exam.classroomId,
     );
 
-    if (membership && membership.role === "organization_admin") {
-      return exam;
-    }
-
-    throw new DomainError("not_found", "آزمون یافت نشد");
+    return exam;
   }
 
   /**

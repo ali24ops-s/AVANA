@@ -792,4 +792,157 @@ describe("Pre-Purchase Course Preview & Free Access Experience", () => {
     expect(learnBody.modules[0].lessons[1].locked).toBe(false);
     expect(learnBody.modules[0].lessons[1].content_markdown).toBe("متن ۲");
   });
+
+  it("Route Level: enforces questionIds validation and correctly scores filtered quiz attempts", async () => {
+    const app = await buildTestApp();
+    const student = await registerUser(app, "buyer-filter@avana.test", "خریدار فیلتر");
+
+    const courseId = asCourseId(randomUUID());
+    const orgId = config.systemOrganizationId as OrganizationId;
+    const now = new Date().toISOString();
+
+    await courseStore.create({
+      course: {
+        id: courseId,
+        organizationId: orgId,
+        name: "دوره فیلتر آزمون",
+        description: "تست فیلتر آزمون",
+        subject: "پزشکی",
+        status: "published",
+        isOfficial: true,
+        examDate: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    const quizId = asQuizId(randomUUID());
+    await quizStore.create({
+      id: quizId,
+      organizationId: orgId,
+      courseId,
+      moduleId: null,
+      lessonId: null,
+      documentId: randomUUID() as any,
+      title: "آزمون فیلتردار",
+      status: "published",
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    const q1 = {
+      id: randomUUID() as any,
+      quizId,
+      question: "Easy Q1",
+      questionType: "multiple_choice" as const,
+      choices: ["الف", "ب"],
+      correctAnswer: "الف",
+      difficulty: "easy" as const,
+      sortOrder: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const q2 = {
+      id: randomUUID() as any,
+      quizId,
+      question: "Hard Q2",
+      questionType: "multiple_choice" as const,
+      choices: ["الف", "ب"],
+      correctAnswer: "ب",
+      difficulty: "hard" as const,
+      sortOrder: 2,
+      createdAt: now,
+      updatedAt: now,
+    };
+    quizQuestionStore.createMany([q1, q2]);
+    quizStore.setQuestionsForQuiz(quizId, [q1, q2]);
+
+    // Give access to course
+    await commerceStore.grantEntitlement({
+      id: randomUUID() as any,
+      organizationId: orgId,
+      userId: student.userId,
+      resourceType: "course",
+      resourceId: courseId,
+      grantedReason: "course_purchase",
+      sourceOrderId: randomUUID() as any,
+      status: "active",
+      expiresAt: null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // 1. Submit attempt with valid filtered questionIds (q1 easy)
+    const validRes = await app.inject({
+      method: "POST",
+      url: `/v1/courses/${courseId}/quizzes/${quizId}/attempts`,
+      cookies: student.cookies,
+      payload: {
+        questionIds: [q1.id],
+        answers: [{ questionId: q1.id, answer: "الف" }],
+      },
+    });
+    expect([200, 201]).toContain(validRes.statusCode);
+    const validBody = JSON.parse(validRes.body);
+    expect(validBody.attempt.total).toBe(1);
+    expect(validBody.attempt.correct).toBe(1);
+    expect(validBody.attempt.score).toBe(100);
+    expect(validBody.passed).toBe(true);
+
+    // 2. Reject empty questionIds array
+    const emptyRes = await app.inject({
+      method: "POST",
+      url: `/v1/courses/${courseId}/quizzes/${quizId}/attempts`,
+      cookies: student.cookies,
+      payload: {
+        questionIds: [],
+        answers: [{ questionId: q1.id, answer: "الف" }],
+      },
+    });
+    expect(emptyRes.statusCode).toBe(400);
+
+    // 3. Reject non-array questionIds
+    const nonArrayRes = await app.inject({
+      method: "POST",
+      url: `/v1/courses/${courseId}/quizzes/${quizId}/attempts`,
+      cookies: student.cookies,
+      payload: {
+        questionIds: "invalid",
+        answers: [{ questionId: q1.id, answer: "الف" }],
+      },
+    });
+    expect(nonArrayRes.statusCode).toBe(400);
+
+    // 4. Reject foreign questionIds
+    const foreignId = randomUUID();
+    const foreignRes = await app.inject({
+      method: "POST",
+      url: `/v1/courses/${courseId}/quizzes/${quizId}/attempts`,
+      cookies: student.cookies,
+      payload: {
+        questionIds: [foreignId],
+        answers: [{ questionId: foreignId, answer: "الف" }],
+      },
+    });
+    expect(foreignRes.statusCode).toBe(400);
+
+    // 5. Reject answer with question outside questionIds
+    const outsideAnswerRes = await app.inject({
+      method: "POST",
+      url: `/v1/courses/${courseId}/quizzes/${quizId}/attempts`,
+      cookies: student.cookies,
+      payload: {
+        questionIds: [q1.id],
+        answers: [
+          { questionId: q1.id, answer: "الف" },
+          { questionId: q2.id, answer: "ب" },
+        ],
+      },
+    });
+    expect(outsideAnswerRes.statusCode).toBe(400);
+  });
 });

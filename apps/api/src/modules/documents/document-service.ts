@@ -281,7 +281,13 @@ export class DocumentService {
       userId: actor.userId,
       globalRole:
         actor.globalRole ??
-        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+        (actor.role === "platform_admin"
+          ? "platform_admin"
+          : actor.role === "content_worker"
+            ? "content_worker"
+            : actor.role === "course_editor"
+              ? "course_editor"
+              : undefined),
       role: actor.role,
       memberships,
     });
@@ -318,8 +324,19 @@ export class DocumentService {
     actor: Actor,
     organizationId: OrganizationId,
   ): Promise<string | null> {
-    if (actor.role === "platform_admin") {
+    if (
+      actor.role === "platform_admin" ||
+      actor.globalRole === "platform_admin"
+    ) {
       return "platform_admin";
+    }
+    if (
+      (actor.role === "content_worker" ||
+        actor.globalRole === "content_worker") &&
+      this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId
+    ) {
+      return "content_worker";
     }
     const membership = await this.organizationStore.findMembership(
       organizationId,
@@ -395,15 +412,22 @@ export class DocumentService {
       sizeBytes: input.sizeBytes,
     });
 
+    const inputCourseId = input.courseId ? (input.courseId as CourseId) : null;
     const sha256 = sha256Hex(input.data);
 
-    // Duplicate detection: same org + same sha256 → reuse existing document.
+    // Duplicate detection: same org + same sha256
     const existing = await this.store.findByOrganizationAndSha256(
       organizationId,
       sha256,
     );
     if (existing) {
-      return { document: toDocumentResource(existing), duplicate: true };
+      if (existing.courseId === inputCourseId) {
+        return { document: toDocumentResource(existing), duplicate: true };
+      }
+      throw new DomainError(
+        "conflict",
+        "این فایل قبلاً در دوره دیگری در این سازمان بارگذاری شده است. با توجه به ساختار سیستم، هر فایل تنها می‌تواند به یک دوره اختصاص یابد.",
+      );
     }
 
     const documentId = randomUUID() as DocumentId;
@@ -487,6 +511,7 @@ export class DocumentService {
     const isPrivileged =
       role === "organization_admin" ||
       role === "course_editor" ||
+      role === "content_worker" ||
       role === "teacher" ||
       role === "platform_admin" ||
       role === "support_agent";
@@ -577,6 +602,7 @@ export class DocumentService {
     const isPrivileged =
       role === "organization_admin" ||
       role === "course_editor" ||
+      role === "content_worker" ||
       role === "teacher" ||
       role === "platform_admin" ||
       role === "support_agent";
@@ -622,7 +648,14 @@ export class DocumentService {
       throw new DomainError("not_found", "Document not found");
     }
 
-    if (this.entitlementService) {
+    const role = await this.getMembershipRole(actor, organizationId);
+    const isStaff =
+      role === "organization_admin" ||
+      role === "course_editor" ||
+      role === "content_worker" ||
+      role === "platform_admin";
+
+    if (this.entitlementService && !isStaff) {
       const access = await this.entitlementService.checkAccess(actor, {
         userId: actor.userId,
         resourceType: "document",
@@ -866,8 +899,13 @@ export class DocumentService {
     organizationId: OrganizationId,
     documentId: DocumentId,
   ): Promise<void> {
-    if (actor.role !== "platform_admin") {
-      throw new DomainError("forbidden", "Only platform admins can use this operation");
+    if (
+      actor.role !== "platform_admin" &&
+      actor.globalRole !== "platform_admin" &&
+      actor.role !== "course_editor" &&
+      actor.globalRole !== "course_editor"
+    ) {
+      throw new DomainError("forbidden", "Only platform admins and course editors can use this operation");
     }
 
     const doc = await this.store.findByIdForOrganization(
@@ -921,8 +959,15 @@ export class DocumentService {
     organizationId: OrganizationId,
     documentId: DocumentId,
   ): Promise<{ stream: NodeJS.ReadableStream; sizeBytes: number; mimeType: string; originalName: string }> {
-    if (actor.role !== "platform_admin") {
-      throw new DomainError("forbidden", "Only platform admins can use this operation");
+    if (
+      actor.role !== "platform_admin" &&
+      actor.globalRole !== "platform_admin" &&
+      actor.role !== "content_worker" &&
+      actor.globalRole !== "content_worker" &&
+      actor.role !== "course_editor" &&
+      actor.globalRole !== "course_editor"
+    ) {
+      throw new DomainError("forbidden", "Only platform admins, content workers and course editors can use this operation");
     }
 
     const doc = await this.store.findByIdForOrganization(

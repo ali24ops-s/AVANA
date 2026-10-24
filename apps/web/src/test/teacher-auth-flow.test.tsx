@@ -110,7 +110,20 @@ describe("Teacher Entry, Auth & Security Test Suite", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByText("پنل استاد AVANA")).toBeInTheDocument();
+    // Headings are present
+    expect(screen.getByText("پنل حرفه‌ای استاد آوانا")).toBeInTheDocument();
+    expect(screen.getByText("کلاس‌ها و دانشجوها، یکجا")).toBeInTheDocument();
+    expect(screen.getByText("آزمون را دقیقاً مطابق نیازتان بسازید")).toBeInTheDocument();
+    expect(screen.getByText("از ارسال تا نمره‌دهی، یکجا")).toBeInTheDocument();
+    expect(screen.getByText("عملکرد دانشجوها را بهتر ببینید")).toBeInTheDocument();
+
+    // Badges/labels above headings are removed
+    expect(screen.queryByText("پنل استاد AVANA")).not.toBeInTheDocument();
+    expect(screen.queryByText("مدیریت کلاس‌ها")).not.toBeInTheDocument();
+    expect(screen.queryByText("ساخت آزمون")).not.toBeInTheDocument();
+    expect(screen.queryByText("تکلیف و بازخورد")).not.toBeInTheDocument();
+    expect(screen.queryByText("تحلیل نتایج")).not.toBeInTheDocument();
+
     expect(
       screen.getByText("کلاس، محتوای آموزشی، تکلیف و آزمون‌هایتان را در یک محیط یکپارچه مدیریت کنید."),
     ).toBeInTheDocument();
@@ -184,8 +197,9 @@ describe("Teacher Entry, Auth & Security Test Suite", () => {
     expect(screen.getByText("Teacher Platform Dashboard")).toBeInTheDocument();
   });
 
-  it("Scenario 5: Authorized organization_admin accesses /teacher successfully", () => {
+  it("Scenario 5: User with role='organization_admin' alone is blocked from /teacher by TeacherRouteGuard", () => {
     mockCurrentUser = { id: "org-admin-1", email: "admin@test.com", role: "organization_admin" };
+    mockUserMemberships = [{ organization_id: "org-1", role: "organization_admin" }];
     mockIsAuthenticated = true;
 
     render(
@@ -198,7 +212,10 @@ describe("Teacher Entry, Auth & Security Test Suite", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Teacher Platform Dashboard")).toBeInTheDocument();
+    expect(screen.queryByText("Teacher Platform Dashboard")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("برای استفاده از پنل استاد، ابتدا باید به‌عنوان استاد ثبت‌نام کنید."),
+    ).toBeInTheDocument();
   });
 
   it("Scenario 6: Authorized platform_admin accesses /teacher successfully", () => {
@@ -353,7 +370,7 @@ describe("Teacher Entry, Auth & Security Test Suite", () => {
   // -------------------------------------------------------------------------
   // 12. Landing Page Navigation and Mobile Drawer
   // -------------------------------------------------------------------------
-  it("Scenario 14: Landing page renders 'برای اساتید' in navigation and teacher CTA", () => {
+  it("Scenario 14: Landing page renders 'برای اساتید' in navigation and removes teacher CTA from body", () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <MemoryRouter initialEntries={["/"]}>
@@ -367,11 +384,11 @@ describe("Teacher Entry, Auth & Security Test Suite", () => {
     // Desktop nav link
     expect(screen.getByText("برای اساتید")).toBeInTheDocument();
 
-    // Teacher CTA Section
-    expect(screen.getByText("استاد هستید؟")).toBeInTheDocument();
+    // Teacher CTA Section should not be rendered in the body
+    expect(screen.queryByText("استاد هستید؟")).not.toBeInTheDocument();
     expect(
-      screen.getByText("کلاس‌ها و آزمون‌های خود را در AVANA مدیریت کنید."),
-    ).toBeInTheDocument();
+      screen.queryByText("کلاس‌ها و آزمون‌های خود را در AVANA مدیریت کنید."),
+    ).not.toBeInTheDocument();
   });
 
   // -------------------------------------------------------------------------
@@ -486,6 +503,173 @@ describe("Teacher Entry, Auth & Security Test Suite", () => {
     await waitFor(() => {
       expect(screen.getByText("Teacher Dashboard")).toBeInTheDocument();
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // 16. Student with personal organization_admin role blocked from /teacher
+  // -------------------------------------------------------------------------
+  it("Scenario 16: Authenticated student with personal organization_admin membership attempting to access /teacher is blocked by TeacherRouteGuard", () => {
+    // When effectiveRole from server is organization_admin because of the membership
+    mockCurrentUser = {
+      id: "student-personal-admin",
+      email: "student@test.com",
+      role: "organization_admin",
+      teacherStatus: "approved",
+    };
+    mockUserMemberships = [
+      { organization_id: "personal-org-1", role: "organization_admin" },
+    ];
+    mockIsAuthenticated = true;
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={["/teacher"]}>
+          <Routes>
+            <Route
+              path="/teacher"
+              element={
+                <TeacherRouteGuard>
+                  <div>Teacher Platform Private Area</div>
+                </TeacherRouteGuard>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByText("Teacher Platform Private Area")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("برای استفاده از پنل استاد، ابتدا باید به‌عنوان استاد ثبت‌نام کنید."),
+    ).toBeInTheDocument();
+  });
+
+  it("Scenario 17: Regular student with legacy teacher_status='approved' is NOT granted teacher access", () => {
+    mockCurrentUser = {
+      id: "student-legacy-approved",
+      email: "student-legacy@test.com",
+      role: "student",
+      teacherStatus: "approved",
+    };
+    mockUserMemberships = [
+      { organization_id: "org-student", role: "student" },
+    ];
+    mockIsAuthenticated = true;
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={["/teacher"]}>
+          <Routes>
+            <Route
+              path="/teacher"
+              element={
+                <TeacherRouteGuard>
+                  <div>Teacher Platform Private Area</div>
+                </TeacherRouteGuard>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByText("Teacher Platform Private Area")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("برای استفاده از پنل استاد، ابتدا باید به‌عنوان استاد ثبت‌نام کنید."),
+    ).toBeInTheDocument();
+  });
+
+  it("Scenario 18: Authenticated teacher with role='teacher' and teacherStatus='approved' is granted access", () => {
+    mockCurrentUser = {
+      id: "verified-teacher",
+      email: "prof@test.com",
+      role: "teacher",
+      teacherStatus: "approved",
+    };
+    mockUserMemberships = [
+      { organization_id: "school-org", role: "teacher" },
+    ];
+    mockIsAuthenticated = true;
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={["/teacher"]}>
+          <Routes>
+            <Route
+              path="/teacher"
+              element={
+                <TeacherRouteGuard>
+                  <div>Teacher Platform Private Area</div>
+                </TeacherRouteGuard>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Teacher Platform Private Area")).toBeInTheDocument();
+  });
+
+  it("Scenario 19: Organization admin who ALSO holds a teacher membership IS granted teacher access", () => {
+    mockCurrentUser = {
+      id: "org-admin-and-teacher",
+      email: "orgteacher@test.com",
+      role: "organization_admin",
+    };
+    mockUserMemberships = [
+      { organization_id: "org-1", role: "organization_admin" },
+      { organization_id: "org-2", role: "teacher" },
+    ];
+    mockIsAuthenticated = true;
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={["/teacher"]}>
+          <Routes>
+            <Route
+              path="/teacher"
+              element={
+                <TeacherRouteGuard>
+                  <div>Teacher Platform Private Area</div>
+                </TeacherRouteGuard>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Teacher Platform Private Area")).toBeInTheDocument();
+  });
+
+  it("Scenario 20: Platform admin accessing direct nested route /teacher/classrooms is granted access", () => {
+    mockCurrentUser = {
+      id: "platform-admin-user",
+      email: "admin@avana.org",
+      role: "platform_admin",
+    };
+    mockUserMemberships = [];
+    mockIsAuthenticated = true;
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={["/teacher/classrooms"]}>
+          <Routes>
+            <Route
+              path="/teacher/*"
+              element={
+                <TeacherRouteGuard>
+                  <div>Teacher Nested Classrooms Area</div>
+                </TeacherRouteGuard>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Teacher Nested Classrooms Area")).toBeInTheDocument();
   });
 });
 

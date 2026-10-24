@@ -75,6 +75,7 @@ export type AuditAction =
   | "course_publication.approved"
   | "course_publication.rejected"
   | "admin.reset_user_devices"
+  | "admin.delete_user"
   | "user_device.revoked"
   | "wallet.credited"
   | "wallet.debited"
@@ -86,7 +87,8 @@ export type AuditAction =
   | "referral.attached"
   | "referral.qualified"
   | "referral.rewarded"
-  | "referral.abuse_rejected";
+  | "referral.abuse_rejected"
+  | "content_report.status_changed";
 
 export type AuditEntityType =
   | "organization"
@@ -116,7 +118,8 @@ export type AuditEntityType =
   | "wallet"
   | "referral"
   | "support_ticket"
-  | "feedback";
+  | "feedback"
+  | "content_report";
 
 /**
  * Structured audit event payload.
@@ -1055,3 +1058,21 @@ export function auditTeacherRequested(
   };
 }
 
+export function auditContentReportStatusChanged(
+  actorId: UserId,
+  reportId: string,
+  oldStatus: string,
+  newStatus: string,
+  lessonId?: string,
+  courseId?: string | null,
+): AuditEvent {
+  return {
+    actorId,
+    organizationId: null,
+    action: "content_report.status_changed",
+    entityType: "content_report",
+    entityId: reportId,
+    details: { oldStatus, newStatus, lessonId, courseId },
+    createdAt: utcNow(),
+  };
+}

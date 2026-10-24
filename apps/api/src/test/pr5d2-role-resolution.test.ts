@@ -153,7 +153,7 @@ describe("PR5-D2: Organization membership role resolution", () => {
   describe("1. organization_admin membership", () => {
     it("exposes organization_admin membership in /v1/me and /v1/auth/sign-in after creating an org", async () => {
       const app = await buildApp();
-      const { token, signInRole, signInMemberships } = await signIn(
+      const { token, userId, signInRole, signInMemberships } = await signIn(
         app,
         "admin@example.com",
       );
@@ -163,8 +163,9 @@ describe("PR5-D2: Organization membership role resolution", () => {
       expect(signInRole).toBe("student");
       expect(signInMemberships).toEqual([]);
 
-      // Creating an org makes the user an organization_admin
-      await createOrg(app, token, "Admin Org");
+      // Creating an org and setting organization_admin membership
+      const org = await createOrg(app, token, "Admin Org");
+      orgStore.setMembershipRole(org.id, userId, "organization_admin");
       const me = await getMe(app, token);
       expect(me.user.role).toBe("organization_admin");
       expect(me.memberships).toHaveLength(1);

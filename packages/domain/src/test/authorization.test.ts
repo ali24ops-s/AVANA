@@ -13,6 +13,7 @@ import {
   defaultPolicy,
   buildActor,
 } from "../authorization/policy.js";
+import { resolveEffectiveRole, Roles } from "../roles.js";
 import type {
   Actor,
   AuthAction,
@@ -193,6 +194,10 @@ describe("RoleBasedPolicy", () => {
       expect(policy.check("course:archive", actor, defaultContext)).toBe(false);
       expect(policy.check("course:delete", actor, defaultContext)).toBe(false);
     });
+
+    it("allows content export", () => {
+      expect(policy.check("content:export", actor, defaultContext)).toBe(true);
+    });
   });
 
   describe("organization_admin role", () => {
@@ -254,16 +259,61 @@ describe("RoleBasedPolicy", () => {
     });
   });
 
-  describe("reserved higher roles", () => {
-    it.each(["support_agent"])(
-      "does not grant Sprint 1 permissions to %s",
-      (role) => {
-        const actor = makeActor(role);
-        for (const action of allActions) {
-          expect(policy.check(action, actor, defaultContext)).toBe(false);
-        }
-      },
-    );
+  describe("support_agent role", () => {
+    const actor = makeActor("support_agent");
+
+    it("allows support, feedback, content report and bounded repair permissions", () => {
+      const allowedSupportActions: AuthAction[] = [
+        "support:read",
+        "support:reply",
+        "support:manage",
+        "feedback:read",
+        "feedback:reply",
+        "feedback:manage",
+        "content_report:read",
+        "content_report:manage",
+        "content_repair:preview",
+        "content_repair:apply",
+      ];
+      for (const action of allowedSupportActions) {
+        expect(policy.check(action, actor, defaultContext)).toBe(true);
+      }
+    });
+
+    it("denies course authoring, content editing and administrative actions", () => {
+      const deniedActions: AuthAction[] = [
+        "org:create",
+        "org:update",
+        "org:delete",
+        "org:list_members",
+        "org:manage_memberships",
+        "course:create",
+        "course:read",
+        "course:update",
+        "course:archive",
+        "course:delete",
+        "course:manage_memberships",
+        "learning:read",
+        "study:read",
+        "content:write",
+        "content:publish",
+        "content:generate",
+        "content:review",
+        "content:accept",
+        "content:reject",
+        "content:regenerate",
+        "content:edit",
+        "content:export",
+      ];
+      for (const action of deniedActions) {
+        expect(policy.check(action, actor, defaultContext)).toBe(false);
+      }
+    });
+
+    it("resolveEffectiveRole correctly resolves support_agent globalRole", () => {
+      expect(resolveEffectiveRole(Roles.support_agent)).toBe(Roles.support_agent);
+      expect(resolveEffectiveRole(Roles.support_agent, [Roles.student])).toBe(Roles.support_agent);
+    });
   });
 
   describe("unknown role", () => {

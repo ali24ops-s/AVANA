@@ -589,13 +589,13 @@ describe("P2 Content Pagination & Deterministic Sorting", () => {
       id: "88888888-0000-4000-8000-000000000001",
     });
 
-    // 1. Student in Org A cannot accept content in Org B (404/403)
+    // 1. Student in Org A cannot accept content in Org B (403 forbidden)
     const resCrossAccept = await app.inject({
       method: "POST",
       url: `/v1/organizations/${orgB}/courses/${courseId}/generated/${itemInB}/accept`,
       cookies: { avana_session: studentToken },
     });
-    expect(resCrossAccept.statusCode).toBe(404);
+    expect(resCrossAccept.statusCode).toBe(403);
 
     // 2. Student cannot list organization members (403 forbidden)
     const resListMembers = await app.inject({

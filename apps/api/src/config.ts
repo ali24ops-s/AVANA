@@ -18,6 +18,7 @@ export type SessionConfig = {
   sameSite: "lax" | "strict" | "none";
   maxAgeMs: number;
   path: string;
+  domain?: string;
 };
 
 export type SecurityConfig = {
@@ -54,6 +55,7 @@ export type ApiConfig = {
     secure: boolean;
     sameSite: "lax" | "strict" | "none";
     path: string;
+    domain?: string;
   };
   database: {
     url: string;
@@ -345,6 +347,18 @@ function parseCookieSecure(env: NodeJS.ProcessEnv, fallback: boolean): boolean {
   return fallback;
 }
 
+function parseCookieDomain(
+  env: NodeJS.ProcessEnv,
+  fallback: string | undefined,
+): string | undefined {
+  const v = env.AVANA_COOKIE_DOMAIN;
+  if (v !== undefined) {
+    const trimmed = v.trim();
+    return trimmed !== "" ? trimmed : undefined;
+  }
+  return fallback;
+}
+
 function parseSessionMaxAge(env: NodeJS.ProcessEnv, fallback: number): number {
   const raw = env.AVANA_SESSION_MAX_AGE_MS;
   if (raw !== undefined && raw.trim() !== "") {
@@ -464,6 +478,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
 
   const isProd = nodeEnv === "production";
   const cookieSecure = parseCookieSecure(env, isProd);
+  const cookieDomain = parseCookieDomain(env, isProd ? ".aavana.ir" : undefined);
   const corsOrigins = getOptionalString(
     env,
     "AVANA_CORS_ORIGIN",
@@ -537,6 +552,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       sameSite: "lax",
       maxAgeMs: parseSessionMaxAge(env, 14 * 24 * 60 * 60 * 1000), // 14 days default
       path: "/",
+      domain: cookieDomain,
     },
     csrf: {
       cookieName: getOptionalString(env, "AVANA_CSRF_COOKIE", "avana_csrf"),
@@ -545,6 +561,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       secure: cookieSecure,
       sameSite: isProd ? "strict" : "lax",
       path: "/",
+      domain: cookieDomain,
     },
     database: {
       url: databaseUrl,

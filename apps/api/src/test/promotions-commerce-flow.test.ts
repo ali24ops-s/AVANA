@@ -631,4 +631,169 @@ describe("Promotions & Coupons Commerce Integration Flow", () => {
       ),
     ).rejects.toThrow("کیف پول");
   });
+
+  it("13. Card-to-Card with Coupon: Initial reservation has orderId=null, binds to real orderId on success, rejects dummy/invalid orderId", async () => {
+    // 30% discount on 100k course -> payable 70k
+    await promotionService.createPromotion({
+      name: "تخفیف سی درصدی اختصاصی",
+      benefitType: "percentage_discount",
+      benefitValue: 30,
+      totalUsageLimit: 5,
+      code: "C2C30PCT",
+      active: true,
+    });
+
+    // 1. Check evaluateAndReservePromotion directly: initial reservation MUST have orderId = null
+    const res = await promotionService.evaluateAndReservePromotion({
+      userId: user1.userId,
+      code: "C2C30PCT",
+      orderAmount: 100_000,
+      productId: "prod_course_100k",
+    });
+    expect(res.redemptionId).toBeDefined();
+    expect(res.payableAmount).toBe(70_000);
+    expect(res.discountAmount).toBe(30_000);
+
+    const initialRedemption = promotionService.memoryRedemptions.find(
+      (r) => r.id === res.redemptionId,
+    );
+    expect(initialRedemption).toBeDefined();
+    expect(initialRedemption?.orderId).toBeNull(); // Must be NULL before order is created
+    expect(initialRedemption?.status).toBe("pending");
+
+    // 2. Linking with sentinel all-zeros or empty string MUST fail with DomainError
+    await expect(
+      promotionService.linkRedemptionToOrder(
+        res.redemptionId,
+        "00000000-0000-0000-0000-000000000000",
+      ),
+    ).rejects.toThrow("نامعتبر");
+
+    // 3. Submit real Card-to-Card payment with coupon code
+    const validC2c = await commerceService.submitCardToCardPayment(
+      user2,
+      {
+        productId: asProductId("prod_course_100k"),
+        amount: 70_000, // Correct discounted amount
+        trackingNumber: "TRK-REAL-ORDER-BIND",
+        sourceCardLast4: "7766",
+        couponCode: "C2C30PCT",
+      },
+      "req-c2c-order-bind",
+    );
+
+    expect(validC2c.orderId).toBeDefined();
+    expect(validC2c.paymentId).toBeDefined();
+
+    // Verify redemption is linked to the real orderId (not null, not all-zeros)
+    const linkedRedemption = promotionService.memoryRedemptions.find(
+      (r) => r.orderId === validC2c.orderId,
+    );
+    expect(linkedRedemption).toBeDefined();
+    expect(linkedRedemption?.orderId).toBe(validC2c.orderId);
+    expect(linkedRedemption?.orderId).not.toBe("00000000-0000-0000-0000-000000000000");
+    expect(linkedRedemption?.discountAmount).toBe(30_000);
+    expect(linkedRedemption?.orderFinalAmount).toBe(70_000);
+  });
+
+  it("14. Post-Reservation Failure Rollback: If submission fails after reservation, reservation is cancelled and user quota is not leaked", async () => {
+    // 1-use per user limit coupon
+    await promotionService.createPromotion({
+      name: "کد یکبار مصرف هر کاربر",
+      benefitType: "fixed_discount",
+      benefitValue: 20_000,
+      totalUsageLimit: 10,
+      perUserUsageLimit: 1,
+      code: "ONCE20K",
+      active: true,
+    });
+
+    // 1. Submit Card-to-Card with invalid tracking number (< 3 chars)
+    // Reservation is evaluated in step 3, but tracking validation throws in step 4
+    await expect(
+      commerceService.submitCardToCardPayment(
+        user1,
+        {
+          productId: asProductId("prod_course_100k"),
+          amount: 80_000, // 100k - 20k
+          trackingNumber: "1", // Invalid tracking number!
+          sourceCardLast4: "1234",
+          couponCode: "ONCE20K",
+        },
+        "req-fail-tracking",
+      ),
+    ).rejects.toThrow("نامعتبر");
+
+    // The failed attempt must have cancelled its reservation
+    const redemptions = promotionService.memoryRedemptions.filter(
+      (r) => r.userId === user1.userId,
+    );
+    const lastRed = redemptions[redemptions.length - 1];
+    expect(lastRed.status).toBe("cancelled");
+
+    // 2. User immediately retries with valid tracking number — MUST succeed (not blocked by quota!)
+    const retryRes = await commerceService.submitCardToCardPayment(
+      user1,
+      {
+        productId: asProductId("prod_course_100k"),
+        amount: 80_000,
+        trackingNumber: "TRK-VALID-RETRY-123",
+        sourceCardLast4: "1234",
+        couponCode: "ONCE20K",
+      },
+      "req-retry-success",
+    );
+
+    expect(retryRes.orderId).toBeDefined();
+    expect(retryRes.paymentId).toBeDefined();
+
+    // 3. User tries a SECOND time after successful submission — MUST be rejected due to per-user limit
+    await expect(
+      commerceService.submitCardToCardPayment(
+        user1,
+        {
+          productId: asProductId("prod_course_100k"),
+          amount: 80_000,
+          trackingNumber: "TRK-SECOND-USE-999",
+          sourceCardLast4: "1234",
+          couponCode: "ONCE20K",
+        },
+        "req-second-use",
+      ),
+    ).rejects.toThrow("قبلاً از این کد تخفیف استفاده کرده‌اید");
+  });
+
+  it("15. Amount Mismatch with Coupon: Rejects manipulated payment amount and releases reservation", async () => {
+    await promotionService.createPromotion({
+      name: "تخفیف ۱۰ هزار تومانی",
+      benefitType: "fixed_discount",
+      benefitValue: 10_000,
+      totalUsageLimit: 1,
+      code: "FIXED10K",
+      active: true,
+    });
+
+    // User claims coupon but inputs wrong amount (100k instead of 90k)
+    await expect(
+      commerceService.submitCardToCardPayment(
+        user1,
+        {
+          productId: asProductId("prod_course_100k"),
+          amount: 100_000, // Should be 90,000!
+          trackingNumber: "TRK-WRONG-AMOUNT",
+          sourceCardLast4: "4321",
+          couponCode: "FIXED10K",
+        },
+        "req-wrong-amt",
+      ),
+    ).rejects.toThrow("مطابقت ندارد");
+
+    // Coupon slot with totalUsageLimit=1 must be released so user2 can use it
+    const valUser2 = await promotionService.validatePromotion({
+      code: "FIXED10K",
+      userId: user2.userId,
+      items: [{ productId: "prod_course_100k", productType: "course", unitPrice: 100_000, quantity: 1 }],
+    });
+    expect(valUser2.valid).toBe(true);
+  });
 });

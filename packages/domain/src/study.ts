@@ -12,6 +12,9 @@
  *  - Reviews and quiz attempts are synchronous (no queue).
  */
 
+import { toPersianDigits } from "./persian-numbers.js";
+import type { QuizQuestionDifficulty } from "./generation.js";
+
 // ---------------------------------------------------------------------------
 // Flashcard review scheduling
 // ---------------------------------------------------------------------------
@@ -84,8 +87,6 @@ export function isFlashcardGraduatedInSession(
 
   return false;
 }
-
-import { toPersianDigits } from "./persian-numbers.js";
 
 /**
  * The minimal scheduling state persisted on a flashcard.
@@ -259,6 +260,7 @@ export type QuizQuestionAnswerInput = {
 export type QuizAttemptInput = {
   quizId: string;
   answers: QuizQuestionAnswerInput[];
+  questionIds?: string[];
 };
 
 /**
@@ -462,5 +464,109 @@ export interface QuestionSourceHierarchy {
   lesson: QuestionLessonInfo | null;
   chapter: QuestionChapterInfo | null;
   course?: QuestionCourseInfo | null;
+}
+
+// ---------------------------------------------------------------------------
+// Quiz Filter & Balanced Session Distribution
+// ---------------------------------------------------------------------------
+
+export type QuizQuestionFilterCount = 10 | 20 | 30;
+
+export interface FilterAndDistributeOptions {
+  count?: number | null;
+  difficulty?: QuizQuestionDifficulty | null;
+}
+
+/**
+ * Filters quiz questions by difficulty level and applies balanced session
+ * distribution when a question count limit is selected.
+ *
+ * Rules:
+ * 1. Difficulty filter is applied first (strictly matches valid difficulty).
+ * 2. Questions without difficulty are only included when no difficulty filter is active.
+ * 3. Eligible questions are grouped by session (lesson). Questions without a session ID
+ *    are grouped under '__unassigned__' and fairly included rather than silently dropped.
+ * 4. Target count is distributed across sessions using fair round-robin quota allocation.
+ * 5. Shortfall in any session spills over proportionally to other sessions with available questions.
+ * 6. Preserves the original relative ordering of questions from the input.
+ * 7. Does not mutate the input array and produces deterministic results.
+ */
+export function filterAndDistributeQuestions<
+  T extends {
+    id: string;
+    difficulty?: string | null;
+    lesson?: { id: string; title?: string } | null;
+    lessonId?: string | null;
+    topic?: string | null;
+  },
+>(questions: readonly T[], options?: FilterAndDistributeOptions): T[] {
+  if (!questions || questions.length === 0) return [];
+
+  const targetDifficulty = options?.difficulty;
+  const targetCount = options?.count;
+
+  // 1. Difficulty filtering
+  let filteredByDifficulty: T[];
+  if (targetDifficulty) {
+    filteredByDifficulty = questions.filter((q) => q.difficulty === targetDifficulty);
+  } else {
+    filteredByDifficulty = [...questions];
+  }
+
+  // 2. Count & balanced session distribution
+  if (!targetCount || targetCount <= 0 || filteredByDifficulty.length <= targetCount) {
+    return filteredByDifficulty;
+  }
+
+  // Group by session
+  const sessionMap = new Map<string, T[]>();
+  for (const q of filteredByDifficulty) {
+    const key =
+      q.lesson?.id ||
+      (q as { lesson_id?: string | null }).lesson_id ||
+      q.lessonId ||
+      q.topic ||
+      "__unassigned__";
+    const existing = sessionMap.get(key);
+    if (existing) {
+      existing.push(q);
+    } else {
+      sessionMap.set(key, [q]);
+    }
+  }
+
+  const groups = Array.from(sessionMap.values());
+  const numGroups = groups.length;
+  if (numGroups === 0) return [];
+
+  // Round-robin balanced quota allocation
+  const groupPickedCount = new Array<number>(numGroups).fill(0);
+  let totalPicked = 0;
+
+  let madeProgress = true;
+  while (totalPicked < targetCount && madeProgress) {
+    madeProgress = false;
+    for (let g = 0; g < numGroups; g++) {
+      if (totalPicked >= targetCount) break;
+      if (groupPickedCount[g] < groups[g].length) {
+        groupPickedCount[g]++;
+        totalPicked++;
+        madeProgress = true;
+      }
+    }
+  }
+
+  // Collect picked question IDs
+  const pickedIds = new Set<string>();
+  for (let g = 0; g < numGroups; g++) {
+    const group = groups[g];
+    const take = groupPickedCount[g];
+    for (let i = 0; i < take; i++) {
+      pickedIds.add(group[i].id);
+    }
+  }
+
+  // Preserve original relative order
+  return filteredByDifficulty.filter((q) => pickedIds.has(q.id));
 }
 

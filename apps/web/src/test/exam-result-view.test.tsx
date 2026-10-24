@@ -207,14 +207,27 @@ describe("ExamResultView Component", () => {
       />
     );
 
-    // Q1: shows Chapter — Lesson
+    // Source info is collapsed by default
+    expect(screen.queryByText("درس: فارماکوکینتیک — جذب داروها")).toBeNull();
+
+    // Toggle buttons exist only for Q1 and Q2 (which have genuine source data)
+    const sourceToggleBtns = screen.getAllByRole("button", { name: /مشاهده مبحث مرتبط/ });
+    expect(sourceToggleBtns.length).toBe(2);
+
+    // Q3 has no source data -> no toggle and no fallback "درس: نامشخص"
+    expect(screen.queryByText("درس: نامشخص")).toBeNull();
+
+    // Click toggle on Q1 to expand
+    fireEvent.click(sourceToggleBtns[0]);
     expect(screen.getByText("درس: فارماکوکینتیک — جذب داروها")).toBeDefined();
 
-    // Q2: shows Lesson only
-    expect(screen.getByText("درس: مکانیسم‌های گیرنده‌ای")).toBeDefined();
+    // Click again to collapse
+    fireEvent.click(sourceToggleBtns[0]);
+    expect(screen.queryByText("درس: فارماکوکینتیک — جذب داروها")).toBeNull();
 
-    // Q3: shows fallback
-    expect(screen.getByText("درس: نامشخص")).toBeDefined();
+    // Click toggle on Q2
+    fireEvent.click(sourceToggleBtns[1]);
+    expect(screen.getByText("درس: مکانیسم‌های گیرنده‌ای")).toBeDefined();
   });
 
   it("handles retake (شرکت مجدد در آزمون) and return to config actions correctly", () => {
@@ -379,5 +392,78 @@ describe("ExamResultView Component", () => {
     // Should fall back to clean lesson title "متابولیسم کبدی" and "مباحث جامع"
     expect(screen.getAllByText("متابولیسم کبدی").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("مباحث جامع").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("renders question number and question prompt in one horizontal flex row with shrink-0", () => {
+    renderWithRouter(
+      <ExamResultView
+        result={mockResult}
+        onRetry={vi.fn()}
+        onReturnToConfig={vi.fn()}
+      />
+    );
+
+    // Q1 number pill
+    const q1Pill = screen.getByText("سوال ۱");
+    expect(q1Pill).toBeInTheDocument();
+    expect(q1Pill.className).toContain("shrink-0");
+    expect(q1Pill.className).toContain("whitespace-nowrap");
+
+    // Parent container is a flex container with text-start
+    const parent = q1Pill.parentElement;
+    expect(parent).toBeInTheDocument();
+    expect(parent?.className).toContain("flex");
+    expect(parent?.className).toContain("items-start");
+
+    // Sibling element contains question prompt with flex-1
+    const promptContainer = parent?.querySelector(".flex-1");
+    expect(promptContainer).toBeInTheDocument();
+    expect(promptContainer?.textContent).toContain("مکانیسم اثر انالاپریل چیست؟");
+  });
+
+  it("opens AI mentor dialog with question context and handles closing via close button or Escape", () => {
+    renderWithRouter(
+      <ExamResultView
+        result={mockResult}
+        onRetry={vi.fn()}
+        onReturnToConfig={vi.fn()}
+      />
+    );
+
+    // Initially mentor modal is closed
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    // Find mentor buttons for each question
+    const mentorButtons = screen.getAllByRole("button", {
+      name: /راهنمایی از منتور هوشمند/,
+    });
+    expect(mentorButtons.length).toBe(mockQuestions.length);
+
+    // Click mentor button for Q1
+    fireEvent.click(mentorButtons[0]);
+
+    // Dialog is now open
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    expect(dialog.getAttribute("aria-label")).toContain("راهنمای منتور هوشمند - سوال ۱");
+
+    // Question content is present in the mentor modal context
+    expect(screen.getByText(/تحلیل سوال با منتور هوشمند/)).toBeInTheDocument();
+
+    // Close via Escape key
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    // Open Q2 mentor
+    fireEvent.click(mentorButtons[1]);
+    const dialog2 = screen.getByRole("dialog");
+    expect(dialog2).toBeInTheDocument();
+    expect(dialog2.getAttribute("aria-label")).toContain("راهنمای منتور هوشمند - سوال ۲");
+
+    // Close via backdrop click
+    const backdrop = document.getElementById("mentor-modal-overlay");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

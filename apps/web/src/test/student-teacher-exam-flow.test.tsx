@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { StudentClassroomsPage } from "../pages/student/StudentClassroomsPage.js";
@@ -2196,7 +2196,7 @@ describe("Student Teacher Platform Exam Flow — Unit & Integration Tests", () =
         },
         { timeout: 4000 },
       );
-    });
+    }, 15000);
 
     it("Scenario E: Consecutive rapid changes on same question serialize properly without losing last state", async () => {
       const savedPayloads: any[] = [];

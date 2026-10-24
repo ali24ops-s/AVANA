@@ -401,7 +401,7 @@ export class InMemoryUserStore implements UserStore {
         delete userCopy.passwordHash;
         const globalRole = user.globalRole === "platform_admin" || user.role === "platform_admin" ? "platform_admin" : (user.globalRole ?? null);
         const role = await this.resolveRole(user.id, globalRole);
-        return { ...userCopy, role, globalRole };
+        return { ...userCopy, role, globalRole, teacherStatus: user.teacherStatus ?? "approved" };
       }
     }
     return undefined;
@@ -415,7 +415,7 @@ export class InMemoryUserStore implements UserStore {
         delete userCopy.passwordHash;
         const globalRole = user.globalRole === "platform_admin" || user.role === "platform_admin" ? "platform_admin" : (user.globalRole ?? null);
         const role = await this.resolveRole(user.id, globalRole);
-        return { ...userCopy, role, globalRole };
+        return { ...userCopy, role, globalRole, teacherStatus: user.teacherStatus ?? "approved" };
       }
     }
     return undefined;
@@ -429,7 +429,7 @@ export class InMemoryUserStore implements UserStore {
       if (user.email.trim().toLowerCase() === norm) {
         const globalRole = user.globalRole === "platform_admin" || user.role === "platform_admin" ? "platform_admin" : (user.globalRole ?? null);
         const role = await this.resolveRole(user.id, globalRole);
-        return { ...user, role, globalRole };
+        return { ...user, role, globalRole, teacherStatus: user.teacherStatus ?? "approved" };
       }
     }
     return undefined;
@@ -442,7 +442,7 @@ export class InMemoryUserStore implements UserStore {
     delete userCopy.passwordHash;
     const globalRole = user.globalRole === "platform_admin" || user.role === "platform_admin" ? "platform_admin" : (user.globalRole ?? null);
     const role = await this.resolveRole(user.id, globalRole);
-    return { ...userCopy, role, globalRole };
+    return { ...userCopy, role, globalRole, teacherStatus: user.teacherStatus ?? "approved" };
   }
 
   async createFromVerifiedIdentity(identity: {
@@ -480,23 +480,27 @@ export class InMemoryUserStore implements UserStore {
     faculty?: string | null;
     department?: string | null;
     globalRole?: string | null;
+    teacherStatus?: "pending" | "approved" | "rejected";
   }): Promise<UserRecord> {
     const id = randomUUID() as UserId;
     const normEmail = params.email.trim().toLowerCase();
     const globalRole = params.globalRole ?? null;
     const role = resolveEffectiveRole(globalRole, []);
+    const teacherStatus = params.teacherStatus ?? "approved";
     const userWithHash = {
       id,
       email: normEmail,
       name: params.name,
       role,
       globalRole,
+      teacherStatus,
       phoneNumber: params.phoneNumber ?? null,
       major: params.major ?? null,
       university: params.university ?? null,
       faculty: params.faculty ?? null,
       department: params.department ?? null,
       passwordHash: params.passwordHash,
+      createdAt: (params as any).createdAt ?? new Date().toISOString(),
       emailVerifiedAt: null,
       emailVerified: false,
       phoneVerifiedAt: null,
@@ -509,16 +513,27 @@ export class InMemoryUserStore implements UserStore {
       name: params.name,
       role,
       globalRole,
+      teacherStatus,
       phoneNumber: params.phoneNumber ?? null,
       major: params.major ?? null,
       university: params.university ?? null,
       faculty: params.faculty ?? null,
       department: params.department ?? null,
+      createdAt: userWithHash.createdAt,
       emailVerifiedAt: null,
       emailVerified: false,
       phoneVerifiedAt: null,
       phoneVerified: false,
     };
+  }
+
+  async createUser(user: UserRecord & { passwordHash?: string | null }): Promise<UserRecord> {
+    const userCopy = {
+      ...user,
+      createdAt: user.createdAt ?? new Date().toISOString(),
+    };
+    this.users.set(user.id, userCopy);
+    return userCopy;
   }
 
   async setEmailVerified(userId: UserId): Promise<void> {

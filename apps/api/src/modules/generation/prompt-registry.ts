@@ -276,6 +276,54 @@ export const EDUCATIONAL_CHART_POLICY = [
   `\`\`\``,
 ].join("\n");
 
+// ---------------------------------------------------------------------------
+// 0.5. Canonical Multi-Source Role Governance & Decision Hierarchy
+// ---------------------------------------------------------------------------
+
+export const CANONICAL_SOURCE_ROLE_GOVERNANCE_INSTRUCTIONS = [
+  `================================================================================`,
+  `CANONICAL SOURCE ROLE GOVERNANCE & 5-TIER DECISION HIERARCHY`,
+  `================================================================================`,
+  `When multiple sources or roles are provided, the explicit role of each source file MUST be strictly observed. Under NO circumstances may secondary or supplementary sources dilute, override, or replace the primary lecture notes.`,
+  ``,
+  `1. PRIMARY NOTES (جزوه اصلی - Mandatory Backbone & Educational Spine):`,
+  `   - The primary notes determine the mandatory scope, curriculum, topics, and structure of all generated content.`,
+  `   - 100% COMPLETE COVERAGE IS MANDATORY: Every title, subtitle, core concept, mechanism, classification, table, example, exception, distinction, and high-yield fact in the primary notes MUST be covered in the final output.`,
+  `   - NO omission or truncation is permitted merely due to length, complexity, difficulty, or the existence of other reference sources.`,
+  `   - Reorganization, pedagogical rewriting, and clarification for better learning are encouraged, but MUST NEVER cause scientific or factual omissions from the primary notes.`,
+  `   - If a topic appears in the primary notes but is absent from all other reference materials, that topic MUST still be fully taught and retained.`,
+  `   - If the primary notes summarize a concept briefly, reference materials may enrich its explanation, but the core substance of the primary notes must be preserved.`,
+  `   - KEY PRINCIPLE: Full coverage of the primary notes is a strict requirement, not an optional preference.`,
+  ``,
+  `2. PRIMARY REFERENCE (رفرنس اصلی - Scientific Depth, Validation & Enrichment):`,
+  `   - Serves to explain difficult or ambiguous concepts, deepen scientific mechanisms, validate pharmacological accuracy, and fill vital curriculum gaps.`,
+  `   - Supplementary explanations from the primary reference must serve the learning goals of the primary notes, not veer off into unrelated textbook tangents.`,
+  `   - SCIENTIFIC CONFLICT MANAGEMENT: When lecture notes (primary_notes) and the authoritative textbook (primary_reference) disagree, do NOT silently drop, ignore, or replace either source. Explicitly highlight and address the scientific distinction using semantic callouts (e.g. '> **نکته تکمیلی / تفاوت دیدگاه علمی:** بر اساس رفرنس معتبر X ... اما در جزوه تدریس بر روی Y تأکید شده است.'), ensuring students understand the textbook standard while preserving the instructor's nuance.`,
+  `   - Avoid adding unnecessary peripheral details that bloat output volume without meaningful educational gain.`,
+  `   - KEY PRINCIPLE: The primary reference explains, deepens, and enriches; it NEVER replaces or overrides the primary lecture notes.`,
+  ``,
+  `3. SUPPLEMENTARY REFERENCE (رفرنس تکمیلی - Conditional & Selective Enrichment):`,
+  `   - RELEVANCE IS MANDATORY: Only material with clear, direct scientific and pedagogical relevance to the primary notes topics may be used.`,
+  `   - Any content, section, or chapter in the supplementary reference that is unrelated to the primary lesson scope MUST be ignored and discarded, no matter how scientifically sound or detailed it is.`,
+  `   - Do NOT introduce unrelated medical information, extra chapters, or redundant details that inflate content volume without genuine learning value.`,
+  `   - KEY PRINCIPLE: Direct pedagogical relevance is the absolute condition for using supplementary references; mere availability in the file is NOT a license to include it.`,
+  ``,
+  `4. EXAM QUESTION TEMPLATE (قالب سؤالات - Assessment Style & Cognitive Pattern Only):`,
+  `   - STRICT PROHIBITION: The exam question template is NOT an educational textbook or syllabus source. It MUST NEVER be used to dictate lesson topics, syllabus scope, flashcard facts, or review summary content.`,
+  `   - It is used EXCLUSIVELY for: question phrasing, question types, cognitive difficulty, clinical scenarios style, and plausible distractor construction in quizzes/exams.`,
+  `   - Absence of a topic in the question template DOES NOT mean it is unimportant or can be omitted from lessons, flashcards, or exams.`,
+  `   - Repetition of a topic in the question template is guidance for exam practice design, NOT a license to drop or diminish other topics in the primary notes.`,
+  `   - Factual claims, correct answers, and scientific truth in quizzes MUST be grounded strictly in the educational lesson chunks (primary notes & reference), NOT verbatim copied from question templates.`,
+  `   - KEY PRINCIPLE: The question template defines the assessment style, NEVER the curriculum scope.`,
+  ``,
+  `5. 5-TIER DECISION HIERARCHY (MANDATORY IN ALL PHASES):`,
+  `   Step 1. Full coverage of primary notes: Define what MUST be taught and covered.`,
+  `   Step 2. Deepen and clarify with primary reference: Explain difficult concepts and address scientific distinctions.`,
+  `   Step 3. Selective enrichment with supplementary reference: Add ONLY directly relevant and helpful insights.`,
+  `   Step 4. Extract exam pattern from question template: Identify style, depth, cognitive level, and distractors for quizzes.`,
+  `   Step 5. Final content synthesis: Produce unified content grounded firmly in the primary notes, with secondary sources serving their proper complementary roles.`,
+  `================================================================================`,
+].join("\n");
 
 // ---------------------------------------------------------------------------
 // 1. Content Planning & Topic Decomposition
@@ -610,14 +658,10 @@ export function getContentPlanningTemplate(): string {
     ``,
     `⸻`,
     ``,
-    `13.7. MULTI-SOURCE SYNTHESIS & UNIFIED CURRICULUM`,
-    `When source chunks originate from multiple documents (labeled as PRIMARY and SUPPLEMENTARY):`,
-    `* All sources form a single, unified educational curriculum.`,
-    `* The PRIMARY source (Source 1 / order 0) dictates the foundational structure, outline, and pedagogical sequence.`,
-    `* SUPPLEMENTARY sources (Sources 2+ / order > 0) enrich the curriculum with deeper explanations, clinical nuances, and exercise context.`,
-    `* DEDUPLICATION: When overlapping or identical concepts appear in multiple sources, MERGE them into a SINGLE coherent concept/session. Do NOT create parallel or duplicated sessions for the same topic.`,
-    `* ATTRIBUTION: For merged sessions and concepts, include relevantChunkIds from ALL sources that discuss that concept so downstream generation can draw upon them.`,
-    `* CONFLICT RESOLUTION: In the event of minor discrepancies between sources, prioritize the PRIMARY source for the main pedagogical definition and note supplementary variations.`,
+    `13.7. MULTI-SOURCE SYNTHESIS & 4-ROLE CURRICULUM GOVERNANCE`,
+    CANONICAL_SOURCE_ROLE_GOVERNANCE_INSTRUCTIONS,
+    `* DEDUPLICATION: When overlapping concepts appear in multiple sources, MERGE them into a SINGLE coherent session grounded firmly in the primary notes. Do NOT create parallel sessions for identical subjects.`,
+    `* ATTRIBUTION: For merged sessions and concepts, include relevantChunkIds from ALL applicable sources so downstream stages have complete context.`,
     ``,
     `⸻`,
     ``,
@@ -923,6 +967,11 @@ export function buildLessonGenerationUserPrompt(
     `Do not present supplementary information as if it were directly stated in the source.`,
     ``,
     `Do not add unrelated medical information merely to make the lesson longer.`,
+    ``,
+    `⸻`,
+    ``,
+    `7.1. MULTI-SOURCE ROLES & SCIENTIFIC CONFLICT RESOLUTION`,
+    CANONICAL_SOURCE_ROLE_GOVERNANCE_INSTRUCTIONS,
     ``,
     `⸻`,
     ``,
@@ -1298,6 +1347,9 @@ export function buildLessonBatchGenerationUserPrompt(
     `  * "contentMarkdown": string (the comprehensive educational lesson in Persian Markdown)`,
     `  * "citationChunkIds": string[] (array of chunk IDs cited for this session)`,
     `- Ground each session ONLY in its assigned relevant source chunks. Do NOT mix concepts across sessions.`,
+    ``,
+    `⸻`,
+    CANONICAL_SOURCE_ROLE_GOVERNANCE_INSTRUCTIONS,
     ``,
     `⸻`,
     ``,
@@ -1976,12 +2028,12 @@ export function getFlashcardGenerationTemplate(): string {
     `- or leave major concepts of this session for another generation request.`,
     `This is an independent generation request for ONE session.`,
     `---`,
-    `# 3. SOURCE HIERARCHY AND GROUNDING`,
-    `Use the following information sources in this priority order:`,
-    `1. Relevant source chunks`,
-    `2. Complete generated lesson for this session`,
-    `3. Session blueprint`,
-    `4. Scientifically accurate supplementary knowledge only when necessary for clarification`,
+    `# 3. SOURCE HIERARCHY AND MULTI-SOURCE ROLES IN FLASHCARDS`,
+    `Use the following information sources in this strict priority order:`,
+    `1. PRIMARY NOTES (جزوه اصلی): The primary source chunks and lesson facts derived from the primary notes MUST be fully retained. High-yield points, drug classifications, mechanisms, exceptions, and key distinctions from the primary notes MUST have corresponding flashcards.`,
+    `2. PRIMARY REFERENCE (رفرنس اصلی): Deepens mechanisms, adds clinical clarity, and clarifies subtle distinctions without replacing or omitting primary notes facts.`,
+    `3. SUPPLEMENTARY REFERENCE (رفرنس تکمیلی): Create flashcards ONLY for points directly relevant to the session topic. Discard unrelated details.`,
+    `4. EXAM QUESTION TEMPLATE (قالب سؤالات): STRICTLY EXCLUDED. Never generate flashcards from sample question stems or choices.`,
     `The source chunks are the primary scientific grounding.`,
     `The generated lesson is the primary educational organization of the material.`,
     `Do NOT rely only on the lesson summary when the original source chunks contain additional relevant details.`,
@@ -2445,6 +2497,7 @@ export function buildFlashcardBatchGenerationUserPrompt(
     `  * "cards": array of flashcard objects ({ question, answer, explanation, cardType, difficulty, citationChunkIds })`,
     `  * "citationChunkIds": string[] (array of chunk IDs cited for this session)`,
     `- Ground each session's flashcards strictly in its own lesson content and source chunks.`,
+    `- MULTI-SOURCE FLASHCARD RETENTION INVARIANT: Flashcards must retain and test all key definitions, drug classifications, mechanisms, tables, exceptions, and distinctions from the primary notes (PRIMARY NOTES). Question templates (QUESTION TEMPLATE) are STRICTLY PROHIBITED as a source for flashcards. Discard unrelated details from supplementary references.`,
     ``,
     `SESSIONS TO GENERATE IN THIS BATCH:`,
     sessionBlocks,
@@ -2466,6 +2519,7 @@ export interface QuizGenerationPromptParams {
   chunkContext: string;
   chunkIdList: string[];
   pattern?: import("@avana/domain").QuestionPatternDefinition | null;
+  patterns?: Array<import("@avana/domain").QuestionPatternDefinition> | null;
   questionTemplateContext?: string;
 }
 
@@ -2482,11 +2536,21 @@ export interface QuizBatchItemPromptParams {
 export interface QuizBatchGenerationPromptParams {
   documentTitle: string;
   sessions: QuizBatchItemPromptParams[];
+  pattern?: import("@avana/domain").QuestionPatternDefinition | null;
+  patterns?: Array<import("@avana/domain").QuestionPatternDefinition> | null;
+  questionTemplateContext?: string;
 }
 
 export function buildQuizBatchGenerationUserPrompt(
   params: QuizBatchGenerationPromptParams,
 ): string {
+  const effectivePatterns =
+    Array.isArray(params.patterns) && params.patterns.length > 0
+      ? params.patterns
+      : params.pattern
+        ? [params.pattern]
+        : [];
+
   const sessionBlocks = params.sessions
     .map(
       (s, idx) => [
@@ -2533,63 +2597,100 @@ export function buildQuizBatchGenerationUserPrompt(
     ``,
     `SESSIONS TO GENERATE IN THIS BATCH:`,
     sessionBlocks,
+    ...(effectivePatterns.length > 0
+      ? [buildQuizPatternGuidelinesSection(effectivePatterns)]
+      : []),
+    ...(params.questionTemplateContext
+      ? [
+          ``,
+          `QUESTION TEMPLATE SAMPLES (Style, Difficulty, and Pattern Guidance from Source):`,
+          params.questionTemplateContext,
+          `Adhere to the question style, exam pattern, difficulty, and question framing of the template above. Ground all scientific facts strictly in each session's source chunks. If any conflict or discrepancy exists between the sample questions and the educational lesson chunks, the educational lesson chunks are the sole ground truth and MUST strictly prevail for all scientific facts and correct answers.`,
+          `NON-OMISSION GOVERNANCE: The question template does NOT dictate which topics may or may not be tested. Absence of a topic in the template does not permit omitting it from this quiz. Frequent repetition of a topic in the template does not permit neglecting other important primary notes topics.`,
+        ]
+      : []),
   ].join("\n");
 }
 
 export function buildQuizPatternGuidelinesSection(
-  pattern: import("@avana/domain").QuestionPatternDefinition,
+  patternOrPatterns:
+    | import("@avana/domain").QuestionPatternDefinition
+    | Array<import("@avana/domain").QuestionPatternDefinition>,
 ): string {
-  const examplesBlock =
-    pattern.examples && pattern.examples.length > 0
-      ? pattern.examples
-          .map((ex, idx) => {
-            const choicesStr = Array.isArray(ex.choices)
-              ? ex.choices.map((c, cIdx) => `    ${cIdx + 1}. ${c}`).join("\n")
-              : "";
-            const ansStr =
-              typeof ex.correctAnswer === "string"
-                ? ex.correctAnswer
-                : JSON.stringify(ex.correctAnswer);
-            return [
-              `[Reference Example ${idx + 1}]`,
-              ex.clinicalContext ? `Context / Scenario: ${ex.clinicalContext}` : "",
-              `Stem: ${ex.question}`,
-              `Choices:\n${choicesStr}`,
-              `Correct Answer: ${ansStr}`,
-              ex.explanation ? `Explanation: ${ex.explanation}` : "",
-            ]
-              .filter(Boolean)
-              .join("\n");
-          })
-          .join("\n\n")
-      : "No reference examples provided.";
+  const patternList = Array.isArray(patternOrPatterns)
+    ? patternOrPatterns
+    : [patternOrPatterns];
+
+  if (patternList.length === 0) {
+    return "";
+  }
+
+  const sections = patternList.map((pattern, pIdx) => {
+    const examplesBlock =
+      pattern.examples && pattern.examples.length > 0
+        ? pattern.examples
+            .map((ex, idx) => {
+              const choicesStr = Array.isArray(ex.choices)
+                ? ex.choices.map((c, cIdx) => `    ${cIdx + 1}. ${c}`).join("\n")
+                : "";
+              const ansStr =
+                typeof ex.correctAnswer === "string"
+                  ? ex.correctAnswer
+                  : JSON.stringify(ex.correctAnswer);
+              return [
+                `[Reference Example ${idx + 1}]`,
+                ex.clinicalContext ? `Context / Scenario: ${ex.clinicalContext}` : "",
+                `Stem: ${ex.question}`,
+                `Choices:\n${choicesStr}`,
+                `Correct Answer: ${ansStr}`,
+                ex.explanation ? `Explanation: ${ex.explanation}` : "",
+              ]
+                .filter(Boolean)
+                .join("\n");
+            })
+            .join("\n\n")
+        : "No reference examples provided.";
+
+    return [
+      `--- PATTERN ${pIdx + 1}: "${pattern.title}" ---`,
+      `Category: ${pattern.category ?? "exam"}`,
+      `Cognitive Level: ${pattern.cognitiveLevel}`,
+      ...(pattern.skills && pattern.skills.length > 0
+        ? [`Target Skills: ${pattern.skills.join(", ")}`]
+        : []),
+      `Structural Instructions:`,
+      pattern.systemInstructions,
+      ``,
+      `REFERENCE STRUCTURAL EXAMPLES (FEW-SHOT):`,
+      examplesBlock,
+    ].join("\n");
+  });
 
   return [
     ``,
-    `QUESTION PATTERN — STRUCTURAL & COGNITIVE GUIDANCE:`,
-    `Pattern Title: "${pattern.title}"`,
-    `Cognitive Level: ${pattern.cognitiveLevel}`,
-    ...(pattern.skills && pattern.skills.length > 0
-      ? [`Target Skills: ${pattern.skills.join(", ")}`]
-      : []),
-    `Structural Instructions:`,
-    pattern.systemInstructions,
+    `QUESTION PATTERN — STRUCTURAL & COGNITIVE GUIDANCE (${patternList.length} Pattern${patternList.length > 1 ? "s" : ""}):`,
+    ...sections,
     ``,
     `STRICT ANTI-HALLUCINATION & GROUNDING INVARIANT:`,
-    `The reference examples and pattern instructions below describe question structure, reasoning depth, cognitive approach, and distractor construction ONLY.`,
+    `The reference examples and pattern instructions above describe question structure, reasoning depth, cognitive approach, and distractor construction ONLY.`,
     `They are NOT factual sources.`,
     `All factual content, clinical claims, disease names, drug names, patient values, dosages, mechanisms, and numerical figures MUST come exclusively from the provided RELEVANT SOURCE CHUNKS.`,
     `Do NOT copy, transfer, or introduce any facts, scenarios, patient cases, drugs, or clinical details from the pattern examples into the generated questions.`,
-    `Use the examples ONLY to understand how a high-discrimination question should be structured.`,
-    ``,
-    `REFERENCE STRUCTURAL EXAMPLES (FEW-SHOT):`,
-    examplesBlock,
+    `Use the examples ONLY to understand how high-discrimination questions should be structured.`,
+    `CURRICULUM COVERAGE GOVERNANCE: The question template defines assessment style, NOT the curriculum scope. Lack of a topic in the question template is NEVER a license to omit it from assessment. Conversely, frequent repetition of a topic in the template does NOT justify dropping other primary notes topics. All important topics from the primary notes assigned to this session must be tested.`,
   ].join("\n");
 }
 
 export function buildQuizGenerationUserPrompt(
   params: QuizGenerationPromptParams,
 ): string {
+  const effectivePatterns =
+    Array.isArray(params.patterns) && params.patterns.length > 0
+      ? params.patterns
+      : params.pattern
+        ? [params.pattern]
+        : [];
+
   const contextSection = params.chunkContext
     ? `\nRELEVANT SOURCE CHUNKS FOR THIS SESSION (Ground truth):\n${params.chunkContext}\n`
     : "";
@@ -2640,13 +2741,16 @@ export function buildQuizGenerationUserPrompt(
     ``,
     `AVAILABLE CHUNK IDs:`,
     JSON.stringify(params.chunkIdList),
-    ...(params.pattern ? [buildQuizPatternGuidelinesSection(params.pattern)] : []),
+    ...(effectivePatterns.length > 0
+      ? [buildQuizPatternGuidelinesSection(effectivePatterns)]
+      : []),
     ...(params.questionTemplateContext
       ? [
           ``,
           `QUESTION TEMPLATE SAMPLES (Style, Difficulty, and Pattern Guidance from Source):`,
           params.questionTemplateContext,
-          `Adhere to the question style, exam pattern, difficulty, and question framing of the template above. Ground all scientific facts strictly in the session source chunks.`,
+          `Adhere to the question style, exam pattern, difficulty, and question framing of the template above. Ground all scientific facts strictly in the session source chunks. If any conflict or discrepancy exists between the sample questions and the educational lesson chunks, the educational lesson chunks are the sole ground truth and MUST strictly prevail for all scientific facts and correct answers.`,
+          `NON-OMISSION GOVERNANCE: The question template does NOT dictate which topics may or may not be tested. Absence of a topic in the template does not permit omitting it from this quiz. Frequent repetition of a topic in the template does not permit neglecting other important primary notes topics.`,
         ]
       : []),
     ``,
@@ -2752,7 +2856,7 @@ export function getQuizGenerationTemplate(): string {
 // ---------------------------------------------------------------------------
 
 export const REVIEW_SUMMARY_SYSTEM_PROMPT =
-  "You produce structured JSON high-density educational review summaries. Return ONLY valid JSON matching the schema. In all JSON strings, properly escape LaTeX backslashes (e.g. \\\\Delta, \\\\alpha, \\\\frac) and escape internal double quotes (\\\") or use Persian quotation marks (« »). Do not output markdown code fences or conversational text.";
+  "You produce structured JSON high-density educational review summaries. Return ONLY valid JSON matching the schema. In all JSON strings, properly escape LaTeX backslashes (e.g. \\\\Delta, \\\\alpha, \\\\frac) and escape internal double quotes (\\\") or use Persian quotation marks (« »). For pharmacology topics and whenever comparing multiple related drugs, classes, enzymes, pathways, or categories with adequate source data, you MUST synthesize them into at least one comprehensive, dense Markdown table inside keyPoints. Do not output markdown code fences or conversational text.";
 
 export interface ReviewSummaryPromptParams {
   docName?: string;
@@ -2858,7 +2962,7 @@ export function buildReviewSummaryUserPrompt(
         ? input.sourceChunks
             .map(
               (c) =>
-                `[CHUNK ${c.id}]${c.sectionTitle ? ` (${c.sectionTitle})` : ""}:\n${c.text}`,
+                `[CHUNK ${c.id}]${c.sectionTitle ? ` (${c.sectionTitle})` : ""}${c.role ? ` [ROLE: ${c.role}]` : ""}:\n${c.text}`,
             )
             .join("\n\n---\n\n")
         : "None";
@@ -2885,8 +2989,71 @@ export function buildReviewSummaryUserPrompt(
       `- SYNTHESIS OVER MERE COPYING: Synthesize across lessons; do NOT merely reproduce lesson text verbatim. Produce a dense review resource, not a shortened copy of raw documents.`,
       `- NO MERE NAMING: Never summarize a topic merely by naming it. Provide enough substantive factual detail for the student to reconstruct the knowledge.`,
       `- PRESERVE CLINICAL DISTINCTIONS: Preserve clinically important distinctions, contraindications, mechanisms, direct comparisons, and high-yield facts from Stage 1 & Stage 2 supported by source material.`,
+      `- PRIMARY NOTES RETENTION INVARIANT: قانون بقا و جامعیت جزوه اصلی: خلاصه مروری باید فشرده باشد اما تمایزات کلیدی، سازوکارها، و نکات اختصاصی جزوه اصلی (primary_notes) نباید به بهانه خلاصه‌سازی حذف شوند. The review summary must synthesize and preserve all core concepts, mechanisms, distinctions, classifications, tables, exceptions, and high-yield points derived from the primary notes (PRIMARY NOTES). Concision and rapid review MUST NEVER be used as a justification for dropping or skipping key primary notes topics. Secondary references must not replace or dilute primary notes concepts.`,
+      `- CRITICAL SAFETY & HIGH-YIELD RETENTION INVARIANT: قانون بقای هشدارهای حیاتی و ایمنی: مواردی نظیر منع مصرف مطلق (Absolute Contraindications)، تراتوژنیسیته (Teratogenicity) و خطرهای جنینی در بارداری، تداخلات دارویی خطرناک، هشدارهای جعبه سیاه (Black-Box Warnings)، عوارض شدید، مسمومیت‌ها و پادزهرهای اختصاصی، استثناهای مهم بالینی (مانند تنگی دوطرفه شریان کلیه)، و آستانه‌ها و دوزهای عددی بحرانی (نظیر MAP و دوزهای ثابت وازوپرسین) به هیچ عنوان نباید به بهانه خلاصه‌سازی یا سقف کلمات حذف شوند. این نکات باید به صورت طبیعی در نکات کلیدی (keyPoints) یا بخش‌های مرتبط ادغام شوند. Concision must NEVER justify omitting critical patient safety warnings, teratogenicity, lethal contraindications, or essential numerical diagnostic/treatment thresholds present in the source.`,
+      `- HIGH-YIELD FACTS INTEGRATION: The facts in [HIGH-YIELD FACTS] are validated core curriculum priorities. Ensure each confirmed high-yield fact is naturally integrated into the relevant thematic section's keyPoints, mechanisms, or comparisons without creating a disjoint or redundant separate list.`,
+      `- BALANCED EXAM POINTS: The 'examPoints' field is optional per section. Include high-yield exam pearls, traps, or clinical differentiators whenever relevant. Do NOT manufacture artificial or low-value exam points merely to populate the field.`,
       `- STRICT GROUNDING: Ground every statement strictly in the source material. Never hallucinate or invent outside facts (especially doses, adverse effects, contraindications, mechanisms, or numerical values).`,
       `- MANDATORY EDUCATIONAL TITLE REQUIREMENT: The 'title' field MUST be a scholarly, educational Persian title describing the medical/scientific topic (e.g. "${sampleSummaryTitle}"). NEVER use filenames, extensions (.pdf, .docx), or numeric numbers as the title.`,
+      ``,
+      `STANDARD EDUCATIONAL REVIEW STRUCTURE (8 CORE DIMENSIONS):`,
+      `- 1. TITLE & ESSENTIAL OVERVIEW (عنوان و معرفی موضوع):`,
+      `  * The 'title' must be scholarly, accurate, Persian, and independent of raw filenames. Include English technical terms in parentheses where helpful (e.g. "مهارکننده‌های سیستم رنین-آنژیوتانسین (ACEIs & ARBs)").`,
+      `  * 'overview': Provide a clear, cohesive 1-minute conceptual overview explaining the essence of the topic, its clinical/scientific significance, and why it matters. Avoid formulaic introductions and do not repeat the title.`,
+      `- 2. CONCEPTUAL EXPLANATION & SCIENTIFIC LOGIC (توضیح مفهومی و پیوند علت و معلولی):`,
+      `  * Explain challenging concepts with fluent, precise Persian academic prose.`,
+      `  * Retain essential English technical terms alongside Persian on first occurrence.`,
+      `  * Unpack cause-and-effect relationships and scientific reasoning instead of listing isolated, scattered facts.`,
+      `  * Provide enough substantive pedagogical explanation for the student to genuinely understand and reconstruct the concept.`,
+      `- 3. SEQUENTIAL MECHANISMS & PROCESS PROGRESSIONS (مکانیسم‌ها و فرایندهای مرحله‌ای):`,
+      `  * For metabolic pathways, mechanisms of action, physiological cascades, or pathophysiological chains, reveal the exact sequential progression.`,
+      `  * Where appropriate, express multi-step progressions clearly using arrow transitions: "مرحله اول ← مرحله دوم ← مرحله سوم ← پیامد نهایی".`,
+      `  * Ground mechanisms strictly in the source chunks; never fabricate speculative mechanisms for topics that lack them.`,
+      `- 4. CLINICAL APPLICATIONS, EXAMPLES & PRACTICAL RELEVANCE (کاربرد بالینی، مثال‌ها و پیامدها):`,
+      `  * Connect core concepts to real-world clinical applications, drug indications, severe adverse reactions, interactions, and therapeutic consequences.`,
+      `  * When highlighting a high-yield clinical application or pearl, label it explicitly with the prefix "کاربرد بالینی: " (e.g. "کاربرد بالینی: داروی خط اول در بیماران دیابتی مبتلا به پروتئینوری به علت محافظت از عملکرد کلیه.").`,
+      `  * Ground all examples strictly in the source material without outside fabrication.`,
+      `- 5. COMMON SCIENTIFIC MISCONCEPTIONS & PITFALLS (اشتباهات رایج):`,
+      `  * ONLY when a plausible, high-yield scientific misconception or common exam trap exists in the material.`,
+      `  * Use the structured format: "اشتباه رایج: [باور نادرست] ← [علت نادرستی] ← [برداشت صحیح علمی]".`,
+      `  * Do NOT generate artificial or trivial misconceptions if none naturally exist.`,
+      `- 6. COMPARISONS, CLASSIFICATIONS & COMPREHENSIVE EDUCATIONAL TABLES (مقایسه‌ها، طبقه‌بندی‌ها و جدول‌های جامع):`,
+      `  * MANDATORY PHARMACOLOGY COMPARISON TABLE: In pharmacology topics (and whenever comparing multiple drugs, classes, or therapeutic interventions with adequate source information), synthesizing the entities into at least one comprehensive multi-column Markdown comparison table inside 'keyPoints' is MANDATORY (الزامی و اجباری). For simple topics or purely abstract theoretical principles covering single concepts without multiple comparable entities, standard narrative prose is used.`,
+      `  * CORE RULE FOR TABLES: Whenever several related concepts, drugs, enzymes, diseases, processes, or features exist whose simultaneous review or side-by-side comparison aids learning, organize that information into a comprehensive, dense, and well-structured Markdown table inside 'keyPoints'.`,
+      `  * ROLE SEPARATION: Use the structured 'comparisons' field strictly for concise pairwise contrast cards if desired, but place comprehensive multi-entity Markdown comparison tables inside 'keyPoints'.`,
+      `  * DISCIPLINE-ADAPTIVE COLUMN PATTERNS:`,
+      `    - Pharmacology (فارماکولوژی): Synthesize related drugs or classes into a multi-column comparison table. Relevant columns (selected strictly based on source chunks): [نام دارو یا رده دارویی | مکانیسم اثر | اثرات فیزیولوژیک | کاربردهای بالینی | عوارض مهم | موارد منع مصرف و احتیاط‌ها | نکته آزمونی یا تفاوت متمایزکننده]. (Drugs can be columns or rows depending on clarity).`,
+      `    - Biochemistry (بیوشیمی): Organize metabolic pathways or enzymatic reactions: [مرحله مسیر | سوبسترا | آنزیم | محصول | محل وقوع سلولی | تنظیم‌کننده‌ها (فعال‌کننده/مهارکننده) | اهمیت بالینی یا نکته امتحانی]. (Only include columns for which the source has sufficient data).`,
+      `    - Physiology & Pathology (فیزیولوژی و پاتولوژی): Organize processes according to clinical logic: [محرک یا علت | فرایند یا سازوکار | پیامد فیزیولوژیک | یافته شاخص / تشخیصی | اهمیت بالینی].`,
+      `    - Theoretical / General Topics (مباحث نظری): Use comparison tables for definitions, distinguishing features, classifications, and illustrative examples.`,
+      `  * COMPLETENESS & STRICT GROUNDING:`,
+      `    - Cover all important source information relevant to the table's scope; never drop essential mechanisms, adverse effects, or indications merely to shorten text.`,
+      `    - STRICT GROUNDING: Ground every cell strictly in the source material. Never invent data, doses, numbers, mechanisms, uses, or adverse effects. If info is absent from the source, leave it empty or omit that column; never guess.`,
+      `    - Do not force non-comparable concepts into the same table.`,
+      `    - Avoid redundant repetition: Do not repeat the full contents of the table in prose immediately before or after it.`,
+      `    - Provide a brief conceptual explanation before the table if needed, and highlight key relationships, overarching patterns, or critical exceptions after it.`,
+      `    - High-yield exam pearls that do not fit naturally inside table cells must be preserved in the consolidated «نکات طلایی امتحانی» ('examPoints') at the end.`,
+      `- 7. GOLDEN EXAM PEARLS (نکات طلایی امتحانی):`,
+      `  * Use 'examPoints' strictly for high-yield testable pearls, exam traps, clinical differentiators, exceptions, and contraindications.`,
+      `  * Every exam point must state a specific, retrievable fact (never vague filler like "این نکته بسیار مهم است").`,
+      `  * Retain exact numerical thresholds, dosages, and ratios in 'memorizationPoints' only when supported by source chunks.`,
+      `- 8. STRATEGIC FINAL TAKEAWAYS (جمع‌بندی نهایی):`,
+      `  * 'finalTakeaways' must compactly synthesize the overarching relationships and cardinal principles for rapid pre-exam recall.`,
+      `  * Must NOT be a verbatim repetition of the overview or a dump of examPoints.`,
+      ``,
+      `SUBJECT-ADAPTIVE PEDAGOGICAL GUIDANCE (تطبیق ساختار با ماهیت درس):`,
+      `Adapt the thematic emphasis based on the academic discipline:`,
+      `* Pharmacology (فارماکولوژی): Focus on mechanism of action, pharmacokinetics (when relevant), clinical indications, severe adverse effects, contraindications, drug interactions, and distinguishing clinical pearls.`,
+      `* Biochemistry (بیوشیمی): Focus on metabolic pathways, rate-limiting enzymes, co-factors, regulatory mechanisms, products, and consequences of pathway disruption/deficiency.`,
+      `* Physiology (فیزیولوژی): Focus on normal function, sequential process stages, feedback loops, regulatory systems, and structure-function relationships.`,
+      `* Pathology (پاتولوژی): Focus on etiology, pathogenesis, morphological/tissue alterations, and clinical consequences.`,
+      `* Theoretical / General Topics (مباحث نظری): Focus on precise definitions, categorizations, concept relationships, and essential comparisons.`,
+      `* Note: These are flexible guidelines, not rigid checklists. Omit irrelevant sections and never manufacture artificial content.`,
+      ``,
+      `PREVENTING CLICHÉS & PRESERVING SCIENTIFIC INTEGRITY:`,
+      `- Avoid repeating the same point across overview, keyPoints, examPoints, and finalTakeaways.`,
+      `- Do not convert the summary into a fragmented list of isolated one-word bullets; maintain explanatory coherence.`,
+      `- Strict source grounding: Never hallucinate doses, mechanisms, or numbers.`,
       ``,
       `==================================================`,
       `STAGE 1: CURRICULUM PLANNING & BLUEPRINT`,
@@ -2912,6 +3079,7 @@ export function buildReviewSummaryUserPrompt(
       `==================================================`,
       `SOURCE CHUNKS (FACTUAL GROUND TRUTH & CITATIONS)`,
       `==================================================`,
+      `SOURCE CHUNKS:`,
       sourceChunksText,
       ``,
       `AVAILABLE CHUNK IDs:`,
@@ -2941,8 +3109,9 @@ export function buildReviewSummaryUserPrompt(
           {
             title: "عنوان بخش موضوعی ۱",
             keyPoints: [
-              "نکته کلیدی، فشرده و آموزنده ۱",
-              "نکته کلیدی ۲",
+              "توضیحات مفهومی پیوسته مقدماتی پیرامون داروها و دسته‌های درمانی به زبان فارسی...",
+              "| نام دارو یا رده | مکانیسم اثر | اثرات فیزیولوژیک | کاربردهای بالینی | عوارض مهم | موارد منع مصرف و احتیاط‌ها | نکته آزمونی / وجه تمایز |\n| --- | --- | --- | --- | --- | --- | --- |\n| داروی نمونه اول | مهار اختصاصی آنزیم ... | کاهش مقاومت عروقی | خط اول درمان در ... | سرفه خشک و هایپرکالمی | بارداری و تنگی شریان کلیه | عدم تجویز همزمان با مکمل پتاسیم |\n| داروی نمونه دوم | بلوک گیرنده ... | اتساع عروقی بدون اثر بر برادی‌کینین | جایگزین در صورت عدم تحمل ... | سرگیجه و هیپوتانسیون | بارداری | فاقد عارضه سرفه |",
+              "توضیحات تکمیلی پیرامون روابط فارماکودینامیک و استثناهای بالینی پس از جدول...",
             ],
             mechanisms: ["مکانیسم دقیق سلولی یا بیوشیمیایی"],
             classifications: [
@@ -3003,10 +3172,20 @@ export function buildReviewSummaryUserPrompt(
     `  * Precise Numbers, Dosages, Ratios & Antidotes for memorization`,
     `  * Direct Comparisons & Distinctions between similar drugs/classes`,
     `  * High-Yield Exam Traps, Pearls & Clinical Correlations`,
-    `- FACTUAL ACCURACY & STRICT SOURCE GROUNDING:`,
-    `  * Ground every statement strictly in the provided SOURCE CHUNKS.`,
-    `  * NEVER hallucinate or invent outside facts (especially doses, adverse effects, contraindications, mechanisms, treatment recommendations, or numerical values). If a fact is NOT in the source chunks, do not add it from general knowledge.`,
     `  * Do not eliminate essential mechanisms or high-yield details just to shorten the text.`,
+    `- CRITICAL SAFETY & HIGH-YIELD RETENTION INVARIANT: Absolute contraindications, teratogenicity, lethal toxicities, bilateral renal artery stenosis, and critical hemodynamic/dosage thresholds MUST NEVER be dropped for conciseness.`,
+    `- BALANCED EXAM POINTS: The 'examPoints' field is optional per section. Include high-yield exam pearls, traps, or clinical differentiators whenever relevant. Do NOT manufacture artificial or low-value exam points merely to populate the field.`,
+    `- STANDARD EDUCATIONAL REVIEW STRUCTURE (8 CORE DIMENSIONS):`,
+    `  * 1. Title & Overview: Scholarly Persian title independent of filenames. Conceptual 1-minute overview explaining the core essence and why it matters.`,
+    `  * 2. Conceptual Explanation: Fluent Persian explaining cause-and-effect relationships, preserving English technical terms alongside Persian.`,
+    `  * 3. Sequential Mechanisms & Processes: Reveal clear sequential steps for pathways/mechanisms using "گام اول ← گام دوم ← پیامد نهایی". Never invent fake mechanisms.`,
+    `  * 4. Clinical Applications: Connect concepts to practical/clinical applications with explicit prefix "کاربرد بالینی: ".`,
+    `  * 5. Common Misconceptions: If a genuine scientific pitfall exists, use "اشتباه رایج: باور نادرست ← علت نادرستی ← برداشت صحیح".`,
+    `  * 6. Comparisons & Comprehensive Tables: MANDATORY PHARMACOLOGY COMPARISON TABLE: In pharmacology topics (and whenever comparing multiple drugs, classes, or therapeutic interventions with adequate source information), synthesizing the entities into at least one comprehensive multi-column Markdown comparison table inside 'keyPoints' is MANDATORY (الزامی و اجباری). Use the structured 'comparisons' field strictly for concise pairwise contrast cards if desired, but place comprehensive multi-entity Markdown comparison tables inside 'keyPoints'. For simple topics without comparable entities, maintain standard narrative text.`,
+    `  * 7. Golden Exam Pearls: 'examPoints' must provide high-yield, specific testable pearls and question traps.`,
+    `  * 8. Final Takeaways: 'finalTakeaways' synthesizes core principles compactly without repeating overview or examPoints.`,
+    `- SUBJECT-ADAPTIVE GUIDANCE: Adapt emphasis to field (Pharmacology, Biochemistry, Physiology, Pathology, or Theoretical topics). Omit irrelevant sections.`,
+    `- PREVENTING CLICHÉS: Avoid repeating points across sections and maintain coherent explanatory prose.`,
     ``,
     `SOURCE CHUNKS:`,
     chunkContext,
@@ -3025,8 +3204,9 @@ export function buildReviewSummaryUserPrompt(
         {
           title: "عنوان بخش موضوعی ۱",
           keyPoints: [
-            "نکته کلیدی، فشرده و آموزنده ۱",
-            "نکته کلیدی ۲",
+            "توضیحات مفهومی پیوسته مقدماتی پیرامون داروها و دسته‌های درمانی به زبان فارسی...",
+            "| نام دارو یا رده | مکانیسم اثر | اثرات فیزیولوژیک | کاربردهای بالینی | عوارض مهم | موارد منع مصرف و احتیاط‌ها | نکته آزمونی / وجه تمایز |\n| --- | --- | --- | --- | --- | --- | --- |\n| داروی نمونه اول | مهار اختصاصی آنزیم ... | کاهش مقاومت عروقی | خط اول درمان در ... | سرفه خشک و هایپرکالمی | بارداری و تنگی شریان کلیه | عدم تجویز همزمان با مکمل پتاسیم |\n| داروی نمونه دوم | بلوک گیرنده ... | اتساع عروقی بدون اثر بر برادی‌کینین | جایگزین در صورت عدم تحمل ... | سرگیجه و هیپوتانسیون | بارداری | فاقد عارضه سرفه |",
+            "توضیحات تکمیلی پیرامون روابط فارماکودینامیک و استثناهای بالینی پس از جدول...",
           ],
           mechanisms: [
             "مکانیسم دقیق سلولی یا بیوشیمیایی",
@@ -3079,7 +3259,7 @@ export function getReviewSummaryTemplate(): string {
     `  * Indications & Clinical Uses`,
     `  * Critical Adverse Effects & Contraindications`,
     `  * Essential Numbers, Dosages, Half-lives & Memorization Points`,
-    `  * Comparative Distinctions`,
+    `  * Comparative Distinctions & Mandatory Pharmacology Tables: Synthesize multiple drugs/classes into comprehensive multi-column Markdown comparison tables inside 'keyPoints'.`,
     `  * High-Yield Exam Pearls`,
     `- FACTUAL ACCURACY & STRICT SOURCE GROUNDING:`,
     `  * Ground every statement strictly in the provided SOURCE CHUNKS.`,
@@ -3102,7 +3282,11 @@ export function getReviewSummaryTemplate(): string {
         sections: [
           {
             title: "{{sectionTitle}}",
-            keyPoints: ["نکته کلیدی ۱", "نکته کلیدی ۲"],
+            keyPoints: [
+              "توضیحات مفهومی مقدماتی...",
+              "| نام دارو یا رده | مکانیسم اثر | اثرات فیزیولوژیک | کاربردهای بالینی | عوارض مهم | موارد منع مصرف و احتیاط‌ها | نکته آزمونی / وجه تمایز |\n| --- | --- | --- | --- | --- | --- | --- |\n| داروی اول | مهار اختصاصی آنزیم ... | اتساع عروقی | خط اول درمان در ... | عارضه شاخص | منع مصرف مطلق | نکته متمایزکننده آزمونی |\n| داروی دوم | مسدودسازی گیرنده ... | کاهش بار قلبی | جایگزین در صورت عدم تحمل | عارضه خفیف | منع مصرف | فاقد عارضه شاخص اول |",
+              "توضیحات تکمیلی...",
+            ],
             mechanisms: ["مکانیسم دقیق اثر"],
             classifications: ["طبقه‌بندی علمی"],
             comparisons: [

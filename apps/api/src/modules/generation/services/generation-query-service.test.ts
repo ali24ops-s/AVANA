@@ -73,6 +73,65 @@ describe("GenerationQueryService (Unit Tests)", () => {
       expect(progress.completed).toBe(1);
       expect(progress.total).toBe(8); // 1 planning + 2 sessions * 3 stages + 1 review_summary
     });
+
+    it("isolates stages: previous lesson chunks do not inflate progress when generating flashcards", async () => {
+      // 1 planning chunk
+      await chunkStore.upsert({
+        id: "c-plan",
+        documentId: docId,
+        organizationId: orgId,
+        stage: "planning",
+        chunkIndex: 0,
+        chunkKey: "planning",
+        status: "completed",
+        attempts: 1,
+        deletedAt: null,
+        payload: { contentPlan: { sessions: [{ index: 0 }, { index: 1 }] } },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // 5 lesson chunks already completed from earlier generation
+      for (let i = 0; i < 5; i++) {
+        await chunkStore.upsert({
+          id: `c-lesson-${i}`,
+          documentId: docId,
+          organizationId: orgId,
+          stage: "lesson",
+          chunkIndex: i,
+          chunkKey: `lesson:${i}`,
+          status: "completed",
+          attempts: 1,
+          deletedAt: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
+      // Now user generates ONLY flashcards: 1 flashcard chunk completed so far
+      await chunkStore.upsert({
+        id: "c-flashcard-0",
+        documentId: docId,
+        organizationId: orgId,
+        stage: "flashcard",
+        chunkIndex: 0,
+        chunkKey: "flashcard:0",
+        status: "completed",
+        attempts: 1,
+        deletedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Query progress specifically for ["flashcard"]
+      const progress = await queryService.getGenerationProgress(docId, orgId, ["flashcard"]);
+
+      // Total for flashcards = 1 planning + 2 sessions * 1 flashcard = 3
+      expect(progress.total).toBe(3);
+      // Completed should ONLY count planning (1) + flashcard (1) = 2, NOT 2 + 5 lesson = 7 (which would be 233%!)
+      expect(progress.completed).toBe(2);
+      expect(progress.completed).toBeLessThanOrEqual(progress.total);
+    });
   });
 
   // eslint-disable-next-line no-secrets/no-secrets

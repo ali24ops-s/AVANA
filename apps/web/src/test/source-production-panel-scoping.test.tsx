@@ -173,8 +173,8 @@ describe("SourceProductionPanel Document Scoping & Scenarios", () => {
         return new Response(
           JSON.stringify({
             request_id: "r1",
-            items: [courseDoc],
-            pagination: { total: 1, page: 1, limit: 100, total_pages: 1 },
+            items: [courseDoc, unassignedDoc],
+            pagination: { total: 2, page: 1, limit: 100, total_pages: 1 },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );

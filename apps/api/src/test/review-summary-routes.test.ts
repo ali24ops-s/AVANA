@@ -134,6 +134,16 @@ describe("Review Summary HTTP Routes", () => {
     const orgBody = JSON.parse(orgRes.body) as { organization: { id: string } };
     const organizationId = orgBody.organization.id as OrganizationId;
 
+    const user = JSON.parse(res.body).user;
+    orgStore.setMembershipRole(organizationId, user.id, "organization_admin");
+
+    const refreshRes = await app.inject({
+      method: "POST",
+      url: "/v1/auth/sign-in",
+      payload: { email: "student@example.com", name: "Student Reviewer" },
+    });
+    const adminToken = extractSessionToken(refreshRes)!;
+
     const courseId = "3a6d05f7-f61b-4470-9b72-6b56686bb09e" as CourseId;
     const now = new Date().toISOString();
     await courseStore.create({
@@ -150,7 +160,7 @@ describe("Review Summary HTTP Routes", () => {
       auditEvents: [],
     });
 
-    return { token, organizationId, courseId };
+    return { token: adminToken, organizationId, courseId };
   }
 
   it("generates and fetches Review Summary via dedicated endpoints", async () => {

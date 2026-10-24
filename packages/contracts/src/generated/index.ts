@@ -59,6 +59,7 @@ export type UserResource = {
   university?: string | null;
   faculty?: string | null;
   department?: string | null;
+  teacherStatus?: "pending" | "approved" | "rejected";
   emailVerified?: boolean;
   phoneVerified?: boolean;
   isVerified?: boolean;
@@ -227,6 +228,8 @@ export type RegisterRequest = {
   faculty?: string | null;
   department?: string | null;
   referralCode?: string;
+  role?: string;
+  autoSendVerification?: boolean;
 };
 
 export type SignInResponse = {
@@ -714,6 +717,25 @@ export type GeneratedContentResource = {
 export type GenerateContentRequest = {
   types?: GeneratedContentType[];
   prompt_version?: string;
+  sources?: GenerationSourceInput[];
+  question_pattern_id?: string | null;
+  question_pattern_version?: number | null;
+  question_pattern_ids?: string[] | null;
+};
+
+export type GenerationSourceInput = {
+  documentId: string;
+  order: number;
+  role?: string;
+};
+
+export type MultiSourceGenerationRequest = {
+  sources: GenerationSourceInput[];
+  types?: GeneratedContentType[];
+  prompt_version?: string;
+  question_pattern_id?: string | null;
+  question_pattern_version?: number | null;
+  question_pattern_ids?: string[] | null;
 };
 
 export type GenerateContentResponse = {
@@ -795,6 +817,13 @@ export type GeneratedContentReviewResource = {
   content: GeneratedContentResource;
   source_chunks: SourceChunkResource[];
   generation: GenerationInfoResource;
+  document?: {
+    id: UUID;
+    originalName?: string;
+    original_name?: string;
+    mime_type?: string;
+    size_bytes?: number;
+  } | null;
 };
 
 export type GeneratedContentReviewResponse = {
@@ -802,6 +831,13 @@ export type GeneratedContentReviewResponse = {
   content: GeneratedContentResource;
   source_chunks: SourceChunkResource[];
   generation: GenerationInfoResource;
+  document?: {
+    id: UUID;
+    originalName?: string;
+    original_name?: string;
+    mime_type?: string;
+    size_bytes?: number;
+  } | null;
 };
 
 export type EditGeneratedContentRequest = {
@@ -900,6 +936,11 @@ export type FlashcardSummaryResponse = {
 export type FlashcardReviewQueueResponse = {
   request_id: string;
   due_cards: FlashcardResource[];
+  items?: FlashcardResource[];
+  total_new_in_scope?: number;
+  learned_today?: number;
+  remaining_quota?: number;
+  completed_lessons_count?: number;
 };
 
 export type SubmitFlashcardReviewRequest = {
@@ -964,6 +1005,7 @@ export type QuizQuestionAnswerInput = {
 
 export type SubmitQuizAttemptRequest = {
   answers: QuizQuestionAnswerInput[];
+  questionIds?: string[];
 };
 
 export type QuizAttemptResult = {
@@ -1227,4 +1269,74 @@ export type AdminReferralListItem = {
 export type AdminReferralListResponse = {
   referrals: AdminReferralListItem[];
   total: number;
+};
+
+// ---------------------------------------------------------------------------
+// Source Pack Contracts
+// ---------------------------------------------------------------------------
+
+export type SourcePackRole =
+  | "primary_notes"
+  | "question_template"
+  | "primary_reference"
+  | "supplementary_reference"
+  | "primary"
+  | "supplementary";
+
+export type SourcePackDocumentItem = {
+  document_id: UUID;
+  role: SourcePackRole;
+  order_index: number;
+  original_name?: string | null;
+  status?: string | null;
+  mime_type?: string | null;
+  size_bytes?: number | null;
+};
+
+export type SourcePackResource = {
+  id: UUID;
+  organization_id: UUID;
+  course_id: UUID;
+  title: string;
+  description?: string | null;
+  created_by_user_id: UUID;
+  created_at: string;
+  updated_at: string;
+  documents: SourcePackDocumentItem[];
+};
+
+export type SourcePackResponse = {
+  request_id: string;
+  source_pack: SourcePackResource;
+};
+
+export type SourcePackListResponse = {
+  request_id: string;
+  source_packs: SourcePackResource[];
+};
+
+export type CreateSourcePackDocumentInput = {
+  document_id: UUID;
+  role?: SourcePackRole;
+  order_index?: number;
+};
+
+export type CreateSourcePackRequest = {
+  title: string;
+  description?: string | null;
+  documents: CreateSourcePackDocumentInput[];
+};
+
+export type UpdateSourcePackRequest = {
+  title?: string;
+  description?: string | null;
+  documents?: CreateSourcePackDocumentInput[];
+};
+
+export type SourcePackGenerateRequest = {
+  types?: GeneratedContentType[];
+  prompt_version?: string;
+  question_pattern_id?: string | null;
+  question_pattern_version?: number | null;
+  question_pattern_ids?: string[] | null;
 };

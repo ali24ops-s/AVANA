@@ -15,10 +15,21 @@ import {
 } from "../modules/generation/question-patterns-store.js";
 import { MockModelGateway } from "../modules/generation/gateway/index.js";
 import { v1Routes } from "../routes/v1.js";
-import { Roles, type UserId, type OrganizationId } from "@avana/domain";
+import { Roles, type UserId, type OrganizationId, type QuestionPatternId } from "@avana/domain";
 import { randomUUID } from "node:crypto";
-import { createDbClient } from "@avana/database/client";
+import { createDbClient, type AppDatabase } from "@avana/database/client";
+import { questionPatternExamples } from "@avana/database/schema";
 import { sql } from "drizzle-orm";
+import {
+  InMemoryDocumentStore,
+  InMemoryDocumentChunkStore,
+} from "../modules/learning/test/in-memory-stores.js";
+import {
+  InMemoryGeneratedContentStore,
+  InMemoryGeneratedContentCitationStore,
+  InMemoryGenerationJobStore,
+} from "../modules/generation/test/in-memory-stores.js";
+import { InMemoryGenerationQueue } from "../modules/generation/generation-queue.js";
 
 describe("Question Patterns API & Store", () => {
   async function setupTestApp(customStore?: QuestionPatternStore) {
@@ -56,11 +67,31 @@ describe("Question Patterns API & Store", () => {
     });
 
     const orgId = randomUUID() as OrganizationId;
+    await orgStore.createWithAdminMembership({
+      organization: {
+        id: orgId,
+        name: "سازمان تست",
+        slug: `test-org-${orgId.slice(0, 8)}`,
+        ownerUserId: platformAdminUser.id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      membership: {
+        id: randomUUID(),
+        organizationId: orgId,
+        userId: platformAdminUser.id as UserId,
+        role: Roles.platform_admin,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      auditEvents: [],
+    });
     orgStore.addMembership({
       id: randomUUID(),
       organizationId: orgId,
-      userId: platformAdminUser.id as UserId,
-      role: Roles.platform_admin,
+      userId: studentUser.id as UserId,
+      role: Roles.student,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -68,6 +99,13 @@ describe("Question Patterns API & Store", () => {
     const adminSession = await sessionService.createSession(platformAdminUser.id);
     const workerSession = await sessionService.createSession(workerUser.id);
     const studentSession = await sessionService.createSession(studentUser.id);
+
+    const documentStore = new InMemoryDocumentStore();
+    const documentChunkStore = new InMemoryDocumentChunkStore();
+    const generatedContentStore = new InMemoryGeneratedContentStore();
+    const generatedContentCitationStore = new InMemoryGeneratedContentCitationStore();
+    const generationJobStore = new InMemoryGenerationJobStore();
+    const queue = new InMemoryGenerationQueue(generationJobStore);
 
     const app = createApp({ config });
     const gateway = new MockModelGateway();
@@ -80,6 +118,12 @@ describe("Question Patterns API & Store", () => {
       questionPatternStore,
       gateway,
       adminGateway: gateway,
+      documentStore,
+      documentChunkStore,
+      generatedContentStore,
+      generatedContentCitationStore,
+      generationJobStore,
+      queue,
     });
 
     return {
@@ -89,6 +133,12 @@ describe("Question Patterns API & Store", () => {
       workerSessionToken: workerSession.sessionToken,
       studentSessionToken: studentSession.sessionToken,
       orgId,
+      documentStore,
+      documentChunkStore,
+      generationJobStore,
+      queue,
+      adminUser: platformAdminUser,
+      studentUser,
     };
   }
 
@@ -450,8 +500,11 @@ describe("Question Patterns API & Store", () => {
     const config = loadApiConfig();
     const dbUrl =
       process.env.DATABASE_URL ||
-      config.database?.url ||
-      "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
+      config.database?.url;
+
+    if (!dbUrl) {
+      return;
+    }
 
     let dbClient: ReturnType<typeof createDbClient> | undefined;
     try {
@@ -515,5 +568,408 @@ describe("Question Patterns API & Store", () => {
     } finally {
       await dbClient?.close().catch(() => {});
     }
+  });
+
+  test("auto-seeds 12 standard question patterns with categories across exam, analytical, and supplementary", async () => {
+    const { questionPatternStore } = await setupTestApp();
+
+    const allPatterns = await questionPatternStore.listPatterns();
+    expect(allPatterns.length).toBeGreaterThanOrEqual(12);
+
+    const examPatterns = await questionPatternStore.listPatterns({ category: "exam" });
+    const analyticalPatterns = await questionPatternStore.listPatterns({ category: "analytical" });
+    const supplementaryPatterns = await questionPatternStore.listPatterns({ category: "supplementary" });
+
+    expect(examPatterns.length).toBeGreaterThanOrEqual(4);
+    expect(analyticalPatterns.length).toBeGreaterThanOrEqual(4);
+    expect(supplementaryPatterns.length).toBeGreaterThanOrEqual(4);
+
+    // Verify stable UUIDs and categories
+    const clinicalVignette = allPatterns.find(
+      (p) => p.id === "10000000-0000-4000-a000-000000000001",
+    );
+    expect(clinicalVignette).toBeDefined();
+    expect(clinicalVignette?.category).toBe("exam");
+    expect(clinicalVignette?.isActive).toBe(true);
+
+    const step2Pattern = allPatterns.find(
+      (p) => p.id === "10000000-0000-4000-a000-000000000005",
+    );
+    expect(step2Pattern).toBeDefined();
+    expect(step2Pattern?.category).toBe("analytical");
+
+    const bridgePattern = allPatterns.find(
+      (p) => p.id === "10000000-0000-4000-a000-000000000009",
+    );
+    expect(bridgePattern).toBeDefined();
+    expect(bridgePattern?.category).toBe("supplementary");
+  });
+
+  test("learner endpoint enforces authentication via header or cookie and parity between endpoints", async () => {
+    const { app, studentSessionToken, questionPatternStore } = await setupTestApp();
+
+    // 1. Unauthenticated request rejected with 401
+    const unauthRes = await app.inject({
+      method: "GET",
+      url: "/v1/question-patterns",
+    });
+    expect(unauthRes.statusCode).toBe(401);
+
+    // 2. Invalid bearer token rejected with 401
+    const invalidTokenRes = await app.inject({
+      method: "GET",
+      url: "/v1/question-patterns",
+      headers: { authorization: "Bearer invalid-token-xyz" },
+    });
+    expect(invalidTokenRes.statusCode).toBe(401);
+
+    // 3. Authenticated request via Authorization header succeeds with 200
+    const listRes = await app.inject({
+      method: "GET",
+      url: "/v1/question-patterns",
+      headers: { authorization: `Bearer ${studentSessionToken}` },
+    });
+    expect(listRes.statusCode).toBe(200);
+    const body = JSON.parse(listRes.body);
+    expect(body.patterns).toBeDefined();
+    expect(body.patterns.length).toBeGreaterThanOrEqual(12);
+    expect(body.patterns[0].category).toBeDefined();
+
+    // 4. Authenticated request via Cookie (avana_session) succeeds with 200
+    const cookieRes = await app.inject({
+      method: "GET",
+      url: "/v1/question-patterns",
+      headers: { cookie: `avana_session=${studentSessionToken}` },
+    });
+    expect(cookieRes.statusCode).toBe(200);
+    const cookieBody = JSON.parse(cookieRes.body);
+    expect(cookieBody.patterns).toHaveLength(body.patterns.length);
+
+    // 5. Parity: /v1/generation/question-patterns behaves identically
+    const genUnauthRes = await app.inject({
+      method: "GET",
+      url: "/v1/generation/question-patterns",
+    });
+    expect(genUnauthRes.statusCode).toBe(401);
+
+    const genAuthRes = await app.inject({
+      method: "GET",
+      url: "/v1/generation/question-patterns",
+      headers: { authorization: `Bearer ${studentSessionToken}` },
+    });
+    expect(genAuthRes.statusCode).toBe(200);
+    const genBody = JSON.parse(genAuthRes.body);
+    expect(genBody.patterns).toEqual(body.patterns);
+
+    // 6. Category query filter on /v1/question-patterns
+    const analyticalRes = await app.inject({
+      method: "GET",
+      url: "/v1/question-patterns?category=analytical",
+      headers: { authorization: `Bearer ${studentSessionToken}` },
+    });
+    expect(analyticalRes.statusCode).toBe(200);
+    const analyticalPatterns = JSON.parse(analyticalRes.body).patterns;
+    expect(analyticalPatterns.every((p: { category?: string }) => p.category === "analytical")).toBe(true);
+
+    // 7. Inactive and soft-deleted patterns are NEVER exposed to learners
+    const hiddenPattern = await questionPatternStore.create({
+      title: "الگوی پیش‌نویس غیرفعال",
+      systemInstructions: "دستورالعمل",
+      category: "exam",
+      isActive: false,
+    });
+    const afterHiddenRes = await app.inject({
+      method: "GET",
+      url: "/v1/question-patterns",
+      headers: { authorization: `Bearer ${studentSessionToken}` },
+    });
+    const afterHiddenPatterns = JSON.parse(afterHiddenRes.body).patterns;
+    expect(afterHiddenPatterns.find((p: any) => p.id === hiddenPattern.id)).toBeUndefined();
+
+    // 8. Learner gets 403 on admin management routes
+    const adminCreateRes = await app.inject({
+      method: "POST",
+      url: "/v1/admin/question-patterns",
+      headers: { authorization: `Bearer ${studentSessionToken}` },
+      payload: {
+        title: "تلاش غیرمجاز دانشجو",
+        systemInstructions: "قوانین",
+      },
+    });
+    expect(adminCreateRes.statusCode).toBe(403);
+  });
+
+  test("supports PUT /v1/admin/question-patterns/:id and category updates", async () => {
+    const { app, adminSessionToken, questionPatternStore } = await setupTestApp();
+
+    const created = await questionPatternStore.create({
+      title: "الگوی اولیه",
+      systemInstructions: "دستورالعمل اولیه",
+      category: "exam",
+    });
+
+    const updateRes = await app.inject({
+      method: "PUT",
+      url: `/v1/admin/question-patterns/${created.id}`,
+      headers: { authorization: `Bearer ${adminSessionToken}` },
+      payload: {
+        title: "الگوی ویرایش‌شده توسط ادمین",
+        category: "analytical",
+        systemInstructions: "دستورالعمل به‌روزشده",
+      },
+    });
+    expect(updateRes.statusCode).toBe(200);
+    const updated = JSON.parse(updateRes.body).pattern;
+    expect(updated.title).toBe("الگوی ویرایش‌شده توسط ادمین");
+    expect(updated.category).toBe("analytical");
+    expect(updated.version).toBe(2);
+  });
+
+  test("findByIds supports multi-pattern selection and returns all matched active patterns", async () => {
+    const { questionPatternStore } = await setupTestApp();
+
+    const ids = [
+      "10000000-0000-4000-a000-000000000001",
+      "10000000-0000-4000-a000-000000000005",
+      "10000000-0000-4000-a000-000000000009",
+    ] as any;
+
+    const matched = await questionPatternStore.findByIds(ids);
+    expect(matched).toHaveLength(3);
+    expect(matched.map((p) => p.category)).toEqual(
+      expect.arrayContaining(["exam", "analytical", "supplementary"]),
+    );
+  });
+
+  test("validates pattern IDs prior to document reservation and enforces multi-pattern propagation into queue payload", async () => {
+    const {
+      app,
+      adminSessionToken,
+      studentSessionToken,
+      questionPatternStore,
+      documentStore,
+      queue,
+      orgId,
+      adminUser,
+    } = await setupTestApp();
+
+    const courseId = randomUUID() as CourseId;
+    const docId = randomUUID() as DocumentId;
+    await documentStore.insert({
+      id: docId,
+      organizationId: orgId,
+      courseId,
+      ownerUserId: adminUser.id,
+      originalName: "medical_handbook.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      sha256: "0".repeat(64),
+      storageKey: `docs/${docId}.pdf`,
+      pageCount: 10,
+      status: "extracted",
+      errorCode: null,
+      retryCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+      qualityScore: 90,
+      qualityLevel: "high",
+    });
+
+    // 1. Unknown / invalid pattern ID -> 400 Bad Request BEFORE reserving or queueing
+    const invalidRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/courses/${courseId}/documents/${docId}/generate`,
+      headers: { authorization: `Bearer ${adminSessionToken}` },
+      payload: {
+        types: ["quiz"],
+        question_pattern_ids: ["non-existent-pattern-id-999"],
+      },
+    });
+    expect(invalidRes.statusCode).toBe(400);
+    // Verify document was NOT reserved/locked
+    const docAfterInvalid = await documentStore.findById(docId);
+    expect(docAfterInvalid?.status).toBe("extracted");
+    // Verify queue received 0 jobs
+    expect(queue.jobs).toHaveLength(0);
+
+    // 2. Soft-deleted pattern ID -> 400 Bad Request
+    const toDelete = await questionPatternStore.create({
+      title: "الگوی حذف‌شده تستی",
+      systemInstructions: "دستورالعمل",
+      category: "exam",
+    });
+    await questionPatternStore.softDelete(toDelete.id);
+
+    const deletedRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/courses/${courseId}/documents/${docId}/generate`,
+      headers: { authorization: `Bearer ${adminSessionToken}` },
+      payload: {
+        types: ["quiz"],
+        question_pattern_ids: [toDelete.id],
+      },
+    });
+    expect(deletedRes.statusCode).toBe(400);
+    expect(queue.jobs).toHaveLength(0);
+
+    // 3. Inactive pattern requested by learner -> 400 Bad Request
+    const inactivePattern = await questionPatternStore.create({
+      title: "الگوی پیش‌نویس غیرفعال",
+      systemInstructions: "دستورالعمل",
+      category: "exam",
+      isActive: false,
+    });
+    const inactiveRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/courses/${courseId}/documents/${docId}/generate`,
+      headers: { authorization: `Bearer ${studentSessionToken}` },
+      payload: {
+        types: ["quiz"],
+        question_pattern_ids: [inactivePattern.id],
+      },
+    });
+    expect(inactiveRes.statusCode).toBe(400);
+    expect(queue.jobs).toHaveLength(0);
+
+    // 4. Valid multi-pattern with duplicate deduplication -> 202, enqueued with both unique IDs
+    const validRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/courses/${courseId}/documents/${docId}/generate`,
+      headers: { authorization: `Bearer ${adminSessionToken}` },
+      payload: {
+        types: ["quiz"],
+        question_pattern_ids: [
+          "10000000-0000-4000-a000-000000000001",
+          "10000000-0000-4000-a000-000000000002",
+          "10000000-0000-4000-a000-000000000001", // duplicate should be safely deduplicated
+        ],
+      },
+    });
+    expect(validRes.statusCode).toBe(202);
+    expect(queue.jobs).toHaveLength(1);
+    const enqueuedJob = queue.jobs[0];
+    expect(enqueuedJob.payload.questionPatternId).toBe("10000000-0000-4000-a000-000000000001");
+    expect(enqueuedJob.payload.questionPatternIds).toEqual([
+      "10000000-0000-4000-a000-000000000001",
+      "10000000-0000-4000-a000-000000000002",
+    ]);
+
+    // 5. Backward compatibility: legacy single question_pattern_id request
+    await documentStore.update({ ...(await documentStore.findById(docId))!, status: "extracted" });
+    const legacyRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/courses/${courseId}/documents/${docId}/generate`,
+      headers: { authorization: `Bearer ${adminSessionToken}` },
+      payload: {
+        types: ["quiz"],
+        question_pattern_id: "10000000-0000-4000-a000-000000000005",
+      },
+    });
+    expect(legacyRes.statusCode).toBe(202);
+    expect(queue.jobs).toHaveLength(2);
+    const legacyJob = queue.jobs[1];
+    expect(legacyJob.payload.questionPatternId).toBe("10000000-0000-4000-a000-000000000005");
+    expect(legacyJob.payload.questionPatternIds).toEqual(["10000000-0000-4000-a000-000000000005"]);
+  });
+
+  test("regression: handles malformed IDs, non-existent patterns, and empty lists gracefully without 500", async () => {
+    const { app, adminSessionToken } = await setupTestApp();
+
+    // 1. Malformed UUID on GET pattern detail returns 400 (not 500)
+    const malformedGetRes = await app.inject({
+      method: "GET",
+      url: "/v1/admin/question-patterns/not-a-valid-uuid",
+      headers: { authorization: `Bearer ${adminSessionToken}` },
+    });
+    expect(malformedGetRes.statusCode).toBe(400);
+    const malformedGetBody = JSON.parse(malformedGetRes.body);
+    expect(malformedGetBody.message || malformedGetBody.error?.message).toContain("شناسه الگوی سؤال نامعتبر است");
+
+    // 2. Malformed UUID on PATCH pattern returns 400 (not 500)
+    const malformedPatchRes = await app.inject({
+      method: "PATCH",
+      url: "/v1/admin/question-patterns/invalid-id-xyz",
+      headers: { authorization: `Bearer ${adminSessionToken}` },
+      payload: { title: "Updated Title" },
+    });
+    expect(malformedPatchRes.statusCode).toBe(400);
+
+    // 3. Malformed UUID on DELETE pattern returns 400 (not 500)
+    const malformedDeleteRes = await app.inject({
+      method: "DELETE",
+      url: "/v1/admin/question-patterns/invalid-id-xyz",
+      headers: { authorization: `Bearer ${adminSessionToken}` },
+    });
+    expect(malformedDeleteRes.statusCode).toBe(400);
+
+    // 4. Non-existent UUID returns 404 (not 500)
+    const nonExistentId = "99999999-9999-4999-a999-999999999999";
+    const notFoundRes = await app.inject({
+      method: "GET",
+      url: `/v1/admin/question-patterns/${nonExistentId}`,
+      headers: { authorization: `Bearer ${adminSessionToken}` },
+    });
+    expect(notFoundRes.statusCode).toBe(404);
+
+    // 5. Empty pattern list query with non-matching category returns 200 with empty array (not 500)
+    const emptyCategoryRes = await app.inject({
+      method: "GET",
+      url: "/v1/admin/question-patterns?category=non_existent_category",
+      headers: { authorization: `Bearer ${adminSessionToken}` },
+    });
+    expect(emptyCategoryRes.statusCode).toBe(200);
+    const emptyBody = JSON.parse(emptyCategoryRes.body);
+    expect(Array.isArray(emptyBody.patterns)).toBe(true);
+    expect(emptyBody.patterns).toHaveLength(0);
+  });
+
+  test("regression: DrizzleQuestionPatternStore gracefully falls back when database column category is missing", async () => {
+    // Simulates an environment where migration 0081 has not run and column category throws 42703
+    const mockLegacyDb = {
+      select: () => ({
+        from: (tbl: unknown) => {
+          if (tbl === questionPatternExamples) {
+            return {
+              where: () => ({
+                orderBy: async () => [],
+              }),
+            };
+          }
+          const error = new Error("column question_patterns.category does not exist") as Error & { code?: string };
+          error.code = "42703";
+          throw error;
+        },
+      }),
+      execute: async () => ({
+        rows: [
+          {
+            id: "10000000-0000-4000-a000-000000000001",
+            title: "الگوی موروثی بدون ستون دسته‌بندی",
+            description: "تست بررسی عملکرد نرم در محیط‌های قبل از مایگریشن 0081",
+            cognitiveLevel: "recall",
+            systemInstructions: "دستورالعمل پایه",
+            isActive: true,
+            version: 1,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            deletedAt: null,
+            examplesCount: 0,
+          },
+        ],
+      }),
+    } as unknown as AppDatabase;
+
+    const store = new DrizzleQuestionPatternStore(mockLegacyDb);
+    const patterns = await store.listPatterns();
+    expect(patterns).toHaveLength(1);
+    expect(patterns[0].id).toBe("10000000-0000-4000-a000-000000000001");
+    expect(patterns[0].category).toBe("exam");
+    expect(patterns[0].examplesCount).toBe(0);
+
+    const detail = await store.findById("10000000-0000-4000-a000-000000000001" as QuestionPatternId);
+    expect(detail).toBeDefined();
+    expect(detail?.title).toBe("الگوی موروثی بدون ستون دسته‌بندی");
+    expect(detail?.category).toBe("exam");
   });
 });

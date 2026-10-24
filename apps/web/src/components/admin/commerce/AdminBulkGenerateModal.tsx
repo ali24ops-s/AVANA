@@ -52,14 +52,23 @@ export function AdminBulkGenerateModal({
         throw new Error("تعداد کدهای درخواستی باید بین ۱ تا ۱۰۰۰ باشد.");
       }
 
-      const res = await adminApi.bulkGenerateCommercePromotionCodes(promotion.id, {
+      const targetId = (promotion as { promotion?: { id?: string } })?.promotion?.id || promotion.id;
+      if (!targetId) {
+        throw new Error("شناسه پروموشن یافت نشد.");
+      }
+
+      const res = await adminApi.bulkGenerateCommercePromotionCodes(targetId, {
         count,
         prefix: prefix.trim() ? prefix.trim().toUpperCase() : undefined,
         codeLength: codeLength || 8,
         maxUses: maxUses === "" ? null : Number(maxUses),
       });
 
-      setGeneratedCodes(res.codes);
+      const codes = res?.codes || (res as { sampleCodes?: string[] })?.sampleCodes || [];
+      if (!Array.isArray(codes) || codes.length === 0) {
+        throw new Error("پاسخ دریافتی از سرور برای کدهای تخفیف نامعتبر است.");
+      }
+      setGeneratedCodes(codes);
       if (onGenerated) {
         onGenerated();
       }

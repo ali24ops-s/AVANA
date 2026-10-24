@@ -30,6 +30,7 @@ import {
   type DocumentId,
   type GeneratedContentId,
   type OrganizationId,
+  type Role,
   DomainError,
   defaultPolicy,
   parseGeneratedContentId,
@@ -73,6 +74,7 @@ export interface ReviewRouteOptions {
   organizationStore?: OrganizationStore;
   auditService?: AuditService;
   db?: DbClient;
+  systemOrganizationId?: OrganizationId;
 }
 
 const UUID_RE =
@@ -97,6 +99,7 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
     quizQuestionStore,
     auditService,
     db,
+    systemOrganizationId,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
@@ -116,12 +119,19 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
     opts.organizationStore,
     undefined,
     db,
+    undefined,
+    systemOrganizationId,
   );
 
   /** Helper to extract actor from authenticated request. */
   function getActor(request: unknown): Actor {
     const reqAny = request as {
-      user?: { userId: string; email: string; role: string };
+      user?: {
+        userId: string;
+        email: string;
+        role: string;
+        globalRole?: string | null;
+      };
     };
     if (!reqAny.user) {
       throw new DomainError("unauthorized", "Not signed in");
@@ -129,6 +139,7 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
     return {
       userId: reqAny.user.userId as Actor["userId"],
       role: reqAny.user.role as Actor["role"],
+      globalRole: (reqAny.user.globalRole as Role) ?? null,
     };
   }
 

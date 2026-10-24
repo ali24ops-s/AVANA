@@ -10,8 +10,8 @@
  *  - Today's study plan & content recommendations
  */
 
-import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect, useMemo } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useQuery, useQueries, useQueryClient } from "@tanstack/react-query";
 import {
@@ -37,6 +37,7 @@ import { createOrganizationApi } from "../lib/api/organizations.js";
 import { createCourseApi } from "../lib/api/courses.js";
 import { createLearningApi } from "../lib/api/learning.js";
 import { createStudyApi } from "../lib/api/study.js";
+import { createWelcomeGiftApi } from "../lib/api/welcome-gift.js";
 import { toPersianDigits, formatPersianOf, getWeeklyStudyComparison } from "@avana/domain";
 import { Button } from "@avana/ui";
 import { useAuth } from "../providers/AuthProvider.js";
@@ -48,12 +49,14 @@ import {
 import { PersianDatePicker } from "../components/ui/PersianDatePicker.js";
 import { useDailyMotivationalQuote } from "../utils/dailyQuote.js";
 import { StudyAssistantModal } from "../components/ai/StudyAssistantModal.js";
+import { WelcomeGiftModal } from "../components/welcome/WelcomeGiftModal.js";
 import { StudyPlanner } from "../components/planner/StudyPlanner.js";
 import { ExamDeleteConfirmModal } from "../components/courses/ExamDeleteConfirmModal.js";
 import { CourseCard } from "../components/avana/CourseCard.js";
 import { StudyActivityHeatmap } from "../components/dashboard/StudyActivityHeatmap.js";
 import { StudentClassroomExamsWidget } from "../components/dashboard/StudentClassroomExamsWidget.js";
 import { AvaniAvatar } from "../components/brand/AvaniAvatar.js";
+import { useCarouselDrag } from "../hooks/useCarouselDrag.js";
 import type { CourseResource } from "@avana/contracts";
 
 export function HomePage() {
@@ -68,6 +71,55 @@ export function HomePage() {
   const orgApi = createOrganizationApi(apiClient);
   const courseApi = createCourseApi(apiClient);
   const studyApi = createStudyApi(apiClient);
+  const welcomeGiftApi = useMemo(() => createWelcomeGiftApi(apiClient), [apiClient]);
+
+  const [searchParams] = useSearchParams();
+  const isDevPreview =
+    import.meta.env.DEV &&
+    (searchParams.get("preview-welcome-gift") === "1" ||
+      searchParams.get("preview-welcome-gift") === "true" ||
+      searchParams.get("preview") === "welcome-gift");
+
+  const [isWelcomeModalDismissedLocally, setIsWelcomeModalDismissedLocally] = useState(false);
+  const [isAcknowledgingGift, setIsAcknowledgingGift] = useState(false);
+
+  const welcomeGiftQuery = useQuery({
+    queryKey: ["welcome-gift-status", user?.id],
+    queryFn: () => welcomeGiftApi.getStatus(),
+    enabled: !!user?.id && !isDevPreview,
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const shouldShowWelcomeModal =
+    !isWelcomeModalDismissedLocally &&
+    (isDevPreview ||
+      Boolean(
+        welcomeGiftQuery.data?.eligible &&
+        welcomeGiftQuery.data?.granted &&
+        !welcomeGiftQuery.data?.popup_seen
+      ));
+
+  const handleAcknowledgeWelcomeGift = async () => {
+    setIsWelcomeModalDismissedLocally(true);
+    if (isDevPreview) {
+      // Safe preview mode: do not call backend, modify wallet or grant records
+      return;
+    }
+    setIsAcknowledgingGift(true);
+    try {
+      await welcomeGiftApi.acknowledge();
+      await queryClient.invalidateQueries({ queryKey: ["welcome-gift-status"] });
+      await queryClient.invalidateQueries({ queryKey: ["my-wallet"] });
+      await queryClient.invalidateQueries({ queryKey: ["my-wallet-transactions"] });
+      await queryClient.invalidateQueries({ queryKey: ["user-subscriptions"] });
+      await queryClient.invalidateQueries({ queryKey: ["active-subscription"] });
+    } catch {
+      // Best-effort acknowledgment, failure does not break the UI
+    } finally {
+      setIsAcknowledgingGift(false);
+    }
+  };
 
   const handleDeleteExam = async () => {
     if (!examToDelete) return;
@@ -274,9 +326,6 @@ export function HomePage() {
                 <h3 className="text-base font-bold text-[var(--color-text)] truncate">
                   دستیار هوشمند آوانا
                 </h3>
-                <span className="text-[10px] text-primary font-medium">
-                  پاسخگویی هوشمند با Cloudflare AI
-                </span>
               </div>
             </div>
             <p className="text-xs text-[var(--color-text-muted)] leading-relaxed relative z-10">
@@ -475,6 +524,15 @@ export function HomePage() {
         courseTitle={examToDelete?.title || ""}
         onClose={() => setExamToDelete(null)}
         onConfirm={handleDeleteExam}
+      />
+
+      {/* Welcome Gift Popup */}
+      <WelcomeGiftModal
+        isOpen={shouldShowWelcomeModal}
+        onClose={handleAcknowledgeWelcomeGift}
+        walletAmount={welcomeGiftQuery.data?.gift?.wallet_amount ?? 20000}
+        subscriptionDays={welcomeGiftQuery.data?.gift?.subscription_days ?? 7}
+        isAcknowledging={isAcknowledgingGift}
       />
     </div>
   );
@@ -981,11 +1039,28 @@ function PopularCoursesSection({
   const safeGroupIndex =
     totalGroups > 0 ? currentGroupIndex % totalGroups : 0;
 
+  const handleNext = () => {
+    setDirection(1);
+    setCurrentGroupIndex((prev) => (prev + 1) % totalGroups);
+  };
+
+  const handlePrev = () => {
+    setDirection(-1);
+    setCurrentGroupIndex((prev) => (prev - 1 + totalGroups) % totalGroups);
+  };
+
   const handleDotClick = (i: number) => {
     if (i === safeGroupIndex) return;
     setDirection(i > safeGroupIndex ? 1 : -1);
     setCurrentGroupIndex(i);
   };
+
+  const { dragProps, cursorClass } = useCarouselDrag({
+    onNext: handleNext,
+    onPrev: handlePrev,
+    enabled: totalGroups > 1,
+    onDragStateChange: (dragging) => setIsPaused(dragging),
+  });
 
   // Auto-rotate every 5 seconds when more than 1 group exists and not paused
   useEffect(() => {
@@ -997,7 +1072,7 @@ function PopularCoursesSection({
     }, 5000);
 
     return () => clearInterval(timer);
-  }, [totalGroups, isPaused]);
+  }, [totalGroups, isPaused, safeGroupIndex]);
 
   const carouselVariants = createCarouselVariants(shouldReduceMotion);
 
@@ -1062,7 +1137,10 @@ function PopularCoursesSection({
           <Loader2 className="w-6 h-6 animate-spin text-primary" />
         </div>
       ) : totalGroups > 0 ? (
-        <div className="relative overflow-hidden min-h-[160px]">
+        <div
+          className={`relative overflow-hidden min-h-[160px] ${cursorClass}`}
+          {...dragProps}
+        >
           <AnimatePresence mode="wait" custom={direction} initial={false}>
             <motion.div
               key={safeGroupIndex}
@@ -1209,6 +1287,13 @@ function HeroCoursesCarousel({
     setCurrentIndex(i);
   };
 
+  const { dragProps, cursorClass } = useCarouselDrag({
+    onNext: handleNext,
+    onPrev: handlePrev,
+    enabled: totalCount > 1,
+    onDragStateChange: (dragging) => setIsPaused(dragging),
+  });
+
   // Auto-advance rotation every 6 seconds (if more than 1 course and not paused)
   useEffect(() => {
     if (totalCount <= 1 || isPaused) return;
@@ -1219,7 +1304,7 @@ function HeroCoursesCarousel({
     }, 6000);
 
     return () => clearInterval(timer);
-  }, [totalCount, isPaused]);
+  }, [totalCount, isPaused, activeIndex]);
 
   const carouselVariants = createCarouselVariants(shouldReduceMotion);
 
@@ -1285,9 +1370,10 @@ function HeroCoursesCarousel({
 
   return (
     <section
-      className="bg-[var(--color-surface)] rounded-card p-4 sm:p-6 md:p-8 border border-[var(--color-border)] shadow-card relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-4 sm:gap-6 min-h-[220px] sm:min-h-[250px] transition-all duration-300"
+      className={`bg-[var(--color-surface)] rounded-card p-4 sm:p-6 md:p-8 border border-[var(--color-border)] shadow-card relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-4 sm:gap-6 min-h-[220px] sm:min-h-[250px] transition-all duration-300 ${cursorClass}`}
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
+      {...dragProps}
     >
       <div className="z-10 w-full md:w-2/3 space-y-3 sm:space-y-4">
         {/* Header Metadata Bar: Subject Badge + Carousel Controls */}

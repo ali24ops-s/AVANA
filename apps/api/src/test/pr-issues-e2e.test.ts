@@ -22,6 +22,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { randomUUID } from "node:crypto";
 import { createApp } from "../server/createApp.js";
 import { loadApiConfig } from "../config.js";
 import { v1Routes } from "../routes/v1.js";
@@ -56,8 +57,10 @@ import { AuditService } from "../observability/audit-service.js";
 import { MockModelGateway } from "../modules/generation/gateway/mock.js";
 import { GeminiModelGateway } from "../modules/generation/gateway/gemini.js";
 import { InMemoryGenerationQueue } from "../modules/generation/generation-queue.js";
+import { InMemoryGenerationChunkStore } from "../modules/generation/generation-chunk-store.js";
 import { GenerationService } from "../modules/generation/index.js";
-import type { Actor, GeneratedContentType } from "@avana/domain";
+import { InMemoryWalletStore, WalletService } from "../modules/wallet/index.js";
+import { asWalletId, type Actor, type GeneratedContentType, type UserId } from "@avana/domain";
 
 function makeTestConfig() {
   process.env.NODE_ENV = "test";
@@ -133,12 +136,15 @@ describe("AVANA 3-Issue Fix E2E Verification", () => {
   let auditService: AuditService;
   let queue: InMemoryGenerationQueue;
   let gateway: MockModelGateway;
+  let walletStore: InMemoryWalletStore;
+  let walletService: WalletService;
+  let generationChunkStore: InMemoryGenerationChunkStore;
 
   beforeEach(async () => {
     config = makeTestConfig();
     sessionStore = new InMemorySessionStore();
-    userStore = new InMemoryUserStore();
     orgStore = new InMemoryOrganizationStore();
+    userStore = new InMemoryUserStore(orgStore);
     courseStore = new InMemoryCourseStore();
     moduleStore = new InMemoryModuleStore();
     lessonStore = new InMemoryLessonStore();
@@ -148,12 +154,15 @@ describe("AVANA 3-Issue Fix E2E Verification", () => {
     generatedContentStore = new InMemoryGeneratedContentStore();
     generatedContentCitationStore = new InMemoryGeneratedContentCitationStore();
     generationJobStore = new InMemoryGenerationJobStore();
+    generationChunkStore = new InMemoryGenerationChunkStore();
     flashcardStore = new InMemoryFlashcardStore();
     flashcardReviewStore = new InMemoryFlashcardReviewStore();
     quizStore = new InMemoryQuizStore();
     quizQuestionStore = new InMemoryQuizQuestionStore();
     quizAttemptStore = new InMemoryQuizAttemptStore();
     queue = new InMemoryGenerationQueue(generationJobStore);
+    walletStore = new InMemoryWalletStore();
+    walletService = new WalletService(walletStore);
     gateway = new MockModelGateway();
     storageDir = await fs.mkdtemp(path.join(os.tmpdir(), "avana-issues-e2e-"));
     storageProvider = new LocalStorageProvider(storageDir);
@@ -182,6 +191,7 @@ describe("AVANA 3-Issue Fix E2E Verification", () => {
       generatedContentStore,
       generatedContentCitationStore,
       generationJobStore,
+      generationChunkStore,
       flashcardStore,
       flashcardReviewStore,
       quizStore,
@@ -190,6 +200,8 @@ describe("AVANA 3-Issue Fix E2E Verification", () => {
       auditService,
       gateway,
       queue,
+      walletStore,
+      walletService,
     });
     await app.ready();
     return app;
@@ -205,6 +217,14 @@ describe("AVANA 3-Issue Fix E2E Verification", () => {
     const token = extractSessionToken(res);
     expect(token).toBeTruthy();
     const user = (await userStore.findByEmail(email))!;
+    await walletStore.createWallet({
+      id: asWalletId(randomUUID()),
+      userId: user.id as UserId,
+      balance: 100_000,
+      currency: "toman",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
     return { token: token!, user };
   }
 

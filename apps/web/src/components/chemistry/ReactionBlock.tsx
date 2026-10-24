@@ -102,6 +102,69 @@ async function getSmilesDrawer(): Promise<SmilesDrawerModule> {
   return loadPromise;
 }
 
+interface CachedReactionMoleculeData {
+  innerHTML: string;
+  viewBox: string;
+  width: string;
+  height: string;
+  geom?: MoleculeGeometry | null;
+}
+
+const MAX_RXN_CACHE_SIZE = 250;
+const rxnMoleculeSvgCache = new Map<string, CachedReactionMoleculeData>();
+
+function cloneMoleculeGeometry(geom: MoleculeGeometry | null | undefined): MoleculeGeometry | null {
+  if (!geom) return null;
+  return {
+    averageBondLength: geom.averageBondLength,
+    atoms: Array.isArray(geom.atoms)
+      ? geom.atoms.map((a) => ({
+          index: a.index,
+          element: a.element,
+          x: a.x,
+          y: a.y,
+          charge: a.charge,
+          hydrogenCount: a.hydrogenCount,
+          isAromatic: a.isAromatic,
+          lonePairsCount: a.lonePairsCount,
+          lonePairs: Array.isArray(a.lonePairs)
+            ? a.lonePairs.map((lp) => ({
+                index: lp.index,
+                x: lp.x,
+                y: lp.y,
+                angle: lp.angle,
+                dot1: { x: lp.dot1.x, y: lp.dot1.y },
+                dot2: { x: lp.dot2.x, y: lp.dot2.y },
+              }))
+            : [],
+          neighborIndices: Array.isArray(a.neighborIndices) ? [...a.neighborIndices] : [],
+        }))
+      : [],
+    bonds: Array.isArray(geom.bonds) ? geom.bonds.map((b) => ({ ...b })) : [],
+  };
+}
+
+function getCachedRxnMolecule(key: string): CachedReactionMoleculeData | undefined {
+  const data = rxnMoleculeSvgCache.get(key);
+  if (data) {
+    rxnMoleculeSvgCache.delete(key);
+    rxnMoleculeSvgCache.set(key, data);
+  }
+  return data;
+}
+
+function setCachedRxnMolecule(key: string, data: CachedReactionMoleculeData): void {
+  if (rxnMoleculeSvgCache.has(key)) {
+    rxnMoleculeSvgCache.delete(key);
+  } else if (rxnMoleculeSvgCache.size >= MAX_RXN_CACHE_SIZE) {
+    const oldestKey = rxnMoleculeSvgCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      rxnMoleculeSvgCache.delete(oldestKey);
+    }
+  }
+  rxnMoleculeSvgCache.set(key, data);
+}
+
 /**
  * Normalizes chemical formulas and conditions by formatting digits
  * following element symbols or closing parentheses as subscripts,
@@ -275,7 +338,7 @@ export interface ReactionMoleculeCardProps {
   ) => void;
 }
 
-export function ReactionMoleculeCard({
+function ReactionMoleculeCardComponent({
   participant,
   role,
   participantIndex = 0,
@@ -330,6 +393,29 @@ export function ReactionMoleculeCard({
 
       const baseBondLength = layoutMode === "compact" ? 18 : 20;
       const basePadding = layoutMode === "compact" ? 6 : 10;
+
+      const mechanismSignature =
+        showMechanism && mechanism?.isVerified
+          ? `_mech_${mechanism.reactionType || ""}_${(mechanism.arrows || []).map((a) => `${a.id || ""}:${a.type}:${a.from?.atom?.atomIndex}->${a.to?.atom?.atomIndex}`).join(";")}_${Boolean(suppressIntermolecularStubs)}`
+          : "_nomech";
+      const cacheKey = `${participant.smiles.trim()}_${isDarkMode ? "dark" : "light"}_${drawWidth}_${drawHeight}_${layoutMode}_${role}_${participantIndex}${mechanismSignature}`;
+      const cached = getCachedRxnMolecule(cacheKey);
+      if (cached) {
+        targetSvg.innerHTML = cached.innerHTML;
+        if (cached.viewBox) targetSvg.setAttribute("viewBox", cached.viewBox);
+        if (cached.width) {
+          targetSvg.setAttribute("width", cached.width);
+          targetSvg.style.width = `${cached.width}px`;
+        }
+        if (cached.height) {
+          targetSvg.setAttribute("height", cached.height);
+          targetSvg.style.height = `${cached.height}px`;
+        }
+        if (onGeometryReady && cached.geom) {
+          onGeometryReady(participantIndex, cloneMoleculeGeometry(cached.geom)!, targetSvg);
+        }
+        return;
+      }
 
       const drawerOptions = {
         width: drawWidth,
@@ -410,12 +496,21 @@ export function ReactionMoleculeCard({
 
                 fitSvgViewBox(targetSvg, drawWidth, drawHeight, basePadding);
 
+                let geom: MoleculeGeometry | null = null;
                 if (onGeometryReady) {
-                  const geom = extractMoleculeGeometry(svgDrawer);
+                  geom = extractMoleculeGeometry(svgDrawer);
                   if (geom) {
-                    onGeometryReady(participantIndex, geom, targetSvg);
+                    onGeometryReady(participantIndex, cloneMoleculeGeometry(geom)!, targetSvg);
                   }
                 }
+
+                setCachedRxnMolecule(cacheKey, {
+                  innerHTML: targetSvg.innerHTML,
+                  viewBox: targetSvg.getAttribute("viewBox") || "",
+                  width: targetSvg.getAttribute("width") || "",
+                  height: targetSvg.getAttribute("height") || "",
+                  geom: cloneMoleculeGeometry(geom),
+                });
               } catch (drawErr) {
                 if (isMounted) {
                   setRenderError(
@@ -542,6 +637,8 @@ export function ReactionMoleculeCard({
   );
 }
 
+export const ReactionMoleculeCard = React.memo(ReactionMoleculeCardComponent);
+
 function parseSvgViewBox(svg: SVGSVGElement | null): { vx: number; vy: number; vw: number; vh: number } {
   if (!svg) return { vx: 0, vy: 0, vw: 100, vh: 100 };
   const vbAttr = svg.getAttribute("viewBox");
@@ -628,7 +725,7 @@ export interface ReactionParticipantsRowProps {
  * Unified Reaction Participants Row Component.
  * Hosts participants with consistent spacing and a shared intermolecular mechanism layer.
  */
-export function ReactionParticipantsRow({
+function ReactionParticipantsRowComponent({
   participants,
   role,
   layoutMode,
@@ -659,9 +756,18 @@ export function ReactionParticipantsRow({
   );
 
   useEffect(() => {
-    const handleResize = () => setLayoutVersion((v) => v + 1);
+    let animId: number | null = null;
+    const handleResize = () => {
+      if (animId !== null) cancelAnimationFrame(animId);
+      animId = requestAnimationFrame(() => {
+        setLayoutVersion((v) => v + 1);
+      });
+    };
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    return () => {
+      if (animId !== null) cancelAnimationFrame(animId);
+      window.removeEventListener("resize", handleResize);
+    };
   }, []);
 
   useEffect(() => {
@@ -957,6 +1063,8 @@ export function ReactionParticipantsRow({
   );
 }
 
+export const ReactionParticipantsRow = React.memo(ReactionParticipantsRowComponent);
+
 /**
  * Reaction Arrow with ChemDraw SVG vector rendering and clean scientific annotations.
  */
@@ -1227,13 +1335,53 @@ export function PlusSeparator() {
 /**
  * Main ReactionBlock Component.
  */
-export function ReactionBlock({
+function ReactionBlockComponent({
   reaction,
   className = "",
   layout,
   moleculeWidth,
   moleculeHeight,
 }: ReactionBlockProps) {
+  const blockRef = useRef<HTMLDivElement | null>(null);
+  const [isVisible, setIsVisible] = useState<boolean>(() => {
+    if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
+      return true;
+    }
+    if (
+      typeof navigator !== "undefined" &&
+      navigator.userAgent &&
+      navigator.userAgent.includes("jsdom")
+    ) {
+      return true;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (isVisible) return;
+    const el = blockRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") {
+      setIsVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setIsVisible(true);
+            observer.disconnect();
+            break;
+          }
+        }
+      },
+      { rootMargin: "400px 0px" },
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isVisible]);
+
   const validation = React.useMemo(() => {
     return validateChemicalReaction(reaction);
   }, [reaction]);
@@ -1293,7 +1441,9 @@ export function ReactionBlock({
 
   return (
     <div
+      ref={blockRef}
       className={`my-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xs overflow-hidden transition-all text-right ${className}`.trim()}
+      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 320px" }}
       dir="rtl"
       data-testid="reaction-block"
       data-layout-mode={activeLayout}
@@ -1431,7 +1581,11 @@ export function ReactionBlock({
       </div>
 
       {/* 2. Main ChemDraw 2D Vector Scheme Viewport */}
-      {activeLayout === "stepped" && isMultiStep ? (
+      {!isVisible ? (
+        <div className="py-12 text-center text-xs text-[var(--color-text-muted)] animate-pulse" dir="rtl">
+          در حال آماده‌سازی طرح واکنش...
+        </div>
+      ) : activeLayout === "stepped" && isMultiStep ? (
         // STEPPED / VERTICAL LAYOUT MODE (for multi-step syntheses)
         <div className="p-4 sm:p-6 bg-slate-50/70 dark:bg-slate-950/60 space-y-4">
           {stepsToRender.map((step, sIdx) => {
@@ -1738,3 +1892,5 @@ export function ReactionBlock({
     </div>
   );
 }
+
+export const ReactionBlock = React.memo(ReactionBlockComponent);

@@ -345,12 +345,13 @@ describe("PR6-6: AI generation review & acceptance API", () => {
   describe("POST .../generated/:contentId/accept", () => {
     it("accepts a draft lesson and materializes a lesson draft", async () => {
       const app = await buildApp();
-      const { token } = await signIn(
+      const { token, userId } = await signIn(
         app,
         "editor3@example.com",
         "course_editor",
       );
       const organizationId = await createOrg(app, token, "Accept Org");
+      orgStore.setMembershipRole(organizationId, userId, "course_editor");
       seedDocumentAndChunk(organizationId);
       const contentId = seedContent(organizationId);
 
@@ -473,12 +474,13 @@ describe("PR6-6: AI generation review & acceptance API", () => {
   describe("POST .../generated/:contentId/reject", () => {
     it("rejects a draft with a reason", async () => {
       const app = await buildApp();
-      const { token } = await signIn(
+      const { token, userId } = await signIn(
         app,
         "editor4@example.com",
         "course_editor",
       );
       const organizationId = await createOrg(app, token, "Reject Org");
+      orgStore.setMembershipRole(organizationId, userId, "course_editor");
       seedDocumentAndChunk(organizationId);
       const contentId = seedContent(organizationId);
 
@@ -593,12 +595,13 @@ describe("PR6-6: AI generation review & acceptance API", () => {
 
     it("rejects without a reason with 400", async () => {
       const app = await buildApp();
-      const { token } = await signIn(
+      const { token, userId } = await signIn(
         app,
         "editor4b@example.com",
         "course_editor",
       );
       const organizationId = await createOrg(app, token, "Reject Org B");
+      orgStore.setMembershipRole(organizationId, userId, "course_editor");
       seedDocumentAndChunk(organizationId);
       const contentId = seedContent(organizationId);
 
@@ -616,12 +619,13 @@ describe("PR6-6: AI generation review & acceptance API", () => {
   describe("PATCH .../generated/:contentId", () => {
     it("edits a draft payload before acceptance", async () => {
       const app = await buildApp();
-      const { token } = await signIn(
+      const { token, userId } = await signIn(
         app,
         "editor5@example.com",
         "course_editor",
       );
       const organizationId = await createOrg(app, token, "Edit Org");
+      orgStore.setMembershipRole(organizationId, userId, "course_editor");
       seedDocumentAndChunk(organizationId);
       const contentId = seedContent(organizationId);
 
@@ -763,12 +767,13 @@ describe("PR6-6: AI generation review & acceptance API", () => {
   describe("POST .../generated/:contentId/regenerate", () => {
     it("returns 202 and creates a regeneration job for course editor", async () => {
       const app = await buildApp();
-      const { token } = await signIn(
+      const { token, userId } = await signIn(
         app,
         "editor6@example.com",
         "course_editor",
       );
       const organizationId = await createOrg(app, token, "Regen Org");
+      orgStore.setMembershipRole(organizationId, userId, "course_editor");
       seedDocumentAndChunk(organizationId);
       const contentId = seedContent(organizationId);
 

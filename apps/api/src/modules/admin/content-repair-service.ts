@@ -275,23 +275,27 @@ export class ContentRepairService {
         resolved.generatedContent?.organizationId ||
         null;
 
-      await this.deps.auditService.emit([
-        {
-          actorId: input.actor?.userId || "00000000-0000-0000-0000-000000000001",
-          organizationId: orgId,
-          action: "content.edited",
-          entityType: input.lessonId ? "lesson" : input.generatedContentId ? "generated_content" : "lesson",
-          entityId: (input.lessonId || input.generatedContentId || "raw") as string,
-          details: {
-            repairAction: "deterministic_repair",
-            ruleIds: applyResult.appliedCandidates.map((c) => c.ruleId),
-            repairedBlockCount: applyResult.repairedBlockCount,
-            originalHash: input.originalHash,
-            newHash: applyResult.contentHash,
+      try {
+        await this.deps.auditService.emit([
+          {
+            actorId: input.actor?.userId || "00000000-0000-0000-0000-000000000001",
+            organizationId: orgId,
+            action: "content.edited",
+            entityType: input.lessonId ? "lesson" : input.generatedContentId ? "generated_content" : "lesson",
+            entityId: (input.lessonId || input.generatedContentId || "raw") as string,
+            details: {
+              repairAction: "deterministic_repair",
+              ruleIds: applyResult.appliedCandidates.map((c) => c.ruleId),
+              repairedBlockCount: applyResult.repairedBlockCount,
+              originalHash: input.originalHash,
+              newHash: applyResult.contentHash,
+            },
+            createdAt: now,
           },
-          createdAt: now,
-        },
-      ]);
+        ]);
+      } catch {
+        // Audit emission failure must not abort an already committed lesson repair
+      }
     }
 
     return {

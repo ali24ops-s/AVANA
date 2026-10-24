@@ -27,6 +27,10 @@ export type AdminUserRecord = {
   isVerified: boolean;
   createdAt: string;
   lastActiveAt?: string;
+  university?: string | null;
+  faculty?: string | null;
+  department?: string | null;
+  phoneNumber?: string | null;
 };
 
 export type AdminUsersList = {
@@ -192,6 +196,26 @@ export interface AdminLessonRecord {
   createdAt: string;
 }
 
+export interface AdminLessonDetailRecord extends AdminLessonRecord {
+  contentMarkdown: string;
+  moduleId?: string;
+  flashcards?: Array<{
+    id: string;
+    front: string;
+    back: string;
+    explanation?: string | null;
+    difficulty?: string | null;
+  }>;
+  quizQuestions?: Array<{
+    id: string;
+    question: string;
+    choices?: string[] | null;
+    correctAnswer: unknown;
+    explanation?: string | null;
+    difficulty?: string | null;
+  }>;
+}
+
 export interface AdminFlashcardRecord {
   id: string;
   front: string;
@@ -208,6 +232,16 @@ export interface AdminExamRecord {
   createdAt: string;
 }
 
+export interface AdminGenerationDetailSource {
+  documentId: string;
+  originalName: string;
+  role: string;
+  orderIndex: number;
+  sizeBytes?: number;
+  mimeType?: string;
+  status?: string;
+}
+
 export interface AdminGenerationDetail extends AdminGenerationJobRecord {
   provider?: string;
   model?: string;
@@ -220,6 +254,11 @@ export interface AdminGenerationDetail extends AdminGenerationJobRecord {
   errorType?: string;
   httpStatus?: number;
   payload?: unknown;
+  user?: { id: string; email: string };
+  organization?: { id: string; name: string };
+  document?: { id: string; originalName: string; sizeBytes?: number; mimeType?: string };
+  course?: { id: string; name?: string };
+  sources?: AdminGenerationDetailSource[];
 }
 
 export interface AdminCourseHierarchyLesson {
@@ -285,6 +324,7 @@ export interface AdminAiAnalyticsOverview {
   successful: number;
   failed: number;
   processing: number;
+  queued?: number;
   successRate: number;
   averageDurationMs: number;
 }
@@ -479,7 +519,7 @@ export interface AdminStore {
   
   // Content Phase 2
   listLessons(params: { page: number; pageSize: number; search?: string }): Promise<{ lessons: AdminLessonRecord[]; totalCount: number }>;
-  getLesson?(id: string): Promise<(AdminLessonRecord & { contentMarkdown: string; moduleId?: string }) | null>;
+  getLesson?(id: string): Promise<AdminLessonDetailRecord | null>;
   updateLessonContent?(id: string, contentMarkdown: string): Promise<void>;
   listFlashcards(params: { page: number; pageSize: number; search?: string }): Promise<{ flashcards: AdminFlashcardRecord[]; totalCount: number }>;
   listExams(params: { page: number; pageSize: number; search?: string }): Promise<{ exams: AdminExamRecord[]; totalCount: number }>;
@@ -492,6 +532,7 @@ export interface AdminStore {
 
   // Phase 4: Mutations
   updateUserRole(adminId: string, targetUserId: string, newRole: string): Promise<void>;
+  deleteUser(adminId: string, targetUserId: string): Promise<void>;
   updateCourseMetadata(adminId: string, courseId: string, payload: { name?: string; subject?: string; targetAcademicFields?: string[] }): Promise<void>;
   retryDocumentProcessing(adminId: string, documentId: string): Promise<void>;
   retryGenerationJob(adminId: string, jobId: string): Promise<void>;
@@ -571,12 +612,20 @@ export interface AdminStore {
   bulkGenerateCommercePromotionCodes(
     adminId: string,
     id: string,
-    input: { count: number; prefix?: string; length?: number },
+    input: { count: number; prefix?: string; length?: number; maxUses?: number },
   ): Promise<{ generatedCount: number; sampleCodes: string[] }>;
   listCommercePromotionRedemptions(
-    id: string,
+    id: string | undefined,
     params: { page: number; pageSize: number },
-  ): Promise<{ items: AdminPromotionRedemptionListItem[]; totalCount: number }>;
+  ): Promise<{
+    items: AdminPromotionRedemptionListItem[];
+    totalCount: number;
+    stats?: {
+      totalCompleted: number;
+      totalDiscountGranted: number;
+      totalCashbackGranted: number;
+    };
+  }>;
 
   // Teacher Platform Management
   listTeachers(params: {
@@ -721,6 +770,10 @@ export interface AdminTeacherRecord {
   classroomsCount: number;
   examsCount: number;
   studentsCount: number;
+  university?: string | null;
+  faculty?: string | null;
+  department?: string | null;
+  phoneNumber?: string | null;
 }
 
 export interface AdminTeacherStats {

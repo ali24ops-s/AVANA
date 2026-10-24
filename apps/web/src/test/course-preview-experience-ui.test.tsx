@@ -21,6 +21,7 @@ const mockListOrganizations = vi.fn();
 const mockListProducts = vi.fn();
 const mockGetFlashcardsQueue = vi.fn();
 const mockGetMultiReviewQueue = vi.fn();
+const mockGetCustomQueue = vi.fn();
 const mockGetQuiz = vi.fn();
 const mockSubmitQuizAttempt = vi.fn();
 
@@ -51,7 +52,9 @@ vi.mock("../lib/api/study.js", () => ({
   createStudyApi: () => ({
     getFlashcardsQueue: mockGetFlashcardsQueue,
     getMultiReviewQueue: mockGetMultiReviewQueue,
+    getCustomQueue: mockGetCustomQueue,
     getFlashcardStudySummary: vi.fn().mockResolvedValue({ total_due: 5 }),
+    getFlashcardSummary: vi.fn().mockResolvedValue({ total_due: 5, new_count: 5, learning_count: 0, review_count: 0 }),
     submitFlashcardReview: vi.fn().mockResolvedValue({}),
     getQuiz: mockGetQuiz,
     submitQuizAttempt: mockSubmitQuizAttempt,
@@ -200,6 +203,9 @@ describe("Pre-Purchase Course Preview & Free Access UI QA Verification", () => {
     await waitFor(() => {
       expect(screen.getAllByText("فصل ۱: داروهای ضد فشار خون")[0]).toBeDefined();
       expect(screen.getAllByText("فصل ۲: بتابلوکرها و آنتاگونیست‌های کلسیم")[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /فصل ۱: داروهای ضد فشار خون/i }));
+    await waitFor(() => {
       expect(screen.getAllByText("درس ۱: مهارکننده‌های ACE و مکانیسم اثر")[0]).toBeDefined();
     });
 
@@ -235,6 +241,7 @@ describe("Pre-Purchase Course Preview & Free Access UI QA Verification", () => {
     };
     mockGetFlashcardsQueue.mockResolvedValue(queueData);
     mockGetMultiReviewQueue.mockResolvedValue(queueData);
+    mockGetCustomQueue.mockResolvedValue(queueData);
 
     const onUnlockMock = vi.fn();
 

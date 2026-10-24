@@ -255,8 +255,8 @@ describe("Flashcards Taxonomy Filtering & Organization Resolution", () => {
 
     await waitFor(() => {
       expect(screen.getByText("General Anatomy")).toBeDefined();
-      expect(screen.getByText("12 کارت")).toBeDefined();
     });
+    expect(screen.getAllByText(/(12|۱۲) کارت/).length).toBeGreaterThan(0);
   });
 
   it("Case 6: Selection behavior - Select Course selects all topics, Deselect Course deselects topics, Select Topic A selects only A", async () => {
@@ -319,7 +319,7 @@ describe("Flashcards Taxonomy Filtering & Organization Resolution", () => {
     // 1. Select Topic A (Gastroenterology)
     fireEvent.click(screen.getByText("Gastroenterology"));
     await waitFor(() => {
-      expect(screen.getByText("1 مبحث انتخاب شده است.")).toBeDefined();
+      expect(screen.getByText(/(1|۱) مبحث انتخاب شده است/)).toBeDefined();
     });
 
     // 2. Select Course -> Selects all topics in course

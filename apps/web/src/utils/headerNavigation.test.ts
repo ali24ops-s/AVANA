@@ -38,17 +38,17 @@ describe("headerNavigation - getHeaderManagementActions", () => {
     expect(actions.some((a) => a.to === "/admin/courses")).toBe(false);
   });
 
-  it("Organization Admin (organization_admin): returns Admin Panel and Teacher Platform actions", () => {
+  it("Organization Admin (organization_admin): returns Admin Panel action only, never Teacher Platform action", () => {
     const user = { role: "organization_admin" as const };
     const memberships = [{ organization_id: "org-1", role: "organization_admin" as const }];
 
     const actions = getHeaderManagementActions(user, memberships);
 
-    expect(actions).toHaveLength(2);
+    expect(actions).toHaveLength(1);
     expect(actions[0].id).toBe("admin");
     expect(actions[0].to).toBe("/admin");
-    expect(actions[1].id).toBe("teacher");
-    expect(actions[1].to).toBe("/teacher");
+    expect(actions.some((a) => a.id === "teacher")).toBe(false);
+    expect(actions.some((a) => a.to === "/teacher")).toBe(false);
     expect(actions.some((a) => a.to === "/admin/courses")).toBe(false);
   });
 
@@ -118,17 +118,67 @@ describe("headerNavigation - getHeaderManagementActions", () => {
     });
   });
 
-  it("Multi-role: Student with organization_admin membership gets Admin and Teacher actions", () => {
+  it("Multi-role: Student with organization_admin membership gets Admin action only, NEVER Teacher action", () => {
     const user = { role: "student" as const };
     const memberships = [{ organization_id: "org-1", role: "organization_admin" as const }];
 
     const actions = getHeaderManagementActions(user, memberships);
 
-    expect(actions).toHaveLength(2);
+    expect(actions).toHaveLength(1);
     expect(actions[0].id).toBe("admin");
     expect(actions[0].to).toBe("/admin");
-    expect(actions[1].id).toBe("teacher");
-    expect(actions[1].to).toBe("/teacher");
+    expect(actions.some((a) => a.id === "teacher")).toBe(false);
+  });
+
+  it("Personal organization student: student role with personal organization_admin gets NO teacher link", () => {
+    const user = { role: "student" as const };
+    const memberships = [
+      { organization_id: "personal-org-123", role: "organization_admin" as const },
+    ];
+
+    const actions = getHeaderManagementActions(user, memberships);
+
+    expect(actions.some((a) => a.id === "teacher")).toBe(false);
+    expect(actions.some((a) => a.to === "/teacher")).toBe(false);
+  });
+
+  it("Organization Admin alone: user with role='organization_admin' gets Admin action only, NEVER Teacher action", () => {
+    const user = { role: "organization_admin" as const };
+    const memberships = [{ organization_id: "org-1", role: "organization_admin" as const }];
+
+    const actions = getHeaderManagementActions(user, memberships);
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0].id).toBe("admin");
+    expect(actions[0].to).toBe("/admin");
+    expect(actions.some((a) => a.id === "teacher")).toBe(false);
+    expect(actions.some((a) => a.to === "/teacher")).toBe(false);
+  });
+
+  it("Organization Admin with teaching role: gets BOTH Admin and Teacher actions", () => {
+    const user = { role: "organization_admin" as const };
+    const memberships = [
+      { organization_id: "org-1", role: "organization_admin" as const },
+      { organization_id: "school-org", role: "teacher" as const },
+    ];
+
+    const actions = getHeaderManagementActions(user, memberships);
+
+    expect(actions).toHaveLength(2);
+    expect(actions.some((a) => a.id === "admin" && a.to === "/admin")).toBe(true);
+    expect(actions.some((a) => a.id === "teacher" && a.to === "/teacher")).toBe(true);
+  });
+
+  it("Teacher: user with role='teacher' gets Teacher action only", () => {
+    const user = { role: "teacher" as const };
+    const memberships = [{ organization_id: "school-org", role: "teacher" as const }];
+
+    const actions = getHeaderManagementActions(user, memberships);
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0].id).toBe("teacher");
+    expect(actions[0].to).toBe("/teacher");
+    expect(actions.some((a) => a.id === "admin")).toBe(false);
   });
 
   it("Multi-role: Platform Admin with course_editor membership receives Admin and Teacher, NEVER /admin/courses", () => {

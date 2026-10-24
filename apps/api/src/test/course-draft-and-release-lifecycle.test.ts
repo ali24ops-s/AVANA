@@ -294,6 +294,7 @@ describe("Course Draft & Atomic Release Lifecycle Integration Test", () => {
 
     const mockOrgStore = {
       findMembership: async () => ({ role: "student" }),
+      listMembershipsByUserId: async () => [{ organizationId: orgId, role: "student" }],
     };
 
     learningService = new LearningService(

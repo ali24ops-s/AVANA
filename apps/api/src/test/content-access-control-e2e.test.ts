@@ -40,6 +40,7 @@ import {
   InMemoryFlashcardStore,
   InMemoryQuizStore,
   InMemoryQuizQuestionStore,
+  InMemoryUserFlashcardScheduleStore,
 } from "../modules/study/test/in-memory-stores.js";
 import { LearningService } from "../modules/learning/learning-service.js";
 import { LibraryService } from "../modules/library/library-service.js";
@@ -64,6 +65,7 @@ describe("Content Access Control End-to-End Suite (Before vs After Purchase)", (
   let documentChunkStore: InMemoryDocumentChunkStore;
   let contentPackStore: InMemoryContentPackStore;
   let flashcardStore: InMemoryFlashcardStore;
+  let userFlashcardScheduleStore: InMemoryUserFlashcardScheduleStore;
   let quizStore: InMemoryQuizStore;
   let quizQuestionStore: InMemoryQuizQuestionStore;
 
@@ -120,6 +122,7 @@ describe("Content Access Control End-to-End Suite (Before vs After Purchase)", (
     documentStore = new InMemoryDocumentStore();
     documentChunkStore = new InMemoryDocumentChunkStore();
     flashcardStore = new InMemoryFlashcardStore();
+    userFlashcardScheduleStore = new InMemoryUserFlashcardScheduleStore();
     quizStore = new InMemoryQuizStore();
     quizQuestionStore = new InMemoryQuizQuestionStore(quizStore);
 
@@ -242,7 +245,7 @@ describe("Content Access Control End-to-End Suite (Before vs After Purchase)", (
       defaultPolicy,
       undefined,
       organizationStore,
-      undefined,
+      userFlashcardScheduleStore,
       courseStore,
       systemOrgId,
       undefined,
@@ -571,6 +574,15 @@ describe("Content Access Control End-to-End Suite (Before vs After Purchase)", (
     });
 
     it("allows direct flashcard study and returns cards after purchase", async () => {
+      await userFlashcardScheduleStore.upsertSchedule({
+        userId: studentUser.userId,
+        flashcardId: "card-1" as FlashcardId,
+        dueAt: new Date(Date.now() - 60000).toISOString(),
+        intervalDays: 1,
+        easeFactor: 2.5,
+        reviewCount: 1,
+      });
+
       const cards = await studyService.listFlashcardsForReview(
         studentUser,
         systemOrgId,

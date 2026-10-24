@@ -20,6 +20,7 @@ import type {
   DocumentId,
   GenerationJobId,
   OrganizationId,
+  SourcePackRole,
 } from "@avana/domain";
 import type { GenerationJobStatus } from "@avana/domain";
 
@@ -54,11 +55,31 @@ export type GenerationJobRecord = {
   questionPatternVersion?: number | null;
 };
 
+export type GenerationJobSourceRecord = {
+  id: string;
+  generationJobId: GenerationJobId;
+  documentId: DocumentId;
+  role?: SourcePackRole;
+  orderIndex: number;
+  createdAt: string;
+};
+
 // ---------------------------------------------------------------------------
 // Store interface
 // ---------------------------------------------------------------------------
 
 export interface GenerationJobStore {
+  /**
+   * Persist source document mappings for a multi-source generation job.
+   */
+  addSources?(sources: GenerationJobSourceRecord[]): Promise<void>;
+
+  /**
+   * List source documents linked to a generation job, ordered by order_index.
+   */
+  listSourcesByJob?(
+    generationJobId: GenerationJobId,
+  ): Promise<GenerationJobSourceRecord[]>;
 
   /**
    * Find a generation job by ID, scoped to an organization.

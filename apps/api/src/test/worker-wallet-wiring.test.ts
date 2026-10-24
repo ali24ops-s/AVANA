@@ -84,9 +84,9 @@ describe("Phase 4A: Production Worker Wallet Wiring QA", () => {
     expect(recoveryAny.walletService).toBe(deps.walletService);
     expect(recoveryAny.walletStore).toBe(deps.walletStore);
 
-    // Verify gateways
+    // Verify gateways (unified Gemini/mock gateway architecture)
     expect(deps.adminGateway.provider).toBe("mock");
-    expect(deps.userGateway.provider).toBe("openrouter");
+    expect(deps.userGateway.provider).toBe("mock");
 
     await deps.close();
     expect(mockClose).toHaveBeenCalledTimes(1);

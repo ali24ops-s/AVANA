@@ -622,5 +622,61 @@ describe("StudyAssistantChat Component", () => {
       "q-followup-1",
     );
   });
+
+  describe("Header Badges and Branding", () => {
+    it("does not render 'Cloudflare AI' badge in dashboard mode", () => {
+      render(<StudyAssistantChat contextType="dashboard" />);
+      expect(screen.getByText("از آوانا بپرس")).toBeInTheDocument();
+      expect(screen.queryByText(/Cloudflare/i)).toBeNull();
+      expect(screen.queryByText("منتور هوشمند")).toBeNull();
+    });
+
+    it("does not render 'Cloudflare AI' badge in lesson mode", () => {
+      render(
+        <StudyAssistantChat
+          contextType="lesson"
+          lessonId="lesson-badge-test"
+          lessonTitle="آناتومی قلب"
+        />,
+      );
+      expect(screen.getByText("از آوانا بپرس")).toBeInTheDocument();
+      expect(screen.queryByText(/Cloudflare/i)).toBeNull();
+      expect(screen.queryByText("منتور هوشمند")).toBeNull();
+    });
+
+    it("renders 'منتور هوشمند' badge and no 'Cloudflare AI' in exam_question mode", () => {
+      render(
+        <StudyAssistantChat
+          contextType="exam_question"
+          examQuestion={{
+            questionId: "q-badge-1",
+            questionNumber: 1,
+            questionText: "کدام گزینه صحیح است؟",
+            choices: ["الف", "ب"],
+          }}
+        />,
+      );
+      expect(screen.getByText("تحلیل هوشمند آوانا")).toBeInTheDocument();
+      expect(screen.getByText("منتور هوشمند")).toBeInTheDocument();
+      expect(screen.queryByText(/Cloudflare/i)).toBeNull();
+    });
+
+    it("renders 'منتور هوشمند' badge and no 'Cloudflare AI' in exam_analysis mode", () => {
+      render(
+        <StudyAssistantChat
+          contextType="exam_analysis"
+          examQuestion={{
+            questionId: "q-badge-2",
+            questionNumber: 2,
+            questionText: "تحلیل گزینه نادرست",
+            choices: ["الف", "ب"],
+          }}
+        />,
+      );
+      expect(screen.getByText("تحلیل سوال با منتور هوشمند")).toBeInTheDocument();
+      expect(screen.getByText("منتور هوشمند")).toBeInTheDocument();
+      expect(screen.queryByText(/Cloudflare/i)).toBeNull();
+    });
+  });
 });
 

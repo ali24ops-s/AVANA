@@ -12,8 +12,7 @@ import {
   X,
   Library as LibraryIcon,
   Crown,
-  Receipt,
-  Wallet,
+  WalletCards,
   Gift,
   LifeBuoy,
   GraduationCap,
@@ -24,7 +23,6 @@ import { useAuth } from "../../providers/AuthProvider.js";
 import { HeaderSearch } from "./HeaderSearch.js";
 import { useMySubscription } from "../../hooks/useCommerce.js";
 import {
-  calculateRemainingTime,
   getUserChipSubscriptionInfo,
 } from "../commerce/userCommerceUtils.js";
 import { isUserAdmin } from "../../utils/adminPermissions.js";
@@ -35,6 +33,8 @@ import { FILES_ENABLED } from "../../config/features.js";
 import { NotificationDropdown } from "../notifications/NotificationDropdown.js";
 import { EditProfileModal } from "./EditProfileModal.js";
 
+const ACCOUNT_HINT_KEY = "avana_account_menu_hint_seen";
+
 export function AuthenticatedShell() {
   const { user, memberships, isLoading, error, signOut } = useAuth();
   const isAdmin = isUserAdmin(user, memberships);
@@ -43,7 +43,28 @@ export function AuthenticatedShell() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [showAccountHint, setShowAccountHint] = useState<boolean>(() => {
+    if (typeof window === "undefined" || !window.localStorage) return false;
+    try {
+      return !window.localStorage.getItem(ACCOUNT_HINT_KEY);
+    } catch {
+      return false;
+    }
+  });
   const userMenuRef = useRef<HTMLDivElement>(null);
+
+  const dismissAccountHint = () => {
+    if (showAccountHint) {
+      setShowAccountHint(false);
+      if (typeof window !== "undefined" && window.localStorage) {
+        try {
+          window.localStorage.setItem(ACCOUNT_HINT_KEY, "true");
+        } catch {
+          // Ignore localStorage errors (e.g. private mode)
+        }
+      }
+    }
+  };
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -54,23 +75,34 @@ export function AuthenticatedShell() {
         setUserMenuOpen(false);
       }
     }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setUserMenuOpen(false);
+        setMobileMenuOpen(false);
+      }
+    }
+
     if (userMenuOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
+    if (userMenuOpen || mobileMenuOpen) {
+      document.addEventListener("keydown", handleKeyDown);
+    }
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [userMenuOpen]);
+  }, [userMenuOpen, mobileMenuOpen]);
 
-  // Close menu on route change
+  // Close menus on route change
   useEffect(() => {
     setUserMenuOpen(false);
+    setMobileMenuOpen(false);
   }, [location.pathname]);
 
   const { data: subData, isLoading: isSubLoading } = useMySubscription();
   const subscription = subData?.subscription;
-  const remainingInfo = calculateRemainingTime(subscription?.expires_at);
-  const hasActiveSub = subscription?.status === "active" && !remainingInfo.isExpired;
   const chipInfo = getUserChipSubscriptionInfo(subscription);
   const userName =
     user?.name && user.name.trim().length > 0
@@ -106,13 +138,23 @@ export function AuthenticatedShell() {
   const isFilesActive = location.pathname.startsWith("/files");
   const isLibraryActive = location.pathname.startsWith("/library");
 
+  const searchTab = new URLSearchParams(location.search).get("tab");
+  const isLessonPage =
+    /^\/courses\/[^/]+(?:\/learn)?\/?$/.test(location.pathname) &&
+    !location.pathname.endsWith("/manage") &&
+    (!searchTab || searchTab === "lessons");
+
   return (
     <div
       className="min-h-screen bg-[var(--color-bg-default)] text-[var(--color-text)] font-sans transition-colors duration-200"
       dir="rtl"
     >
-      {/* Top Sticky Header Navigation Bar */}
-      <header className="sticky top-0 z-50 bg-[var(--color-surface-glass)] backdrop-blur-xl border-b border-[var(--color-border)] w-full shadow-sm">
+      {/* Top Header Navigation Bar (relative in normal flow on lesson page to scroll with content; sticky top-0 on other pages) */}
+      <header
+        className={`w-full border-b border-[var(--color-border)] bg-[var(--color-surface-glass)] backdrop-blur-xl shadow-sm ${
+          isLessonPage ? "relative z-30" : "sticky top-0 z-50"
+        }`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-2 sm:gap-4">
           {/* Brand & Desktop Horizontal Menu */}
           <div className="flex items-center gap-4 xl:gap-8 min-w-0">
@@ -203,46 +245,74 @@ export function AuthenticatedShell() {
             })}
 
             {/* User Profile / Account Menu Dropdown */}
-            <div className="relative shrink-0" ref={userMenuRef}>
-              <Link
-                to="/account/subscription"
-                onClick={(e) => {
-                  e.preventDefault();
-                  setUserMenuOpen((prev) => !prev);
-                }}
-                title={chipInfo.tooltip}
-                aria-label={`حساب کاربری ${userName}${chipInfo.badgeLabel ? ` - وضعیت اشتراک: ${chipInfo.badgeLabel}` : ""}`}
-                aria-expanded={userMenuOpen}
-                className="flex items-center gap-1.5 sm:gap-2 text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[#008080] transition-colors shrink-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#008080]/30"
-              >
-                <User className="w-4 h-4 text-[#008080] shrink-0" />
-                <span className="hidden sm:inline text-xs font-semibold truncate max-w-[90px] xl:max-w-[120px] text-[var(--color-text)]">
-                  {userName}
-                </span>
-                {isSubLoading ? (
-                  <Skeleton className="hidden sm:inline-block w-12 h-4 rounded-full" />
-                ) : chipInfo.badgeLabel ? (
-                  <span className="hidden sm:inline-flex">
-                    <Badge
-                      variant={
-                        chipInfo.status === "active"
-                          ? "success"
-                          : chipInfo.status === "expiring_soon"
-                          ? "warning"
-                          : chipInfo.status === "expired"
-                          ? "error"
-                          : "neutral"
-                      }
-                      size="sm"
-                    >
-                      {chipInfo.badgeLabel}
-                    </Badge>
+            <div className="relative shrink-0 isolate" ref={userMenuRef}>
+              {user && showAccountHint && !userMenuOpen && (
+                <span
+                  data-testid="account-hint-aura"
+                  className="absolute -inset-1 rounded-2xl bg-[#008080]/20 ring-2 ring-[#008080]/35 pointer-events-none motion-safe:animate-account-aura motion-reduce:animate-none motion-reduce:opacity-75 z-0"
+                  aria-hidden="true"
+                />
+              )}
+
+              {!user ? (
+                <Link
+                  to="/sign-in"
+                  title="ورود به حساب کاربری"
+                  aria-label="ورود به حساب کاربری"
+                  className="flex items-center justify-center gap-1.5 sm:gap-2 text-xs font-semibold min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 sm:h-9 px-2.5 sm:px-3 py-1.5 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[#008080] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] transition-colors shrink-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#008080]"
+                >
+                  <User className="w-4 h-4 text-[#008080] shrink-0" />
+                  <span className="hidden sm:inline text-xs font-semibold text-[var(--color-text)]">
+                    ورود
                   </span>
-                ) : null}
-              </Link>
+                </Link>
+              ) : (
+                <Link
+                  to="/account/subscription"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    dismissAccountHint();
+                    setUserMenuOpen((prev) => !prev);
+                  }}
+                  title={chipInfo.tooltip}
+                  aria-label={`منوی حساب کاربری ${userName}${chipInfo.badgeLabel ? ` - وضعیت اشتراک: ${chipInfo.badgeLabel}` : ""}`}
+                  aria-expanded={userMenuOpen}
+                  aria-haspopup="true"
+                  className={`relative z-10 flex items-center justify-center gap-1.5 sm:gap-2 text-xs font-semibold min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 sm:h-9 px-2.5 sm:px-3 py-1.5 rounded-xl transition-all shrink-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#008080] focus-visible:ring-offset-1 active:scale-[0.98] ${
+                    userMenuOpen
+                      ? "bg-[#008080]/10 border-2 border-[#008080] text-[#008080] shadow-xs ring-2 ring-[#008080]/20"
+                      : "bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[#008080] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)]"
+                  }`}
+                >
+                  <User className="w-4 h-4 text-[#008080] shrink-0" />
+                  <span className="hidden sm:inline text-xs font-semibold truncate max-w-[90px] xl:max-w-[120px] text-[var(--color-text)]">
+                    {userName}
+                  </span>
+                  {isSubLoading ? (
+                    <Skeleton className="hidden sm:inline-block w-12 h-4 rounded-full" />
+                  ) : chipInfo.badgeLabel ? (
+                    <span className="hidden sm:inline-flex">
+                      <Badge
+                        variant={
+                          chipInfo.status === "active"
+                            ? "success"
+                            : chipInfo.status === "expiring_soon"
+                            ? "warning"
+                            : chipInfo.status === "expired"
+                            ? "error"
+                            : "neutral"
+                        }
+                        size="sm"
+                      >
+                        {chipInfo.badgeLabel}
+                      </Badge>
+                    </span>
+                  ) : null}
+                </Link>
+              )}
 
               {/* Floating User Profile Dropdown Panel */}
-              {userMenuOpen && (
+              {user && userMenuOpen && (
                 <div
                   className="absolute left-0 mt-2 w-56 max-w-[calc(100vw-2rem)] rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xl z-50 overflow-hidden flex flex-col py-1.5 transition-all animate-in fade-in zoom-in-95 duration-150"
                   dir="rtl"
@@ -276,26 +346,8 @@ export function AuthenticatedShell() {
                     onClick={() => setUserMenuOpen(false)}
                     className="flex items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-primary transition-colors"
                   >
-                    <Crown className="w-4 h-4 text-amber-500 shrink-0" />
-                    <span>اشتراک من</span>
-                  </Link>
-
-                  <Link
-                    to="/account/purchases"
-                    onClick={() => setUserMenuOpen(false)}
-                    className="flex items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-primary transition-colors"
-                  >
-                    <Receipt className="w-4 h-4 text-[#008080] shrink-0" />
-                    <span>خریدهای من و فاکتورها</span>
-                  </Link>
-
-                  <Link
-                    to="/account/wallet"
-                    onClick={() => setUserMenuOpen(false)}
-                    className="flex items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-primary transition-colors"
-                  >
-                    <Wallet className="w-4 h-4 text-primary shrink-0" />
-                    <span>کیف پول من</span>
+                    <WalletCards className="w-4 h-4 text-primary shrink-0" />
+                    <span>اشتراک و امور مالی</span>
                   </Link>
 
                   <Link
@@ -360,17 +412,19 @@ export function AuthenticatedShell() {
             </div>
 
             {/* Sign Out Button */}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void signOut()}
-              title="خروج از حساب"
-              aria-label="خروج از حساب"
-              leftIcon={<LogOut className="w-3.5 h-3.5 text-red-500" />}
-              className="shrink-0 px-2 sm:px-3"
-            >
-              <span className="hidden sm:inline text-xs text-red-500 font-semibold">خروج</span>
-            </Button>
+            {user && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void signOut()}
+                title="خروج از حساب"
+                aria-label="خروج از حساب"
+                leftIcon={<LogOut className="w-3.5 h-3.5 text-red-500" />}
+                className="shrink-0 px-2 sm:px-3"
+              >
+                <span className="hidden sm:inline text-xs text-red-500 font-semibold">خروج</span>
+              </Button>
+            )}
 
             {/* Mobile/Tablet Hamburger Toggle Button */}
             <Button
@@ -395,7 +449,7 @@ export function AuthenticatedShell() {
             aria-hidden="true"
           />
           <div className="fixed inset-y-0 start-0 top-16 sm:top-20 z-40 w-[63vw] min-w-[210px] max-w-[320px] sm:w-80 bg-[var(--color-surface-warm)] border-inline-end border-[var(--color-border)] p-4 sm:p-6 xl:hidden flex flex-col gap-4 overflow-y-auto pb-28 animate-in rtl:slide-in-from-right ltr:slide-in-from-left duration-200 shadow-2xl">
-          <nav className="flex flex-col gap-2">
+          <nav className="flex flex-col gap-2" aria-label="منوی ناوبری موبایل">
             <MobileDrawerLink
               to="/home"
               active={isHomeActive}
@@ -460,63 +514,6 @@ export function AuthenticatedShell() {
               <LibraryIcon className="w-5 h-5" />
               <span>کتابخانه</span>
             </MobileDrawerLink>
-
-            <MobileDrawerLink
-              to="/account/subscription"
-              active={location.pathname === "/account/subscription"}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <Crown className="w-5 h-5 text-amber-400" />
-              <span>اشتراک من ({hasActiveSub ? remainingInfo.shortText : "ارتقا"})</span>
-            </MobileDrawerLink>
-
-            <MobileDrawerLink
-              to="/account/purchases"
-              active={location.pathname === "/account/purchases"}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <Receipt className="w-5 h-5 text-[#008080]" />
-              <span>خریدهای من و فاکتورها</span>
-            </MobileDrawerLink>
-
-            <MobileDrawerLink
-              to="/account/wallet"
-              active={location.pathname === "/account/wallet"}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <Wallet className="w-5 h-5 text-primary" />
-              <span>کیف پول من</span>
-            </MobileDrawerLink>
-
-            <MobileDrawerLink
-              to="/account/referral"
-              active={location.pathname === "/account/referral"}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <Gift className="w-5 h-5 text-primary" />
-              <span>دعوت از دوستان</span>
-            </MobileDrawerLink>
-
-            <MobileDrawerLink
-              to="/account/support"
-              active={location.pathname === "/account/support"}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <LifeBuoy className="w-5 h-5 text-primary" />
-              <span>پشتیبانی و بازخورد</span>
-            </MobileDrawerLink>
-
-            <button
-              type="button"
-              onClick={() => {
-                setMobileMenuOpen(false);
-                setEditProfileOpen(true);
-              }}
-              className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-warm)] hover:text-[#008080] w-full text-start cursor-pointer transition-colors"
-            >
-              <UserCog className="w-5 h-5 text-[#008080]" />
-              <span>ویرایش مشخصات</span>
-            </button>
 
             {headerManagementActions.map((action) => {
               const ActionIcon = action.icon;

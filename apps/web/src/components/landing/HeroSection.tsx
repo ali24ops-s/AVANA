@@ -206,9 +206,6 @@ export function HeroSection() {
                   {/* Document Header */}
                   <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#EEF1F3]">
                     <div className="flex items-center gap-1.5">
-                      <span className="px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-600 text-[9px] font-bold">
-                        PDF
-                      </span>
                       <span className="text-[11px] font-bold text-[#1a2226]">
                         فارماکولوژی ۱
                       </span>
@@ -240,7 +237,7 @@ export function HeroSection() {
               </motion.div>
 
               {/* Source Label */}
-              <span className="mt-3 text-[11px] font-semibold text-[#5B6268] bg-white/90 px-2.5 py-1 rounded-full border border-[#E2E7EA] shadow-xs">
+              <span className="mt-3 text-[11px] font-semibold text-[#5B6268]">
                 جزوه + PDF + عکس + نمونه سؤال
               </span>
             </div>
@@ -257,9 +254,6 @@ export function HeroSection() {
                 {/* Subtle pulse ring */}
                 <div className="absolute -inset-1 rounded-2xl border-2 border-[#008080]/30 animate-ping pointer-events-none opacity-40" />
               </motion.div>
-              <span className="mt-2 text-[10px] font-bold text-[#008080] bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
-                موتور هوشمند
-              </span>
             </div>
 
             {/* 3. Output 4-Pillars (Right side of visual) */}
@@ -299,8 +293,8 @@ export function HeroSection() {
             {/* 1. Source preview on mobile */}
             <div className="w-full bg-white rounded-2xl p-4 border border-[#E2E7EA] shadow-card">
               <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#EEF1F3]">
-                <span className="px-2 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-600 text-[10px] font-bold">
-                  PDF جزوه پزشکی
+                <span className="text-xs font-bold text-[#1a2226]">
+                  جزوه پزشکی
                 </span>
                 <span className="text-xs text-[#5B6268]">ورودی خام</span>
               </div>

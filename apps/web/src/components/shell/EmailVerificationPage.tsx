@@ -49,7 +49,7 @@ export function EmailVerificationPage() {
     locationState?.channel ?? "email",
   );
   const [step, setStep] = useState<"select_channel" | "enter_code">(
-    locationState?.step ?? "enter_code",
+    locationState?.step ?? "select_channel",
   );
   const [code, setCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -57,8 +57,16 @@ export function EmailVerificationPage() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState<number>(
-    locationState?.cooldown ?? 60,
+    locationState?.cooldown ?? 0,
   );
+
+  function handleChangeChannel() {
+    if (isSubmitting || isSendingCode) return;
+    setStep("select_channel");
+    setCode("");
+    setError(null);
+    setSuccessMessage(null);
+  }
 
   const {
     user,
@@ -340,14 +348,14 @@ export function EmailVerificationPage() {
                     fullWidth
                     size="md"
                   >
-                    ارسال کد تأیید و ادامه
+                    ارسال کد تأیید
                   </Button>
                 </div>
               </div>
             ) : (
               /* Step 2: Enter 6-digit OTP */
               <div>
-                <div className="text-center mb-6">
+                <div className="text-center mb-5">
                   <div className="w-12 h-12 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-primary flex items-center justify-center mx-auto mb-4 shadow-xs">
                     {channel === "phone" ? (
                       <Phone className="w-6 h-6" />
@@ -363,6 +371,21 @@ export function EmailVerificationPage() {
                     </span>{" "}
                     را وارد نمایید.
                   </p>
+                </div>
+
+                {/* Change verification method - prominently placed near destination info */}
+                <div className="mb-6 p-3.5 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)] flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-start">
+                  <span className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+                    می‌خواهید کد را از روش دیگری دریافت کنید؟
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleChangeChannel}
+                    disabled={isSubmitting || isSendingCode}
+                    className="inline-flex items-center justify-center min-h-[40px] px-4 py-2 rounded-button text-xs font-semibold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--avana-accent-soft)] border border-[var(--color-border)] hover:border-primary/40 transition-all shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0 w-full sm:w-auto"
+                  >
+                    تغییر روش تأیید
+                  </button>
                 </div>
 
                 <form onSubmit={handleVerify} className="space-y-4">
@@ -421,11 +444,8 @@ export function EmailVerificationPage() {
 
                   <button
                     type="button"
-                    onClick={() => {
-                      setStep("select_channel");
-                      setCode("");
-                      setError(null);
-                    }}
+                    onClick={handleChangeChannel}
+                    disabled={isSubmitting || isSendingCode}
                     className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
                   >
                     تغییر روش دریافت کد (ایمیل / پیامک)

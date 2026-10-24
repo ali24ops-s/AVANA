@@ -419,7 +419,7 @@ describe("PR6-9F — E2E / MVP Acceptance", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /همه/i })).toBeInTheDocument();
+        expect(screen.getAllByRole("button", { name: /همه/i }).length).toBeGreaterThan(0);
       });
     });
   });

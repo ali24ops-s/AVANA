@@ -542,6 +542,7 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("id");
     expect(cols).toHaveProperty("title");
     expect(cols).toHaveProperty("description");
+    expect(cols).toHaveProperty("category");
     expect(cols).toHaveProperty("cognitiveLevel");
     expect(cols).toHaveProperty("skills");
     expect(cols).toHaveProperty("systemInstructions");
@@ -591,5 +592,57 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("sentAt");
 
     expect(cols.payload.dataType).toBe("json");
+  });
+
+  test("generation_job_sources table is defined and has required columns", () => {
+    expect(schema.generationJobSources).toBeDefined();
+    const cols = getTableColumns(schema.generationJobSources);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("generationJobId");
+    expect(cols).toHaveProperty("documentId");
+    expect(cols).toHaveProperty("role");
+    expect(cols).toHaveProperty("orderIndex");
+    expect(cols).toHaveProperty("createdAt");
+  });
+
+  test("source_packs table is defined and has required columns", () => {
+    expect(schema.sourcePacks).toBeDefined();
+    const cols = getTableColumns(schema.sourcePacks);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("organizationId");
+    expect(cols).toHaveProperty("courseId");
+    expect(cols).toHaveProperty("title");
+    expect(cols).toHaveProperty("status");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+    expect(cols).toHaveProperty("deletedAt");
+  });
+
+  test("source_pack_documents table is defined and has required columns", () => {
+    expect(schema.sourcePackDocuments).toBeDefined();
+    const cols = getTableColumns(schema.sourcePackDocuments);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("sourcePackId");
+    expect(cols).toHaveProperty("documentId");
+    expect(cols).toHaveProperty("role");
+    expect(cols).toHaveProperty("orderIndex");
+    expect(cols).toHaveProperty("createdAt");
+  });
+
+  test("user_welcome_gifts table is defined and has required columns", () => {
+    expect(schema.userWelcomeGifts).toBeDefined();
+    const cols = getTableColumns(schema.userWelcomeGifts);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("userId");
+    expect(cols).toHaveProperty("walletAmount");
+    expect(cols).toHaveProperty("walletTransactionId");
+    expect(cols).toHaveProperty("subscriptionDays");
+    expect(cols).toHaveProperty("subscriptionId");
+    expect(cols).toHaveProperty("entitlementId");
+    expect(cols).toHaveProperty("status");
+    expect(cols).toHaveProperty("popupSeenAt");
+    expect(cols).toHaveProperty("grantedAt");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
   });
 });

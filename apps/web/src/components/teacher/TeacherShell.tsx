@@ -16,7 +16,6 @@ import {
   ArrowRightLeft,
   Menu,
   X,
-  ChevronLeft,
   ShieldCheck,
   MessageSquare,
 } from "lucide-react";
@@ -25,16 +24,38 @@ import { useAuth } from "../../providers/AuthProvider.js";
 import { NotificationDropdown } from "../notifications/NotificationDropdown.js";
 import { Button } from "../ui/index.js";
 import { TeacherOrganizationProvider } from "./TeacherOrganizationContext.js";
-import { TeacherOrgSwitcher } from "./TeacherOrgSwitcher.js";
+
+const ACCOUNT_HINT_KEY = "avana_account_menu_hint_seen";
 
 export function TeacherShell() {
   const { user, memberships, signOut } = useAuth();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [showAccountHint, setShowAccountHint] = useState<boolean>(() => {
+    if (typeof window === "undefined" || !window.localStorage) return false;
+    try {
+      return !window.localStorage.getItem(ACCOUNT_HINT_KEY);
+    } catch {
+      return false;
+    }
+  });
   const userMenuRef = useRef<HTMLDivElement>(null);
 
-  // Close menus on outside click
+  const dismissAccountHint = () => {
+    if (showAccountHint) {
+      setShowAccountHint(false);
+      if (typeof window !== "undefined" && window.localStorage) {
+        try {
+          window.localStorage.setItem(ACCOUNT_HINT_KEY, "true");
+        } catch {
+          // Ignore localStorage errors
+        }
+      }
+    }
+  };
+
+  // Close menus on outside click or Escape key
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -44,13 +65,25 @@ export function TeacherShell() {
         setUserMenuOpen(false);
       }
     }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setUserMenuOpen(false);
+        setMobileMenuOpen(false);
+      }
+    }
+
     if (userMenuOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
+    if (userMenuOpen || mobileMenuOpen) {
+      document.addEventListener("keydown", handleKeyDown);
+    }
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [userMenuOpen]);
+  }, [userMenuOpen, mobileMenuOpen]);
 
   // Close menus on route change
   useEffect(() => {
@@ -137,19 +170,33 @@ export function TeacherShell() {
               <NotificationDropdown />
 
               {/* User Profile / Account Menu Dropdown */}
-              <div className="relative shrink-0" ref={userMenuRef}>
+              <div className="relative shrink-0 isolate" ref={userMenuRef}>
+                {user && showAccountHint && !userMenuOpen && (
+                  <span
+                    data-testid="account-hint-aura"
+                    className="absolute -inset-1 rounded-2xl bg-[#008080]/20 ring-2 ring-[#008080]/35 pointer-events-none motion-safe:animate-account-aura motion-reduce:animate-none motion-reduce:opacity-75 z-0"
+                    aria-hidden="true"
+                  />
+                )}
                 <button
                   type="button"
-                  onClick={() => setUserMenuOpen((prev) => !prev)}
-                  aria-label={`حساب کاربری ${userName}`}
+                  onClick={() => {
+                    dismissAccountHint();
+                    setUserMenuOpen((prev) => !prev);
+                  }}
+                  aria-label={`منوی حساب کاربری ${userName}`}
                   aria-expanded={userMenuOpen}
-                  className="flex items-center gap-1.5 sm:gap-2 text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[#008080] transition-colors shrink-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#008080]/30"
+                  aria-haspopup="true"
+                  className={`relative z-10 flex items-center justify-center gap-1.5 sm:gap-2 text-xs font-semibold min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 sm:h-9 px-2.5 sm:px-3 py-1.5 rounded-xl transition-all shrink-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#008080] focus-visible:ring-offset-1 active:scale-[0.98] ${
+                    userMenuOpen
+                      ? "bg-[#008080]/10 border-2 border-[#008080] text-[#008080] shadow-xs ring-2 ring-[#008080]/20"
+                      : "bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[#008080] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)]"
+                  }`}
                 >
                   <User className="w-4 h-4 text-[#008080] shrink-0" />
                   <span className="hidden sm:inline text-xs font-semibold truncate max-w-[90px] xl:max-w-[120px] text-[var(--color-text)]">
                     {userName}
                   </span>
-                  <ChevronLeft className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0 transition-transform -rotate-90" />
                 </button>
 
                 {/* Floating Dropdown Panel */}
@@ -249,7 +296,7 @@ export function TeacherShell() {
               aria-hidden="true"
             />
             <div className="fixed inset-y-0 start-0 top-16 sm:top-20 z-40 w-[63vw] min-w-[210px] max-w-[320px] sm:w-80 bg-[var(--color-surface-warm)] border-inline-end border-[var(--color-border)] p-4 sm:p-6 md:hidden flex flex-col gap-4 overflow-y-auto pb-28 animate-in rtl:slide-in-from-right ltr:slide-in-from-left duration-200 shadow-2xl">
-            <nav className="flex flex-col gap-2">
+            <nav className="flex flex-col gap-2" aria-label="منوی ناوبری اساتید">
               <MobileTeacherLink
                 to="/teacher"
                 active={isDashboardActive}
@@ -298,18 +345,6 @@ export function TeacherShell() {
                   <span>پنل مدیریت</span>
                 </MobileTeacherLink>
               )}
-
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  void signOut();
-                }}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-red-500 hover:bg-red-500/10 transition-colors w-full text-start cursor-pointer"
-              >
-                <LogOut className="w-5 h-5 text-red-500" />
-                <span>خروج از حساب</span>
-              </button>
             </nav>
           </div>
         </>

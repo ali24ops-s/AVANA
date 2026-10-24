@@ -58,6 +58,7 @@ export function toFeedbackItem(record: FeedbackRecord): FeedbackItem {
 export function toSupportTicketItem(
   record: SupportTicketRecord,
   messages?: SupportMessageRecord[],
+  isAdmin = false,
 ): SupportTicketItem {
   return {
     id: record.id,
@@ -75,14 +76,15 @@ export function toSupportTicketItem(
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     messageCount: record.messageCount,
-    messages: messages?.map(toSupportMessageItem),
+    messages: messages?.map((m) => toSupportMessageItem(m, isAdmin)),
   };
 }
 
 export function toSupportMessageItem(
   record: SupportMessageRecord,
+  isAdmin = false,
 ): SupportMessageItem {
-  return {
+  const item: SupportMessageItem = {
     id: record.id,
     ticketId: record.ticketId,
     senderId: record.senderId,
@@ -94,6 +96,15 @@ export function toSupportMessageItem(
     isInternalNote: record.isInternalNote,
     createdAt: record.createdAt,
   };
+
+  // STRICT SECURITY INVARIANT:
+  // Include readAt ONLY for authorized admin/support staff on public admin messages.
+  // When viewed by a user, readAt MUST NOT be present in the returned JSON object.
+  if (isAdmin && record.senderRole === "admin" && !record.isInternalNote) {
+    item.readAt = record.readAt ?? null;
+  }
+
+  return item;
 }
 
 export class SupportService {
@@ -201,7 +212,7 @@ export class SupportService {
     }
 
     // Ownership or Admin check
-    if (record.userId !== actor.userId && actor.role !== "platform_admin" && actor.role !== "support_agent") {
+    if (record.userId !== actor.userId && !this.isSupportOrAdmin(actor)) {
       throw new DomainError("forbidden", "شما اجازه مشاهده این بازخورد را ندارید.");
     }
 
@@ -379,7 +390,7 @@ export class SupportService {
       throw new DomainError("not_found", "تیکت پشتیبانی مورد نظر یافت نشد.");
     }
 
-    const isAdmin = actor.role === "platform_admin" || actor.role === "support_agent";
+    const isAdmin = this.isSupportOrAdmin(actor);
 
     // Strict IDOR Check
     if (ticket.userId !== actor.userId && !isAdmin) {
@@ -389,7 +400,7 @@ export class SupportService {
     // Fetch messages (Internal notes only if admin)
     const messages = await this.store.listMessagesByTicketId(id, isAdmin);
 
-    return toSupportTicketItem(ticket, messages);
+    return toSupportTicketItem(ticket, messages, isAdmin);
   }
 
   async sendUserMessage(
@@ -450,6 +461,57 @@ export class SupportService {
     }
 
     return toSupportMessageItem(message);
+  }
+
+  async markUserMessagesAsRead(
+    actor: Actor,
+    ticketId: string,
+    messageIds: string[],
+  ): Promise<{ success: boolean; markedCount: number }> {
+    const UUID_REGEX =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    if (!ticketId || !UUID_REGEX.test(ticketId)) {
+      throw new DomainError("bad_request", "شناسه تیکت نامعتبر است.");
+    }
+
+    if (!messageIds || !Array.isArray(messageIds) || messageIds.length === 0) {
+      throw new DomainError("bad_request", "شناسه پیام‌ها الزامی است.");
+    }
+
+    if (messageIds.length > 50) {
+      throw new DomainError("bad_request", "تعداد شناسه‌ها بیش از حد مجاز است.");
+    }
+
+    const validMessageIds = messageIds
+      .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+      .map((id) => id.trim())
+      .filter((id) => UUID_REGEX.test(id));
+
+    if (validMessageIds.length === 0) {
+      throw new DomainError("bad_request", "شناسه پیام‌های ارسالی نامعتبر است.");
+    }
+
+    const ticket = await this.store.findTicketById(ticketId);
+    if (!ticket) {
+      throw new DomainError("not_found", "تیکت پشتیبانی مورد نظر یافت نشد.");
+    }
+
+    // Strict ownership verification: Only the ticket owner can register read receipts
+    if (ticket.userId !== actor.userId) {
+      throw new DomainError("forbidden", "شما اجازه دسترسی به این تیکت را ندارید.");
+    }
+
+    const markedCount = await this.store.markMessagesAsRead(
+      ticketId,
+      validMessageIds,
+      new Date(),
+    );
+
+    return {
+      success: true,
+      markedCount,
+    };
   }
 
   async sendAdminMessage(
@@ -517,7 +579,7 @@ export class SupportService {
       ]);
     }
 
-    return toSupportMessageItem(message);
+    return toSupportMessageItem(message, true);
   }
 
   async updateTicketStatus(
@@ -590,7 +652,7 @@ export class SupportService {
       throw new DomainError("not_found", "تیکت پشتیبانی مورد نظر یافت نشد.");
     }
 
-    if (ticket.userId !== actor.userId && actor.role !== "platform_admin" && actor.role !== "support_agent") {
+    if (ticket.userId !== actor.userId && !this.isSupportOrAdmin(actor)) {
       throw new DomainError("forbidden", "شما اجازه بازگشایی این تیکت را ندارید.");
     }
 
@@ -687,11 +749,22 @@ export class SupportService {
   // Attachment Security Validation
   // -------------------------------------------------------------------------
 
+  private isSupportOrAdmin(actor: Actor): boolean {
+    const role = actor.globalRole ?? actor.role;
+    return (
+      role === "platform_admin" ||
+      role === "support_agent" ||
+      actor.role === "platform_admin" ||
+      actor.role === "support_agent" ||
+      actor.globalRole === "platform_admin"
+    );
+  }
+
   async verifyAttachmentAccess(
     actor: Actor,
     storageKey: string,
   ): Promise<void> {
-    if (actor.role === "platform_admin" || actor.role === "support_agent") {
+    if (this.isSupportOrAdmin(actor)) {
       return;
     }
 
@@ -705,8 +778,7 @@ export class SupportService {
   }
 
   private assertAdmin(actor: Actor) {
-    const role = actor.globalRole ?? actor.role;
-    if (role !== "platform_admin" && role !== "support_agent") {
+    if (!this.isSupportOrAdmin(actor)) {
       throw new DomainError(
         "forbidden",
         "دسترسی به این بخش تنها برای مدیران سیستم مجاز است.",

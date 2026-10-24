@@ -14,6 +14,14 @@ import {
 } from "../utils/generationPermissions.js";
 import type { DocumentResource } from "@avana/contracts";
 
+vi.mock("../config/features.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../config/features.js")>();
+  return {
+    ...actual,
+    CONTENT_GENERATION_ENABLED: false,
+  };
+});
+
 const createTestQueryClient = () =>
   new QueryClient({
     defaultOptions: {
@@ -567,7 +575,7 @@ describe("Content Generation Disabled / Coming Soon for Regular Users", () => {
       expect(await screen.findByText("مدیریت محتوا و سرفصل‌ها")).toBeInTheDocument();
 
       // Verify real documents view is rendered for admin
-      expect(await screen.findByText("اسناد و منابع بارگذاری‌شده")).toBeInTheDocument();
+      expect(await screen.findByText("تمام اسناد و فایل‌های درس")).toBeInTheDocument();
       expect(screen.queryByText("منابع و اسناد (به‌زودی)")).not.toBeInTheDocument();
     });
   });
@@ -613,16 +621,12 @@ describe("Content Generation Disabled / Coming Soon for Regular Users", () => {
         </QueryClientProvider>,
       );
 
-      const generateBtn = await screen.findByRole("button", {
-        name: /تولید خلاصه مروری \(به‌زودی\)/i,
-      });
-      expect(generateBtn).toBeInTheDocument();
-
-      fireEvent.click(generateBtn);
-
       expect(
-        await screen.findByText("قابلیت تولید محتوای هوشمند به‌زودی در آوانا فعال خواهد شد."),
+        await screen.findByText("خلاصه مروری هنوز برای این فایل تولید نشده است"),
       ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /تولید خلاصه مروری/i }),
+      ).not.toBeInTheDocument();
     });
   });
 });

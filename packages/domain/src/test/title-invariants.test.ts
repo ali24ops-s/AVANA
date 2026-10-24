@@ -9,6 +9,7 @@ import {
   resolveCanonicalContentTitle,
   isFilenameOrPlaceholderDescription,
   cleanEducationalDescription,
+  cleanQuizChapterTitle,
 } from "../title-invariants.js";
 
 describe("AVANA Content Title Invariants", () => {
@@ -174,6 +175,18 @@ describe("AVANA Content Title Invariants", () => {
       );
     });
 
+    it("identifies 'مباحث و جلسات آموزشی جامع' and generic extraction placeholders as placeholder descriptions", () => {
+      const genericStr1 = "مباحث و جلسات آموزشی جامع";
+      const genericStr2 = "مباحث و جلسات آموزشی";
+      const genericStr3 = "سرفصل آموزشی جامع";
+      const genericStr4 = "فصل آموزشی جامع";
+
+      expect(isFilenameOrPlaceholderDescription(genericStr1)).toBe(true);
+      expect(isFilenameOrPlaceholderDescription(genericStr2)).toBe(true);
+      expect(isFilenameOrPlaceholderDescription(genericStr3)).toBe(true);
+      expect(isFilenameOrPlaceholderDescription(genericStr4)).toBe(true);
+    });
+
     it("preserves real scholarly descriptions", () => {
       const realDesc = "این فصل به بررسی دقیق پاتوفیزیولوژی، علائم بالینی و پروتکل‌های درمانی آریتمی‌های قلبی می‌پردازد.";
       expect(isFilenameOrPlaceholderDescription(realDesc)).toBe(false);
@@ -235,6 +248,32 @@ describe("AVANA Content Title Invariants", () => {
       expect(isSuspiciousTitle("فصل: خلاصه مروری: کلیه")).toBe(true);
       // Valid title remains unsuspicious
       expect(isSuspiciousTitle("فصل: تنظیم کلیوی الکترولیت‌ها")).toBe(false);
+    });
+
+    it("cleanQuizChapterTitle strips آزمون ارزیابی آموخته‌ها: static prefix", () => {
+      expect(
+        cleanQuizChapterTitle("آزمون ارزیابی آموخته‌ها: فیزیولوژی کلیه و تعادل مایعات"),
+      ).toBe("فیزیولوژی کلیه و تعادل مایعات");
+      expect(
+        cleanQuizChapterTitle("آزمون ارزیابی آموختهها: فیزیولوژی کلیه"),
+      ).toBe("فیزیولوژی کلیه");
+      expect(
+        cleanQuizChapterTitle("آزمون ارزیابی آموخته‌ها : فارماکولوژی قلب و عروق"),
+      ).toBe("فارماکولوژی قلب و عروق");
+      expect(
+        cleanQuizChapterTitle("آزمون ارزیابی آموخته‌ها- داروهای ضد صرع"),
+      ).toBe("داروهای ضد صرع");
+      expect(
+        cleanQuizChapterTitle("فصل اول: آناتومی سیستم عصبی"),
+      ).toBe("فصل اول: آناتومی سیستم عصبی");
+      expect(
+        cleanQuizChapterTitle("Cardiovascular Pharmacology"),
+      ).toBe("Cardiovascular Pharmacology");
+      expect(
+        cleanQuizChapterTitle("آزمون ارزیابی آموخته‌ها"),
+      ).toBe("آزمون ارزیابی آموخته‌ها");
+      expect(cleanQuizChapterTitle("")).toBe("");
+      expect(cleanQuizChapterTitle(null)).toBe("");
     });
   });
 });

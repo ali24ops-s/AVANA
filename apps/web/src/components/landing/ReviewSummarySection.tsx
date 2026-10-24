@@ -9,7 +9,6 @@
 
 import { motion } from "framer-motion";
 import {
-  Clock,
   CheckCircle2,
   AlertTriangle,
   Lightbulb,
@@ -35,14 +34,6 @@ export function ReviewSummarySection() {
           transition={{ duration: 0.6 }}
           className="lg:col-span-5 flex flex-col gap-6 z-10"
         >
-          {/* Badge */}
-          <div className="w-full flex justify-center lg:justify-start">
-            <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold shadow-xs">
-              <Clock className="w-3.5 h-3.5" />
-              <span>مرور پربازده (High-Yield)</span>
-            </span>
-          </div>
-
           {/* Heading */}
           <h2 className="font-headline text-3xl sm:text-4xl lg:text-[42px] leading-[1.25] font-black text-[#1a2226] tracking-tight text-center lg:text-right">
             وقتی وقت کم است،
@@ -95,7 +86,7 @@ export function ReviewSummarySection() {
                   خلاصه مرور • مهارکننده‌های بتا-آدرنرژیک
                 </h3>
               </div>
-              <span className="text-[11px] font-bold text-[#008080] bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200">
+              <span className="text-xs font-medium text-[#5B6268]">
                 ⏱️ زمان مطالعه: ۴ دقیقه
               </span>
             </div>

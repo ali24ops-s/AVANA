@@ -85,6 +85,20 @@ export function useReopenTicket() {
   });
 }
 
+export function useMarkMessagesAsRead() {
+  const api = getSupportApi();
+
+  return useMutation({
+    mutationFn: ({
+      ticketId,
+      messageIds,
+    }: {
+      ticketId: string;
+      messageIds: string[];
+    }) => api.markMessagesAsRead(ticketId, messageIds),
+  });
+}
+
 export function useMyFeedbacks(params?: {
   status?: string;
   page?: number;
@@ -150,6 +164,7 @@ export function useAdminTicketDetails(id: string | null) {
     queryFn: () => (id ? api.getAdminTicket(id) : null),
     enabled: Boolean(id),
     staleTime: 5_000,
+    refetchInterval: (query) => (query.state.status === "success" && id ? 10_000 : false),
   });
 }
 

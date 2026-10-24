@@ -60,14 +60,6 @@ export function LivingTextbookSection() {
           transition={{ duration: 0.6 }}
           className="lg:col-span-5 flex flex-col gap-6 z-10"
         >
-          {/* Badge */}
-          <div className="w-full flex justify-center lg:justify-start">
-            <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-[#008080] text-xs font-bold shadow-xs">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>محتوای درسی زنده و تعاملی</span>
-            </span>
-          </div>
-
           {/* Heading */}
           <h2 className="font-headline text-2xl sm:text-3xl lg:text-[36px] leading-[1.3] font-black text-[#1a2226] tracking-tight text-center lg:text-right">
             <span className="block sm:whitespace-nowrap">جزوه فقط برای خواندن نیست.</span>
@@ -124,7 +116,7 @@ export function LivingTextbookSection() {
                 <BookOpen className="w-4 h-4 text-[#008080]" />
                 <span className="font-bold text-[#1a2226]">فصل ۴ • فارماکولوژی قلب و عروق</span>
               </div>
-              <span className="bg-[#F7F9FA] px-2.5 py-1 rounded-full border border-[#E2E7EA] text-[10px]">
+              <span className="text-[10px] text-[#5B6268]">
                 صفحه ۱۴۲ از رفرنس کاتزونگ
               </span>
             </div>
@@ -300,11 +292,6 @@ export function LivingTextbookSection() {
                   <p className="text-xs font-bold text-[#1a2226]">نمودار فیزیولوژیک گره سینوسی</p>
                   <p className="text-[11px] text-[#5B6268]">مهار ورود یون کلسیم و کاهش پیام سمپاتیک</p>
                 </div>
-              </div>
-              <div className="text-left">
-                <span className="text-[10px] font-bold text-[#008080] bg-white px-2.5 py-1 rounded-full border border-[#E2E7EA]">
-                  پایش پیوسته آوانا
-                </span>
               </div>
             </div>
           </div>

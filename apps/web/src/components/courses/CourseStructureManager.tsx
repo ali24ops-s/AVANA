@@ -12,15 +12,10 @@ import {
   BookOpen,
   Layers,
   Sparkles,
-  ChevronDown,
-  ChevronUp,
   FileText,
-  HelpCircle,
   Loader2,
-  FileUp,
   Check,
   X,
-  RefreshCw,
 } from "lucide-react";
 import { Button, Badge } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
@@ -29,9 +24,7 @@ import { createDocumentsApi } from "../../lib/api/documents.js";
 import { createGenerationApi } from "../../lib/api/generation.js";
 import { CoursePublishModal } from "./CoursePublishModal.js";
 import { GenerateContentModal } from "../documents/GenerateContentModal.js";
-import { DocumentUploader } from "../documents/DocumentUploader.js";
 import { toPersianDigits } from "@avana/domain";
-import type { GeneratedContentType } from "@avana/contracts";
 
 export interface CourseStructureManagerProps {
   organizationId: string;
@@ -60,7 +53,6 @@ export function CourseStructureManager({
 
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [generatingDoc, setGeneratingDoc] = useState<{ id: string; name: string } | null>(null);
-  const [uploadingForModule, setUploadingForModule] = useState<{ chapterId: string | null } | null>(null);
 
   // Fetch full structure
   const structureQuery = useQuery({
@@ -68,10 +60,10 @@ export function CourseStructureManager({
     queryFn: () => courseApi.getCourseStructure(organizationId, courseId),
   });
 
-  // Fetch available documents
+  // Fetch available documents for this course
   const docsQuery = useQuery({
-    queryKey: ["org-docs-selection", organizationId],
-    queryFn: () => docsApi.listDocuments(organizationId, { limit: 100 }),
+    queryKey: ["course-docs-selection", organizationId, courseId],
+    queryFn: () => docsApi.listDocuments(organizationId, { courseId, limit: 100 }),
   });
 
   const structure = structureQuery.data;
@@ -143,11 +135,22 @@ export function CourseStructureManager({
     mutationFn: ({
       docId,
       types,
+      questionPatternId,
+      questionPatternVersion,
+      questionPatternIds,
     }: {
       docId: string;
       types: Array<"lesson" | "flashcard" | "quiz" | "review_summary">;
+      questionPatternId?: string;
+      questionPatternVersion?: number;
+      questionPatternIds?: string[];
     }) =>
-      genApi.triggerGeneration(organizationId, courseId, docId, { types }),
+      genApi.triggerGeneration(organizationId, courseId, docId, {
+        types,
+        ...(questionPatternId ? { question_pattern_id: questionPatternId } : {}),
+        ...(questionPatternVersion ? { question_pattern_version: questionPatternVersion } : {}),
+        ...(questionPatternIds ? { question_pattern_ids: questionPatternIds } : {}),
+      }),
     onSuccess: () => {
       setGeneratingDoc(null);
       void queryClient.invalidateQueries({ queryKey: ["course-structure", organizationId, courseId] });
@@ -159,6 +162,9 @@ export function CourseStructureManager({
     flashcards: boolean;
     exam: boolean;
     review_summary: boolean;
+    questionPatternId?: string | null;
+    questionPatternVersion?: number | null;
+    questionPatternIds?: string[] | null;
   }) => {
     if (!generatingDoc) return;
     const types: Array<"lesson" | "flashcard" | "quiz" | "review_summary"> = [];
@@ -167,34 +173,14 @@ export function CourseStructureManager({
     if (selected.exam) types.push("quiz");
     if (selected.review_summary) types.push("review_summary");
 
-    generateMutation.mutate({ docId: generatingDoc.id, types });
+    generateMutation.mutate({
+      docId: generatingDoc.id,
+      types,
+      questionPatternId: selected.questionPatternId ?? undefined,
+      questionPatternVersion: selected.questionPatternVersion ?? undefined,
+      questionPatternIds: selected.questionPatternIds ?? undefined,
+    });
   };
-
-  // Calculate totals for publish readiness
-  let totalLessons = 0;
-  let totalFlashcards = 0;
-  let totalQuizQuestions = 0;
-  let hasSummary = false;
-  let totalModulesCount = 0;
-
-  for (const ch of chapters) {
-    for (const mod of ch.modules) {
-      totalModulesCount++;
-      totalLessons += mod.lessons?.length || 0;
-      if (mod.generatedContents?.lesson?.status === "accepted") {
-        totalLessons = Math.max(totalLessons, 1);
-      }
-      if (mod.generatedContents?.flashcard?.status === "accepted") {
-        totalFlashcards += 10;
-      }
-      if (mod.generatedContents?.quiz?.status === "accepted") {
-        totalQuizQuestions += 5;
-      }
-      if (mod.generatedContents?.reviewSummary?.status === "accepted") {
-        hasSummary = true;
-      }
-    }
-  }
 
   if (structureQuery.isLoading) {
     return (
@@ -205,7 +191,7 @@ export function CourseStructureManager({
   }
 
   const isOfficial = Boolean(
-    course?.isOfficial || (course as any)?.is_official
+    course?.isOfficial || (course as unknown as { is_official?: boolean })?.is_official
   );
 
   return (

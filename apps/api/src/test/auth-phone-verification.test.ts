@@ -455,6 +455,126 @@ describe("Iranian Phone & Dual-Channel Verification System", () => {
 
       await app.close();
     });
+
+    it("prevents reverse cross-channel OTP usage (phone OTP cannot verify email)", async () => {
+      const app = await createTestApp();
+
+      const regRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/register",
+        payload: {
+          email: "reverse_cross@example.com",
+          password: "password123",
+          firstName: "سارا",
+          lastName: "کریمی",
+          phoneNumber: "09123456788",
+          autoSendVerification: false,
+        },
+      });
+      const token = extractSessionToken(regRes)!;
+
+      // 1. Issue challenge on phone
+      const phoneSendRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/verification/send",
+        cookies: { avana_session: token },
+        payload: { channel: "phone" },
+      });
+      expect(phoneSendRes.statusCode).toBe(200);
+      const phoneCode = smsProvider.getLastCodeFor("+989123456788")!;
+      expect(phoneCode).toBeDefined();
+
+      // 2. Also issue challenge on email so an email challenge exists
+      const emailSendRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/verification/send",
+        cookies: { avana_session: token },
+        payload: { channel: "email" },
+      });
+      expect(emailSendRes.statusCode).toBe(200);
+
+      // 3. Attempt to use phone OTP on the email channel via unified endpoint
+      const crossVerifyRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/verification/verify",
+        cookies: { avana_session: token },
+        payload: { channel: "email", code: phoneCode },
+      });
+      expect(crossVerifyRes.statusCode).toBe(400);
+      expect(JSON.parse(crossVerifyRes.body).error.message).toContain("کد واردشده صحیح نیست");
+
+      // 4. Also attempt to use phone OTP via legacy verify-email endpoint
+      const legacyVerifyRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/verify-email",
+        cookies: { avana_session: token },
+        payload: { code: phoneCode },
+      });
+      expect(legacyVerifyRes.statusCode).toBe(400);
+      expect(JSON.parse(legacyVerifyRes.body).error.message).toContain("کد واردشده صحیح نیست");
+
+      await app.close();
+    });
+
+    it("enforces independent cooldowns per channel when switching methods", async () => {
+      const app = await createTestApp();
+
+      const regRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/register",
+        payload: {
+          email: "cooldown_switch@example.com",
+          password: "password123",
+          firstName: "مهدی",
+          lastName: "صادقی",
+          phoneNumber: "09123456787",
+          autoSendVerification: false,
+        },
+      });
+      const token = extractSessionToken(regRes)!;
+
+      // 1. First send to email: succeeds
+      const emailSend1 = await app.inject({
+        method: "POST",
+        url: "/v1/auth/verification/send",
+        cookies: { avana_session: token },
+        payload: { channel: "email" },
+      });
+      expect(emailSend1.statusCode).toBe(200);
+      expect(JSON.parse(emailSend1.body).cooldown_seconds).toBe(60);
+
+      // 2. Immediately switch to phone: succeeds because phone cooldown is separate
+      const phoneSend1 = await app.inject({
+        method: "POST",
+        url: "/v1/auth/verification/send",
+        cookies: { avana_session: token },
+        payload: { channel: "phone" },
+      });
+      expect(phoneSend1.statusCode).toBe(200);
+      expect(JSON.parse(phoneSend1.body).cooldown_seconds).toBe(60);
+
+      // 3. Immediately attempt another email send within 60s: blocked with 429
+      const emailSend2 = await app.inject({
+        method: "POST",
+        url: "/v1/auth/verification/send",
+        cookies: { avana_session: token },
+        payload: { channel: "email" },
+      });
+      expect(emailSend2.statusCode).toBe(429);
+      expect(JSON.parse(emailSend2.body).error.message).toContain("۶۰ ثانیه");
+
+      // 4. Immediately attempt another phone send within 60s: blocked with 429
+      const phoneSend2 = await app.inject({
+        method: "POST",
+        url: "/v1/auth/verification/send",
+        cookies: { avana_session: token },
+        payload: { channel: "phone" },
+      });
+      expect(phoneSend2.statusCode).toBe(429);
+      expect(JSON.parse(phoneSend2.body).error.message).toContain("۶۰ ثانیه");
+
+      await app.close();
+    });
   });
 
   describe("Existing Users & Backward Compatibility", () => {

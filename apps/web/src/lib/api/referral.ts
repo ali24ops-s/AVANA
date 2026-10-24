@@ -194,17 +194,17 @@ export function createReferralApi(client: {
       }
       const qs = query.toString();
       return client.get<AdminReferralsResponse>(
-        `/admin/commerce/referrals${qs ? `?${qs}` : ""}`,
+        `/v1/admin/commerce/referrals${qs ? `?${qs}` : ""}`,
       );
     },
     async retryRewards(): Promise<RetryRewardsResponse> {
       return client.post<RetryRewardsResponse>(
-        "/admin/commerce/referrals/retry-rewards",
+        "/v1/admin/commerce/referrals/retry-rewards",
       );
     },
     async getConfig(): Promise<ReferralConfigResponse> {
       return client.get<ReferralConfigResponse>(
-        "/admin/commerce/referrals/config",
+        "/v1/admin/commerce/referrals/config",
       );
     },
     async updateConfig(data: {
@@ -214,7 +214,7 @@ export function createReferralApi(client: {
       maxRewardedReferrals?: number;
     }): Promise<ReferralConfigResponse> {
       return client.put<ReferralConfigResponse>(
-        "/admin/commerce/referrals/config",
+        "/v1/admin/commerce/referrals/config",
         data,
       );
     },

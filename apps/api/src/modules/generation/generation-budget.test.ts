@@ -250,4 +250,53 @@ describe("GenerationService Adaptive Generation Budgeting (Phase 2)", () => {
     expect(lessonPayload.outline!.length).toBeLessThanOrEqual(14);
     expect(lessonPayload.sessions!.length).toBe(lessonPayload.outline!.length);
   });
+
+  it("E) Gracefully handles chunks with zero or missing tokenEstimate fallback", async () => {
+    const docId = randomUUID() as DocumentId;
+    await documentStore.create(makeDoc(docId, orgId, 4, 4096));
+    const chunks = makeChunks(docId, orgId, 4, 0); // 0 tokens per chunk
+    await chunkStore.createMany(chunks);
+
+    const result = await service.generateForDocument(actor, orgId, docId, {
+      types: ["lesson"],
+    });
+
+    const lesson = result.contents.find((c) => c.type === "lesson");
+    expect(lesson).toBeDefined();
+    const lessonPayload = lesson!.payload as {
+      outline?: Array<{ title: string }>;
+      sessions?: Array<{ title: string }>;
+    };
+    // Fallback density rules (4 pages) still produce at least 2 sessions safely
+    expect(lessonPayload.outline!.length).toBeGreaterThanOrEqual(2);
+    expect(lessonPayload.sessions!.length).toBe(lessonPayload.outline!.length);
+  });
+
+  it("F) Multi-source document generation preserves chunk tokenEstimate and aggregates budgets", async () => {
+    const doc1Id = randomUUID() as DocumentId;
+    const doc2Id = randomUUID() as DocumentId;
+    await documentStore.create(makeDoc(doc1Id, orgId, 25, 25600));
+    await documentStore.create(makeDoc(doc2Id, orgId, 25, 25600));
+    const chunks1 = makeChunks(doc1Id, orgId, 25, 500);
+    const chunks2 = makeChunks(doc2Id, orgId, 25, 500);
+    await chunkStore.createMany([...chunks1, ...chunks2]);
+
+    const result = await service.generateForDocument(actor, orgId, doc1Id, {
+      types: ["lesson"],
+      sources: [
+        { documentId: doc1Id, order: 0, role: "primary_notes" },
+        { documentId: doc2Id, order: 1, role: "supplementary_reference" },
+      ],
+    });
+
+    const lesson = result.contents.find((c) => c.type === "lesson");
+    expect(lesson).toBeDefined();
+    const lessonPayload = lesson!.payload as {
+      outline?: Array<{ title: string }>;
+      sessions?: Array<{ title: string }>;
+    };
+    // Aggregated 50 pages & 25,000 tokens scale to at least 10 sessions
+    expect(lessonPayload.outline!.length).toBeGreaterThanOrEqual(10);
+    expect(lessonPayload.sessions!.length).toBe(lessonPayload.outline!.length);
+  });
 });

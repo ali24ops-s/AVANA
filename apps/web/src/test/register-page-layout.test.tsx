@@ -90,6 +90,7 @@ describe("RegisterPage Desktop Layout & Viewport Tests", () => {
     // Major select input with Persian labels
     const majorSelect = container.querySelector("#major");
     expect(majorSelect).toBeInTheDocument();
+    fireEvent.click(majorSelect!);
     expect(screen.getByRole("option", { name: "داروسازی" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "پزشکی" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "دندانپزشکی" })).toBeInTheDocument();
@@ -111,7 +112,7 @@ describe("RegisterPage Desktop Layout & Viewport Tests", () => {
     const lastNameInput = container.querySelector("#lastName") as HTMLInputElement;
     const emailInput = container.querySelector("#email") as HTMLInputElement;
     const phoneInput = container.querySelector("#phoneNumber") as HTMLInputElement;
-    const majorInput = container.querySelector("#major") as HTMLSelectElement;
+    const majorSelect = container.querySelector("#major")!;
     const passwordInput = container.querySelector("#password") as HTMLInputElement;
     const confirmInput = container.querySelector("#confirmPassword") as HTMLInputElement;
 
@@ -119,7 +120,8 @@ describe("RegisterPage Desktop Layout & Viewport Tests", () => {
     fireEvent.change(lastNameInput, { target: { value: "احمدی" } });
     fireEvent.change(emailInput, { target: { value: "sara@example.com" } });
     fireEvent.change(phoneInput, { target: { value: "09121112233" } });
-    fireEvent.change(majorInput, { target: { value: "medicine" } });
+    fireEvent.click(majorSelect);
+    fireEvent.click(screen.getByRole("option", { name: "پزشکی" }));
     fireEvent.change(passwordInput, { target: { value: "password123" } });
     fireEvent.change(confirmInput, { target: { value: "differentPassword" } });
 
@@ -157,8 +159,9 @@ describe("RegisterPage Desktop Layout & Viewport Tests", () => {
     expect(submitBtn).toBeDisabled();
 
     // Select major -> enabled
-    const majorInput = container.querySelector("#major") as HTMLSelectElement;
-    fireEvent.change(majorInput, { target: { value: "pharmacy" } });
+    const majorSelect = container.querySelector("#major")!;
+    fireEvent.click(majorSelect);
+    fireEvent.click(screen.getByRole("option", { name: "داروسازی" }));
     expect(submitBtn).not.toBeDisabled();
   });
 

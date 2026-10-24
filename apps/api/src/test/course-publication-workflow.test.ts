@@ -228,21 +228,34 @@ describe("Personal Courses and Course Publication Workflow E2E", () => {
     const docId = asDocumentId(randomUUID());
     await documentStore.insert({
       id: docId,
+      organizationId: regularUserOrgId,
+      courseId,
+      ownerUserId: regularUserId,
       userId: regularUserId,
       title: "جزوه ریاضیات یادگیری ماشین",
       filename: "math_ml.pdf",
+      originalName: "math_ml.pdf",
       mimeType: "application/pdf",
       byteSize: 1024 * 50,
+      sizeBytes: 1024 * 50,
       pageCount: 15,
       contentHash: "sha256-secret-hash-1234",
+      sha256: "sha256-secret-hash-1234",
       storageKey: "private/vault/math_ml.pdf",
       language: "fa",
       summary: "خلاصه مباحث جبر خطی و آمار",
       tags: ["math", "ml"],
       status: "ready",
+      errorCode: null,
+      retryCount: 0,
+      qualityScore: null,
+      qualityLevel: null,
+      qualityReport: null,
+      qualityAnalyzedAt: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    });
+      deletedAt: null,
+    } as any);
 
     const createModRes = await app.inject({
       method: "POST",
@@ -635,21 +648,34 @@ describe("Personal Courses and Course Publication Workflow E2E", () => {
     const docId = asDocumentId(randomUUID());
     await documentStore.insert({
       id: docId,
+      organizationId: regularUserOrgId,
+      courseId,
+      ownerUserId: regularUserId,
       userId: regularUserId,
       title: "جزوه پایتون مقدماتی",
       filename: "python_intro.pdf",
+      originalName: "python_intro.pdf",
       mimeType: "application/pdf",
       byteSize: 1024 * 20,
+      sizeBytes: 1024 * 20,
       pageCount: 5,
       contentHash: "sha256-hash-py-intro",
+      sha256: "sha256-hash-py-intro",
       storageKey: "private/vault/python_intro.pdf",
       language: "fa",
       summary: "مبانی پایتون",
       tags: ["python"],
       status: "ready",
+      errorCode: null,
+      retryCount: 0,
+      qualityScore: null,
+      qualityLevel: null,
+      qualityReport: null,
+      qualityAnalyzedAt: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    });
+      deletedAt: null,
+    } as any);
 
     await app.inject({
       method: "POST",

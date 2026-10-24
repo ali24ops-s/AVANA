@@ -8,6 +8,7 @@ import type {
   GeneratedContentListResponse,
   GeneratedContentResponse,
   GenerateContentRequest,
+  MultiSourceGenerationRequest,
 } from "@avana/contracts";
 import type { ApiClient } from "./client.js";
 
@@ -65,6 +66,16 @@ export type DocumentContentStatusResponse = {
   document_id: string;
   course_id: string | null;
   requested_types?: ("lesson" | "flashcard" | "quiz" | "review_summary")[];
+  active_job_id?: string | null;
+  latest_job?: {
+    id: string;
+    status: string;
+    type: string;
+    error_message?: string | null;
+    started_at?: string | null;
+    created_at: string;
+    completed_at?: string | null;
+  } | null;
   lesson: DocumentContentStatus;
   flashcards: DocumentContentStatus;
   exam: DocumentContentStatus;
@@ -83,6 +94,7 @@ export type GenerateContentOptions = GenerateContentRequest & {
   review_summary?: boolean;
   question_pattern_id?: string | null;
   question_pattern_version?: number | null;
+  question_pattern_ids?: string[] | null;
 };
 
 export type GenerationJobResource = {
@@ -166,6 +178,36 @@ export function createGenerationApi(client: ApiClient) {
       return client.post<TriggerGenerationResponse>(
         `/v1/organizations/${organizationId}/courses/${courseId}/documents/${documentId}/generate`,
         data ?? {},
+      );
+    },
+
+    /**
+     * POST /v1/organizations/:organizationId/courses/:courseId/generate
+     * Starts async multi-source content generation job (returns 202 with job_id).
+     */
+    triggerMultiSourceGeneration(
+      organizationId: string,
+      courseId: string,
+      data: MultiSourceGenerationRequest,
+    ): Promise<TriggerGenerationResponse> {
+      return client.post<TriggerGenerationResponse>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/generate`,
+        data,
+      );
+    },
+
+    /**
+     * POST /v1/organizations/:organizationId/courses/:courseId/estimate-cost
+     * Estimates cost for multi-source generation.
+     */
+    estimateMultiSourceCost(
+      organizationId: string,
+      courseId: string,
+      data: MultiSourceGenerationRequest,
+    ): Promise<{ request_id: string; estimate: unknown }> {
+      return client.post<{ request_id: string; estimate: unknown }>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/estimate-cost`,
+        data,
       );
     },
 

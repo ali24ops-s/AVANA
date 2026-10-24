@@ -573,6 +573,16 @@ export class CourseDraftService {
       throw new DomainError("conflict", "این پیش‌نویس لغو شده است و قابل انتشار نیست.");
     }
 
+    if (
+      actor.role !== "platform_admin" &&
+      actor.globalRole !== "platform_admin" &&
+      actor.role !== "organization_admin" &&
+      actor.role !== "course_editor" &&
+      actor.globalRole !== "course_editor"
+    ) {
+      throw new DomainError("forbidden", "تنها مدیران یا ویرایشگران دوره امکان انتشار نسخه پیش‌نویس دوره را دارند.");
+    }
+
     // 1. Prevalidate outside transaction
     const validation = await this.validateSession(actor, sessionId);
     if (!validation.valid) {
@@ -713,6 +723,16 @@ export class CourseDraftService {
     targetVersion: number,
     reason?: string,
   ): Promise<{ release: CourseReleaseRecord; course: CourseRecord }> {
+    if (
+      actor.role !== "platform_admin" &&
+      actor.globalRole !== "platform_admin" &&
+      actor.role !== "organization_admin" &&
+      actor.role !== "course_editor" &&
+      actor.globalRole !== "course_editor"
+    ) {
+      throw new DomainError("forbidden", "تنها مدیران یا ویرایشگران دوره امکان بازگردانی نسخه دوره را دارند.");
+    }
+
     const course = await this.deps.courseStore.findById(courseId);
     if (!course || course.deletedAt) {
       throw new DomainError("not_found", "دوره یافت نشد.");

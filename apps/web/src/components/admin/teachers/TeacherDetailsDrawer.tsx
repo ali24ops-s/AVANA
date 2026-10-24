@@ -513,6 +513,42 @@ export function TeacherDetailsDrawer({
                           </p>
                         </div>
 
+                        {overview.teacher.university && (
+                          <div className="space-y-1 sm:col-span-2">
+                            <span className="text-[var(--color-text-muted)]">دانشگاه / مؤسسه محل تدریس:</span>
+                            <p className="font-semibold text-[#008080]">
+                              {overview.teacher.university}
+                            </p>
+                          </div>
+                        )}
+
+                        {overview.teacher.faculty && (
+                          <div className="space-y-1">
+                            <span className="text-[var(--color-text-muted)]">دانشکده:</span>
+                            <p className="font-semibold text-[var(--color-text)]">
+                              {overview.teacher.faculty}
+                            </p>
+                          </div>
+                        )}
+
+                        {overview.teacher.department && (
+                          <div className="space-y-1">
+                            <span className="text-[var(--color-text-muted)]">گروه آموزشی:</span>
+                            <p className="font-semibold text-[var(--color-text)]">
+                              {overview.teacher.department}
+                            </p>
+                          </div>
+                        )}
+
+                        {overview.teacher.phoneNumber && (
+                          <div className="space-y-1">
+                            <span className="text-[var(--color-text-muted)]">شماره موبایل:</span>
+                            <p className="font-semibold text-[var(--color-text)] font-mono">
+                              {overview.teacher.phoneNumber}
+                            </p>
+                          </div>
+                        )}
+
                         <div className="space-y-1 sm:col-span-2">
                           <span className="text-[var(--color-text-muted)]">آخرین به‌روزرسانی / فعالیت:</span>
                           <p className="font-semibold text-[var(--color-text)]">

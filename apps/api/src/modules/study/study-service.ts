@@ -49,6 +49,7 @@ import {
   MAX_RECOMMENDATIONS_COUNT,
   toPersianDigits,
   detectActiveLearningStreams,
+  filterAndDistributeQuestions,
 } from "@avana/domain";
 import type {
   FlashcardRating,
@@ -84,10 +85,12 @@ import type {
   QuizQuestionRecord,
 } from "./study-store.js";
 import type { CourseStore, CourseRecord } from "../courses/course-store.js";
-import type { ModuleStore, LessonStore, ProgressStore, LessonRecord, ModuleRecord, LessonProgressRecord } from "../learning/learning-store.js";
+import type { ModuleStore, LessonStore, ProgressStore, SubCourseGroupStore, LessonRecord, ModuleRecord, LessonProgressRecord } from "../learning/learning-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { EntitlementService } from "../commerce/entitlement-service.js";
+import { orderModulesByCurriculum } from "../learning/curriculum-ordering.js";
+import { CANONICAL_COURSES } from "../courses/course-service.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -167,6 +170,7 @@ export class StudyService {
     private readonly studySessionStore?: StudySessionStore,
     private readonly flashcardStudySessionStore?: FlashcardStudySessionStore,
     private entitlementService?: EntitlementService,
+    private readonly subCourseGroupStore?: SubCourseGroupStore,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -784,7 +788,44 @@ export class StudyService {
     documentIds?: string[],
     moduleIds?: string[],
     lessonIds?: string[],
+    onlyStudied?: boolean,
   ): Promise<FlashcardRecord[]> {
+    const res = await this.getCustomStudyFlashcardsWithMeta(
+      actor,
+      organizationId,
+      mode,
+      courseIds,
+      limit,
+      aheadDays,
+      documentIds,
+      moduleIds,
+      lessonIds,
+      onlyStudied,
+    );
+    return res.cards;
+  }
+
+  /**
+   * List flashcards for Custom Study along with metadata (quota, total new in scope, studied status).
+   */
+  async getCustomStudyFlashcardsWithMeta(
+    actor: Actor,
+    organizationId: OrganizationId,
+    mode: "weak" | "forgotten" | "overdue" | "review_ahead" | "new" | "due" | "learned",
+    courseIds?: CourseId[],
+    limit?: number,
+    aheadDays: number = 3,
+    documentIds?: string[],
+    moduleIds?: string[],
+    lessonIds?: string[],
+    onlyStudied?: boolean,
+  ): Promise<{
+    cards: FlashcardRecord[];
+    totalNewInScope: number;
+    learnedToday: number;
+    remainingQuota: number;
+    completedLessonsCount: number;
+  }> {
     await this.authorizeRead(actor, organizationId);
 
     const [allFlashcards, userSchedules, userReviews] = await Promise.all([
@@ -839,6 +880,25 @@ export class StudyService {
       }
     }
 
+    // Determine completed lessons for studied content restriction
+    let completedLessonIds = new Set<string>();
+    let completedLessonsCount = 0;
+    if (onlyStudied || mode === "new") {
+      const coursesToCheck = courseIds && courseIds.length > 0
+        ? courseIds
+        : Array.from(new Set(allowedCards.map((f) => f.courseId as CourseId)));
+
+      const progressResults = await Promise.all(
+        coursesToCheck.map((cId) =>
+          this.progressStore.listByUserAndCourse(actor.userId, cId).catch(() => []),
+        ),
+      );
+      completedLessonIds = new Set(
+        progressResults.flat().filter((p) => p.completed).map((p) => p.lessonId),
+      );
+      completedLessonsCount = completedLessonIds.size;
+    }
+
     const mapped = allowedCards.map((f) => {
       const schedule = scheduleMap.get(f.id);
       if (!schedule) return f;
@@ -868,8 +928,17 @@ export class StudyService {
         );
         if (!inScope) return false;
       }
+      if (onlyStudied) {
+        if (!f.lessonId || !completedLessonIds.has(f.lessonId)) {
+          return false;
+        }
+      }
       return true;
     });
+
+    let totalNewInScope = 0;
+    let learnedTodayInScope = 0;
+    let remainingQuota = limit ?? 50;
 
     if (mode === "weak") {
       filtered = filtered.filter((f) => Number(f.easeFactor) < 2.3 || f.intervalDays === 0);
@@ -877,7 +946,7 @@ export class StudyService {
     } else if (mode === "forgotten" || mode === "overdue") {
       filtered = filtered.filter((f) => {
         const schedule = scheduleMap.get(f.id);
-        const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
+        const isReviewed = schedule ? schedule.reviewCount > 0 : reviewedCardIds.has(f.id);
         if (!isReviewed) return false;
         const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
         const intervalDays = schedule ? schedule.intervalDays : f.intervalDays;
@@ -894,13 +963,41 @@ export class StudyService {
     } else if (mode === "new") {
       filtered = filtered.filter((f) => {
         const schedule = scheduleMap.get(f.id);
-        const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
+        const isReviewed = schedule ? schedule.reviewCount > 0 : reviewedCardIds.has(f.id);
         return !isReviewed;
       });
+      totalNewInScope = filtered.length;
+
+      // Calculate new cards learned today in the relevant scope
+      const cardToCourse = new Map(allowedCards.map((c) => [c.id, c.courseId]));
+      const firstReviewByCard = new Map<string, number>();
+      for (const r of userReviews) {
+        const time = new Date(r.reviewedAt).getTime();
+        if (isNaN(time)) continue;
+        const existing = firstReviewByCard.get(r.flashcardId);
+        if (existing === undefined || time < existing) {
+          firstReviewByCard.set(r.flashcardId, time);
+        }
+      }
+
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      const startOfDayMs = startOfDay.getTime();
+
+      learnedTodayInScope = Array.from(firstReviewByCard.entries()).filter(
+        ([cardId, time]) =>
+          time >= startOfDayMs &&
+          (!courseSet || (cardToCourse.has(cardId) && courseSet.has(cardToCourse.get(cardId)!))),
+      ).length;
+
+      const defaultLimit = FLASHCARD_DEFAULT_DAILY_NEW_LIMIT;
+      const resolvedLimit = limit !== undefined && limit > 0 ? limit : defaultLimit;
+      remainingQuota = Math.max(0, resolvedLimit - learnedTodayInScope);
+      filtered = filtered.slice(0, remainingQuota);
     } else if (mode === "due") {
       filtered = filtered.filter((f) => {
         const schedule = scheduleMap.get(f.id);
-        const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
+        const isReviewed = schedule ? schedule.reviewCount > 0 : reviewedCardIds.has(f.id);
         if (!isReviewed) return false;
         const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
         const hasDueAt = rawDueAt != null && !isNaN(new Date(rawDueAt).getTime());
@@ -911,7 +1008,7 @@ export class StudyService {
     } else if (mode === "learned") {
       filtered = filtered.filter((f) => {
         const schedule = scheduleMap.get(f.id);
-        const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
+        const isReviewed = schedule ? schedule.reviewCount > 0 : reviewedCardIds.has(f.id);
         if (!isReviewed) return false;
         const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
         const intervalDays = schedule ? schedule.intervalDays : f.intervalDays;
@@ -924,7 +1021,7 @@ export class StudyService {
       const cutoff = new Date(now.getTime() + aheadDays * 86400000);
       filtered = filtered.filter((f) => {
         const schedule = scheduleMap.get(f.id);
-        const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
+        const isReviewed = schedule ? schedule.reviewCount > 0 : reviewedCardIds.has(f.id);
         if (!isReviewed) return false;
         const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
         const hasDueAt = rawDueAt != null && !isNaN(new Date(rawDueAt).getTime());
@@ -934,10 +1031,21 @@ export class StudyService {
       filtered.sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime());
     }
 
-    const defaultLimit = mode === "new" ? FLASHCARD_DEFAULT_DAILY_NEW_LIMIT : FLASHCARD_DEFAULT_DAILY_REVIEW_LIMIT;
-    const resolvedLimit = limit !== undefined && limit > 0 ? limit : defaultLimit;
-    const maxLimit = Math.min(resolvedLimit, 500);
-    return filtered.slice(0, maxLimit);
+    if (mode !== "new") {
+      const defaultLimit = FLASHCARD_DEFAULT_DAILY_REVIEW_LIMIT;
+      const resolvedLimit = limit !== undefined && limit > 0 ? limit : defaultLimit;
+      const maxLimit = Math.min(resolvedLimit, 500);
+      filtered = filtered.slice(0, maxLimit);
+      remainingQuota = maxLimit;
+    }
+
+    return {
+      cards: filtered,
+      totalNewInScope,
+      learnedToday: learnedTodayInScope,
+      remainingQuota,
+      completedLessonsCount,
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -1015,19 +1123,20 @@ export class StudyService {
         effectiveLimit,
       );
       // Fallback: If no cards are due by timestamp but user explicitly requested study,
-      // return all cards within the selected course/document scope so a session is reliably created
+      // return new (unreviewed) cards within the selected scope, respecting entitlements and daily limits
       if (cards.length === 0) {
-        const allOrgCards = await this.flashcardStore.listByOrganization(
+        const newLimit = Math.min(effectiveLimit, FLASHCARD_DEFAULT_DAILY_NEW_LIMIT);
+        cards = await this.getCustomStudyFlashcards(
+          actor,
           organizationId,
-          this.systemOrganizationId,
+          "new",
+          input.courseIds,
+          newLimit,
+          undefined,
+          resolvedDocIds,
+          input.moduleIds,
+          input.lessonIds,
         );
-        const courseSet = input.courseIds && input.courseIds.length > 0 ? new Set(input.courseIds) : null;
-        const docSet = resolvedDocIds && resolvedDocIds.length > 0 ? new Set(resolvedDocIds) : null;
-        cards = allOrgCards.filter((f) => {
-          if (courseSet && !courseSet.has(f.courseId)) return false;
-          if (docSet && (!f.documentId || !docSet.has(f.documentId))) return false;
-          return !f.deletedAt;
-        }).slice(0, effectiveLimit);
       }
     }
 
@@ -1743,6 +1852,7 @@ export class StudyService {
     type ModuleSummary = {
       moduleId: string;
       moduleTitle: string;
+      sortOrder?: number;
       questionCount: number;
       easyCount: number;
       mediumCount: number;
@@ -1802,7 +1912,11 @@ export class StudyService {
       const courseModules = this.moduleStore
         ? await this.moduleStore.listByCourse(c.id as CourseId)
         : [];
-      const moduleIds = courseModules.map((m) => m.id);
+      const courseGroups = this.subCourseGroupStore
+        ? await this.subCourseGroupStore.listByCourse(c.id as CourseId)
+        : [];
+      const orderedCourseModules = orderModulesByCurriculum(courseModules, courseGroups);
+      const moduleIds = orderedCourseModules.map((m) => m.id);
       const courseLessons = this.lessonStore
         ? await this.lessonStore.listByModules(moduleIds)
         : [];
@@ -1888,10 +2002,18 @@ export class StudyService {
         }
       }
 
-      const modulesResult: ModuleSummary[] = courseModules.map((m) => {
+      const modulesResult: ModuleSummary[] = orderedCourseModules.map((m) => {
         const modLessons = courseLessons
           .filter((l) => l.moduleId === m.id)
-          .map((l) => lessonMap.get(l.id)!);
+          .map((l) => lessonMap.get(l.id)!)
+          .sort((a, b) => {
+            const lesA = courseLessons.find((l) => l.id === a.lessonId);
+            const lesB = courseLessons.find((l) => l.id === b.lessonId);
+            const orderA = lesA?.sortOrder ?? 0;
+            const orderB = lesB?.sortOrder ?? 0;
+            if (orderA !== orderB) return orderA - orderB;
+            return a.lessonTitle.localeCompare(b.lessonTitle, "fa");
+          });
 
         const unmapped = unmappedModuleCounts.get(m.id) ?? {
           total: 0,
@@ -1915,6 +2037,7 @@ export class StudyService {
         return {
           moduleId: m.id,
           moduleTitle: m.title,
+          sortOrder: m.sortOrder ?? 0,
           questionCount: mQ,
           easyCount: mEasy,
           mediumCount: mMed,
@@ -1930,6 +2053,7 @@ export class StudyService {
           modulesResult.push({
             moduleId: `mod-${c.id}-${topicName}`,
             moduleTitle: topicName,
+            sortOrder: 9999,
             questionCount: val.total,
             easyCount: val.easy,
             mediumCount: val.med,
@@ -2098,6 +2222,21 @@ export class StudyService {
         });
       }
     }
+
+    const canonicalOrder: readonly string[] = CANONICAL_COURSES;
+    coursesResult.sort((a, b) => {
+      // 1. Accessible courses first
+      if (a.hasAccess !== b.hasAccess) {
+        return a.hasAccess ? -1 : 1;
+      }
+      // 2. Canonical curriculum order
+      const idxA = canonicalOrder.indexOf(a.courseTitle);
+      const idxB = canonicalOrder.indexOf(b.courseTitle);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.courseTitle.localeCompare(b.courseTitle, "fa");
+    });
 
     return {
       courses: coursesResult,
@@ -2426,6 +2565,21 @@ export class StudyService {
     },
   ) {
     await this.authorizeQuizAttempt(actor, organizationId);
+
+    if (input.questionCount !== undefined) {
+      const qCount = Number(input.questionCount);
+      if (!Number.isInteger(qCount) || qCount <= 0) {
+        throw new DomainError("bad_request", "تعداد سؤالات باید یک عدد صحیح مثبت باشد.");
+      }
+    }
+
+    const VALID_DIFFICULTIES = new Set(["easy", "medium", "hard", "all", "آسان", "متوسط", "سخت"]);
+    if (input.difficulty !== undefined) {
+      const diffStr = typeof input.difficulty === "string" ? input.difficulty.trim().toLowerCase() : "";
+      if (!diffStr || !VALID_DIFFICULTIES.has(diffStr)) {
+        throw new DomainError("bad_request", "سطح دشواری نامعتبر است. مقادیر مجاز: easy, medium, hard, all");
+      }
+    }
 
     const requestedCount = input.questionCount ?? 10;
     const difficulty = input.difficulty ?? "medium";
@@ -3980,9 +4134,51 @@ export class StudyService {
       }
     }
 
-    let questions = await this.quizQuestionStore.listByQuiz(input.quizId as QuizId);
-    if (questions.length === 0) {
+    const allQuizQuestions = await this.quizQuestionStore.listByQuiz(input.quizId as QuizId);
+    if (allQuizQuestions.length === 0) {
       throw new DomainError("unprocessable", "Quiz has no questions");
+    }
+
+    let questions = allQuizQuestions;
+    const quizQuestionMap = new Map(allQuizQuestions.map((q) => [q.id, q]));
+
+    if (input.questionIds !== undefined) {
+      if (!Array.isArray(input.questionIds) || input.questionIds.length === 0) {
+        throw new DomainError("bad_request", "لیست شناسه‌های سؤال نمی‌تواند خالی باشد.");
+      }
+
+      for (const qId of input.questionIds) {
+        if (typeof qId !== "string" || !qId.trim()) {
+          throw new DomainError("bad_request", "شناسه سؤال نامعتبر است.");
+        }
+      }
+
+      const uniqueIds = new Set(input.questionIds);
+      if (uniqueIds.size !== input.questionIds.length) {
+        throw new DomainError("bad_request", "شناسه تکراری در لیست سؤالات مجاز نیست.");
+      }
+
+      if (input.questionIds.length > allQuizQuestions.length) {
+        throw new DomainError("bad_request", "تعداد سؤالات ارسالی بیش از کل سؤالات آزمون است.");
+      }
+
+      for (const qId of input.questionIds) {
+        if (!quizQuestionMap.has(qId as QuizQuestionId)) {
+          throw new DomainError("bad_request", `سؤال با شناسه ${qId} متعلق به این آزمون نیست.`);
+        }
+      }
+
+      if (input.questionIds.length < allQuizQuestions.length && !isPreviewAttempt) {
+        const isValid = this.isValidQuizSubset(allQuizQuestions, uniqueIds);
+        if (!isValid) {
+          throw new DomainError(
+            "bad_request",
+            "مجموعه سؤالات ارسالی با گزینه‌های فیلتر مجاز این آزمون مطابقت ندارد.",
+          );
+        }
+      }
+
+      questions = allQuizQuestions.filter((q) => uniqueIds.has(q.id));
     }
 
     if (isPreviewAttempt) {
@@ -4010,6 +4206,22 @@ export class StudyService {
       if (questions.length === 0) {
         throw new DomainError("unprocessable", "سؤال معتبری برای پیش‌نمایش یافت نشد.");
       }
+    }
+
+    const effectiveQuestionIds = new Set(questions.map((q) => q.id));
+    const seenAnsweredQuestions = new Set<string>();
+
+    for (const a of input.answers) {
+      if (!effectiveQuestionIds.has(a.questionId)) {
+        throw new DomainError(
+          "bad_request",
+          `پاسخ ارسال‌شده برای سؤال ${a.questionId} معتبر نیست یا جزو سؤالات این تلاش آزمون نمی‌باشد.`,
+        );
+      }
+      if (seenAnsweredQuestions.has(a.questionId)) {
+        throw new DomainError("bad_request", `ثبت بیش از یک پاسخ برای سؤال ${a.questionId} مجاز نیست.`);
+      }
+      seenAnsweredQuestions.add(a.questionId);
     }
 
     let correctCount = 0;
@@ -4129,6 +4341,39 @@ export class StudyService {
       completedAt: now,
       questions: enrichedQuestions,
     };
+  }
+
+  /**
+   * Validates whether a provided subset of question IDs corresponds to a legitimate
+   * filtered configuration (count in [10, 20, 30, null] x difficulty in ['easy', 'medium', 'hard', null]).
+   * Prevents cheating via arbitrary question cherry-picking.
+   */
+  private isValidQuizSubset(
+    allQuestions: QuizQuestionRecord[],
+    targetIds: Set<string>,
+  ): boolean {
+    const counts: Array<10 | 20 | 30 | null> = [10, 20, 30, null];
+    const difficulties: Array<"easy" | "medium" | "hard" | null> = ["easy", "medium", "hard", null];
+
+    for (const count of counts) {
+      for (const difficulty of difficulties) {
+        const candidate = filterAndDistributeQuestions(allQuestions, { count, difficulty });
+        if (candidate.length === targetIds.size) {
+          let allMatch = true;
+          for (const q of candidate) {
+            if (!targetIds.has(q.id)) {
+              allMatch = false;
+              break;
+            }
+          }
+          if (allMatch) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
   }
 
   /** Get a specific quiz attempt by ID. Non-disclosing for other users. */

@@ -11,7 +11,7 @@
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../providers/AuthProvider.js";
-import { ArrowLeft, Sparkles, BookOpen } from "lucide-react";
+import { ArrowLeft, BookOpen } from "lucide-react";
 
 export function FinalCTASection() {
   const { isAuthenticated } = useAuth();
@@ -32,14 +32,6 @@ export function FinalCTASection() {
           transition={{ duration: 0.6 }}
           className="lg:col-span-7 flex flex-col gap-5 z-10"
         >
-          {/* Badge */}
-          <div className="w-full flex justify-center lg:justify-start">
-            <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-[#008080] text-xs font-bold shadow-xs">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>شروع یک تجربه متفاوت</span>
-            </span>
-          </div>
-
           {/* Heading */}
           <h2 className="font-headline text-3xl sm:text-4xl lg:text-[46px] leading-[1.22] font-black text-[#1a2226] tracking-tight text-center lg:text-right">
             منبعت را بده به آوانا.

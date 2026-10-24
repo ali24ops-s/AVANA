@@ -142,74 +142,137 @@ export const referralRoutes: FastifyPluginAsync<ReferralRouteOptions> = async (
   });
 
   // -----------------------------------------------------------------------
+  // -----------------------------------------------------------------------
   // Admin Endpoints
+  // Dual-registered (/v1/admin/commerce/referrals* and /admin/commerce/referrals*)
+  // for strict REST /v1 client standardization and backward compatibility.
   // -----------------------------------------------------------------------
 
-  // GET /admin/commerce/referrals
-  app.get<{
-    Querystring: { status?: string; limit?: string; offset?: string };
-  }>(
+  const adminReferralPaths = [
+    "/v1/admin/commerce/referrals",
     "/admin/commerce/referrals",
-    { preHandler: [requireAuth, requireRole("platform_admin")] },
-    async (request, reply) => {
-      const actor = getActor(request);
-      const limit = request.query.limit ? parseInt(request.query.limit, 10) : 50;
-      const offset = request.query.offset ? parseInt(request.query.offset, 10) : 0;
-      const status = request.query.status;
+  ];
+  for (const path of adminReferralPaths) {
+    app.get<{
+      Querystring: { status?: string; limit?: string; offset?: string };
+    }>(
+      path,
+      { preHandler: [requireAuth, requireRole("platform_admin")] },
+      async (request, reply) => {
+        const actor = getActor(request);
+        const limit = request.query.limit ? parseInt(request.query.limit, 10) : 50;
+        const offset = request.query.offset ? parseInt(request.query.offset, 10) : 0;
+        const status = request.query.status;
 
-      const result = await service.listAllReferralsForAdmin(
-        actor,
-        status ? { status } : undefined,
-        { limit, offset },
-      );
+        const result = await service.listAllReferralsForAdmin(
+          actor,
+          status ? { status } : undefined,
+          { limit, offset },
+        );
 
-      return reply.status(200).send({
-        request_id: request.id,
-        referrals: result.referrals,
-        total: result.total,
-      });
-    },
-  );
+        return reply.status(200).send({
+          request_id: request.id,
+          referrals: result.referrals,
+          total: result.total,
+        });
+      },
+    );
+  }
 
-  // POST /admin/commerce/referrals/retry-rewards
-  app.post(
+  const adminRetryPaths = [
+    "/v1/admin/commerce/referrals/retry-rewards",
     "/admin/commerce/referrals/retry-rewards",
-    { preHandler: [requireAuth, requireRole("platform_admin")] },
-    async (request, reply) => {
-      const result = await service.retryPendingRewards();
-      return reply.status(200).send({
-        request_id: request.id,
-        ...result,
-      });
-    },
-  );
+  ];
+  for (const path of adminRetryPaths) {
+    app.post(
+      path,
+      { preHandler: [requireAuth, requireRole("platform_admin")] },
+      async (request, reply) => {
+        const result = await service.retryPendingRewards();
+        return reply.status(200).send({
+          request_id: request.id,
+          ...result,
+        });
+      },
+    );
+  }
 
-  // GET /admin/commerce/referrals/config
-  app.get(
+  const adminConfigPaths = [
+    "/v1/admin/commerce/referrals/config",
     "/admin/commerce/referrals/config",
-    { preHandler: [requireAuth, requireRole("platform_admin")] },
-    async (request, reply) => {
-      const config = await service.getReferralSystemConfig();
-      return reply.status(200).send({
-        request_id: request.id,
-        config,
-      });
-    },
-  );
+  ];
+  for (const path of adminConfigPaths) {
+    app.get(
+      path,
+      { preHandler: [requireAuth, requireRole("platform_admin")] },
+      async (request, reply) => {
+        const config = await service.getReferralSystemConfig();
+        return reply.status(200).send({
+          request_id: request.id,
+          config,
+        });
+      },
+    );
 
-  // PUT /admin/commerce/referrals/config
-  app.put<{
-    Body: { enabled?: boolean; rewardAmount?: number };
-  }>(
-    "/admin/commerce/referrals/config",
-    { preHandler: [requireAuth, requireRole("platform_admin")] },
-    async (request, reply) => {
-      const actor = getActor(request);
-      const updated = await service.updateReferralSystemConfig(actor, request.body);
-      return reply.status(200).send({
-        request_id: request.id,
-        config: updated,
-      });
-    },
-  );
+    app.put<{
+      Body: {
+        enabled?: boolean;
+        rewardDays?: number;
+        reward_days?: number;
+        rewardAmount?: number;
+        reward_amount?: number;
+        maxRewardedReferrals?: number;
+        max_referrals?: number;
+        maxRewardDays?: number;
+        max_reward_days?: number;
+      };
+    }>(
+      path,
+      { preHandler: [requireAuth, requireRole("platform_admin")] },
+      async (request, reply) => {
+        const actor = getActor(request);
+        const body = request.body || {};
+
+        const rawRewardDays =
+          body.rewardDays ?? body.reward_days ?? body.rewardAmount ?? body.reward_amount;
+        let rewardDays: number | undefined;
+        if (rawRewardDays !== undefined) {
+          const parsed = Number(rawRewardDays);
+          if (isNaN(parsed) || !Number.isInteger(parsed) || parsed < 0 || parsed > 365) {
+            throw new DomainError(
+              "bad_request",
+              "مدت اشتراک رایگان باید عددی صحیح بین ۰ تا ۳۶۵ روز باشد",
+            );
+          }
+          rewardDays = parsed;
+        }
+
+        const rawMaxReferrals =
+          body.maxRewardedReferrals ?? body.max_referrals;
+        let maxRewardedReferrals: number | undefined;
+        if (rawMaxReferrals !== undefined) {
+          const parsed = Number(rawMaxReferrals);
+          if (isNaN(parsed) || !Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+            throw new DomainError(
+              "bad_request",
+              "سقف تعداد دعوت‌های پاداش‌دار باید عددی صحیح بین ۱ تا ۱۰۰ باشد",
+            );
+          }
+          maxRewardedReferrals = parsed;
+        }
+
+        const updated = await service.updateReferralSystemConfig(actor, {
+          enabled: typeof body.enabled === "boolean" ? body.enabled : undefined,
+          rewardDays,
+          rewardAmount: rewardDays,
+          maxRewardedReferrals,
+        });
+
+        return reply.status(200).send({
+          request_id: request.id,
+          config: updated,
+        });
+      },
+    );
+  }
 };

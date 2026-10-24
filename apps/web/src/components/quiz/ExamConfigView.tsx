@@ -7,7 +7,7 @@ import {
   TrendingUpIcon,
   PlayIcon,
 } from "./ExamIcons.js";
-import { ArrowLeft, CreditCard, ChevronDown, Wallet, Info, Trash2, BookOpen, History, HelpCircle } from "lucide-react";
+import { ArrowLeft, ChevronDown, Wallet, Info, Trash2, BookOpen, History, HelpCircle } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
 import { createCommerceApi } from "../../lib/api/commerce.js";
@@ -49,6 +49,7 @@ type RawModuleItem = {
   itemCount?: number;
   lessons?: RawLessonItem[];
   chapters?: RawLessonItem[];
+  sortOrder?: number;
 };
 
 type RawCourseItem = {
@@ -114,6 +115,7 @@ export function ExamConfigView({
       setAttemptToDelete(null);
       void queryClient.invalidateQueries({ queryKey: ["exam-history", organizationId] });
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.error("Failed to remove exam attempt from history", err);
     } finally {
       setIsDeletingAttempt(false);
@@ -169,6 +171,7 @@ export function ExamConfigView({
               title: m.moduleTitle || m.title || "",
               itemCount: totalCount,
               lessons: undefined,
+              sortOrder: m.sortOrder,
             };
           });
         return {
@@ -232,26 +235,27 @@ export function ExamConfigView({
     return count;
   }, [taxonomyCourses, selectedModules]);
 
-  // Compute Selection Summary string
-  const selectionSummaryText = useMemo(() => {
-    return `${toPersianDigits(selectedCourses.size)} دوره، ${toPersianDigits(selectedModules.size)} بخش`;
-  }, [selectedCourses, selectedModules]);
-
-  // Dynamic estimated time calculation (~1.5 minutes per question)
-  const estimatedMinutes = Math.max(5, Math.round(questionCount * 1.5));
+  // List of courses that have at least one selected module
+  const selectedCoursesWithModules = useMemo(() => {
+    return taxonomyCourses.filter((c) =>
+      c.modules.some((m) => selectedModules.has(m.id)),
+    );
+  }, [taxonomyCourses, selectedModules]);
 
   // Find selected courses and determine access status across all selections
   const selectedCoursesList = useMemo(() => {
+    if (selectedCoursesWithModules.length > 0) {
+      return selectedCoursesWithModules;
+    }
     if (selectedCourses.size > 0) {
       return taxonomyCourses.filter((c) => selectedCourses.has(c.id));
     }
-    if (selectedModules.size > 0) {
-      return taxonomyCourses.filter((c) =>
-        c.modules.some((m) => selectedModules.has(m.id)),
-      );
-    }
     return [];
-  }, [taxonomyCourses, selectedCourses, selectedModules]);
+  }, [taxonomyCourses, selectedCourses, selectedCoursesWithModules]);
+
+
+  // Dynamic estimated time calculation (~1.5 minutes per question)
+  const estimatedMinutes = Math.max(5, Math.round(questionCount * 1.5));
 
   const activeCourse = selectedCoursesList[0];
   const hasAccess =
@@ -312,8 +316,12 @@ export function ExamConfigView({
         }
       }
 
-      const activeTopics = [
+      const activeCourseIds = new Set<string>([
         ...Array.from(selectedCourses),
+        ...selectedCoursesList.map((c) => c.id),
+      ]);
+      const activeTopics = [
+        ...Array.from(activeCourseIds),
         ...Array.from(selectedModules),
         ...Array.from(activeLessonIds),
       ];
@@ -358,8 +366,12 @@ export function ExamConfigView({
         }
       }
 
-      const activeTopics = [
+      const activeCourseIds = new Set<string>([
         ...Array.from(selectedCourses),
+        ...selectedCoursesList.map((c) => c.id),
+      ]);
+      const activeTopics = [
+        ...Array.from(activeCourseIds),
         ...Array.from(selectedModules),
         ...Array.from(activeLessonIds),
       ];
@@ -376,7 +388,7 @@ export function ExamConfigView({
       if (res.attempt_id && res.attempt) {
         onStartExam({
           attemptId: res.attempt_id,
-          questions: (res.questions || (res.attempt as any).questionSnapshot || []) as Array<Record<string, unknown>>,
+          questions: (res.questions || (res.attempt as { questionSnapshot?: Array<Record<string, unknown>> })?.questionSnapshot || []) as Array<Record<string, unknown>>,
           topics: activeTopics,
           difficulty,
           requestedCount: questionCount,
@@ -417,120 +429,198 @@ export function ExamConfigView({
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column: Hierarchical Taxonomy Selector */}
-        <div className="lg:col-span-2 space-y-8">
-          {topicsQuery.isLoading ? (
-            <section className="bg-[var(--color-surface)] rounded-2xl p-6 md:p-8 border border-[var(--color-border)] shadow-xs">
-              <LoadingState message="در حال بارگذاری بخش‌ها و تعداد سوالات دیتابیس..." />
-            </section>
-          ) : (
-            <>
-              {/* 1. Accessible Courses Section ("دوره‌های من") */}
-              {accessibleCourses.length > 0 && (
-                <section className="bg-[var(--color-surface)] rounded-2xl p-6 md:p-8 border border-[var(--color-border)] shadow-xs space-y-6">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-3">
-                      <span className="p-2 rounded-lg bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
-                        <CategoryIcon className="w-6 h-6" />
-                      </span>
-                      <div>
+      <div className="space-y-8">
+        {topicsQuery.isLoading ? (
+          <section className="bg-[var(--color-surface)] rounded-2xl p-6 md:p-8 border border-[var(--color-border)] shadow-xs">
+            <LoadingState message="در حال بارگذاری بخش‌ها و تعداد سوالات دیتابیس..." />
+          </section>
+        ) : (
+          <>
+            {/* Box 1: Accessible Courses Section ("دوره‌های من") - Two-Panel Selector */}
+            {accessibleCourses.length > 0 && (
+              <section className="bg-[var(--color-surface)] rounded-2xl p-6 md:p-8 border border-[var(--color-border)] shadow-xs space-y-6">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <span className="p-2 rounded-lg bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
+                      <CategoryIcon className="w-6 h-6" />
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
                         <h2 className="text-lg font-bold text-[var(--color-text)]">دوره‌های من</h2>
-                        <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-                          دوره‌های دارای دسترسی برای شروع جلسه تمرینی
-                        </p>
+                        <Badge variant="primary" size="sm">
+                          {toPersianDigits(accessibleCourses.length)} دوره
+                        </Badge>
                       </div>
+                      <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                        دوره‌های دارای دسترسی برای شروع جلسه تمرینی
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <TaxonomySelector
+                  courses={accessibleCourses}
+                  selectedCourseIds={selectedCourses}
+                  selectedModuleIds={selectedModules}
+                  selectedLessonIds={selectedLessons}
+                  onSelectionChange={handleTaxonomyChange}
+                  emptyMessage="دوره‌ای با دسترسی فعال یافت نشد."
+                  itemLabelSingular="سؤال"
+                  hideLessons={true}
+                  enableCourseSearch={accessibleCourses.length > 2}
+                  courseSearchPlaceholder="جستجو در دوره‌های من..."
+                  layout="two-panel"
+                />
+              </section>
+            )}
+
+            {/* Inaccessible Courses Section ("دوره‌های دیگر" - Collapsed by default) */}
+            {otherCourses.length > 0 && (
+              <section className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] shadow-xs overflow-hidden transition-all">
+                <button
+                  type="button"
+                  onClick={() => setIsOtherCoursesOpen((prev) => !prev)}
+                  className="w-full p-6 md:p-8 flex items-center justify-between text-start hover:bg-[var(--color-surface-warm)]/50 transition-colors cursor-pointer"
+                  aria-expanded={isOtherCoursesOpen}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                      <BookOpen className="w-5 h-5" />
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-lg font-bold text-[var(--color-text)]">دوره‌های دیگر</h2>
+                        <Badge variant="warning" size="sm">
+                          {toPersianDigits(otherCourses.length)} دوره
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                        برای این دوره‌ها می‌توانید آزمون سفارشی بسازید.
+                      </p>
                     </div>
                   </div>
 
-                  <TaxonomySelector
-                    courses={accessibleCourses}
-                    selectedCourseIds={selectedCourses}
-                    selectedModuleIds={selectedModules}
-                    selectedLessonIds={selectedLessons}
-                    onSelectionChange={handleTaxonomyChange}
-                    emptyMessage="دوره‌ای با دسترسی فعال یافت نشد."
-                    itemLabelSingular="سؤال"
-                    hideLessons={true}
-                  />
-                </section>
-              )}
+                  <div className="flex items-center gap-2 text-[var(--color-text-muted)]">
+                    <span className="text-xs font-semibold hidden sm:inline">
+                      {isOtherCoursesOpen ? "بستن لیست" : "مشاهده و ساخت آزمون"}
+                    </span>
+                    <ChevronDown
+                      className={`w-5 h-5 transition-transform duration-200 ${
+                        isOtherCoursesOpen ? "rotate-180 text-[var(--color-primary)]" : ""
+                      }`}
+                    />
+                  </div>
+                </button>
 
-              {/* 2. Inaccessible Courses Section ("دوره‌های دیگر" - Collapsed by default) */}
-              {otherCourses.length > 0 && (
-                <section className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] shadow-xs overflow-hidden transition-all">
-                  <button
-                    type="button"
-                    onClick={() => setIsOtherCoursesOpen((prev) => !prev)}
-                    className="w-full p-6 md:p-8 flex items-center justify-between text-start hover:bg-[var(--color-surface-warm)]/50 transition-colors cursor-pointer"
-                    aria-expanded={isOtherCoursesOpen}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                        <BookOpen className="w-5 h-5" />
-                      </span>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h2 className="text-lg font-bold text-[var(--color-text)]">دوره‌های دیگر</h2>
-                          <Badge variant="warning" size="sm">
-                            {toPersianDigits(otherCourses.length)} دوره
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-                          برای این دوره‌ها می‌توانید آزمون سفارشی بسازید.
-                        </p>
-                      </div>
-                    </div>
+                {isOtherCoursesOpen && (
+                  <div className="p-6 md:p-8 pt-0 border-t border-[var(--color-border)]/60">
+                    <TaxonomySelector
+                      courses={otherCourses}
+                      selectedCourseIds={selectedCourses}
+                      selectedModuleIds={selectedModules}
+                      selectedLessonIds={selectedLessons}
+                      onSelectionChange={handleTaxonomyChange}
+                      emptyMessage="دوره‌ای یافت نشد."
+                      itemLabelSingular="سؤال"
+                      hideLessons={true}
+                      enableCourseSearch={otherCourses.length > 2}
+                      courseSearchPlaceholder="جستجو در دوره‌های دیگر..."
+                      layout="accordion"
+                    />
+                  </div>
+                )}
+              </section>
+            )}
 
-                    <div className="flex items-center gap-2 text-[var(--color-text-muted)]">
-                      <span className="text-xs font-semibold hidden sm:inline">
-                        {isOtherCoursesOpen ? "بستن لیست" : "مشاهده و ساخت آزمون"}
-                      </span>
-                      <ChevronDown
-                        className={`w-5 h-5 transition-transform duration-200 ${
-                          isOtherCoursesOpen ? "rotate-180 text-[var(--color-primary)]" : ""
-                        }`}
-                      />
-                    </div>
-                  </button>
+            {accessibleCourses.length === 0 && otherCourses.length === 0 && (
+              <section className="bg-[var(--color-surface)] rounded-2xl p-8 border border-dashed border-[var(--color-border)] text-center">
+                <p className="text-sm font-semibold text-[var(--color-text)]">هیچ دوره‌ای در دسترس نیست.</p>
+              </section>
+            )}
+          </>
+        )}
 
-                  {isOtherCoursesOpen && (
-                    <div className="p-6 md:p-8 pt-0 border-t border-[var(--color-border)]/60">
-                      <TaxonomySelector
-                        courses={otherCourses}
-                        selectedCourseIds={selectedCourses}
-                        selectedModuleIds={selectedModules}
-                        selectedLessonIds={selectedLessons}
-                        onSelectionChange={handleTaxonomyChange}
-                        emptyMessage="دوره‌ای یافت نشد."
-                        itemLabelSingular="سؤال"
-                        hideLessons={true}
-                      />
-                    </div>
-                  )}
-                </section>
-              )}
+        {/* Box 2: Full-Width Exam Settings Summary & Controls */}
+        <section className="bg-[var(--color-surface)] rounded-2xl p-6 md:p-8 border-t-4 border-t-[var(--color-primary)] border border-[var(--color-border)] shadow-xs space-y-6">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-4">
+            <div className="flex items-center gap-2.5">
+              <span className="p-1.5 rounded-lg bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
+                <CategoryIcon className="w-5 h-5" />
+              </span>
+              <h3 className="text-base sm:text-lg font-bold text-[var(--color-text)]">
+                {hasAccess ? "خلاصه تنظیمات آزمون" : "خلاصه آزمون سفارشی"}
+              </h3>
+            </div>
+            <Badge
+              variant={hasAccess ? "success" : "warning"}
+              size="sm"
+            >
+              {hasAccess ? "تمرینی / رایگان" : "آزمون سفارشی"}
+            </Badge>
+          </div>
 
-              {accessibleCourses.length === 0 && otherCourses.length === 0 && (
-                <section className="bg-[var(--color-surface)] rounded-2xl p-8 border border-dashed border-[var(--color-border)] text-center">
-                  <p className="text-sm font-semibold text-[var(--color-text)]">هیچ دوره‌ای در دسترس نیست.</p>
-                </section>
-              )}
-            </>
-          )}
-
-          {/* 2 & 3: Questions Count & Difficulty */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Number of Questions */}
-            <section className="bg-[var(--color-surface)] rounded-2xl p-6 md:p-8 border border-[var(--color-border)] shadow-xs">
-              <div className="flex items-center gap-3 mb-6">
-                <span className="p-2 rounded-lg bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
-                  <NumberIcon className="w-6 h-6" />
+          {/* Part A: Summary Stats Cards */}
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+              <div className="py-2.5 px-3 rounded-xl bg-[var(--color-background)] border border-[var(--color-border)] text-center flex items-center justify-center">
+                <span className="text-sm sm:text-base font-bold font-mono text-[var(--color-text)]">
+                  {toPersianDigits(selectedCoursesWithModules.length)} دوره
                 </span>
-                <h2 className="text-lg font-bold text-[var(--color-text)]">تعداد سوالات</h2>
               </div>
-              <div className="bg-[var(--color-background)] p-1 rounded-xl flex border border-[var(--color-border)]">
-                {[10, 20, 40, 60].map((num) => {
+              <div className="py-2.5 px-3 rounded-xl bg-[var(--color-background)] border border-[var(--color-border)] text-center flex items-center justify-center">
+                <span className="text-sm sm:text-base font-bold font-mono text-[var(--color-primary)]">
+                  {toPersianDigits(selectedModules.size)} فصل
+                </span>
+              </div>
+              <div className="py-2.5 px-3 rounded-xl bg-[var(--color-background)] border border-[var(--color-border)] text-center flex items-center justify-center">
+                <span className="text-sm sm:text-base font-bold font-mono text-[#2a624b]">
+                  {toPersianDigits(availableQuestionsCount)} سوال
+                </span>
+              </div>
+              <div className="py-2.5 px-3 rounded-xl bg-[var(--color-background)] border border-[var(--color-border)] text-center flex items-center justify-center">
+                <span className="text-sm sm:text-base font-bold font-mono text-[var(--color-text)]">
+                  ⏱ {toPersianDigits(estimatedMinutes)} دقیقه
+                </span>
+              </div>
+            </div>
+
+            {/* Direct Topics Display */}
+            {selectedCoursesWithModules.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                {selectedCoursesWithModules.map((c) => {
+                  const count = c.modules.filter((m) => selectedModules.has(m.id)).length;
+                  return (
+                    <span
+                      key={c.id}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-background)] border border-[var(--color-border)] text-xs font-medium text-[var(--color-text)]"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-primary)] shrink-0" />
+                      <span className="font-semibold">{c.title}:</span>
+                      <span className="text-[var(--color-primary)] font-bold font-mono">
+                        {toPersianDigits(count)} از {toPersianDigits(c.modules.length)} فصل
+                      </span>
+                    </span>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-[var(--color-text-muted)] pt-1">
+                هنوز مبحثی برای آزمون انتخاب نشده است.
+              </p>
+            )}
+          </div>
+
+          {/* Parts B & C: Question Count & Difficulty in 2-column layout */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-5 border-t border-[var(--color-border)]">
+            {/* Number of Questions */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <NumberIcon className="w-4 h-4 text-[var(--color-primary)] shrink-0" />
+                <h4 className="text-sm font-bold text-[var(--color-text)]">تعداد سوالات</h4>
+              </div>
+              <div className="bg-[var(--color-background)] p-1 rounded-xl flex border border-[var(--color-border)] gap-1">
+                {[10, 20, 40, 60, 80, 120].map((num) => {
                   const isSelected = questionCount === num;
                   const isAvailable = availableQuestionsCount === 0 || availableQuestionsCount >= num;
                   return (
@@ -539,12 +629,12 @@ export function ExamConfigView({
                       type="button"
                       onClick={() => setQuestionCount(num)}
                       disabled={!isAvailable}
-                      className={`flex-1 py-3 rounded-lg text-sm font-semibold transition-all font-mono ${
+                      className={`flex-1 py-2 rounded-lg text-sm font-bold font-mono transition-all text-center cursor-pointer ${
                         isSelected
                           ? "bg-[var(--color-primary)] text-white shadow-xs"
                           : isAvailable
                           ? "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
-                          : "text-[var(--color-text-muted)] opacity-40 cursor-not-allowed"
+                          : "text-[var(--color-text-muted)] opacity-35 cursor-not-allowed"
                       }`}
                     >
                       {toPersianDigits(num)}
@@ -552,21 +642,19 @@ export function ExamConfigView({
                   );
                 })}
               </div>
-            </section>
+            </div>
 
             {/* Difficulty Level */}
-            <section className="bg-[var(--color-surface)] rounded-2xl p-6 md:p-8 border border-[var(--color-border)] shadow-xs">
-              <div className="flex items-center gap-3 mb-6">
-                <span className="p-2 rounded-lg bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
-                  <TrendingUpIcon className="w-6 h-6" />
-                </span>
-                <h2 className="text-lg font-bold text-[var(--color-text)]">سطح دشواری</h2>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <TrendingUpIcon className="w-4 h-4 text-[var(--color-primary)] shrink-0" />
+                <h4 className="text-sm font-bold text-[var(--color-text)]">سطح دشواری</h4>
               </div>
-              <div className="flex gap-3">
+              <div className="bg-[var(--color-background)] p-1 rounded-xl flex border border-[var(--color-border)] gap-1">
                 {[
-                  { id: "easy", label: "آسان", activeClass: "border-[#3d8f6e] text-[#2a624b] bg-[#e4f4ec] shadow-xs" },
-                  { id: "medium", label: "متوسط", activeClass: "border-[var(--color-primary)] text-[var(--color-primary-dark)] bg-[var(--color-primary-soft)] shadow-xs" },
-                  { id: "hard", label: "سخت", activeClass: "border-[#b84c4c] text-[#7f3131] bg-[#fde8e8] shadow-xs" },
+                  { id: "easy", label: "آسان" },
+                  { id: "medium", label: "متوسط" },
+                  { id: "hard", label: "سخت" },
                 ].map((item) => {
                   const isSelected = difficulty === item.id;
                   return (
@@ -574,10 +662,10 @@ export function ExamConfigView({
                       key={item.id}
                       type="button"
                       onClick={() => setDifficulty(item.id)}
-                      className={`flex-1 py-3.5 rounded-xl border text-sm font-semibold transition-all ${
+                      className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all text-center cursor-pointer ${
                         isSelected
-                          ? item.activeClass
-                          : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:border-[var(--color-primary)]/40 hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
+                          ? "bg-[var(--color-primary)] text-white shadow-xs"
+                          : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
                       }`}
                     >
                       {item.label}
@@ -585,111 +673,66 @@ export function ExamConfigView({
                   );
                 })}
               </div>
-            </section>
+            </div>
           </div>
-        </div>
 
-        {/* Right Sidebar Column: Summary & CTA */}
-        <div className="lg:col-span-1">
-          <div className="bg-[var(--color-surface)] rounded-2xl p-6 md:p-8 sticky top-28 border-t-4 border-t-[var(--color-primary)] border border-[var(--color-border)] shadow-xs">
-            <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-4 mb-6">
-              <h3 className="text-lg font-bold text-[var(--color-text)]">
-                {hasAccess ? "خلاصه تنظیمات آزمون" : "خلاصه آزمون سفارشی"}
-              </h3>
-              <Badge
-                variant={hasAccess ? "success" : "warning"}
-                size="sm"
-              >
-                {hasAccess ? "تمرینی / رایگان" : "آزمون سفارشی"}
-              </Badge>
-            </div>
+          {/* Special Exam Financial Details (if !hasAccess) */}
+          {!hasAccess && (
+            <div className="pt-6 border-t border-[var(--color-border)] space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-4 rounded-xl bg-[var(--color-background)] border border-[var(--color-border)] flex justify-between items-center">
+                  <span className="text-sm text-[var(--color-text-muted)] font-semibold">موجودی کیف پول:</span>
+                  <span className="text-[var(--color-text)] font-bold font-mono text-sm">
+                    {walletQuery.isLoading ? (
+                      <span className="text-xs text-[var(--color-text-muted)]">در حال دریافت...</span>
+                    ) : (
+                      `${toPersianDigits(walletBalance.toLocaleString("fa-IR"))} تومان`
+                    )}
+                  </span>
+                </div>
 
-            <div className="space-y-4 mb-8">
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-[var(--color-text-muted)]">مباحث انتخاب شده:</span>
-                <span className="text-[var(--color-text)] font-semibold">{selectionSummaryText}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-[var(--color-text-muted)]">سوالات واجد شرایط:</span>
-                <span className="text-[#2a624b] font-bold font-mono">
-                  {toPersianDigits(availableQuestionsCount)} سوال
-                </span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-[var(--color-text-muted)]">تعداد سوالات آزمون:</span>
-                <span className="text-[var(--color-text)] font-bold font-mono">{toPersianDigits(questionCount)}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-[var(--color-text-muted)]">سطح دشواری:</span>
-                <span className="text-[var(--color-primary)] font-semibold">
-                  {difficulty === "easy"
-                    ? "آسان"
-                    : difficulty === "hard"
-                    ? "سخت"
-                    : "متوسط"}
-                </span>
-              </div>
-              <div className="flex justify-between items-center text-sm pt-4 border-t border-[var(--color-border)]">
-                <span className="text-[var(--color-text-muted)]">زمان تخمینی:</span>
-                <span className="text-[#2a624b] font-bold font-mono flex items-center gap-1">
-                  ⏱ {toPersianDigits(estimatedMinutes)} دقیقه
-                </span>
+                <div className="p-4 rounded-xl bg-[var(--color-background)] border border-[var(--color-border)] flex justify-between items-center">
+                  <span className="text-sm text-[var(--color-text-muted)] font-semibold">هزینه آزمون:</span>
+                  <span className="text-amber-600 dark:text-amber-400 font-bold font-mono text-base">
+                    {previewQuery.isLoading ? (
+                      <span className="text-xs text-[var(--color-text-muted)]">در حال استعلام...</span>
+                    ) : previewQuery.isError ? (
+                      <span className="text-xs text-[var(--avana-error)]">موجودی ناکافی سؤالات</span>
+                    ) : previewQuery.data ? (
+                      `${toPersianDigits(previewQuery.data.price.toLocaleString("fa-IR"))} تومان`
+                    ) : (
+                      "—"
+                    )}
+                  </span>
+                </div>
               </div>
 
-              {!hasAccess && (
-                <>
-                  <div className="flex justify-between items-center text-sm pt-4 border-t border-[var(--color-border)]">
-                    <span className="text-[var(--color-text-muted)] font-semibold">موجودی کیف پول:</span>
-                    <span className="text-[var(--color-text)] font-bold font-mono text-sm">
-                      {walletQuery.isLoading ? (
-                        <span className="text-xs text-[var(--color-text-muted)]">در حال دریافت...</span>
-                      ) : (
-                        `${toPersianDigits(walletBalance.toLocaleString("fa-IR"))} تومان`
-                      )}
-                    </span>
+              {isBalanceInsufficient && (
+                <div
+                  data-testid="insufficient-wallet-warning"
+                  className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs space-y-1"
+                >
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <Wallet className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                    <span>موجودی کیف پول شما کافی نیست.</span>
                   </div>
-
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-[var(--color-text-muted)] font-semibold">هزینه آزمون:</span>
-                    <span className="text-amber-600 dark:text-amber-400 font-bold font-mono text-base">
-                      {previewQuery.isLoading ? (
-                        <span className="text-xs text-[var(--color-text-muted)]">در حال استعلام...</span>
-                      ) : previewQuery.isError ? (
-                        <span className="text-xs text-[var(--avana-error)]">موجودی ناکافی سؤالات</span>
-                      ) : previewQuery.data ? (
-                        `${toPersianDigits(previewQuery.data.price.toLocaleString("fa-IR"))} تومان`
-                      ) : (
-                        "—"
-                      )}
-                    </span>
-                  </div>
-
-                  {isBalanceInsufficient && (
-                    <div
-                      data-testid="insufficient-wallet-warning"
-                      className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs space-y-1"
-                    >
-                      <div className="flex items-center gap-1.5 font-bold">
-                        <Wallet className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
-                        <span>موجودی کیف پول شما کافی نیست.</span>
-                      </div>
-                      <p className="text-[11px] text-[var(--color-text-muted)] leading-relaxed">
-                        هزینه آزمون {toPersianDigits(examPrice.toLocaleString("fa-IR"))} تومان است. لطفاً ابتدا کیف پول خود را شارژ کنید.
-                      </p>
-                    </div>
-                  )}
-
-                  <Alert
-                    variant="info"
-                    icon={<Info className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />}
-                    className="mt-2"
-                  >
-                    سوالات آزمون به‌صورت تصادفی از بانک سوالات انتخاب می‌شوند؛ بنابراین در هر بار خرید و شروع آزمون، ترکیب سوالات می‌تواند متفاوت باشد.
-                  </Alert>
-                </>
+                  <p className="text-[11px] text-[var(--color-text-muted)] leading-relaxed">
+                    هزینه آزمون {toPersianDigits(examPrice.toLocaleString("fa-IR"))} تومان است. لطفاً ابتدا کیف پول خود را شارژ کنید.
+                  </p>
+                </div>
               )}
-            </div>
 
+              <Alert
+                variant="info"
+                icon={<Info className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />}
+              >
+                سوالات آزمون به‌صورت تصادفی از بانک سوالات انتخاب می‌شوند؛ بنابراین در هر بار خرید و شروع آزمون، ترکیب سوالات می‌تواند متفاوت باشد.
+              </Alert>
+            </div>
+          )}
+
+          {/* Part D: Start / Order Button */}
+          <div className="pt-6 border-t border-[var(--color-border)] space-y-3">
             {hasAccess ? (
               <Button
                 type="button"
@@ -738,15 +781,17 @@ export function ExamConfigView({
               </Button>
             )}
 
-            <p className="text-xs text-[var(--color-text-muted)] text-center mt-4 leading-relaxed">
-              {hasAccess
+            <p className="text-xs text-[var(--color-text-muted)] text-center leading-relaxed">
+              {selectedModules.size === 0
+                ? "برای شروع آزمون، حداقل یک فصل را از باکس بالا انتخاب کنید."
+                : hasAccess
                 ? "آزمون بلافاصله پس از کلیک آغاز می‌شود و در سوابق شما ثبت می‌گردد."
                 : isBalanceInsufficient
                 ? "برای شروع این آزمون، ابتدا کیف پول خود را شارژ کنید."
                 : "مبلغ از کیف پول کسر شده و آزمون بلافاصله آغاز می‌گردد."}
             </p>
           </div>
-        </div>
+        </section>
       </div>
 
       {/* Recent Exams History Section */}

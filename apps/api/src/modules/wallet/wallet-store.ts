@@ -239,44 +239,14 @@ export class DrizzleWalletStore implements WalletStore {
     const trimmedKey = idempotencyKey?.trim() || null;
 
     return this.db.transaction(async (tx) => {
-      // 1. Idempotency Check: Check if a transaction with this idempotencyKey already exists
-      if (trimmedKey) {
-        const [existingTx] = await tx
-          .select()
-          .from(walletTransactions)
-          .where(eq(walletTransactions.idempotencyKey, trimmedKey))
-          .limit(1);
+      const now = new Date();
 
-        if (existingTx) {
-          if (existingTx.userId !== userId || existingTx.amount !== amount) {
-            throw new DomainError(
-              "conflict",
-              "کلید تکرارناپذیری قبلاً با پارامترهای متفاوتی استفاده شده است.",
-            );
-          }
-
-          const [w] = await tx
-            .select()
-            .from(wallets)
-            .where(eq(wallets.userId, userId))
-            .limit(1);
-
-          return {
-            wallet: w ? this.mapWallet(w) : await this.getOrCreateWallet(userId),
-            transaction: this.mapTransaction(existingTx),
-            isDuplicate: true,
-          };
-        }
-      }
-
-      // 2. Lock the user's wallet row for UPDATE to prevent concurrent race conditions
+      // 1. Lock the user's wallet row for UPDATE FIRST to strictly serialize concurrent requests for this user
       let [walletRow] = await tx
         .select()
         .from(wallets)
         .where(eq(wallets.userId, userId))
         .for("update");
-
-      const now = new Date();
 
       // If wallet doesn't exist yet, insert one atomically
       if (!walletRow) {
@@ -293,6 +263,31 @@ export class DrizzleWalletStore implements WalletStore {
           })
           .returning();
         walletRow = inserted;
+      }
+
+      // 2. Idempotency Check UNDER the wallet lock:
+      // Any concurrent mutation for this user has now either committed or aborted.
+      if (trimmedKey) {
+        const [existingTx] = await tx
+          .select()
+          .from(walletTransactions)
+          .where(eq(walletTransactions.idempotencyKey, trimmedKey))
+          .limit(1);
+
+        if (existingTx) {
+          if (existingTx.userId !== userId || existingTx.amount !== amount) {
+            throw new DomainError(
+              "conflict",
+              "کلید تکرارناپذیری قبلاً با پارامترهای متفاوتی استفاده شده است.",
+            );
+          }
+
+          return {
+            wallet: this.mapWallet(walletRow),
+            transaction: this.mapTransaction(existingTx),
+            isDuplicate: true,
+          };
+        }
       }
 
       const balanceBefore = walletRow.balance;

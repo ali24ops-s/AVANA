@@ -16,7 +16,8 @@ import {
   Lock,
   RotateCcw,
   CheckCircle2,
-  ExternalLink,
+  Check,
+  CheckCheck,
 } from "lucide-react";
 import {
   TICKET_CATEGORY_LABELS,
@@ -26,6 +27,7 @@ import {
   getPriorityBadgeVariant,
   getTicketStatusBadgeVariant,
 } from "./supportUiHelpers.js";
+import { SupportAttachmentAction } from "./SupportAttachmentAction.js";
 import {
   useMyTicketDetails,
   useAdminTicketDetails,
@@ -33,6 +35,7 @@ import {
   useAdminSendTicketMessage,
   useReopenTicket,
   useAdminUpdateTicketStatus,
+  useMarkMessagesAsRead,
   getSupportApi,
 } from "../../hooks/useSupport.js";
 import type { TicketStatus, TicketCategory, TicketPriority } from "@avana/domain";
@@ -69,6 +72,275 @@ export function TicketConversationModal({
   const sendAdminMessageMutation = useAdminSendTicketMessage();
   const reopenTicketMutation = useReopenTicket();
   const updateStatusMutation = useAdminUpdateTicketStatus();
+  const markMessagesAsReadMutation = useMarkMessagesAsRead();
+
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  // 3-tier read receipt tracking (strictly active only in user mode)
+  // 1. readyQueueRef: Dwell time completed, queued for outgoing batch
+  // 2. inFlightQueueRef: Actively in-flight HTTP request
+  // 3. committedMessageIdsRef: Confirmed successfully by server (final state)
+  const readyQueueRef = useRef<Set<string>>(new Set());
+  const inFlightQueueRef = useRef<Set<string>>(new Set());
+  const committedMessageIdsRef = useRef<Set<string>>(new Set());
+  const retryCountRef = useRef<Map<string, number>>(new Map());
+
+  const dwellTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ticketIdRef = useRef<string | null>(ticketId);
+
+  useEffect(() => {
+    ticketIdRef.current = ticketId;
+  }, [ticketId]);
+
+  // Clean up state when ticketId changes, modal closes, or component unmounts
+  useEffect(() => {
+    readyQueueRef.current.clear();
+    inFlightQueueRef.current.clear();
+    committedMessageIdsRef.current.clear();
+    retryCountRef.current.clear();
+
+    dwellTimersRef.current.forEach((t) => clearTimeout(t));
+    dwellTimersRef.current.clear();
+
+    if (batchTimerRef.current) {
+      clearTimeout(batchTimerRef.current);
+      batchTimerRef.current = null;
+    }
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+
+    return () => {
+      dwellTimersRef.current.forEach((t) => clearTimeout(t));
+      dwellTimersRef.current.clear();
+
+      if (batchTimerRef.current) {
+        clearTimeout(batchTimerRef.current);
+        batchTimerRef.current = null;
+      }
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    };
+  }, [ticketId, isOpen]);
+
+  // Flush batch of read messages to API with bounded retry and commit-on-success
+  const flushPendingReadBatch = useRef(() => {
+    if (batchTimerRef.current) {
+      clearTimeout(batchTimerRef.current);
+      batchTimerRef.current = null;
+    }
+
+    if (!ticketId || !isOpen || isAdminMode || readyQueueRef.current.size === 0) {
+      return;
+    }
+
+    const currentTicketId = ticketId;
+    const batch = Array.from(readyQueueRef.current).slice(0, 20);
+    for (const id of batch) {
+      readyQueueRef.current.delete(id);
+      inFlightQueueRef.current.add(id);
+    }
+
+    Promise.resolve(
+      markMessagesAsReadMutation.mutateAsync({
+        ticketId: currentTicketId,
+        messageIds: batch,
+      }),
+    )
+      .then(() => {
+        // Drop response if user navigated to a different ticket in the meantime
+        if (ticketIdRef.current !== currentTicketId) return;
+
+        for (const id of batch) {
+          inFlightQueueRef.current.delete(id);
+          committedMessageIdsRef.current.add(id);
+          retryCountRef.current.delete(id);
+        }
+
+        // Schedule next batch if more messages are ready
+        if (readyQueueRef.current.size > 0 && ticketIdRef.current === currentTicketId) {
+          batchTimerRef.current = setTimeout(() => {
+            flushPendingReadBatch.current();
+          }, 200);
+        }
+      })
+      .catch(() => {
+        // Drop response if user navigated to a different ticket
+        if (ticketIdRef.current !== currentTicketId) return;
+
+        const eligibleForRetry: string[] = [];
+        for (const id of batch) {
+          inFlightQueueRef.current.delete(id);
+          const attempts = (retryCountRef.current.get(id) ?? 0) + 1;
+          retryCountRef.current.set(id, attempts);
+
+          if (attempts <= 3) {
+            readyQueueRef.current.add(id);
+            eligibleForRetry.push(id);
+          }
+        }
+
+        // Bounded retry with exponential delay: 1s, 2s, 4s (max 3 attempts)
+        if (eligibleForRetry.length > 0 && !retryTimerRef.current && ticketIdRef.current === currentTicketId) {
+          const maxAttempt = Math.max(
+            ...eligibleForRetry.map((id) => retryCountRef.current.get(id) ?? 1),
+          );
+          const delayMs = Math.min(1000 * 2 ** (maxAttempt - 1), 4000);
+          retryTimerRef.current = setTimeout(() => {
+            retryTimerRef.current = null;
+            flushPendingReadBatch.current();
+          }, delayMs);
+        }
+      });
+  });
+
+  useEffect(() => {
+    flushPendingReadBatch.current = () => {
+      if (batchTimerRef.current) {
+        clearTimeout(batchTimerRef.current);
+        batchTimerRef.current = null;
+      }
+
+      if (!ticketId || !isOpen || isAdminMode || readyQueueRef.current.size === 0) {
+        return;
+      }
+
+      const currentTicketId = ticketId;
+      const batch = Array.from(readyQueueRef.current).slice(0, 20);
+      for (const id of batch) {
+        readyQueueRef.current.delete(id);
+        inFlightQueueRef.current.add(id);
+      }
+
+      Promise.resolve(
+        markMessagesAsReadMutation.mutateAsync({
+          ticketId: currentTicketId,
+          messageIds: batch,
+        }),
+      )
+        .then(() => {
+          if (ticketIdRef.current !== currentTicketId) return;
+
+          for (const id of batch) {
+            inFlightQueueRef.current.delete(id);
+            committedMessageIdsRef.current.add(id);
+            retryCountRef.current.delete(id);
+          }
+
+          if (readyQueueRef.current.size > 0 && ticketIdRef.current === currentTicketId) {
+            batchTimerRef.current = setTimeout(() => {
+              flushPendingReadBatch.current();
+            }, 200);
+          }
+        })
+        .catch(() => {
+          if (ticketIdRef.current !== currentTicketId) return;
+
+          const eligibleForRetry: string[] = [];
+          for (const id of batch) {
+            inFlightQueueRef.current.delete(id);
+            const attempts = (retryCountRef.current.get(id) ?? 0) + 1;
+            retryCountRef.current.set(id, attempts);
+
+            if (attempts <= 3) {
+              readyQueueRef.current.add(id);
+              eligibleForRetry.push(id);
+            }
+          }
+
+          if (eligibleForRetry.length > 0 && !retryTimerRef.current && ticketIdRef.current === currentTicketId) {
+            const maxAttempt = Math.max(
+              ...eligibleForRetry.map((id) => retryCountRef.current.get(id) ?? 1),
+            );
+            const delayMs = Math.min(1000 * 2 ** (maxAttempt - 1), 4000);
+            retryTimerRef.current = setTimeout(() => {
+              retryTimerRef.current = null;
+              flushPendingReadBatch.current();
+            }, delayMs);
+          }
+        });
+    };
+  }, [ticketId, isOpen, isAdminMode, markMessagesAsReadMutation]);
+
+  // Set up IntersectionObserver on trackable messages
+  useEffect(() => {
+    if (isAdminMode || !isOpen || !ticketId || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const currentTicketId = ticketId;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const msgId = entry.target.getAttribute("data-message-id");
+          if (!msgId) continue;
+
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+            // Only observe if not already committed, in-flight, queued, or dwelling
+            if (
+              !committedMessageIdsRef.current.has(msgId) &&
+              !inFlightQueueRef.current.has(msgId) &&
+              !readyQueueRef.current.has(msgId) &&
+              !dwellTimersRef.current.has(msgId)
+            ) {
+              const timer = setTimeout(() => {
+                dwellTimersRef.current.delete(msgId);
+                if (ticketIdRef.current !== currentTicketId) return;
+
+                readyQueueRef.current.add(msgId);
+                if (!batchTimerRef.current) {
+                  batchTimerRef.current = setTimeout(() => {
+                    flushPendingReadBatch.current();
+                  }, 300);
+                }
+              }, 400);
+
+              dwellTimersRef.current.set(msgId, timer);
+            }
+          } else {
+            // User scrolled away before 400ms dwell completed -> cancel timer
+            const existingTimer = dwellTimersRef.current.get(msgId);
+            if (existingTimer) {
+              clearTimeout(existingTimer);
+              dwellTimersRef.current.delete(msgId);
+            }
+          }
+        }
+      },
+      {
+        root: container,
+        threshold: 0.5,
+      },
+    );
+
+    const trackableNodes = container.querySelectorAll<HTMLElement>(
+      '[data-read-track="true"]',
+    );
+    trackableNodes.forEach((node) => {
+      const msgId = node.getAttribute("data-message-id");
+      if (
+        msgId &&
+        !committedMessageIdsRef.current.has(msgId) &&
+        !inFlightQueueRef.current.has(msgId) &&
+        !readyQueueRef.current.has(msgId)
+      ) {
+        observer.observe(node);
+      }
+    });
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [ticket?.messages, isOpen, ticketId, isAdminMode]);
 
   const isSending =
     sendUserMessageMutation.isPending ||
@@ -78,7 +350,9 @@ export function TicketConversationModal({
   // Auto-scroll to bottom of messages
   useEffect(() => {
     if (ticket?.messages && ticket.messages.length > 0) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      if (typeof messagesEndRef.current?.scrollIntoView === "function") {
+        messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+      }
     }
   }, [ticket?.messages]);
 
@@ -229,7 +503,10 @@ export function TicketConversationModal({
         )}
 
         {/* Messages List Area */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-[var(--color-surface-warm)]/40">
+        <div
+          ref={messagesContainerRef}
+          className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-[var(--color-surface-warm)]/40"
+        >
           {activeQuery.isLoading ? (
             <div className="h-full flex items-center justify-center">
               <LoadingState message="در حال بارگذاری پیام‌های پشتیبانی..." />
@@ -268,6 +545,8 @@ export function TicketConversationModal({
               return (
                 <div
                   key={msg.id}
+                  data-read-track={!isAdminMode && isSupport && !isInternal ? "true" : undefined}
+                  data-message-id={msg.id}
                   className={`flex flex-col ${
                     isSupport ? "items-start" : "items-end"
                   }`}
@@ -311,20 +590,35 @@ export function TicketConversationModal({
                     {/* Attachment preview if present */}
                     {msg.attachmentUrl && (
                       <div className="mt-2.5 pt-2 border-t border-black/10 dark:border-white/10">
-                        <a
-                          href={msg.attachmentUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                            isSupport
-                              ? "bg-[var(--color-surface-warm)] text-[var(--color-text)] hover:bg-[var(--color-border)]"
-                              : "bg-white/20 text-white hover:bg-white/30"
-                          }`}
-                        >
-                          <Paperclip className="w-3.5 h-3.5" />
-                          <span>مشاهده فایل ضمیمه</span>
-                          <ExternalLink className="w-3 h-3 opacity-70" />
-                        </a>
+                        <SupportAttachmentAction
+                          attachmentUrl={msg.attachmentUrl}
+                          variant={isSupport ? "support" : "user"}
+                          onError={(err) => setErrorMessage(err)}
+                        />
+                      </div>
+                    )}
+
+                    {/* Admin Read Receipt Badge - STRICTLY visible ONLY to admin on public admin messages */}
+                    {isAdminMode && isSupport && !isInternal && (
+                      <div
+                        data-testid={`read-receipt-${msg.id}`}
+                        className="mt-2 pt-1.5 border-t border-[var(--color-border)]/60 flex items-center justify-between gap-2 text-[10px] select-none"
+                      >
+                        <span className="text-[var(--color-text-muted)]">رسید خواندن:</span>
+                        {msg.readAt ? (
+                          <span
+                            className="inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400"
+                            title={`مشاهده شده در: ${formatPersianDateTime(msg.readAt)}`}
+                          >
+                            <CheckCheck className="w-3.5 h-3.5 shrink-0" />
+                            <span>دیده شده</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[var(--color-text-muted)]">
+                            <Check className="w-3 h-3 shrink-0" />
+                            <span>دیده نشده</span>
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>

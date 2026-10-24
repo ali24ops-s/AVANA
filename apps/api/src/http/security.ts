@@ -44,6 +44,8 @@ const securityPluginImpl: FastifyPluginAsync<SecurityPluginOptions> = async (
       "Authorization",
       "X-Request-Id",
       "X-CSRF-Token",
+      "X-Device-Type",
+      "x-device-type",
     ],
     exposedHeaders: ["X-Request-Id"],
   });

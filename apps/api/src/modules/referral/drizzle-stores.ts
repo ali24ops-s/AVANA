@@ -685,10 +685,25 @@ export class DrizzleReferralStore implements ReferralStore {
     config: Partial<ReferralSystemConfig>,
   ): Promise<ReferralSystemConfig> {
     const current = await this.getReferralSystemConfig();
+    const rewardDays =
+      typeof config.rewardDays === "number"
+        ? config.rewardDays
+        : typeof config.rewardAmount === "number"
+          ? config.rewardAmount
+          : current.rewardDays;
+
+    const maxRewardedReferrals =
+      typeof config.maxRewardedReferrals === "number"
+        ? config.maxRewardedReferrals
+        : current.maxRewardedReferrals;
+
     const updated: ReferralSystemConfig = {
       ...current,
       ...config,
-      rewardAmount: config.rewardDays ?? config.rewardAmount ?? current.rewardDays,
+      rewardDays,
+      rewardAmount: rewardDays,
+      maxRewardedReferrals,
+      maxRewardDays: config.maxRewardDays ?? (rewardDays * maxRewardedReferrals),
     };
 
     const now = new Date();

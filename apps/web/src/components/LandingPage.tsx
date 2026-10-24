@@ -27,7 +27,6 @@ import { LearningPipelineSection } from "./landing/LearningPipelineSection.js";
 import { QuizExperienceSection } from "./landing/QuizExperienceSection.js";
 import { ReviewSummarySection } from "./landing/ReviewSummarySection.js";
 import { FinalCTASection } from "./landing/FinalCTASection.js";
-import { TeacherCTASection } from "./landing/TeacherCTASection.js";
 import { Footer } from "./landing/Footer.js";
 import { useAuth } from "../providers/AuthProvider.js";
 import { BrandLogo } from "./brand/BrandLogo.js";
@@ -243,10 +242,7 @@ export function LandingPage() {
         {/* 7. Review Summary ("وقتی وقت کم است، دقیق مرور کن") */}
         <ReviewSummarySection />
 
-        {/* 8. Teacher CTA Section ("استاد هستید؟") */}
-        <TeacherCTASection />
-
-        {/* 9. Final CTA ("منبعت را بده به آوانا. از همین‌جا شروع کن.") */}
+        {/* 8. Final CTA ("منبعت را بده به آوانا. از همین‌جا شروع کن.") */}
         <FinalCTASection />
       </main>
 

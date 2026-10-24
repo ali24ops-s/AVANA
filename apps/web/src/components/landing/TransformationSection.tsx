@@ -16,7 +16,6 @@ import {
   FileCheck2,
   Clock,
   Cpu,
-  Sparkles,
   FileText,
 } from "lucide-react";
 
@@ -32,17 +31,6 @@ export function TransformationSection() {
 
       {/* Header Title */}
       <div className="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
-          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-[#008080] text-xs font-bold mb-4 shadow-xs"
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>فرآیند تبدیل هوشمند</span>
-        </motion.div>
-
         <motion.h2
           initial={{ opacity: 0, y: 15 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -67,7 +55,7 @@ export function TransformationSection() {
             transition={{ duration: 0.6 }}
             className="col-span-4 p-5 rounded-2xl bg-white border border-[#E2E7EA] shadow-card flex flex-col items-center text-center relative"
           >
-            <span className="px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-700 text-[11px] font-bold mb-3 border border-amber-200">
+            <span className="text-xs font-bold text-amber-800 mb-3">
               منابع پراکنده
             </span>
 
@@ -140,7 +128,7 @@ export function TransformationSection() {
             className="col-span-4 p-5 rounded-2xl bg-white border border-[#E2E7EA] shadow-card flex flex-col gap-2.5"
           >
             <div className="flex items-center justify-between mb-1">
-              <span className="px-2.5 py-0.5 rounded-md bg-teal-50 text-[#008080] text-[11px] font-bold border border-teal-200">
+              <span className="text-xs font-bold text-[#008080]">
                 یک مسیر منظم یادگیری
               </span>
               <span className="text-[10px] text-[#5B6268]">خروجی استاندارد</span>
@@ -182,7 +170,7 @@ export function TransformationSection() {
         <div className="md:hidden flex flex-col items-center gap-4">
           {/* Mobile Step 1 */}
           <div className="w-full p-4 rounded-2xl bg-white border border-[#E2E7EA] shadow-xs text-center">
-            <span className="px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-700 text-[10px] font-bold mb-2 inline-block">
+            <span className="text-[11px] font-bold text-amber-800 mb-1 inline-block">
               منابع پراکنده
             </span>
             <p className="text-xs font-bold text-[#1a2226]">ورودی نامنظم فایل‌ها</p>
@@ -203,7 +191,7 @@ export function TransformationSection() {
 
           {/* Mobile Step 3 */}
           <div className="w-full p-4 rounded-2xl bg-white border border-[#E2E7EA] shadow-xs space-y-2">
-            <span className="px-2.5 py-0.5 rounded-md bg-teal-50 text-[#008080] text-[10px] font-bold inline-block">
+            <span className="text-[11px] font-bold text-[#008080] inline-block">
               یک مسیر منظم یادگیری
             </span>
             <div className="grid grid-cols-2 gap-2 text-right">

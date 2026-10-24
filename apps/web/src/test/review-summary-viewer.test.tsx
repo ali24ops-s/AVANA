@@ -124,13 +124,14 @@ describe("ReviewSummaryViewer Component", () => {
     expect(screen.getByText(/مناسب برای: مرور سریع قبل از آزمون/)).toBeDefined();
     expect(screen.getByText(/خلاصه یک‌دقیقه‌ای/)).toBeDefined();
 
-    // Verify 6 document-level category containers are rendered
-    expect(screen.getByText(/نکات کلیدی و مفاهیم اصلی/)).toBeDefined();
-    expect(screen.getByText(/مکانیسم‌های سلولی \/ مولکولی/)).toBeDefined();
-    expect(screen.getByText(/دسته‌بندی و طبقه‌بندی ساختاری/)).toBeDefined();
-    expect(screen.getByText(/مقایسه‌ها و تفاوت‌های کلیدی \(Key Distinctions\)/)).toBeDefined();
-    expect(screen.getByText(/نکات حفظی و اعداد مهم/)).toBeDefined();
-    expect(screen.getByText(/نکات مهم و پرتکرار آزمونی/)).toBeDefined();
+    // Verify topic section heading is rendered without repetitive subheadings
+    expect(screen.getByText(/مهارکننده‌های سیستم رنین-آنژیوتانسین/)).toBeDefined();
+    expect(screen.queryByText("نکات کلیدی")).toBeNull();
+    expect(screen.queryByText("مکانیسم‌ها")).toBeNull();
+    expect(screen.queryByText("طبقه‌بندی‌ها")).toBeNull();
+    expect(screen.queryByText("مقایسه‌ها و تفاوت‌های کلیدی")).toBeNull();
+    expect(screen.queryByText("نکات حفظی و اعداد مهم")).toBeNull();
+    expect(screen.queryByText("نکات مهم آزمونی")).toBeNull();
 
     // Verify content items
     expect(screen.getByText(/کاپتوپریل و انالاپریل/)).toBeDefined();
@@ -182,7 +183,7 @@ describe("ReviewSummaryViewer Component", () => {
     ).toBeDefined();
   });
 
-  it("flattens 3 sections with comparisons into ONE single Key Distinctions container and does not render micro-section headings", async () => {
+  it("renders distinct topic sections independently with their actual titles and in original order", async () => {
     const multiSectionPayload: ReviewSummaryPayload = {
       kind: "review_summary",
       title: "فارماکولوژی جامع",
@@ -192,6 +193,7 @@ describe("ReviewSummaryViewer Component", () => {
         {
           title: "بخش ۱: مسدودکننده‌های بتا",
           keyPoints: ["پروپرانولول غیرانتخابی"],
+          mechanisms: ["مسدودسازی گیرنده‌های بتا-۱ و بتا-۲"],
           comparisons: [
             {
               conceptA: "Propranolol",
@@ -203,6 +205,7 @@ describe("ReviewSummaryViewer Component", () => {
         {
           title: "بخش ۲: دیورتیک‌ها",
           keyPoints: ["فورزماید دیورتیک لوپ"],
+          classifications: ["لوپ، تیازید، نگهدارنده پتاسیم"],
           comparisons: [
             {
               conceptA: "Furosemide",
@@ -214,13 +217,9 @@ describe("ReviewSummaryViewer Component", () => {
         {
           title: "بخش ۳: مهارکننده‌های کانال کلسیم",
           keyPoints: ["وراپامیل و آملودیپین"],
-          comparisons: [
-            {
-              conceptA: "Verapamil",
-              conceptB: "Amlodipine",
-              keyDifferences: "وراپامیل بر میوکارد اثر غالب دارد ولی آملودیپین بر عروق محیطی انتخابی‌تر است.",
-            },
-          ],
+          memorizationPoints: ["وراپامیل در نارسایی قلبی ممنوع است"],
+          examPoints: ["نکته تست: وراپامیل و دیگوکسین تداخل دارند"],
+          comparisons: ["مقایسه ساده دی‌هیدروپیریدین‌ها با غیر دی‌هیدروپیریدین‌ها"],
         },
       ],
       finalTakeaways: ["جمع‌بندی نهایی ۳ بخش"],
@@ -263,41 +262,45 @@ describe("ReviewSummaryViewer Component", () => {
       expect(screen.getByText(/فارماکولوژی جامع/)).toBeDefined();
     });
 
-    // 1. Key Distinctions heading appears EXACTLY ONCE
-    const distinctionHeadings = screen.getAllByText(/مقایسه‌ها و تفاوت‌های کلیدی \(Key Distinctions\)/);
-    expect(distinctionHeadings.length).toBe(1);
+    // 1. All topic section titles MUST be rendered
+    const title1 = screen.getByText("بخش ۱: مسدودکننده‌های بتا");
+    const title2 = screen.getByText("بخش ۲: دیورتیک‌ها");
+    const title3 = screen.getByText("بخش ۳: مهارکننده‌های کانال کلسیم");
+    expect(title1).toBeDefined();
+    expect(title2).toBeDefined();
+    expect(title3).toBeDefined();
 
-    // 2. All 3 comparisons from the 3 sections are rendered within that single container
-    expect(screen.getByText(/Propranolol/)).toBeDefined();
-    expect(screen.getByText(/Metoprolol/)).toBeDefined();
-    expect(screen.getByText(/Furosemide/)).toBeDefined();
-    expect(screen.getByText(/Hydrochlorothiazide/)).toBeDefined();
-    expect(screen.getByText(/Verapamil/)).toBeDefined();
-    expect(screen.getByText(/Amlodipine/)).toBeDefined();
+    // 2. Section order strictly preserves original array order
+    expect(Boolean(title1.compareDocumentPosition(title2) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(title2.compareDocumentPosition(title3) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
 
-    // 3. Section titles are NOT rendered as headings
-    expect(screen.queryByText(/بخش ۱: مسدودکننده‌های بتا/)).toBeNull();
-    expect(screen.queryByText(/بخش ۲: دیورتیک‌ها/)).toBeNull();
-    expect(screen.queryByText(/بخش ۳: مهارکننده‌های کانال کلسیم/)).toBeNull();
+    // 3. Optional fields rendered under their respective topic without leaking
+    expect(screen.getByText("مسدودسازی گیرنده‌های بتا-۱ و بتا-۲")).toBeDefined();
+    expect(screen.getByText("لوپ، تیازید، نگهدارنده پتاسیم")).toBeDefined();
+    expect(screen.getByText("وراپامیل در نارسایی قلبی ممنوع است")).toBeDefined();
+    expect(screen.getByText("نکته تست: وراپامیل و دیگوکسین تداخل دارند")).toBeDefined();
 
-    // 4. Key points from all 3 sections are merged in the Key Points category
-    const keyPointsHeadings = screen.getAllByText(/نکات کلیدی و مفاهیم اصلی/);
-    expect(keyPointsHeadings.length).toBe(1);
-    expect(screen.getByText(/پروپرانولول غیرانتخابی/)).toBeDefined();
-    expect(screen.getByText(/فورزماید دیورتیک لوپ/)).toBeDefined();
-    expect(screen.getByText(/وراپامیل و آملودیپین/)).toBeDefined();
+    // 4. Structured comparison (conceptA vs conceptB) & string comparison both rendered
+    expect(screen.getByText("Propranolol")).toBeDefined();
+    expect(screen.getByText("Metoprolol")).toBeDefined();
+    expect(screen.getByText(/پروپرانولول غیراختصاصی است/)).toBeDefined();
+    expect(screen.getByText("مقایسه ساده دی‌هیدروپیریدین‌ها با غیر دی‌هیدروپیریدین‌ها")).toBeDefined();
+
+    // 5. All key points rendered under their sections without content loss
+    expect(screen.getByText("پروپرانولول غیرانتخابی")).toBeDefined();
+    expect(screen.getByText("فورزماید دیورتیک لوپ")).toBeDefined();
+    expect(screen.getByText("وراپامیل و آملودیپین")).toBeDefined();
   });
 
-  it("omits empty categories when sections contain no items for them", async () => {
-    const sparsePayload: ReviewSummaryPayload = {
+  it("renders section with only keyPoints without optional fields or empty subheadings", async () => {
+    const keyPointsOnlyPayload: ReviewSummaryPayload = {
       kind: "review_summary",
-      title: "نکات خلاصه کوتاه",
-      estimatedReadingMinutes: 5,
+      title: "خلاصه مبحث ساده",
+      estimatedReadingMinutes: 4,
       sections: [
         {
-          title: "بخش تست",
-          keyPoints: ["تنها یک نکته کلیدی"],
-          examPoints: ["یک نکته امتحانی مهم"],
+          title: "بخش فقط حاوی نکات کلیدی",
+          keyPoints: ["نکته کلیدی نخست", "نکته کلیدی دوم"],
         },
       ],
       citationChunkIds: ["chunk-1"],
@@ -311,9 +314,9 @@ describe("ReviewSummaryViewer Component", () => {
           json: async () => ({
             request_id: "req-1",
             content: {
-              id: "content-3",
+              id: "content-kp-only",
               type: "review_summary",
-              payload: sparsePayload,
+              payload: keyPointsOnlyPayload,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             },
@@ -334,20 +337,82 @@ describe("ReviewSummaryViewer Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/نکات خلاصه کوتاه/)).toBeDefined();
+      expect(screen.getByText("بخش فقط حاوی نکات کلیدی")).toBeDefined();
     });
 
-    // Populated categories MUST exist
-    expect(screen.getByText(/نکات کلیدی و مفاهیم اصلی/)).toBeDefined();
-    expect(screen.getByText(/تنها یک نکته کلیدی/)).toBeDefined();
-    expect(screen.getByText(/نکات مهم و پرتکرار آزمونی/)).toBeDefined();
-    expect(screen.getByText(/یک نکته امتحانی مهم/)).toBeDefined();
+    expect(screen.queryByText("نکات کلیدی")).toBeNull();
+    expect(screen.getByText("نکته کلیدی نخست")).toBeDefined();
+    expect(screen.getByText("نکته کلیدی دوم")).toBeDefined();
 
-    // Empty categories MUST NOT exist
-    expect(screen.queryByText(/مکانیسم‌های سلولی \/ مولکولی/)).toBeNull();
-    expect(screen.queryByText(/دسته‌بندی و طبقه‌بندی ساختاری/)).toBeNull();
-    expect(screen.queryByText(/مقایسه‌ها و تفاوت‌های کلیدی \(Key Distinctions\)/)).toBeNull();
-    expect(screen.queryByText(/نکات حفظی و اعداد مهم/)).toBeNull();
+    // Optional section subheadings MUST NOT be rendered
+    expect(screen.queryByText("مکانیسم‌ها")).toBeNull();
+    expect(screen.queryByText("طبقه‌بندی‌ها")).toBeNull();
+    expect(screen.queryByText("مقایسه‌ها و تفاوت‌های کلیدی")).toBeNull();
+    expect(screen.queryByText("نکات حفظی و اعداد مهم")).toBeNull();
+    expect(screen.queryByText("نکات مهم آزمونی")).toBeNull();
+  });
+
+  it("handles legacy and sparse summaries gracefully", async () => {
+    const legacyPayload: ReviewSummaryPayload = {
+      kind: "review_summary",
+      title: "خلاصه قدیمی بدون فیلدهای نهایی",
+      estimatedReadingMinutes: 6,
+      overview: "بررسی خلاصه‌های قدیمی بدون تیک‌اوی یا با آرایه‌های خالی",
+      sections: [
+        {
+          title: "فصل اول قدیمی",
+          keyPoints: ["نکته قدیمی"],
+          mechanisms: [],
+          classifications: [],
+          comparisons: [],
+          memorizationPoints: [],
+          examPoints: [],
+        },
+      ],
+      finalTakeaways: [],
+      citationChunkIds: [],
+    };
+
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (String(url).includes("/review-summary")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-legacy",
+            content: {
+              id: "content-legacy",
+              type: "review_summary",
+              payload: legacyPayload,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <ReviewSummaryViewer
+          organizationId={mockOrgId}
+          documentId={mockDocId}
+          courseId={mockCourseId}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("خلاصه قدیمی بدون فیلدهای نهایی")).toBeDefined();
+    });
+
+    expect(screen.getByText("فصل اول قدیمی")).toBeDefined();
+    expect(screen.getByText("نکته قدیمی")).toBeDefined();
+    // Empty subheadings should not be rendered
+    expect(screen.queryByText("مکانیسم‌ها")).toBeNull();
+    expect(screen.queryByText("طبقه‌بندی‌ها")).toBeNull();
+    expect(screen.queryByText("جمع‌بندی نهایی و نکات کلیدی (Final Takeaways)")).toBeNull();
   });
 
   describe("Role-based Generation Visibility & Access Control", () => {
@@ -729,6 +794,343 @@ describe("ReviewSummaryViewer Component", () => {
       );
 
       expect(screen.getByText(/در حال بارگذاری خلاصه مروری\.\.\./)).toBeInTheDocument();
+    });
+  });
+
+  describe("Standard Educational Dimensions Rendering", () => {
+    it("renders اشتباه رایج and کاربرد بالینی and Markdown tables with high-fidelity formatting", async () => {
+      const educationalPayload: ReviewSummaryPayload = {
+        kind: "review_summary",
+        title: "خلاصه فارماکولوژی بالینی",
+        estimatedReadingMinutes: 8,
+        overview: "بررسی جامع مهارکننده‌های ACE و عوارض بالینی.",
+        sections: [
+          {
+            title: "فارماکودینامیک و عوارض جانبی",
+            keyPoints: [
+              "کاربرد بالینی: داروی خط اول در بیماران دیابتی مبتلا به پروتئینوری.",
+              "اشتباه رایج: سرفه ناشی از مهارکننده ACE با آنتی‌هیستامین برطرف می‌شود ← این باور نادرست است زیرا سرفه ناشی از تجمع برادی‌کینین است نه هیستامین ← درمان قطع دارو و جایگزینی با ARB است.",
+              "| ویژگی | انالاپریل | لوزارتان |\n| --- | --- | --- |\n| رده | ACEI | ARB |\n| سرفه | دارد | ندارد |",
+            ],
+            examPoints: [
+              "نکته آزمونی: کنترااندیکاسیون قطعی در تنگی دوطرفه شریان کلیه.",
+            ],
+            citationChunkIds: ["chunk-1"],
+          },
+        ],
+        citationChunkIds: ["chunk-1"],
+      };
+
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (String(url).includes("/review-summary")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-edu",
+              content: {
+                id: "content-edu-1",
+                type: "review_summary",
+                payload: educationalPayload,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      });
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ReviewSummaryViewer
+            organizationId={mockOrgId}
+            documentId={mockDocId}
+            courseId={mockCourseId}
+          />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("فارماکودینامیک و عوارض جانبی")).toBeInTheDocument();
+      });
+
+      // Verify clinical use item
+      expect(screen.getByText(/داروی خط اول در بیماران دیابتی/)).toBeInTheDocument();
+
+      // Verify misconception item
+      expect(screen.getByText(/سرفه ناشی از مهارکننده ACE با آنتی‌هیستامین برطرف می‌شود/)).toBeInTheDocument();
+
+      // Verify exam point
+      expect(screen.getByText(/کنترااندیکاسیون قطعی در تنگی دوطرفه شریان کلیه/)).toBeInTheDocument();
+
+      // Verify table headers & cells
+      expect(screen.getByText("ویژگی")).toBeInTheDocument();
+      expect(screen.getByText("انالاپریل")).toBeInTheDocument();
+      expect(screen.getByText("لوزارتان")).toBeInTheDocument();
+    });
+  });
+
+  describe("Unified Educational Document Structure", () => {
+    it("renders as a single continuous article document rather than disjoint section cards, with consolidated golden exam points", async () => {
+      const unifiedDocPayload: ReviewSummaryPayload = {
+        kind: "review_summary",
+        title: "فارماکولوژی ضد انعقاد و ترومبولیتیک",
+        estimatedReadingMinutes: 10,
+        overview: "نمای کلی هپارین، وارفارین و مهارکننده‌های مستقیم فاکتور Xa.",
+        sections: [
+          {
+            title: "هپارین و LMWH",
+            keyPoints: [
+              "کاربرد بالینی: پیشگیری و درمان ترومبوز وریدهای عمقی (DVT).",
+              "اشتباه رایج: اثر ضد انعقادی هپارین وابسته به آنتی‌ترومبین III نیست ← این باور غلط است، زیرا بدون AT-III فعالیت ناچیز دارد.",
+            ],
+            mechanisms: ["اتصال به آنتی‌ترومبین III ← فعال‌سازی مهار ترومبین و فاکتور Xa"],
+            examPoints: ["نکته آزمونی: آنتی‌دوت هپارین، پروتامین سولفات است."],
+          },
+          {
+            title: "وارفارین و تداخلات",
+            keyPoints: ["مهار ویتامین K اپوکساید ردوکتاز"],
+            mechanisms: ["مهار گاما-کربوکسیلاسیون فاکتورهای II, VII, IX, X"],
+            examPoints: ["نکته آزمونی: سنجش اثر با PT/INR و منع مصرف در بارداری به دلیل تراتوژنیسیتی."],
+          },
+        ],
+        finalTakeaways: ["مقایسه مسیر پایش هپارین (aPTT) و وارفارین (PT/INR) برای آزمون حیاتی است."],
+        citationChunkIds: ["chunk-1"],
+      };
+
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (String(url).includes("/review-summary")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-unified-1",
+              content: {
+                id: "content-unified-1",
+                type: "review_summary",
+                payload: unifiedDocPayload,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      });
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ReviewSummaryViewer
+            organizationId={mockOrgId}
+            documentId={mockDocId}
+            courseId={mockCourseId}
+          />
+        </QueryClientProvider>,
+      );
+
+      // 1. Single article document container exists
+      const docArticle = await screen.findByTestId("review-summary-document");
+      expect(docArticle).toBeInTheDocument();
+      expect(docArticle.tagName.toLowerCase()).toBe("article");
+
+      // 2. Both section headings are within this article
+      expect(screen.getByText("هپارین و LMWH")).toBeInTheDocument();
+      expect(screen.getByText("وارفارین و تداخلات")).toBeInTheDocument();
+
+      // 3. Consolidated Golden Exam Points section rendered at the bottom of the document
+      const goldenExamHeading = screen.getByText("نکات طلایی امتحانی");
+      expect(goldenExamHeading).toBeInTheDocument();
+      expect(docArticle.contains(goldenExamHeading)).toBe(true);
+
+      // 4. All exam points collected under the golden exam points section
+      expect(screen.getByText(/آنتی‌دوت هپارین، پروتامین سولفات است/)).toBeInTheDocument();
+      expect(screen.getByText(/سنجش اثر با PT\/INR و منع مصرف در بارداری/)).toBeInTheDocument();
+
+      // 5. Final takeaways rendered inside the document
+      const takeawaysHeading = screen.getByText(/جمع‌بندی نهایی و نکات کلیدی/);
+      expect(takeawaysHeading).toBeInTheDocument();
+      expect(docArticle.contains(takeawaysHeading)).toBe(true);
+    });
+
+    it("renders comprehensive multi-column tables with math formulas, English terms, and isolated horizontal scrolling without bullets", async () => {
+      const tablePayload: ReviewSummaryPayload = {
+        kind: "review_summary",
+        title: "همودینامیک و بیوانرژتیک قلب",
+        estimatedReadingMinutes: 10,
+        overview: "مرور محاسبات فشار شریانی و ترمودینامیک انقباض قلبی.",
+        sections: [
+          {
+            title: "جدول پارامترهای همودینامیک و فرمول‌ها",
+            keyPoints: [
+              "پارامترهای حیاتی قلبی و تعاریف ریاضی آنها:",
+              "| شاخص | نماد و فرمول | مقدار نرمال | اهمیت بالینی |\n" +
+                "| --- | --- | --- | --- |\n" +
+                "| فشار متوسط شریانی | MAP = DP + 1/3 PP | ۷۰ تا ۱۰۵ mmHg | شاخص پرفیوژن ارگان‌های حیاتی مغز و کلیه |\n" +
+                "| برون‌ده قلبی | CO = HR × SV | ۴ تا ۸ L/min | تعیین‌کننده کفایت اکسیژن‌رسانی بافتی |\n" +
+                "| مقاومت عروق محیطی | SVR | ۸۰۰ تا ۱۲۰۰ dynes | تعیین‌کننده پس‌بار بطن چپ |",
+              "نکته تکمیلی: فشار پرفیوژن کرونری مستقیماً به فشار دیاستولی وابسته است.",
+            ],
+            examPoints: ["نکته آزمونی: حداقل MAP برای حفظ پرفیوژن کلیوی ۶۵ میلی‌متر جیوه است."],
+          },
+        ],
+        finalTakeaways: ["محاسبه MAP و هدف‌گذاری بالای ۶۵ در شوک سپتیک اولویت نخست است."],
+        citationChunkIds: ["chunk-hemo-1"],
+      };
+
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (String(url).includes("/review-summary")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-table-ui-1",
+              content: {
+                id: "content-table-ui-1",
+                type: "review_summary",
+                payload: tablePayload,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      });
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ReviewSummaryViewer
+            organizationId={mockOrgId}
+            documentId={mockDocId}
+            courseId={mockCourseId}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Verify table headers are rendered
+      expect(await screen.findByText("شاخص")).toBeInTheDocument();
+      expect(screen.getByText("نماد و فرمول")).toBeInTheDocument();
+      expect(screen.getByText("مقدار نرمال")).toBeInTheDocument();
+      expect(screen.getByText("اهمیت بالینی")).toBeInTheDocument();
+
+      // Verify table cell contents with English and numbers
+      expect(screen.getByText("فشار متوسط شریانی")).toBeInTheDocument();
+      expect(screen.getByText(/MAP = DP \+ 1\/3 PP/)).toBeInTheDocument();
+      expect(screen.getByText(/۷۰ تا ۱۰۵ mmHg/)).toBeInTheDocument();
+      expect(screen.getByText(/شاخص پرفیوژن ارگان‌های حیاتی/)).toBeInTheDocument();
+
+      // Verify scroll container styling
+      const tableElement = screen.getByRole("table");
+      const scrollContainer = tableElement.closest(".table-scroll-container");
+      expect(scrollContainer).toBeInTheDocument();
+      expect(scrollContainer?.classList.contains("overflow-x-auto")).toBe(true);
+      expect(scrollContainer?.classList.contains("overscroll-x-contain")).toBe(true);
+      expect(scrollContainer?.classList.contains("border")).toBe(true);
+
+      // Verify table element borders and compact font size
+      expect(tableElement.classList.contains("border")).toBe(true);
+      expect(tableElement.classList.contains("border-collapse")).toBe(true);
+      expect(tableElement.className).toContain("text-xs sm:text-[13px]");
+
+      // Verify all th and td have explicit borders and appropriate font sizing
+      const ths = tableElement.querySelectorAll("th");
+      expect(ths.length).toBeGreaterThan(0);
+      ths.forEach((th) => {
+        expect(th.className).toContain("border");
+        expect(th.className).toContain("border-[var(--color-border,#E2E7EA)]");
+        expect(th.className).toContain("text-[11px] sm:text-xs");
+      });
+
+      const tds = tableElement.querySelectorAll("td");
+      expect(tds.length).toBeGreaterThan(0);
+      tds.forEach((td) => {
+        expect(td.className).toContain("border");
+        expect(td.className).toContain("border-[var(--color-border,#E2E7EA)]");
+        expect(td.className).toContain("text-xs sm:text-[13px]");
+      });
+
+      // Verify regular text outside table retains standard size (text-xs sm:text-sm)
+      const regularTextItem = screen.getByText("پارامترهای حیاتی قلبی و تعاریف ریاضی آنها:").closest("li");
+      expect(regularTextItem?.className).toContain("text-xs sm:text-sm");
+
+      // Verify table row is rendered as a clean block without list bullets
+      const tableLi = scrollContainer?.closest("li");
+      expect(tableLi?.classList.contains("list-none")).toBe(true);
+
+      // Verify exam point remains consolidated at bottom
+      expect(screen.getByText("نکات طلایی امتحانی")).toBeInTheDocument();
+      expect(screen.getByText(/حداقل MAP برای حفظ پرفیوژن کلیوی ۶۵ میلی‌متر جیوه است/)).toBeInTheDocument();
+    });
+
+    it("verifies balanced section divider spacing between topic sections", async () => {
+      const multiSectionPayload: ReviewSummaryPayload = {
+        kind: "review_summary",
+        title: "فارماکولوژی چندبخشی",
+        estimatedReadingMinutes: 8,
+        overview: "نمای کلی دو بخش مجزا.",
+        sections: [
+          {
+            title: "بخش اول: مهارکننده‌های ACE",
+            keyPoints: ["کاپتوپریل داروی اول."],
+          },
+          {
+            title: "بخش دوم: مسدودکننده‌های گیرنده ARB",
+            keyPoints: ["لوزارتان داروی دوم."],
+          },
+        ],
+        finalTakeaways: ["جمع‌بندی پایانی."],
+        citationChunkIds: ["chunk-1"],
+      };
+
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (String(url).includes("/review-summary")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-multi-spacing",
+              content: {
+                id: "content-multi-spacing",
+                type: "review_summary",
+                payload: multiSectionPayload,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      });
+
+      const { container } = render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ReviewSummaryViewer
+            organizationId={mockOrgId}
+            documentId={mockDocId}
+            courseId={mockCourseId}
+          />
+        </QueryClientProvider>,
+      );
+
+      expect(await screen.findByText("بخش اول: مهارکننده‌های ACE")).toBeInTheDocument();
+      expect(screen.getByText("بخش دوم: مسدودکننده‌های گیرنده ARB")).toBeInTheDocument();
+
+      // Verify container has subtle neutral divider class
+      const sectionsContainer = container.querySelector(".divide-y");
+      expect(sectionsContainer).toBeInTheDocument();
+      expect(sectionsContainer?.className).toContain("divide-[var(--color-border,#E2E7EA)]");
+
+      const sections = container.querySelectorAll("section");
+      expect(sections.length).toBeGreaterThanOrEqual(2);
+
+      // Section 1: Top spacing 0, bottom padding before divider line
+      expect(sections[0].className).toContain("pt-0");
+      expect(sections[0].className).toMatch(/pb-\d+/);
+
+      // Section 2: Top padding after divider line
+      expect(sections[1].className).toMatch(/pt-\d+/);
+      expect(sections[1].className).toContain("pb-2");
     });
   });
 });

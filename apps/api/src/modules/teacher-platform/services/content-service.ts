@@ -1,7 +1,5 @@
 import {
   DomainError,
-  asUserId,
-  asOrganizationId,
   defaultPolicy,
   detectExternalVideoProvider,
   validateCreateClassroomContentInput,
@@ -19,6 +17,7 @@ import type {
 import type { OrganizationStore } from "../../organizations/organization-store.js";
 import type { UserStore } from "../../identity/user-store.js";
 import type { StorageProvider } from "../../storage/index.js";
+import { assertTeacherClassroomAccess as assertAccess } from "./auth-helpers.js";
 
 export class ClassroomContentService {
   constructor(
@@ -52,35 +51,12 @@ export class ClassroomContentService {
     actor: Actor,
     classroomId: string,
   ): Promise<Classroom> {
-    const classroom = await this.classroomStore.getById(classroomId);
-    if (!classroom) {
-      throw new DomainError("not_found", "کلاس یافت نشد");
-    }
-
-    if (
-      actor.globalRole === "platform_admin" ||
-      actor.role === "platform_admin"
-    ) {
-      return classroom;
-    }
-
-    // Teacher ownership check
-    if (classroom.teacherId === actor.userId) {
-      return classroom;
-    }
-
-    // Tenant organization admin check
-    const membership = await this.organizationStore.findMembership(
-      asOrganizationId(classroom.organizationId),
-      asUserId(actor.userId),
+    return assertAccess(
+      this.classroomStore,
+      this.organizationStore,
+      actor,
+      classroomId,
     );
-
-    if (membership && membership.role === "organization_admin") {
-      return classroom;
-    }
-
-    // IDOR protection: return not_found instead of forbidden for security
-    throw new DomainError("not_found", "کلاس یافت نشد");
   }
 
   /**
@@ -118,16 +94,17 @@ export class ClassroomContentService {
       );
     }
 
-    if (classroom.teacherId === actor.userId) {
+    // Teacher or Organization Admin check
+    try {
+      await assertAccess(
+        this.classroomStore,
+        this.organizationStore,
+        actor,
+        content.classroomId,
+      );
       return;
-    }
-
-    const orgMembership = await this.organizationStore.findMembership(
-      asOrganizationId(classroom.organizationId),
-      asUserId(actor.userId),
-    );
-    if (orgMembership && orgMembership.role === "organization_admin") {
-      return;
+    } catch {
+      // Continue to student check below
     }
 
     // Student check: must be active member and content must be published

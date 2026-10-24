@@ -231,6 +231,20 @@ export class NotificationService {
   }
 
   /**
+   * Notify user when welcome gift (wallet credit + free subscription) is granted.
+   */
+  async notifyWelcomeGiftGranted(
+    userId: UserId,
+  ): Promise<NotificationItem | null> {
+    return await this.createForUser(userId, {
+      type: "welcome_gift",
+      title: "هدیه خوشآمدگویی آوانا",
+      message: "هدیه خوشآمدگویی شما شامل ۲۰٬۰۰۰ تومان شارژ کیف پول و ۷ روز اشتراک رایگان فعال شد.",
+      idempotencyKey: `welcome_gift:${userId}`,
+    });
+  }
+
+  /**
    * Notify user when email verification is complete.
    */
   async notifyEmailVerified(userId: UserId): Promise<NotificationItem | null> {

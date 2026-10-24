@@ -126,7 +126,7 @@ function HealthCard({
 
         {typeof latencyMs === "number" && latencyMs >= 0 && (
           <span className="text-xs text-[var(--color-text-muted)] font-mono" dir="ltr">
-            {toPersianDigits(latencyMs)} ms
+            {`${toPersianDigits(latencyMs)} ms`}
           </span>
         )}
 

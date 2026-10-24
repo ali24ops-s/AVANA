@@ -75,10 +75,10 @@ describe("LandingPage (صفحه اصلی آوانا) Reference Design Complete S
     expect(screen.getByText("جزوه + PDF + عکس + نمونه سؤال")).toBeInTheDocument();
   });
 
-  it("3. Verifies Problem Section: 'منابع زیادند، وقت کم است!' and scattered desk items", () => {
+  it("3. Verifies Problem Section: 'منابع زیادند، وقت کم است!' and scattered desk items without decorative badge", () => {
     renderLandingPage();
 
-    expect(screen.getByText("چالش اصلی دانشجو")).toBeInTheDocument();
+    expect(screen.queryByText("چالش اصلی دانشجو")).not.toBeInTheDocument();
     expect(screen.getByText("منابع زیادند،")).toBeInTheDocument();
     expect(screen.getByText("وقت کم است!")).toBeInTheDocument();
     expect(
@@ -94,10 +94,10 @@ describe("LandingPage (صفحه اصلی آوانا) Reference Design Complete S
     expect(screen.getByText("نمونه سؤال")).toBeInTheDocument();
   });
 
-  it("4. Verifies Transformation Section: 'آوانا، این پراکندگی را تبدیل به مسیر یادگیری می‌کند.'", () => {
+  it("4. Verifies Transformation Section: 'آوانا، این پراکندگی را تبدیل به مسیر یادگیری می‌کند.' without decorative badge", () => {
     renderLandingPage();
 
-    expect(screen.getByText("فرآیند تبدیل هوشمند")).toBeInTheDocument();
+    expect(screen.queryByText("فرآیند تبدیل هوشمند")).not.toBeInTheDocument();
     expect(
       screen.getByText(/آوانا، این پراکندگی را تبدیل به/)
     ).toBeInTheDocument();
@@ -327,5 +327,37 @@ describe("LandingPage (صفحه اصلی آوانا) Reference Design Complete S
     // Verify "درباره ما" and "درباره آوانا" are not rendered in header or footer
     expect(screen.queryByRole("link", { name: "درباره ما" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "درباره آوانا" })).not.toBeInTheDocument();
+  });
+
+  it("15. Verifies that all decorative badges across landing page sections are completely removed", () => {
+    renderLandingPage();
+
+    // Section header badges
+    expect(screen.queryByText("چالش اصلی دانشجو")).not.toBeInTheDocument();
+    expect(screen.queryByText("فرآیند تبدیل هوشمند")).not.toBeInTheDocument();
+    expect(screen.queryByText("محتوای درسی زنده و تعاملی")).not.toBeInTheDocument();
+    expect(screen.queryByText("چرخه کامل یادگیری")).not.toBeInTheDocument();
+    expect(screen.queryByText("خودسنجی تعاملی")).not.toBeInTheDocument();
+    expect(screen.queryByText("مرور پربازده (High-Yield)")).not.toBeInTheDocument();
+    expect(screen.queryByText("شروع یک تجربه متفاوت")).not.toBeInTheDocument();
+
+    // Card/decorative badges
+    expect(screen.queryByText("موتور هوشمند")).not.toBeInTheDocument();
+    expect(screen.queryByText("پایش پیوسته آوانا")).not.toBeInTheDocument();
+  });
+
+  it("16. Verifies that 'استاد هستید؟' section is removed from the landing page body while header link is preserved", () => {
+    renderLandingPage();
+
+    // Body section must not exist
+    expect(screen.queryByText("استاد هستید؟")).not.toBeInTheDocument();
+    expect(screen.queryByText("کلاس‌ها و آزمون‌های خود را در AVANA مدیریت کنید.")).not.toBeInTheDocument();
+    expect(screen.queryByText("ورود به پنل استاد")).not.toBeInTheDocument();
+    expect(screen.queryByText("ثبت‌نام استاد")).not.toBeInTheDocument();
+
+    // Header link for teachers must remain present
+    const teacherLinks = screen.getAllByRole("link", { name: "برای اساتید" });
+    expect(teacherLinks.length).toBeGreaterThan(0);
+    expect(teacherLinks[0]).toHaveAttribute("href", "/teachers");
   });
 });

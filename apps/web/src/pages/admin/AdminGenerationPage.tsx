@@ -143,13 +143,38 @@ export function AdminGenerationPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case "completed":
+      case "succeeded":
         return "text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20";
       case "failed":
         return "text-rose-700 dark:text-rose-300 bg-rose-500/10 border border-rose-500/20";
       case "processing":
+      case "running":
         return "text-sky-700 dark:text-sky-300 bg-sky-500/10 border border-sky-500/20";
+      case "queued":
+        return "text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/20";
+      case "stopped":
+        return "text-purple-700 dark:text-purple-300 bg-purple-500/10 border border-purple-500/20";
       default:
         return "text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] border border-[var(--color-border)]";
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case "completed":
+      case "succeeded":
+        return "موفق";
+      case "failed":
+        return "خطا";
+      case "processing":
+      case "running":
+        return "در حال پردازش";
+      case "queued":
+        return "در صف انتظار";
+      case "stopped":
+        return "متوقف‌شده";
+      default:
+        return status;
     }
   };
 
@@ -204,7 +229,7 @@ export function AdminGenerationPage() {
 
         {/* Global Tab Navigation */}
         <div
-          className="flex items-center gap-1.5 p-1 bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-2xl text-sm"
+          className="flex items-center gap-1.5 p-1 bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-2xl text-sm overflow-x-auto no-scrollbar max-w-full"
           role="tablist"
           aria-label="بخش‌های مرکز هوش مصنوعی"
         >
@@ -213,7 +238,7 @@ export function AdminGenerationPage() {
             role="tab"
             aria-selected={activeTab === "jobs"}
             onClick={() => setTab("jobs")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all whitespace-nowrap shrink-0 ${
               activeTab === "jobs"
                 ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
                 : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
@@ -227,7 +252,7 @@ export function AdminGenerationPage() {
             role="tab"
             aria-selected={activeTab === "rejected"}
             onClick={() => setTab("rejected")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all whitespace-nowrap shrink-0 ${
               activeTab === "rejected"
                 ? "bg-rose-600 text-white shadow-sm"
                 : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
@@ -241,7 +266,7 @@ export function AdminGenerationPage() {
             role="tab"
             aria-selected={activeTab === "patterns"}
             onClick={() => setTab("patterns")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all whitespace-nowrap shrink-0 ${
               activeTab === "patterns"
                 ? "bg-amber-600 text-white shadow-sm"
                 : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
@@ -280,9 +305,10 @@ export function AdminGenerationPage() {
               >
                 <option value="">همه وضعیت‌ها</option>
                 <option value="queued">در صف (Queued)</option>
-                <option value="processing">در حال پردازش (Processing)</option>
-                <option value="completed">موفق (Completed)</option>
+                <option value="running">در حال پردازش (Running / Processing)</option>
+                <option value="succeeded">موفق (Succeeded / Completed)</option>
                 <option value="failed">خطا (Failed)</option>
+                <option value="stopped">متوقف‌شده (Stopped)</option>
               </select>
             </div>
           </div>
@@ -354,7 +380,7 @@ export function AdminGenerationPage() {
                               job.status,
                             )}`}
                           >
-                            {job.status}
+                            {getStatusLabel(job.status)}
                           </span>
                           {job.errorMessage && (
                             <p

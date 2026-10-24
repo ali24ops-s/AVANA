@@ -83,6 +83,7 @@ export interface RichContentProps {
   inline?: boolean;
   dir?: "rtl" | "ltr" | "auto";
   enableLessonCallouts?: boolean;
+  compactTables?: boolean;
 }
 
 export type MarkdownRendererProps = RichContentProps;
@@ -364,7 +365,7 @@ export function normalizeRichContent(text: string): string {
           if (closingDollarIdx !== -1) {
             const between = lineRest.slice(0, closingDollarIdx);
             // If between has math operators, variables, letters, or equations, this was the start of an arithmetic equation like $6.0 + 3.0 = 9.0$
-            if (/[-=+*\/\\^_{}<>~×≤≥±a-zA-Z]/.test(between)) {
+            if (/[-=+*/\\^_{}<>~×≤≥±a-zA-Z]/.test(between)) {
               return fullMatch; // Valid math formula, do not escape
             }
           }
@@ -439,9 +440,35 @@ export function normalizeRichContent(text: string): string {
         })
         .join("");
 
-      return processed;
+      return normalizeMarkdownTables(processed);
     })
     .join("");
+}
+
+/**
+ * Normalizes markdown tables where LLM output may have a mismatch between the number of columns
+ * in the header row and delimiter row (e.g. 3 headers but 4 delimiter dashes `| --- | --- | --- | --- |`).
+ * remark-gfm strictly requires delimiter columns to match header columns to parse the table.
+ */
+export function normalizeMarkdownTables(content: string): string {
+  if (!content.includes("|")) return content;
+  const lines = content.split("\n");
+  const delimRegex = /^[ \t]*\|(?:[ \t]*:?-+:?[ \t]*\|)+[ \t]*$/;
+
+  for (let i = 0; i < lines.length - 1; i++) {
+    const cur = lines[i];
+    const next = lines[i + 1];
+    if (cur.includes("|") && delimRegex.test(next)) {
+      const headerCols = cur.split("|").slice(1, -1).map((c) => c.trim());
+      const delimCols = next.split("|").slice(1, -1).map((c) => c.trim());
+      if (headerCols.length > 0 && delimCols.length !== headerCols.length) {
+        const normalizedDelim =
+          "| " + headerCols.map((_, idx) => delimCols[idx] || "---").join(" | ") + " |";
+        lines[i + 1] = normalizedDelim;
+      }
+    }
+  }
+  return lines.join("\n");
 }
 
 export { parseChemicalCodeContent, parseReactionCodeContent };
@@ -449,35 +476,44 @@ export { parseChemicalCodeContent, parseReactionCodeContent };
 /**
  * Shared rich content component for rendering AI-generated & user-authored markdown with LaTeX.
  */
-export function RichContent({
+function RichContentComponent({
   content,
   className = "",
   inline = false,
   dir = "rtl",
   enableLessonCallouts = false,
+  compactTables = false,
 }: RichContentProps) {
   if (content === null || content === undefined || content === "") {
     return null;
   }
 
+  const isCompactTable = compactTables || className.includes("compact-table");
+
   const rawText = typeof content === "string" ? content : String(content);
-  const normalized = normalizeRichContent(rawText);
+  const normalized = React.useMemo(() => normalizeRichContent(rawText), [rawText]);
 
-  const remarkPlugins: NonNullable<Parameters<typeof ReactMarkdown>[0]["remarkPlugins"]> = [
-    remarkGfm,
-    remarkMath,
-  ];
-  if (enableLessonCallouts && !inline) {
-    remarkPlugins.push(remarkLessonCallouts);
-  }
+  const remarkPlugins = React.useMemo(() => {
+    const plugins: NonNullable<Parameters<typeof ReactMarkdown>[0]["remarkPlugins"]> = [
+      remarkGfm,
+      remarkMath,
+    ];
+    if (enableLessonCallouts && !inline) {
+      plugins.push(remarkLessonCallouts);
+    }
+    return plugins;
+  }, [enableLessonCallouts, inline]);
 
-  const rehypePlugins: [typeof rehypeKatex, { throwOnError: boolean; strict: boolean }] = [
-    rehypeKatex,
-    {
-      throwOnError: false,
-      strict: false,
-    },
-  ];
+  const rehypePlugins = React.useMemo<[typeof rehypeKatex, { throwOnError: boolean; strict: boolean }]>(
+    () => [
+      rehypeKatex,
+      {
+        throwOnError: false,
+        strict: false,
+      },
+    ],
+    [],
+  );
 
   if (inline) {
     return (
@@ -929,11 +965,11 @@ export function RichContent({
           // GFM Table Components with High Contrast & RTL Persian Text Alignment
           table: ({ children, ...props }) => (
             <div
-              className="table-scroll-container my-3.5 sm:my-4 w-full max-w-full overflow-x-auto rounded-card border border-[var(--color-border)] shadow-xs bg-[var(--color-surface)]"
+              className={`table-scroll-container ${isCompactTable ? "compact-table my-2.5 sm:my-3" : "my-3.5 sm:my-4"} w-full max-w-full overflow-x-auto rounded-card border border-[var(--color-border,#E2E7EA)] shadow-xs bg-[var(--color-surface)] overscroll-x-contain`}
               dir={dir || "rtl"}
             >
               <table
-                className={`content-table w-full min-w-full !m-0 !my-0 border-collapse ${dir === "ltr" ? "text-left" : "text-right"} text-sm leading-relaxed`}
+                className={`content-table ${isCompactTable ? "compact-table" : ""} w-full min-w-full !m-0 !my-0 border-collapse border border-[var(--color-border,#E2E7EA)] ${dir === "ltr" ? "text-left" : "text-right"} ${isCompactTable ? "text-xs sm:text-[13px]" : "text-[13px] sm:text-sm"} leading-relaxed`}
                 dir={dir || "rtl"}
                 {...props}
               >
@@ -943,7 +979,7 @@ export function RichContent({
           ),
           thead: ({ children, ...props }) => (
             <thead
-              className="bg-[var(--color-surface-warm)] text-[var(--color-text)] font-extrabold border-b border-[var(--color-border)]"
+              className="bg-[var(--color-surface-warm)] text-[var(--color-text)] font-black border-b border-[var(--color-border,#E2E7EA)]"
               {...props}
             >
               {children}
@@ -951,7 +987,7 @@ export function RichContent({
           ),
           tbody: ({ children, ...props }) => (
             <tbody
-              className="divide-y divide-[var(--color-border)] bg-[var(--color-surface)]"
+              className="divide-y divide-[var(--color-border,#E2E7EA)] bg-[var(--color-surface)]"
               {...props}
             >
               {children}
@@ -959,7 +995,7 @@ export function RichContent({
           ),
           tr: ({ children, ...props }) => (
             <tr
-              className="hover:bg-[var(--color-surface-warm)] transition-colors"
+              className="hover:bg-[var(--color-surface-warm)]/80 even:bg-[var(--color-surface-warm)]/30 transition-colors"
               {...props}
             >
               {children}
@@ -974,7 +1010,7 @@ export function RichContent({
                 : style;
             return (
               <th
-                className={`px-4 py-3 ${dir === "ltr" ? "text-left" : "text-right"} font-extrabold text-[var(--color-text)] tracking-tight align-top bg-[var(--color-surface-warm)] [unicode-bidi:isolate]`}
+                className={`border border-[var(--color-border,#E2E7EA)] ${isCompactTable ? "px-2.5 sm:px-3 py-1.5 sm:py-2 text-[11px] sm:text-xs" : "px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-[13px]"} ${dir === "ltr" ? "text-left" : "text-right"} font-black text-[var(--color-text)] tracking-wide align-top bg-[var(--color-surface-warm)] [unicode-bidi:isolate] whitespace-normal`}
                 dir={dir || "rtl"}
                 style={cellStyle}
                 {...props}
@@ -992,7 +1028,7 @@ export function RichContent({
                 : style;
             return (
               <td
-                className={`px-4 py-3 ${dir === "ltr" ? "text-left" : "text-right"} text-[var(--color-text)] dark:text-slate-200 align-top break-words [unicode-bidi:isolate]`}
+                className={`border border-[var(--color-border,#E2E7EA)] ${isCompactTable ? "px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-[13px]" : "px-3 sm:px-4 py-2.5 sm:py-3 text-[13px] sm:text-sm"} ${dir === "ltr" ? "text-left" : "text-right"} text-[var(--color-text)] dark:text-slate-200 align-top break-words [unicode-bidi:isolate]`}
                 dir={dir || "rtl"}
                 style={cellStyle}
                 {...props}
@@ -1009,7 +1045,6 @@ export function RichContent({
   );
 }
 
-/**
- * Backward compatibility alias for MarkdownRenderer.
- */
-export const MarkdownRenderer = RichContent;
+const MemoizedRichContent = React.memo(RichContentComponent);
+
+export { MemoizedRichContent as RichContent, MemoizedRichContent as MarkdownRenderer };

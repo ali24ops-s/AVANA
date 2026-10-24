@@ -94,12 +94,12 @@ export function AdminBlogListPage() {
     <div className="space-y-6" dir="rtl">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-2.5">
-            <BookOpen className="w-6 h-6 text-[var(--color-primary-default)]" />
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl sm:text-2xl font-bold text-[var(--color-text)] flex items-center gap-2.5">
+            <BookOpen className="w-6 h-6 text-[var(--color-primary-default)] shrink-0" />
             <span>مدیریت مقالات و وبلاگ آموزشی</span>
           </h1>
-          <p className="text-sm text-[var(--color-text-muted)] mt-1">
+          <p className="text-xs sm:text-sm text-[var(--color-text-muted)] mt-1">
             ایجاد، ویرایش، انتشار و مانیتورینگ مقالات تخصصی داروسازی در پلتفرم آوانا
           </p>
         </div>
@@ -114,11 +114,11 @@ export function AdminBlogListPage() {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex items-center gap-2 border-b border-[var(--color-border)] pb-2">
+      <div className="flex items-center gap-2 border-b border-[var(--color-border)] pb-2 overflow-x-auto no-scrollbar">
         <button
           type="button"
           onClick={() => setActiveTab("posts")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
             activeTab === "posts"
               ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-xs"
               : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
@@ -131,7 +131,7 @@ export function AdminBlogListPage() {
         <button
           type="button"
           onClick={() => setActiveTab("categories")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
             activeTab === "categories"
               ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-xs"
               : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
@@ -144,7 +144,7 @@ export function AdminBlogListPage() {
         <button
           type="button"
           onClick={() => setActiveTab("tags")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
             activeTab === "tags"
               ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-xs"
               : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
@@ -162,51 +162,51 @@ export function AdminBlogListPage() {
       ) : (
         <>
           {/* Metrics Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="border border-[var(--color-border)] p-5 rounded-2xl bg-[var(--color-surface)] shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-[var(--color-text-muted)]">کل مقالات</p>
+      <div className="grid grid-cols-1 min-[380px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="border border-[var(--color-border)] p-4 sm:p-5 rounded-2xl bg-[var(--color-surface)] shadow-sm flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-[var(--color-text-muted)] truncate">کل مقالات</p>
             <p className="text-2xl font-black text-[var(--color-text)] mt-1">
               {stats ? toPersianDigits(stats.totalPosts) : "..."}
             </p>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/20 flex items-center justify-center text-[var(--color-primary-default)]">
+          <div className="w-10 h-10 rounded-xl bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/20 flex items-center justify-center text-[var(--color-primary-default)] shrink-0">
             <FileText className="w-5 h-5" />
           </div>
         </div>
 
-        <div className="border border-[var(--color-border)] p-5 rounded-2xl bg-[var(--color-surface)] shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-[var(--color-text-muted)]">مقالات منتشر شده</p>
+        <div className="border border-[var(--color-border)] p-4 sm:p-5 rounded-2xl bg-[var(--color-surface)] shadow-sm flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-[var(--color-text-muted)] truncate">مقالات منتشر شده</p>
             <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
               {stats ? toPersianDigits(stats.publishedPosts) : "..."}
             </p>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 shrink-0">
             <CheckCircle2 className="w-5 h-5" />
           </div>
         </div>
 
-        <div className="border border-[var(--color-border)] p-5 rounded-2xl bg-[var(--color-surface)] shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-[var(--color-text-muted)]">پیش‌نویس‌ها (Draft)</p>
+        <div className="border border-[var(--color-border)] p-4 sm:p-5 rounded-2xl bg-[var(--color-surface)] shadow-sm flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-[var(--color-text-muted)] truncate">پیش‌نویس‌ها (Draft)</p>
             <p className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
               {stats ? toPersianDigits(stats.draftPosts) : "..."}
             </p>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 shrink-0">
             <Clock className="w-5 h-5" />
           </div>
         </div>
 
-        <div className="border border-[var(--color-border)] p-5 rounded-2xl bg-[var(--color-surface)] shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-[var(--color-text-muted)]">مجموع بازدیدها</p>
+        <div className="border border-[var(--color-border)] p-4 sm:p-5 rounded-2xl bg-[var(--color-surface)] shadow-sm flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-[var(--color-text-muted)] truncate">مجموع بازدیدها</p>
             <p className="text-2xl font-black text-[var(--color-primary-default)] mt-1">
               {stats ? toPersianDigits(stats.totalViews.toLocaleString("fa-IR")) : "..."}
             </p>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/20 flex items-center justify-center text-[var(--color-primary-default)]">
+          <div className="w-10 h-10 rounded-xl bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/20 flex items-center justify-center text-[var(--color-primary-default)] shrink-0">
             <TrendingUp className="w-5 h-5" />
           </div>
         </div>

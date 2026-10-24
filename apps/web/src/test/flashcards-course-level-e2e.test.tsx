@@ -135,7 +135,7 @@ describe("End-to-End Course-Level Flashcards Flow Verification", () => {
     // Assertion 1: Course is visible in UI
     await waitFor(() => {
       expect(screen.getByText("Cardiology Course Level")).toBeDefined();
-      expect(screen.getByText("۱۰ کارت")).toBeDefined();
+      expect(screen.getAllByText("۱۰ کارت").length).toBeGreaterThanOrEqual(1);
     });
 
     // Assertion 2: Course is selectable
@@ -255,5 +255,96 @@ describe("End-to-End Course-Level Flashcards Flow Verification", () => {
 
     // Empty module with 0 cards is hidden
     expect(screen.queryByText("Empty Module")).toBeNull();
+  });
+
+  it("Starting study session on a course-level course sends exact courseIds payload and undefined moduleIds/lessonIds", async () => {
+    let capturedSessionBody: any = null;
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/v1/organizations") && !url.includes("flashcard-summary") && !url.includes("flashcard-sessions")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-orgs",
+            items: [{ id: mockOrgId, name: "Health Org" }],
+          }),
+        });
+      }
+      if (url.includes(`/v1/organizations/${mockOrgId}/study/flashcard-summary`)) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-summary-course-level",
+            courses: [
+              {
+                course_id: mockCourseId,
+                title: "Cardiology Course Level",
+                total_cards: 10,
+                due_cards: 4,
+                new_cards: 6,
+                modules: [],
+              },
+            ],
+            total_due: 4,
+            total_new: 6,
+            total_cards: 10,
+          }),
+        });
+      }
+      if (url.includes(`/v1/organizations/${mockOrgId}/study/flashcard-sessions`) && init?.method === "POST") {
+        if (init.body) {
+          capturedSessionBody = JSON.parse(init.body as string);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 201,
+          json: async () => ({
+            request_id: "req-sess-course-level",
+            session: {
+              id: "session-course-level-999",
+              organization_id: mockOrgId,
+              user_id: "user-1",
+              total_cards: 10,
+              status: "in_progress",
+            },
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ items: [] }),
+      });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <FlashcardsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Cardiology Course Level")).toBeDefined();
+    });
+
+    // Select the course-level course
+    const selectCheckbox = screen.getByLabelText("انتخاب کل دوره Cardiology Course Level");
+    fireEvent.click(selectCheckbox);
+
+    // Click "شروع مطالعه" button
+    const startStudyButton = screen.getByText("شروع مطالعه");
+    fireEvent.click(startStudyButton);
+
+    await waitFor(() => {
+      expect(capturedSessionBody).not.toBeNull();
+      expect(capturedSessionBody.courseIds).toEqual([mockCourseId]);
+      expect(capturedSessionBody.moduleIds).toBeUndefined();
+      expect(capturedSessionBody.lessonIds).toBeUndefined();
+      expect(capturedSessionBody.mode).toBe("daily");
+    });
   });
 });

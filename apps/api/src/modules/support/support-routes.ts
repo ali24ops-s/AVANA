@@ -21,7 +21,12 @@ export const supportRoutes: FastifyPluginAsync<SupportRouteOptions> = async (
 
   function getActor(request: unknown): Actor {
     const reqAny = request as {
-      user?: { userId: string; email: string; role: string };
+      user?: {
+        userId: string;
+        email: string;
+        role: string;
+        globalRole?: string | null;
+      };
     };
     if (!reqAny.user) {
       throw new DomainError("unauthorized", "Not signed in");
@@ -29,6 +34,7 @@ export const supportRoutes: FastifyPluginAsync<SupportRouteOptions> = async (
     return {
       userId: reqAny.user.userId as Actor["userId"],
       role: reqAny.user.role as Actor["role"],
+      globalRole: (reqAny.user.globalRole as Actor["globalRole"]) ?? null,
     };
   }
 
@@ -194,6 +200,27 @@ export const supportRoutes: FastifyPluginAsync<SupportRouteOptions> = async (
   );
 
   app.post(
+    "/v1/support/tickets/:id/messages/read",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      const { id } = request.params as { id: string };
+      const body = request.body as {
+        message_ids?: string[];
+        messageIds?: string[];
+      };
+
+      const ids = body?.message_ids ?? body?.messageIds;
+      if (!ids || !Array.isArray(ids)) {
+        throw new DomainError("bad_request", "شناسه پیام‌ها الزامی است.");
+      }
+
+      const result = await supportService.markUserMessagesAsRead(actor, id, ids);
+      return result;
+    },
+  );
+
+  app.post(
     "/v1/support/tickets/:id/reopen",
     { preHandler: [requireAuth] },
     async (request) => {
@@ -323,9 +350,16 @@ export const supportRoutes: FastifyPluginAsync<SupportRouteOptions> = async (
 
       const data = await storageProvider.read(storageKey);
 
+      const rawFilename = storageKey.split("/").pop() || `attachment.${ext}`;
+      const safeFilename = rawFilename.replace(/["\r\n\\]/g, "_").trim() || `attachment.${ext}`;
+      const encodedFilename = encodeURIComponent(safeFilename);
+
       reply
         .header("Content-Type", mimeType)
-        .header("Content-Disposition", `inline; filename="attachment.${ext}"`)
+        .header(
+          "Content-Disposition",
+          `inline; filename="${safeFilename}"; filename*=UTF-8''${encodedFilename}`,
+        )
         .header("Content-Length", data.length)
         .header("Cache-Control", "private, max-age=3600");
 

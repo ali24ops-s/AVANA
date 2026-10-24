@@ -571,6 +571,7 @@ export class DrizzleCoursePublicationStore implements CoursePublicationStore {
   async listAll(options: {
     status?: string;
     search?: string;
+    courseId?: string;
     page?: number;
     limit?: number;
   }): Promise<{ items: CoursePublicationRecord[]; totalCount: number }> {
@@ -579,6 +580,10 @@ export class DrizzleCoursePublicationStore implements CoursePublicationStore {
     const offset = (page - 1) * limit;
 
     const conditions = [isNull(coursePublications.deletedAt)];
+
+    if (options.courseId) {
+      conditions.push(eq(coursePublications.courseId, options.courseId));
+    }
 
     if (options.status && options.status !== "all") {
       conditions.push(eq(coursePublications.status, options.status));

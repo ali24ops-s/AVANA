@@ -7,24 +7,30 @@
  *   MUST have its own educational title and NEVER display original filenames.
  */
 
-const FILE_EXTENSION_REGEX = /\.(pdf|docx?|pptx?|xlsx?|txt|csv|bin|mp3|wav|png|jpe?g|webp)(\b|[\s\),;:«»"']|$)/i;
+const FILE_EXTENSION_REGEX = /\.(pdf|docx?|pptx?|xlsx?|txt|csv|bin|mp3|wav|png|jpe?g|webp)(\b|[\s),;:«»"']|$)/i;
 const EMBEDDED_FILE_REGEX = /[a-zA-Z0-9_\-\u0600-\u06FF]*\.(pdf|docx?|pptx?|xlsx?|txt|csv|bin|mp3|wav|png|jpe?g|webp)/i;
-const NUMERIC_MODULE_REGEX = /^(فصل\s*[:\-–—]?\s*)?(\d+(\.\d+)?|[a-zA-Z0-9_\-]+(\.(pdf|docx?|pptx?|txt|bin))?)$/i;
+const NUMERIC_MODULE_REGEX = /^(فصل\s*[:\-–—]?\s*)?(\d+(\.\d+)?|[a-zA-Z0-9_-]+(\.(pdf|docx?|pptx?|txt|bin))?)$/i;
 const EXTRACTION_PLACEHOLDER_REGEX = /(استخراج[\s‌]*(شده|شده‌|شده\s*از|از)|مباحث و جلسات آموزشی استخراج|سرفصل آموزشی استخراج|محتوای آموزشی استخراج|محتوای استخراج)/i;
+const GENERIC_DESCRIPTION_REGEX = /^(مباحث و جلسات آموزشی|سرفصل[\s‌]*آموزشی|محتوای[\s‌]*آموزشی|فصل[\s‌]*آموزشی)(\s*جامع)?$/i;
 
 const GENERIC_PLACEHOLDERS = [
   "مباحث و جلسات آموزشی استخراج‌شده",
   "مباحث و جلسات آموزشی استخراج شده",
   "مباحث و جلسات آموزشی استخراجشده",
   "مباحث و جلسات آموزشی",
+  "مباحث و جلسات آموزشی جامع",
   "سرفصل آموزشی استخراج‌شده",
   "سرفصل آموزشی استخراج شده",
   "سرفصل آموزشی استخراجشده",
   "سرفصل آموزشی",
+  "سرفصل آموزشی جامع",
+  "فصل آموزشی جامع",
+  "فصل آموزشی",
   "محتوای آموزشی استخراج‌شده",
   "محتوای استخراج‌شده",
   "محتوای استخراج شده",
   "محتوای استخراجشده",
+  "محتوای آموزشی جامع",
   "فایل آپلود شده",
   "سند آپلود شده",
   "نامشخص",
@@ -61,7 +67,7 @@ export function isFilenameLike(title: string | null | undefined): boolean {
   if (/^\d+(\.\d+)?$/.test(core)) return true;
 
   // Core is a raw filename without extension (e.g. "pharma_lecture_03_v2", "lecture_slides")
-  if (/^[a-zA-Z0-9_\-\.]+$/.test(core) && (core.includes("_") || core.includes("-")) && !core.includes(" ")) {
+  if (/^[a-zA-Z0-9_.-]+$/.test(core) && (core.includes("_") || core.includes("-")) && !core.includes(" ")) {
     return true;
   }
 
@@ -290,6 +296,7 @@ export function isFilenameOrPlaceholderDescription(
   if (isFilenameLike(trimmed)) return true;
   if (EMBEDDED_FILE_REGEX.test(trimmed)) return true;
   if (EXTRACTION_PLACEHOLDER_REGEX.test(trimmed)) return true;
+  if (GENERIC_DESCRIPTION_REGEX.test(trimmed)) return true;
   if (GENERIC_PLACEHOLDERS.includes(trimmed)) return true;
   return false;
 }
@@ -306,4 +313,20 @@ export function cleanEducationalDescription(
     return fallback ?? null;
   }
   return desc!.trim();
+}
+
+/**
+ * Strips the static "آزمون ارزیابی آموخته‌ها:" prefix from a quiz title,
+ * leaving only the clean chapter or topic title.
+ * Examples:
+ * - "آزمون ارزیابی آموخته‌ها: فیزیولوژی قلب" -> "فیزیولوژی قلب"
+ * - "آزمون ارزیابی آموختهها: فیزیولوژی قلب" -> "فیزیولوژی قلب"
+ */
+export function cleanQuizChapterTitle(title: string | null | undefined): string {
+  if (!title || typeof title !== "string") return "";
+  const trimmed = title.trim();
+  const cleaned = trimmed
+    .replace(/^آزمون\s*ارزیابی\s*آموخته[\s‌]*ها\s*[:\-–—]?\s*/i, "")
+    .trim();
+  return cleaned.length > 0 ? cleaned : trimmed;
 }

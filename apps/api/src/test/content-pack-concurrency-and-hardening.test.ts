@@ -228,6 +228,8 @@ describe("Content Pack Concurrency, Lifecycle & Hardening Test Suite", () => {
     await documentStore.create({
       id: docId,
       organizationId: orgId,
+      courseId,
+      ownerUserId: creatorUserId,
       originalName: "Biology-101.pdf",
       storageKey: `docs/${docId}.pdf`,
       mimeType: "application/pdf",

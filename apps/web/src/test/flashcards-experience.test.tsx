@@ -954,5 +954,494 @@ describe("Flashcard Experience Flow", () => {
     await waitFor(() => {
       expect(screen.getByText("مرور تمام شد!")).toBeDefined();
     });
+    expect(reviewCount).toBeGreaterThan(0);
+  });
+
+  it("renders 'new cards available' state when user opens course with new cards and 0 due cards, and transitions to learning on button click", async () => {
+    const requestedUrls: string[] = [];
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      requestedUrls.push(url);
+      if (url.includes("/flashcard-summary")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-sum",
+            courses: [
+              {
+                course_id: mockCourseId,
+                title: "دوره فارماکولوژی",
+                total_cards: 10,
+                due_cards: 0,
+                new_cards: 10,
+                learning_cards: 0,
+                overdue_cards: 0,
+              },
+            ],
+            total_due: 0,
+            total_overdue: 0,
+            total_new: 10,
+            total_cards: 10,
+          }),
+        });
+      }
+      if (url.includes("/custom-queue") && url.includes("mode=new")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-new-queue",
+            due_cards: [
+              {
+                id: "card-new-1",
+                organization_id: mockOrgId,
+                course_id: mockCourseId,
+                document_id: "doc-1",
+                generated_content_id: null,
+                question: "کارت جدید ۱: نام داروی مسدودکننده بتا چیست؟",
+                answer: "پروپرانولول",
+                explanation: "یک بتابلاکر غیرانتخابی است.",
+                card_type: "concept",
+                difficulty: "easy",
+                due_at: new Date().toISOString(),
+                interval_days: 0,
+                ease_factor: 2.5,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            ],
+          }),
+        });
+      }
+      if (url.includes("/review-queue")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ request_id: "req-due-empty", due_cards: [] }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ items: [] }),
+      });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FlashcardExperience
+          organizationId={mockOrgId}
+          courseId={mockCourseId}
+        />
+      </QueryClientProvider>,
+    );
+
+    // Initial state: User does NOT see "مرور کارت‌ها به پایان رسید!"
+    await waitFor(() => {
+      expect(screen.getByText("فلش‌کارت‌های جدید آماده یادگیری")).toBeDefined();
+      expect(screen.getByText(/شما ۱۰ فلش‌کارت جدید در این دوره دارید/i)).toBeDefined();
+      expect(screen.getByText("شروع یادگیری فلش‌کارت‌های جدید")).toBeDefined();
+    });
+    expect(screen.queryByText("مرور کارت‌ها به پایان رسید!")).toBeNull();
+
+    // Click "شروع یادگیری فلش‌کارت‌های جدید"
+    fireEvent.click(screen.getByText("شروع یادگیری فلش‌کارت‌های جدید"));
+
+    await waitFor(() => {
+      expect(screen.getByText("کارت جدید ۱: نام داروی مسدودکننده بتا چیست؟")).toBeDefined();
+    });
+    expect(
+      requestedUrls.some((u) => u.includes("/custom-queue") && u.includes("mode=new")),
+    ).toBe(true);
+  });
+
+  it("renders 'no flashcards found' state when course has 0 flashcards total", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/flashcard-summary")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-sum-0",
+            courses: [
+              {
+                course_id: mockCourseId,
+                title: "دوره خالی",
+                total_cards: 0,
+                due_cards: 0,
+                new_cards: 0,
+                learning_cards: 0,
+                overdue_cards: 0,
+              },
+            ],
+            total_due: 0,
+            total_overdue: 0,
+            total_new: 0,
+            total_cards: 0,
+          }),
+        });
+      }
+      if (url.includes("/review-queue")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ request_id: "req-due-empty", due_cards: [] }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ items: [] }),
+      });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FlashcardExperience
+          organizationId={mockOrgId}
+          courseId={mockCourseId}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("فلش‌کارتی یافت نشد")).toBeDefined();
+      expect(screen.getByText(/برای این دوره هنوز فلش‌کارتی ایجاد یا منتشر نشده است/i)).toBeDefined();
+    });
+    expect(screen.queryByText("مرور کارت‌ها به پایان رسید!")).toBeNull();
+  });
+
+  it("renders error banner when request fails and does not mistake it for review completion", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/review-queue")) {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: async () => ({ message: "خطای سرور داخلی در پایگاه داده" }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ items: [] }),
+      });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FlashcardExperience
+          organizationId={mockOrgId}
+          courseId={mockCourseId}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("خطا در بارگذاری فلش‌کارت‌ها")).toBeDefined();
+      expect(screen.getByText("تلاش مجدد")).toBeDefined();
+    });
+    expect(screen.queryByText("مرور کارت‌ها به پایان رسید!")).toBeNull();
+  });
+
+  it("dual queue mode: renders both queues and allows toggling between due cards and new cards", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/review-queue")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-due",
+            due_cards: [
+              {
+                id: "card-due-1",
+                organization_id: mockOrgId,
+                course_id: mockCourseId,
+                question: "سوال مرور: عارضه شایع کاپتوپریل چیست؟",
+                answer: "سرفه خشک",
+                card_type: "concept",
+                difficulty: "easy",
+                due_at: new Date(Date.now() - 3600000).toISOString(),
+                interval_days: 1,
+                ease_factor: 2.5,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            ],
+          }),
+        });
+      }
+      if (url.includes("/custom-queue") && url.includes("mode=new")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-new",
+            due_cards: [
+              {
+                id: "card-new-1",
+                organization_id: mockOrgId,
+                course_id: mockCourseId,
+                question: "سوال جدید: مکانیسم انالاپریل چیست؟",
+                answer: "مهار ACE",
+                card_type: "concept",
+                difficulty: "easy",
+                due_at: new Date().toISOString(),
+                interval_days: 0,
+                ease_factor: 2.5,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            ],
+            total_new_in_scope: 1,
+            learned_today: 0,
+            remaining_quota: 40,
+            completed_lessons_count: 3,
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          request_id: "req-sum",
+          courses: [
+            {
+              course_id: mockCourseId,
+              title: "فارماکولوژی ۳",
+              total_cards: 34,
+              due_cards: 1,
+              new_cards: 1,
+            },
+          ],
+        }),
+      });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FlashcardExperience
+          organizationId={mockOrgId}
+          courseId={mockCourseId}
+        />
+      </QueryClientProvider>,
+    );
+
+    // Initial state: starts on due queue
+    await waitFor(() => {
+      expect(screen.getByText("سوال مرور: عارضه شایع کاپتوپریل چیست؟")).toBeDefined();
+      expect(screen.getByText("مرور کارت‌های آماده (۱)")).toBeDefined();
+      expect(screen.getByText("کارت‌های جدید امروز (۱)")).toBeDefined();
+    });
+
+    // Toggle to today's new cards
+    fireEvent.click(screen.getByText("کارت‌های جدید امروز (۱)"));
+
+    await waitFor(() => {
+      expect(screen.getByText("سوال جدید: مکانیسم انالاپریل چیست؟")).toBeDefined();
+    });
+
+    // Toggle back to due cards
+    fireEvent.click(screen.getByText("مرور کارت‌های آماده (۱)"));
+
+    await waitFor(() => {
+      expect(screen.getByText("سوال مرور: عارضه شایع کاپتوپریل چیست؟")).toBeDefined();
+    });
+  });
+
+  it("contextual empty state: renders 'هنوز درسی را به پایان نرسانده‌اید' when completed lessons count is 0", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/review-queue")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ request_id: "req-due-0", due_cards: [] }),
+        });
+      }
+      if (url.includes("/custom-queue") && url.includes("mode=new")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-new-0",
+            due_cards: [],
+            total_new_in_scope: 0,
+            learned_today: 0,
+            remaining_quota: 40,
+            completed_lessons_count: 0,
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          request_id: "req-sum",
+          courses: [
+            {
+              course_id: mockCourseId,
+              title: "فارماکولوژی ۳",
+              total_cards: 100,
+              due_cards: 0,
+              new_cards: 0,
+            },
+          ],
+        }),
+      });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FlashcardExperience
+          organizationId={mockOrgId}
+          courseId={mockCourseId}
+          onBack={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    // Initial state: due cards is 0, switches or renders
+    await waitFor(() => {
+      expect(screen.getByText("کارت‌های جدید امروز (۰)")).toBeDefined();
+    });
+
+    // Click on new cards tab
+    fireEvent.click(screen.getByText("کارت‌های جدید امروز (۰)"));
+
+    await waitFor(() => {
+      expect(screen.getByText("هنوز درسی را به پایان نرسانده‌اید")).toBeDefined();
+      expect(screen.getByText(/برای فعال شدن و یادگیری فلش‌کارت‌های جدید، ابتدا درس‌های این دوره را در تب «درسنامه» مطالعه کنید/i)).toBeDefined();
+      expect(screen.getByText("مشاهده درس‌های دوره")).toBeDefined();
+    });
+  });
+
+  it("contextual empty state: renders 'سهمیه کارت‌های جدید امروز تکمیل شد' when daily quota is exhausted", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/review-queue")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ request_id: "req-due-0", due_cards: [] }),
+        });
+      }
+      if (url.includes("/custom-queue") && url.includes("mode=new")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-new-0",
+            due_cards: [],
+            total_new_in_scope: 10,
+            learned_today: 40,
+            remaining_quota: 0,
+            completed_lessons_count: 2,
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          request_id: "req-sum",
+          courses: [
+            {
+              course_id: mockCourseId,
+              title: "فارماکولوژی ۳",
+              total_cards: 100,
+              due_cards: 0,
+              new_cards: 0,
+            },
+          ],
+        }),
+      });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FlashcardExperience
+          organizationId={mockOrgId}
+          courseId={mockCourseId}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("کارت‌های جدید امروز (۰)")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByText("کارت‌های جدید امروز (۰)"));
+
+    await waitFor(() => {
+      expect(screen.getByText("سهمیه کارت‌های جدید امروز تکمیل شد")).toBeDefined();
+      expect(screen.getByText(/شما امروز ۴۰ کارت جدید مطالعه کرده‌اید و به سقف مجاز روزانه/i)).toBeDefined();
+    });
+  });
+
+  it("contextual empty state: renders 'همه کارت‌های درس‌های مطالعه‌شده را یاد گرفته‌اید!' when all cards from completed lessons are learned", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/review-queue")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ request_id: "req-due-0", due_cards: [] }),
+        });
+      }
+      if (url.includes("/custom-queue") && url.includes("mode=new")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-new-0",
+            due_cards: [],
+            total_new_in_scope: 0,
+            learned_today: 5,
+            remaining_quota: 35,
+            completed_lessons_count: 2,
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          request_id: "req-sum",
+          courses: [
+            {
+              course_id: mockCourseId,
+              title: "فارماکولوژی ۳",
+              total_cards: 100,
+              due_cards: 0,
+              new_cards: 0,
+            },
+          ],
+        }),
+      });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FlashcardExperience
+          organizationId={mockOrgId}
+          courseId={mockCourseId}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("کارت‌های جدید امروز (۰)")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByText("کارت‌های جدید امروز (۰)"));
+
+    await waitFor(() => {
+      expect(screen.getByText("همه کارت‌های درس‌های مطالعه‌شده را یاد گرفته‌اید!")).toBeDefined();
+      expect(screen.getByText(/تمامی فلش‌کارت‌های درس‌هایی که تاکنون به اتمام رسانده‌اید وارد چرخه مرور شده‌اند/i)).toBeDefined();
+    });
   });
 });

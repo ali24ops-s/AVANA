@@ -33,6 +33,7 @@ export class GenerationQueryService {
     public readonly generationJobStore?: GenerationJobStore,
     private readonly orgStore?: OrganizationStore,
     private readonly policy: AuthorizationPolicy = defaultPolicy,
+    private readonly systemOrganizationId?: OrganizationId,
   ) {}
 
   async authorize(
@@ -82,14 +83,23 @@ export class GenerationQueryService {
       userId: actor.userId,
       globalRole:
         actor.globalRole ??
-        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+        (actor.role === "platform_admin"
+          ? "platform_admin"
+          : actor.role === "content_worker"
+            ? "content_worker"
+            : undefined),
       role: actor.role,
       memberships,
     });
 
+    const isSystemResource =
+      !!this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId;
+
     const resourceContext: ResourceContext = {
       organizationId,
       resourceType: "course",
+      isSystemResource,
     };
 
     if (!this.policy.can(fullActor, action, resourceContext)) {
@@ -181,10 +191,20 @@ export class GenerationQueryService {
       effectiveSessionCount * stagesCount +
       (effectiveTypes.includes("review_summary") ? 1 : 0);
 
+    const relevantStages = new Set<string>([
+      "planning",
+      ...(effectiveTypes.includes("lesson") ? ["lesson"] : []),
+      ...(effectiveTypes.includes("flashcard") ? ["flashcard"] : []),
+      ...(effectiveTypes.includes("quiz") ? ["quiz"] : []),
+      ...(effectiveTypes.includes("review_summary") ? ["review_summary"] : []),
+    ]);
+
     const activeChunks = chunks.filter(
-      (c) => c.deletedAt === null || c.deletedAt === undefined,
+      (c) =>
+        (c.deletedAt === null || c.deletedAt === undefined) &&
+        relevantStages.has(c.stage),
     );
-    const completed = activeChunks.filter(
+    const rawCompleted = activeChunks.filter(
       (c) => c.status === "completed",
     ).length;
     const failed = activeChunks.filter(
@@ -205,10 +225,11 @@ export class GenerationQueryService {
     });
 
     let effectiveTotal = total;
-    if (!types && !isRunning && failed === 0 && completed > 0) {
-      effectiveTotal = completed;
+    if (!types && !isRunning && failed === 0 && rawCompleted > 0) {
+      effectiveTotal = rawCompleted;
     }
 
+    const completed = Math.min(rawCompleted, effectiveTotal);
     const pending = Math.max(0, effectiveTotal - completed - failed);
 
     let status: GenerationProgress["status"] = "queued";
@@ -299,7 +320,12 @@ export class GenerationQueryService {
     await this.authorize(actor, organizationId, "document:read");
     const doc = await this.requireDocument(organizationId, documentId);
 
-    let isPrivileged = actor.role === "platform_admin";
+    let isPrivileged =
+      actor.role === "platform_admin" ||
+      actor.globalRole === "platform_admin" ||
+      (!!this.systemOrganizationId &&
+        organizationId === this.systemOrganizationId &&
+        (actor.globalRole === "content_worker" || actor.role === "content_worker"));
     if (!isPrivileged && this.orgStore && typeof this.orgStore.findMembership === "function") {
       const membership = await this.orgStore.findMembership(organizationId, actor.userId);
       const role = membership?.role;
@@ -307,6 +333,7 @@ export class GenerationQueryService {
         role === "organization_admin" ||
         role === "course_editor" ||
         role === "teacher" ||
+        role === "content_worker" ||
         role === "platform_admin" ||
         role === "support_agent";
     }

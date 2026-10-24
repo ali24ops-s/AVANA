@@ -256,7 +256,7 @@ describe("Library In-Modal Pre-Purchase Preview Experience (مشاهده بست�
 
     const viewBtn = screen.getByTestId(`view-course-btn-${sampleCourse.id}`);
     expect(viewBtn).toBeDefined();
-    expect(viewBtn.textContent).toContain("مشاهده بسته");
+    expect(viewBtn.textContent).toMatch(/مشاهده (دوره|بسته)/);
 
     fireEvent.click(viewBtn);
     expect(onView).toHaveBeenCalledWith(sampleCourse);

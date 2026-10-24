@@ -11,7 +11,7 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import type { SessionService } from "../modules/identity/session-service.js";
 import type { UserStore } from "../modules/identity/user-store.js";
-import { DomainError, type Role } from "@avana/domain";
+import { DomainError, type Role, resolveEffectiveRole } from "@avana/domain";
 import { attachSessionCookies } from "../modules/identity/cookie-utils.js";
 
 export type AuthMiddlewareDeps = {
@@ -91,19 +91,24 @@ export function makeAuthMiddleware(deps: AuthMiddlewareDeps) {
     const effectiveRole =
       userRecord.globalRole === "platform_admin" || userRecord.role === "platform_admin"
         ? "platform_admin"
-        : userRecord.globalRole === "content_worker" || userRecord.role === "content_worker"
-          ? "content_worker"
-          : userRecord.role;
+        : resolveEffectiveRole(userRecord.globalRole, [userRecord.role]);
 
     // Attach authenticated user to request for downstream handlers
     const reqAny = request as unknown as {
-      user?: { userId: string; email: string; role: string; globalRole?: string | null };
+      user?: {
+        userId: string;
+        email: string;
+        role: string;
+        globalRole?: string | null;
+        teacherStatus?: "pending" | "approved" | "rejected";
+      };
     };
     reqAny.user = {
       userId: userRecord.id,
       email: userRecord.email,
       role: effectiveRole,
       globalRole: userRecord.globalRole,
+      teacherStatus: userRecord.teacherStatus,
     };
   }
 

@@ -24,6 +24,10 @@ export class ApiError extends Error {
     Object.setPrototypeOf(this, ApiError.prototype);
   }
 
+  get status(): number {
+    return this.statusCode;
+  }
+
   get statusCode(): number {
     switch (this.code) {
       case "bad_request":

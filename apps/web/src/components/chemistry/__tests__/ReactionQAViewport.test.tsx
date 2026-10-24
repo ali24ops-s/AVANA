@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MarkdownRenderer } from "../../markdown/MarkdownRenderer.js";
 
 describe("Organic Chemistry Reaction Real Lesson QA & Viewport Suite", () => {
@@ -147,7 +147,7 @@ describe("Organic Chemistry Reaction Real Lesson QA & Viewport Suite", () => {
     expect(screen.getByRole("heading", { name: "شیمی آلی: سنتز و واکنش‌های کلیدی ترکیبات کربونیل و آلکن‌ها" })).toBeInTheDocument();
 
     // Verify 1: A -> B
-    expect(await screen.findByText("اکسیداسیون الکل به آلدئید")).toBeInTheDocument();
+    expect(await screen.findByText("اکسیداسیون الکل به آلدئید", {}, { timeout: 5000 })).toBeInTheDocument();
     expect((await screen.findAllByText("اتانول")).length).toBeGreaterThanOrEqual(1);
     expect((await screen.findAllByText("استالدئید")).length).toBeGreaterThanOrEqual(1);
 
@@ -194,8 +194,15 @@ describe("Organic Chemistry Reaction Real Lesson QA & Viewport Suite", () => {
         </div>,
       );
 
+      await waitFor(
+        () => {
+          const blocks = container.querySelectorAll('[data-testid="reaction-block"]');
+          expect(blocks.length).toBe(6);
+        },
+        { timeout: 5000 },
+      );
+
       const blocks = container.querySelectorAll('[data-testid="reaction-block"]');
-      expect(blocks.length).toBe(6);
 
       blocks.forEach((block) => {
         // Must maintain RTL for Persian outer shell

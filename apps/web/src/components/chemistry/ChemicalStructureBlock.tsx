@@ -70,6 +70,35 @@ async function getSmilesDrawer(): Promise<SmilesDrawerModule> {
   return loadPromise;
 }
 
+interface CachedSvgData {
+  innerHTML: string;
+  viewBox: string;
+}
+
+const MAX_SVG_CACHE_SIZE = 250;
+const svgMarkupCache = new Map<string, CachedSvgData>();
+
+function getCachedSvg(key: string): CachedSvgData | undefined {
+  const data = svgMarkupCache.get(key);
+  if (data) {
+    svgMarkupCache.delete(key);
+    svgMarkupCache.set(key, data);
+  }
+  return data;
+}
+
+function setCachedSvg(key: string, data: CachedSvgData): void {
+  if (svgMarkupCache.has(key)) {
+    svgMarkupCache.delete(key);
+  } else if (svgMarkupCache.size >= MAX_SVG_CACHE_SIZE) {
+    const oldestKey = svgMarkupCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      svgMarkupCache.delete(oldestKey);
+    }
+  }
+  svgMarkupCache.set(key, data);
+}
+
 function fitSvgViewBox(
   svg: SVGSVGElement,
   defaultWidth: number,
@@ -155,24 +184,66 @@ function fitSvgViewBox(
   }
 }
 
-export function ChemicalStructureBlock({
+function ChemicalStructureBlockComponent({
   structure,
   className = "",
   width = 800,
   height = 400,
   showSarHighlights = true,
 }: ChemicalStructureBlockProps) {
+  const blockRef = useRef<HTMLDivElement | null>(null);
   const svgContainerRef = useRef<HTMLDivElement | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
   const uniqueId = useId().replace(/:/g, "_");
+
+  // Viewport lazy observation: don't compute heavy molecular graphs until near viewport
+  const [isVisible, setIsVisible] = useState<boolean>(() => {
+    if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
+      return true;
+    }
+    if (
+      typeof navigator !== "undefined" &&
+      navigator.userAgent &&
+      navigator.userAgent.includes("jsdom")
+    ) {
+      return true;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (isVisible) return;
+    const el = blockRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") {
+      setIsVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setIsVisible(true);
+            observer.disconnect();
+            break;
+          }
+        }
+      },
+      { rootMargin: "400px 0px" },
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isVisible]);
 
   // Validate structure using domain chemical validator
   const validation = React.useMemo(() => {
     return validateChemicalStructure(structure);
   }, [structure]);
 
-  // Render SMILES to SVG via SmilesDrawer
+  // Render SMILES to SVG via SmilesDrawer (with deterministic in-memory caching)
   useEffect(() => {
+    if (!isVisible) return;
     let isMounted = true;
     const container = svgContainerRef.current;
     if (!container || !structure.smiles || structure.smiles.trim().length === 0) {
@@ -197,6 +268,14 @@ export function ChemicalStructureBlock({
       const isDarkMode =
         typeof document !== "undefined" &&
         document.documentElement.classList.contains("dark");
+
+      const cacheKey = `${structure.smiles.trim()}_${isDarkMode ? "dark" : "light"}_${width}_${height}`;
+      const cached = getCachedSvg(cacheKey);
+      if (cached) {
+        targetSvg.innerHTML = cached.innerHTML;
+        targetSvg.setAttribute("viewBox", cached.viewBox);
+        return;
+      }
 
       const drawerOptions = {
         width,
@@ -263,6 +342,10 @@ export function ChemicalStructureBlock({
                   false,
                 );
                 fitSvgViewBox(targetSvg, width, height, 16);
+                setCachedSvg(cacheKey, {
+                  innerHTML: targetSvg.innerHTML,
+                  viewBox: targetSvg.getAttribute("viewBox") || `0 0 ${width} ${height}`,
+                });
               } catch (drawErr) {
                 if (isMounted) {
                   setRenderError(
@@ -294,11 +377,13 @@ export function ChemicalStructureBlock({
     return () => {
       isMounted = false;
     };
-  }, [structure.smiles, width, height, uniqueId]);
+  }, [structure.smiles, width, height, uniqueId, isVisible]);
 
   return (
     <div
+      ref={blockRef}
       className={`my-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xs overflow-hidden transition-all text-right ${className}`.trim()}
+      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 320px" }}
       dir="rtl"
       data-testid="chemical-structure-block"
       data-compound-id={structure.id || structure.compoundName}
@@ -415,3 +500,5 @@ export function ChemicalStructureBlock({
     </div>
   );
 }
+
+export const ChemicalStructureBlock = React.memo(ChemicalStructureBlockComponent);

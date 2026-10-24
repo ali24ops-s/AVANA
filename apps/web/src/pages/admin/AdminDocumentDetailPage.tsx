@@ -104,6 +104,9 @@ export function AdminDocumentDetailPage() {
   });
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
   const deleteMutation = useMutation({
     mutationFn: async () => {
       if (!id) throw new Error("No ID");
@@ -119,15 +122,19 @@ export function AdminDocumentDetailPage() {
     }
   });
 
-  const handleDownload = () => {
-    if (!id) return;
-    const url = adminApi.getDownloadUrl(id);
-    const a = window.document.createElement("a");
-    a.href = url;
-    a.download = doc?.originalName || "document";
-    window.document.body.appendChild(a);
-    a.click();
-    window.document.body.removeChild(a);
+  const handleDownload = async () => {
+    if (!id || isDownloading) return;
+    setIsDownloading(true);
+    setDownloadError(null);
+    try {
+      await adminApi.downloadDocument(id, doc?.originalName);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "خطا در دانلود فایل";
+      setDownloadError(msg);
+      alert(msg);
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   useEffect(() => {
@@ -263,10 +270,15 @@ export function AdminDocumentDetailPage() {
         )}
         <button 
           onClick={handleDownload}
-          className="flex items-center gap-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text)] px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors shadow-sm cursor-pointer"
+          disabled={isDownloading}
+          className="flex items-center gap-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] disabled:opacity-50 disabled:cursor-not-allowed border border-[var(--color-border)] text-[var(--color-text)] px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors shadow-sm cursor-pointer"
         >
-          <Download className="w-4 h-4 text-[var(--color-primary-default)]" />
-          دانلود فایل
+          {isDownloading ? (
+            <Loader2 className="w-4 h-4 text-[var(--color-primary-default)] animate-spin" />
+          ) : (
+            <Download className="w-4 h-4 text-[var(--color-primary-default)]" />
+          )}
+          {isDownloading ? "در حال دریافت..." : "دانلود فایل"}
         </button>
         <button 
           onClick={() => setIsDeleteModalOpen(true)}
@@ -294,6 +306,23 @@ export function AdminDocumentDetailPage() {
         onCancel={() => setIsDeleteModalOpen(false)}
         onConfirm={() => deleteMutation.mutate()}
       />
+
+      {/* Download Error Alert */}
+      {downloadError && (
+        <div className="bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 p-4 rounded-2xl flex items-start gap-3 shadow-sm">
+          <AlertCircle className="w-5 h-5 mt-0.5 shrink-0 text-rose-600 dark:text-rose-400" />
+          <div className="flex-1">
+            <h3 className="font-semibold text-rose-700 dark:text-rose-300">خطا در دانلود فایل</h3>
+            <p className="text-sm mt-1 leading-relaxed opacity-90">{downloadError}</p>
+          </div>
+          <button
+            onClick={() => setDownloadError(null)}
+            className="text-xs text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
+          >
+            بستن
+          </button>
+        </div>
+      )}
 
       {/* Stale Activity Warning */}
       {isStale && (

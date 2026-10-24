@@ -102,8 +102,7 @@ describe("Phase 2G — Canonical Typography Migration", () => {
 
     const h1 = container.querySelector("h1");
     expect(h1).toBeInTheDocument();
-    expect(h1).toHaveClass("text-center");
-    expect(h1).toHaveClass("sm:text-right");
+    expect(h1).toHaveClass("text-start");
     expect(h1?.textContent).toBe("تراکنش‌ها و خریدهای من");
   });
 
@@ -116,12 +115,10 @@ describe("Phase 2G — Canonical Typography Migration", () => {
     );
 
     const h1 = container.querySelector("h1");
-    expect(h1).toHaveClass("text-center");
-    expect(h1).toHaveClass("sm:text-right");
+    expect(h1).toHaveClass("text-start");
 
     const badgeContainer = h1?.parentElement;
-    expect(badgeContainer).toHaveClass("justify-center");
-    expect(badgeContainer).toHaveClass("sm:justify-start");
+    expect(badgeContainer).toHaveClass("justify-start");
   });
 
   it("verifies SectionHeading renders level-2 section headings with responsive mobile center alignment", () => {

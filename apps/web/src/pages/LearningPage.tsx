@@ -10,7 +10,7 @@
  * - "Manage Content" entry point for authorized course managers
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -48,11 +48,16 @@ import { CoursePublicationBanner } from "../components/courses/CoursePublication
 import { ReviewQueueList } from "../components/review/ReviewQueueList.js";
 import { SubscriptionBanner, PaywallModal, formatToman } from "../components/commerce/index.js";
 import { useAuth } from "../providers/AuthProvider.js";
-import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
+import { createApiClient, getApiBaseUrl, generateUUID } from "../lib/api/client.js";
 import { createLearningApi } from "../lib/api/learning.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
 import { createReviewApi } from "../lib/api/review.js";
-import { StudyAssistantChat } from "../components/ai/StudyAssistantChat.js";
+import {
+  StudyAssistantChat,
+  type QuestionMentorState,
+  type AssistantPendingAction,
+} from "../components/ai/StudyAssistantChat.js";
+import type { TextSelectionData } from "../hooks/useTextSelection.js";
 import { useStudySessionTracker } from "../hooks/useStudySessionTracker.js";
 import { ComingSoonGenerationModal } from "../components/generation/ComingSoonGenerationModal.js";
 import {
@@ -60,7 +65,13 @@ import {
   isContentManagerOrAdmin,
 } from "../utils/generationPermissions.js";
 import type { CourseLearnResponse } from "@avana/contracts";
-import { toPersianDigits, formatPersianOf } from "@avana/domain";
+import {
+  toPersianDigits,
+  formatPersianOf,
+  isFilenameOrPlaceholderDescription,
+  isFilenameLike,
+  cleanEducationalTitle,
+} from "@avana/domain";
 import {
   ANATOMY_HEART_COURSE_ID,
   ANATOMY_HEART_FIXTURE,
@@ -174,14 +185,19 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
   const pendingReviewCount = reviewQueueQuery.data?.pending?.length ?? 0;
   const isCourseLocked = Boolean(data?.course?.locked || (data?.access && !data.access.granted));
 
-  // Track which modules are expanded in the sidebar
-  const [expandedModules, setExpandedModules] = useState<Set<string>>(
-    new Set(),
-  );
+  // Track which module is open in the syllabus (single-open accordion; default closed on mount/reload)
+  const [openModuleId, setOpenModuleId] = useState<string | null>(null);
   // Track the currently selected lesson
   const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null);
   // Track unified syllabus drawer open state (Mobile, Tablet & Desktop)
   const [isCurriculumDrawerOpen, setIsCurriculumDrawerOpen] = useState(false);
+
+  // Handler for single-open chapter accordion:
+  // Clicking an unopened chapter closes any previous chapter and opens the new one.
+  // Clicking the currently open chapter closes it (no chapters open).
+  const handleToggleModule = (moduleId: string) => {
+    setOpenModuleId((current) => (current === moduleId ? null : moduleId));
+  };
 
   // Close curriculum drawer on Escape key
   useEffect(() => {
@@ -208,6 +224,11 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
 
   const rawLessonId = searchParams.get("lessonId");
 
+  // Reset open chapter accordion when switching courses
+  useEffect(() => {
+    setOpenModuleId(null);
+  }, [courseId]);
+
   // Keep auxiliary local storage updated for fast instant load
   useEffect(() => {
     if (selectedLessonId && courseId && typeof window !== "undefined" && window.localStorage) {
@@ -230,7 +251,6 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       );
       if (targetModule) {
         setSelectedLessonId(rawLessonId);
-        setExpandedModules((prev) => new Set([...prev, targetModule.id]));
         return;
       }
     }
@@ -251,7 +271,6 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       );
       if (resumeModule) {
         setSelectedLessonId(serverLastLessonId);
-        setExpandedModules((prev) => new Set([...prev, resumeModule.id]));
         return;
       }
     }
@@ -267,7 +286,6 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
           );
           if (localModule) {
             setSelectedLessonId(localLessonId);
-            setExpandedModules((prev) => new Set([...prev, localModule.id]));
             return;
           }
         }
@@ -284,10 +302,6 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       const defaultLessonId =
         (data as any).preview?.preview_lesson_id ?? firstModule.lessons[0].id;
       setSelectedLessonId(defaultLessonId);
-      const containingMod = data.modules.find((m) =>
-        m.lessons.some((l) => l.id === defaultLessonId),
-      );
-      setExpandedModules(new Set([containingMod ? containingMod.id : firstModule.id]));
     }
   }, [data, rawLessonId, selectedLessonId, courseId, user?.id]);
 
@@ -469,22 +483,12 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
         <ModuleSection
           key={mod.id}
           module={mod}
-          isExpanded={expandedModules.has(mod.id)}
+          isExpanded={openModuleId === mod.id}
           selectedLessonId={selectedLessonId}
-          onToggle={() => {
-            setExpandedModules((prev) => {
-              const next = new Set(prev);
-              if (next.has(mod.id)) next.delete(mod.id);
-              else next.add(mod.id);
-              return next;
-            });
-          }}
+          onToggle={() => handleToggleModule(mod.id)}
           onSelectLesson={(lessonId: string) => {
             setSelectedLessonId(lessonId);
             setIsCurriculumDrawerOpen(false);
-            if (!expandedModules.has(mod.id)) {
-              setExpandedModules((prev) => new Set([...prev, mod.id]));
-            }
           }}
         />
       ));
@@ -522,22 +526,12 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
                 <ModuleSection
                   key={mod.id}
                   module={mod}
-                  isExpanded={expandedModules.has(mod.id)}
+                  isExpanded={openModuleId === mod.id}
                   selectedLessonId={selectedLessonId}
-                  onToggle={() => {
-                    setExpandedModules((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(mod.id)) next.delete(mod.id);
-                      else next.add(mod.id);
-                      return next;
-                    });
-                  }}
+                  onToggle={() => handleToggleModule(mod.id)}
                   onSelectLesson={(lessonId: string) => {
                     setSelectedLessonId(lessonId);
                     setIsCurriculumDrawerOpen(false);
-                    if (!expandedModules.has(mod.id)) {
-                      setExpandedModules((prev) => new Set([...prev, mod.id]));
-                    }
                   }}
                 />
               ))}
@@ -557,22 +551,12 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
               <ModuleSection
                 key={mod.id}
                 module={mod}
-                isExpanded={expandedModules.has(mod.id)}
+                isExpanded={openModuleId === mod.id}
                 selectedLessonId={selectedLessonId}
-                onToggle={() => {
-                  setExpandedModules((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(mod.id)) next.delete(mod.id);
-                    else next.add(mod.id);
-                    return next;
-                  });
-                }}
+                onToggle={() => handleToggleModule(mod.id)}
                 onSelectLesson={(lessonId: string) => {
                   setSelectedLessonId(lessonId);
                   setIsCurriculumDrawerOpen(false);
-                  if (!expandedModules.has(mod.id)) {
-                    setExpandedModules((prev) => new Set([...prev, mod.id]));
-                  }
                 }}
               />
             ))}
@@ -1156,6 +1140,16 @@ function ModuleSection({
   const isAllCompleted =
     module.lessons.length > 0 && completedCount === module.lessons.length;
 
+  const displayTitle = isFilenameLike(module.title)
+    ? cleanEducationalTitle(module.title, "فصل آموزشی")
+    : module.title;
+
+  const hasValidDescription =
+    Boolean(module.description) &&
+    !isFilenameOrPlaceholderDescription(module.description) &&
+    module.description?.trim() !== module.title?.trim() &&
+    module.description?.trim() !== displayTitle.trim();
+
   return (
     <div className="rounded-xl overflow-hidden mb-1">
       {/* Module header (clickable to expand/collapse) */}
@@ -1163,7 +1157,7 @@ function ModuleSection({
         type="button"
         onClick={onToggle}
         aria-expanded={isExpanded}
-        aria-label={`${isExpanded ? "بستن" : "باز کردن"} فصل ${module.title}`}
+        aria-label={`${isExpanded ? "بستن" : "باز کردن"} فصل ${displayTitle}`}
         className={`w-full flex items-center gap-2 px-3 py-2.5 text-right rounded-xl transition-all cursor-pointer select-none ${
           isExpanded
             ? "bg-primary/10 text-primary font-bold"
@@ -1177,9 +1171,9 @@ function ModuleSection({
         )}
         <div className="flex-1 min-w-0">
           <span className="text-xs font-bold block truncate">
-            {module.title}
+            {displayTitle}
           </span>
-          {module.description && (
+          {hasValidDescription && (
             <span className="text-[11px] text-[var(--color-text-muted)] block truncate mt-0.5">
               {module.description}
             </span>
@@ -1321,6 +1315,76 @@ function LessonViewer({
 }) {
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [isPaywallOpen, setIsPaywallOpen] = useState(false);
+  const [assistantState, setAssistantState] = useState<QuestionMentorState>({
+    messages: [],
+    conversationId: null,
+    isLoading: false,
+    error: null,
+  });
+  const [pendingAssistantActions, setPendingAssistantActions] = useState<AssistantPendingAction[]>([]);
+
+  // Reset conversation state and pending actions when switching to a different lesson
+  useEffect(() => {
+    setPendingAssistantActions([]);
+    setAssistantState({
+      messages: [],
+      conversationId: null,
+      isLoading: false,
+      error: null,
+    });
+  }, [lesson.id]);
+
+  const handleAskAvanaSelection = useCallback(
+    (sel: TextSelectionData) => {
+      const text = sel.selectedText?.trim();
+      if (!text) return;
+      setIsAssistantOpen(true);
+      setPendingAssistantActions((prev) => [
+        ...prev,
+        {
+          id: generateUUID(),
+          type: "ask",
+          selectedText: text,
+          lessonId: lesson.id,
+        },
+      ]);
+    },
+    [lesson.id],
+  );
+
+  const handleExplainSimplySelection = useCallback(
+    (sel: TextSelectionData) => {
+      const text = sel.selectedText?.trim();
+      if (!text) return;
+      setIsAssistantOpen(true);
+      setPendingAssistantActions((prev) => [
+        ...prev,
+        {
+          id: generateUUID(),
+          type: "explain",
+          selectedText: text,
+          lessonId: lesson.id,
+        },
+      ]);
+    },
+    [lesson.id],
+  );
+
+  const handleActionHandled = useCallback((actionId: string) => {
+    setPendingAssistantActions((prev) => prev.filter((a) => a.id !== actionId));
+  }, []);
+
+  // Lock body scroll on mobile (< 1024px) when assistant drawer is open to prevent accidental background scroll
+  useEffect(() => {
+    if (!isAssistantOpen || typeof window === "undefined" || window.innerWidth >= 1024) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isAssistantOpen]);
 
   const isLocked = (lesson as any).locked === true;
 
@@ -1332,7 +1396,7 @@ function LessonViewer({
   const contentOption = rawOptions.find((opt: any) => opt.type === "content");
 
   return (
-    <article className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] overflow-hidden shadow-ambient">
+    <article className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] shadow-ambient">
       {/* Paywall Modal */}
       <PaywallModal
         isOpen={isPaywallOpen}
@@ -1343,25 +1407,28 @@ function LessonViewer({
       />
 
       {/* Minimal Context & Actions Header Bar */}
-      <div className="px-5 py-3 sm:px-6 sm:py-3.5 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)]">
-        <div className="flex items-center justify-between gap-3">
+      <div
+        data-testid="study-tools-header"
+        className="sticky top-0 z-30 px-3.5 py-2.5 sm:px-6 sm:py-3.5 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)]/95 backdrop-blur-md rounded-t-card shadow-xs transition-shadow"
+      >
+        <div className="flex items-center justify-between gap-2 sm:gap-3">
           {/* Breadcrumb Context (Course > Module) */}
-          <div className="flex items-center gap-2 text-xs text-slate-400 font-medium min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 sm:gap-2 text-xs text-slate-400 font-medium min-w-0 flex-1">
             {courseTitle && (
-              <span className="truncate max-w-[200px] hidden sm:inline">{courseTitle}</span>
+              <span className="truncate max-w-[140px] md:max-w-[200px] hidden sm:inline">{courseTitle}</span>
             )}
             {courseTitle && moduleTitle && <span className="hidden sm:inline text-slate-600">/</span>}
-            <span className="inline-block text-[11px] font-bold text-primary dark:text-teal-300 bg-primary/10 border border-primary/20 px-2.5 py-0.5 rounded-button truncate">
-              {moduleTitle}
+            <span className="inline-block text-[11px] font-bold text-primary dark:text-teal-300 bg-primary/10 border border-primary/20 px-2 sm:px-2.5 py-0.5 rounded-button truncate min-w-0">
+              {isFilenameLike(moduleTitle) ? cleanEducationalTitle(moduleTitle, "فصل آموزشی") : moduleTitle}
             </span>
             {lesson.is_preview && (
-              <Badge variant="info" size="sm" icon={<Sparkles className="w-3 h-3" />}>
+              <Badge variant="info" size="sm" icon={<Sparkles className="w-3 h-3" />} className="hidden sm:inline-flex">
                 پیش‌نمایش رایگان
               </Badge>
             )}
           </div>
 
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
             {/* Unified Syllabus Drawer Trigger Button (Mobile, Tablet & Desktop) */}
             {(onOpenCurriculumDrawer || onOpenMobileDrawer || onToggleSidebar) && (
               <Button
@@ -1371,6 +1438,7 @@ function LessonViewer({
                 title="نمایش سرفصل‌های دوره"
                 aria-label="نمایش سرفصل‌های دوره"
                 leftIcon={<ListOrdered className="w-3.5 h-3.5 text-primary" />}
+                className="flex-shrink-0 text-xs px-2.5 sm:px-3"
               >
                 سرفصل‌ها
               </Button>
@@ -1388,6 +1456,7 @@ function LessonViewer({
               size="sm"
               onClick={() => setIsAssistantOpen(!isAssistantOpen)}
               leftIcon={<Sparkles className="w-3.5 h-3.5" />}
+              className="flex-shrink-0 text-xs px-2.5 sm:px-3"
             >
               {isAssistantOpen ? "بستن دستیار" : "از آوانا بپرس"}
             </Button>
@@ -1395,21 +1464,10 @@ function LessonViewer({
         </div>
       </div>
 
-      {/* Embedded Study Assistant Chat Panel */}
-      {isAssistantOpen && (
-        <div className="p-4 sm:p-6 bg-[var(--color-surface-warm)] border-b border-[var(--color-border)]">
-          <StudyAssistantChat
-            contextType="lesson"
-            lessonId={lesson.id}
-            courseId={courseId}
-            lessonTitle={lesson.title}
-            moduleTitle={moduleTitle}
-            courseTitle={courseTitle}
-            onClose={() => setIsAssistantOpen(false)}
-            className="max-h-[550px]"
-          />
-        </div>
-      )}
+      {/* Main Study Workspace Area: Lesson Content + Responsive Assistant Sidebar */}
+      <div className="flex flex-col lg:flex-row min-w-0 items-start">
+        {/* Primary Reading Column (RTL: right side) */}
+        <div className="flex-1 min-w-0 w-full flex flex-col">
 
       {/* Free Preview Banner */}
       {(lesson as any).is_preview && (
@@ -1483,6 +1541,8 @@ function LessonViewer({
                 moduleTitle={moduleTitle}
                 courseTitle={courseTitle}
                 content={lesson.content_markdown}
+                onAskAvana={handleAskAvanaSelection}
+                onExplainSimply={handleExplainSimplySelection}
               />
             </div>
           </div>
@@ -1542,33 +1602,76 @@ function LessonViewer({
         </>
       )}
 
-      {/* Navigation footer */}
-      <div className="px-6 py-4 bg-[var(--color-surface-warm)] border-t border-[var(--color-border)] flex items-center justify-between gap-4">
-        {prevLessonId ? (
-          <Button
-            variant="tertiary"
-            size="sm"
-            onClick={() => onSelectLesson(prevLessonId)}
-            leftIcon={<ChevronRight className="w-4 h-4" />}
-          >
-            درس قبلی
-          </Button>
-        ) : (
-          <div />
-        )}
-        {nextLessonId ? (
-          <Button
-            variant="tertiary"
-            size="sm"
-            onClick={() => onSelectLesson(nextLessonId)}
-            rightIcon={<ChevronLeft className="w-4 h-4" />}
-          >
-            درس بعدی
-          </Button>
-        ) : (
-          <div />
-        )}
+        {/* Navigation footer */}
+        <div
+          className={`px-6 py-4 bg-[var(--color-surface-warm)] border-t border-[var(--color-border)] ${
+            isAssistantOpen ? "rounded-b-card lg:rounded-bl-none" : "rounded-b-card"
+          } flex items-center justify-between gap-4`}
+        >
+          {prevLessonId ? (
+            <Button
+              variant="tertiary"
+              size="sm"
+              onClick={() => onSelectLesson(prevLessonId)}
+              leftIcon={<ChevronRight className="w-4 h-4" />}
+            >
+              درس قبلی
+            </Button>
+          ) : (
+            <div />
+          )}
+          {nextLessonId ? (
+            <Button
+              variant="tertiary"
+              size="sm"
+              onClick={() => onSelectLesson(nextLessonId)}
+              rightIcon={<ChevronLeft className="w-4 h-4" />}
+            >
+              درس بعدی
+            </Button>
+          ) : (
+            <div />
+          )}
+        </div>
       </div>
+
+      {/* Study Assistant Component: In-Flow Sticky Sidebar on Desktop (lg+), Slide-In Drawer on Mobile (< lg) */}
+      {isAssistantOpen && (
+        <>
+          {/* Mobile / Tablet Backdrop (< lg) */}
+          <div
+            data-testid="study-assistant-backdrop"
+            className="fixed inset-0 z-[52] bg-[#0d1719]/50 backdrop-blur-xs lg:hidden transition-opacity duration-200 animate-in fade-in"
+            onClick={() => setIsAssistantOpen(false)}
+            aria-hidden="true"
+          />
+
+          {/* Assistant Container: Fixed Overlay Drawer on mobile (< lg), Sticky Inline Sidebar on desktop (lg+) */}
+          <aside
+            data-testid="study-assistant-sidebar"
+            className="fixed inset-y-0 start-0 z-[55] w-full sm:w-[440px] max-w-[100vw] bg-[var(--color-surface)] shadow-2xl flex flex-col animate-in rtl:slide-in-from-right ltr:slide-in-from-left duration-200 lg:animate-none lg:static lg:z-10 lg:w-[380px] xl:w-[430px] lg:max-w-none lg:shadow-none lg:border-s lg:border-[var(--color-border)] lg:bg-[var(--color-surface-warm)]/40 lg:sticky lg:top-[65px] lg:h-[calc(100vh-70px)] lg:rounded-bl-card shrink-0"
+            aria-label="دستیار هوشمند آوانا"
+            role="region"
+          >
+            <StudyAssistantChat
+              contextType="lesson"
+              lessonId={lesson.id}
+              courseId={courseId}
+              lessonTitle={lesson.title}
+              moduleTitle={moduleTitle}
+              courseTitle={courseTitle}
+              conversationState={assistantState}
+              onConversationStateChange={setAssistantState}
+              onClose={() => setIsAssistantOpen(false)}
+              pendingActions={pendingAssistantActions}
+              onActionHandled={handleActionHandled}
+              className="h-full border-0 rounded-none shadow-none bg-transparent"
+              compact
+            />
+          </aside>
+        </>
+      )}
+    </div>
     </article>
   );
 }

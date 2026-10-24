@@ -43,6 +43,7 @@ export const teacherRoutes: FastifyPluginAsync<TeacherRouteOptions> = async (
         email: string;
         role: string;
         globalRole?: string | null;
+        teacherStatus?: "pending" | "approved" | "rejected";
       };
     };
     if (!reqAny.user) {
@@ -52,6 +53,7 @@ export const teacherRoutes: FastifyPluginAsync<TeacherRouteOptions> = async (
       userId: asUserId(reqAny.user.userId),
       role: reqAny.user.role as Actor["role"],
       globalRole: (reqAny.user.globalRole as Actor["globalRole"]) ?? undefined,
+      teacherStatus: reqAny.user.teacherStatus,
     };
   }
 

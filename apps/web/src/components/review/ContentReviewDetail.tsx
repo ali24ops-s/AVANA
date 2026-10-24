@@ -17,6 +17,7 @@ import {
   GraduationCap,
   Hash,
   Ban,
+  Download,
 } from "lucide-react";
 import {
   type ReviewSummaryPayload,
@@ -25,6 +26,7 @@ import {
 } from "@avana/domain";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createReviewApi } from "../../lib/api/review.js";
+import { useAdmin } from "../../hooks/useAdmin.js";
 import { MarkdownRenderer, RichContent } from "../markdown/MarkdownRenderer.js";
 import type { ChemicalStructure, ChemicalReaction } from "@avana/domain";
 import { EditContentDialog } from "./EditContentDialog.js";
@@ -59,8 +61,12 @@ export function ContentReviewDetail({
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
   const [selectedSessionIndex, setSelectedSessionIndex] = useState<number | "all">("all");
+  const [showExtractedStructures, setShowExtractedStructures] = useState(false);
+  const [showExtractedReactions, setShowExtractedReactions] = useState(false);
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  const adminApi = useAdmin();
+  const [isDownloadingDoc, setIsDownloadingDoc] = useState(false);
 
   const queryClient = useQueryClient();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
@@ -178,8 +184,28 @@ export function ContentReviewDetail({
     );
   }
 
-  const { content, source_chunks: sourceChunks, generation } = detailQuery.data;
+  const { content, source_chunks: sourceChunks, generation, document: sourceDoc } = detailQuery.data;
   const payload = content.payload as Record<string, unknown>;
+
+  const handleDownloadOriginalDoc = async () => {
+    const docId = sourceDoc?.id || content.document_id;
+    const docName = sourceDoc?.originalName || (payload.title as string) || "document";
+    if (!docId || docId === "__unknown__") return;
+    try {
+      setIsDownloadingDoc(true);
+      await adminApi.downloadDocument(docId, docName);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "خطا در دانلود فایل اصلی";
+      alert(msg);
+    } finally {
+      setIsDownloadingDoc(false);
+    }
+  };
+
+  const hasDownloadableDoc = Boolean(
+    (sourceDoc?.id && sourceDoc.id !== "__unknown__") ||
+    (content.document_id && content.document_id !== "__unknown__")
+  );
 
   return (
     <div className="space-y-6">
@@ -198,6 +224,23 @@ export function ContentReviewDetail({
         <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 sm:gap-2">
           {/* Secondary Action buttons group */}
           <div className="flex items-center gap-1.5 flex-wrap">
+            {hasDownloadableDoc && (
+              <button
+                type="button"
+                onClick={handleDownloadOriginalDoc}
+                disabled={isDownloadingDoc}
+                className="flex-1 sm:flex-initial px-3 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] hover:text-[var(--color-primary-default)] rounded-xl text-xs font-bold border border-[var(--color-border)] shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
+                title="دانلود فایل اصلی آپلودشده توسط کاربر"
+              >
+                {isDownloadingDoc ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Download className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
+                )}
+                <span>دانلود فایل اصلی</span>
+              </button>
+            )}
+
             {content.status !== "rejected" && (
               <button
                 type="button"
@@ -206,7 +249,7 @@ export function ContentReviewDetail({
                 className="flex-1 sm:flex-initial px-3 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
               >
                 <Pencil className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
-                <span>ویرایش</span>
+                <span>ویرایش محتوا</span>
               </button>
             )}
 
@@ -369,7 +412,13 @@ export function ContentReviewDetail({
       {/* Full Width Stacked Layout: Evidence Summary on Top, Generated Content Preview Below */}
       <div className="space-y-6">
         {/* Top: Full Width Evidence Summary */}
-        <EvidenceSummary sourceChunks={sourceChunks} payload={payload} />
+        <EvidenceSummary
+          sourceChunks={sourceChunks}
+          payload={payload}
+          document={sourceDoc}
+          onDownload={hasDownloadableDoc ? handleDownloadOriginalDoc : undefined}
+          isDownloading={isDownloadingDoc}
+        />
 
         {/* Bottom: Full Width Generated Content Preview */}
         <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-4 sm:p-6 space-y-4 shadow-sm w-full">
@@ -474,32 +523,43 @@ export function ContentReviewDetail({
               ) &&
                 ((payload as { chemicalStructures?: ChemicalStructure[] })
                   .chemicalStructures?.length ?? 0) > 0 && (
-                  <div className="space-y-3 pt-2">
-                    <span className="text-xs font-bold text-[var(--color-text-muted)] block">
-                      ساختارهای شیمیایی استخراج‌شده (
-                      {toPersianDigits(
-                        (payload as { chemicalStructures?: ChemicalStructure[] })
-                          .chemicalStructures?.length ?? 0,
-                      )}{" "}
-                      ساختار):
-                    </span>
-                    <div className="space-y-4">
-                      <React.Suspense
-                        fallback={
-                          <div className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-xs text-[var(--color-text-muted)] animate-pulse">
-                            در حال بارگذاری پیش‌نمایش ساختارها...
-                          </div>
-                        }
-                      >
-                        {(
+                  <details
+                    className="group pt-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-warm)]/40 p-3 transition-colors"
+                    open={showExtractedStructures}
+                    onToggle={(e) => setShowExtractedStructures(e.currentTarget.open)}
+                  >
+                    <summary className="text-xs font-bold text-[var(--color-text-muted)] cursor-pointer select-none flex items-center justify-between">
+                      <span>
+                        ساختارهای شیمیایی استخراج‌شده (
+                        {toPersianDigits(
                           (payload as { chemicalStructures?: ChemicalStructure[] })
-                            .chemicalStructures || []
-                        ).map((struct, sIdx) => (
-                          <LazyChemicalStructureBlock key={sIdx} structure={struct} />
-                        ))}
-                      </React.Suspense>
-                    </div>
-                  </div>
+                            .chemicalStructures?.length ?? 0,
+                        )}{" "}
+                        ساختار):
+                      </span>
+                      <span className="text-[10px] font-normal text-[var(--color-primary-default)] group-open:hidden">
+                        (برای مشاهده کلیک کنید)
+                      </span>
+                    </summary>
+                    {showExtractedStructures && (
+                      <div className="space-y-4 pt-3">
+                        <React.Suspense
+                          fallback={
+                            <div className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-xs text-[var(--color-text-muted)] animate-pulse">
+                              در حال بارگذاری پیش‌نمایش ساختارها...
+                            </div>
+                          }
+                        >
+                          {(
+                            (payload as { chemicalStructures?: ChemicalStructure[] })
+                              .chemicalStructures || []
+                          ).map((struct, sIdx) => (
+                            <LazyChemicalStructureBlock key={sIdx} structure={struct} />
+                          ))}
+                        </React.Suspense>
+                      </div>
+                    )}
+                  </details>
                 )}
 
               {/* Explicit Structured Chemical Reactions in Payload (if present) */}
@@ -509,32 +569,43 @@ export function ContentReviewDetail({
               ) &&
                 ((payload as { chemicalReactions?: ChemicalReaction[] })
                   .chemicalReactions?.length ?? 0) > 0 && (
-                  <div className="space-y-3 pt-2">
-                    <span className="text-xs font-bold text-[var(--color-text-muted)] block">
-                      واکنش‌های شیمیایی استخراج‌شده (
-                      {toPersianDigits(
-                        (payload as { chemicalReactions?: ChemicalReaction[] })
-                          .chemicalReactions?.length ?? 0,
-                      )}{" "}
-                      واکنش):
-                    </span>
-                    <div className="space-y-4">
-                      <React.Suspense
-                        fallback={
-                          <div className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-xs text-[var(--color-text-muted)] animate-pulse">
-                            در حال بارگذاری پیش‌نمایش واکنش‌ها...
-                          </div>
-                        }
-                      >
-                        {(
+                  <details
+                    className="group pt-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-warm)]/40 p-3 transition-colors"
+                    open={showExtractedReactions}
+                    onToggle={(e) => setShowExtractedReactions(e.currentTarget.open)}
+                  >
+                    <summary className="text-xs font-bold text-[var(--color-text-muted)] cursor-pointer select-none flex items-center justify-between">
+                      <span>
+                        واکنش‌های شیمیایی استخراج‌شده (
+                        {toPersianDigits(
                           (payload as { chemicalReactions?: ChemicalReaction[] })
-                            .chemicalReactions || []
-                        ).map((rxn, rIdx) => (
-                          <LazyReactionBlock key={rIdx} reaction={rxn} />
-                        ))}
-                      </React.Suspense>
-                    </div>
-                  </div>
+                            .chemicalReactions?.length ?? 0,
+                        )}{" "}
+                        واکنش):
+                      </span>
+                      <span className="text-[10px] font-normal text-[var(--color-primary-default)] group-open:hidden">
+                        (برای مشاهده کلیک کنید)
+                      </span>
+                    </summary>
+                    {showExtractedReactions && (
+                      <div className="space-y-4 pt-3">
+                        <React.Suspense
+                          fallback={
+                            <div className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-xs text-[var(--color-text-muted)] animate-pulse">
+                              در حال بارگذاری پیش‌نمایش واکنش‌ها...
+                            </div>
+                          }
+                        >
+                          {(
+                            (payload as { chemicalReactions?: ChemicalReaction[] })
+                              .chemicalReactions || []
+                          ).map((rxn, rIdx) => (
+                            <LazyReactionBlock key={rIdx} reaction={rxn} />
+                          ))}
+                        </React.Suspense>
+                      </div>
+                    )}
+                  </details>
                 )}
             </div>
           )}

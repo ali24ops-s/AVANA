@@ -5,14 +5,14 @@ import { Button } from "../ui/index.js";
 
 export function AdminSearch({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
-    <div className="relative w-full sm:w-64 flex items-center">
+    <div className="relative w-full sm:w-64 flex items-center min-w-0">
       <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
       <input
         type="text"
         placeholder={placeholder || "جستجو..."}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl ps-10 pe-4 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] focus:border-transparent transition-all"
+        className="w-full min-w-0 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl ps-10 pe-4 py-2 text-xs sm:text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] focus:border-transparent transition-all"
       />
     </div>
   );
@@ -82,12 +82,12 @@ export function AdminStatusBadge({ status, colorMap }: { status: string; colorMa
 
 export function AdminFilter({ value, onChange, options, label }: { value: string; onChange: (v: string) => void; options: {value: string, label: string}[]; label?: string }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 max-w-full">
       {label && <Filter className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />}
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl ps-3 pe-8 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] focus:border-transparent transition-all cursor-pointer"
+        className="w-full sm:w-auto max-w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl ps-3 pe-8 py-2 text-xs sm:text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] focus:border-transparent transition-all cursor-pointer"
       >
         {options.map(opt => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -138,16 +138,19 @@ export function AdminErrorState({ message, colSpan }: { message: string; colSpan
 export function AdminTable({
   headers,
   children,
-  minWidth = "min-w-[640px]",
+  minWidth,
 }: {
   headers: string[];
   children: ReactNode;
   minWidth?: string;
 }) {
+  const defaultMinWidth = headers.length >= 8 ? "min-w-[880px]" : headers.length >= 6 ? "min-w-[760px]" : "min-w-[640px]";
+  const tableMinWidth = minWidth || defaultMinWidth;
+
   return (
     <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl overflow-hidden shadow-sm">
       <div className="overflow-x-auto">
-        <table className={`w-full text-right text-sm ${minWidth}`}>
+        <table className={`w-full text-right text-sm ${tableMinWidth}`}>
           <thead className="bg-[var(--color-surface-warm)]/60 text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
             <tr>
               {headers.map((h, i) => (
@@ -167,10 +170,10 @@ export function AdminTable({
 export function AdminConfirmModal({ isOpen, title, description, onConfirm, onCancel, isProcessing }: { isOpen: boolean; title: string; description: string; onConfirm: () => void; onCancel: () => void; isProcessing?: boolean }) {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
-      <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-6 w-full max-w-md shadow-2xl" dir="rtl">
-        <h3 className="text-lg font-bold text-[var(--color-text)] mb-2">{title}</h3>
-        <p className="text-[var(--color-text-muted)] text-sm mb-6 leading-relaxed">{description}</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in">
+      <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-4 sm:p-6 w-full max-w-md shadow-2xl" dir="rtl">
+        <h3 className="text-base sm:text-lg font-bold text-[var(--color-text)] mb-2">{title}</h3>
+        <p className="text-[var(--color-text-muted)] text-xs sm:text-sm mb-6 leading-relaxed">{description}</p>
         <div className="flex justify-end gap-3">
           <Button 
             variant="secondary"

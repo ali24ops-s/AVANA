@@ -200,6 +200,7 @@ export class InMemorySupportStore implements SupportStore {
       attachmentUrl: input.attachmentUrl ?? null,
       isInternalNote: false,
       createdAt: now,
+      readAt: null,
     };
     this.messages.push(rootMessage);
 
@@ -313,6 +314,7 @@ export class InMemorySupportStore implements SupportStore {
       attachmentUrl: input.attachmentUrl ?? null,
       isInternalNote: input.isInternalNote ?? false,
       createdAt: now,
+      readAt: null,
     };
 
     this.messages.push(msg);
@@ -343,22 +345,51 @@ export class InMemorySupportStore implements SupportStore {
       );
   }
 
+  async markMessagesAsRead(
+    ticketId: string,
+    messageIds: string[],
+    readAt: Date,
+  ): Promise<number> {
+    if (!messageIds || messageIds.length === 0) {
+      return 0;
+    }
+
+    const messageIdSet = new Set(messageIds);
+    let count = 0;
+    const readAtIso = readAt.toISOString();
+
+    for (const msg of this.messages) {
+      if (
+        msg.ticketId === ticketId &&
+        messageIdSet.has(msg.id) &&
+        msg.senderRole === "admin" &&
+        !msg.isInternalNote &&
+        !msg.readAt
+      ) {
+        msg.readAt = readAtIso;
+        count++;
+      }
+    }
+
+    return count;
+  }
+
   async findAttachmentOwner(
     storageKey: string,
   ): Promise<{ userId: UserId; ticketId?: string; feedbackId?: string } | null> {
     const cleanKey = decodeURIComponent(storageKey);
-    const rawKey = storageKey;
+    const encodedKey = encodeURIComponent(cleanKey);
     const isMatching = (url: string | null | undefined) => {
       if (!url) return false;
-      try {
-        return (
-          url.includes(cleanKey) ||
-          url.includes(rawKey) ||
-          decodeURIComponent(url).includes(cleanKey)
-        );
-      } catch {
-        return url.includes(cleanKey) || url.includes(rawKey);
-      }
+      const stripped = url.split("?")[0] || "";
+      return (
+        stripped.endsWith(`/attachments/${encodedKey}`) ||
+        stripped.endsWith(`/attachments/${cleanKey}`) ||
+        stripped.endsWith(`/${encodedKey}`) ||
+        stripped.endsWith(`/${cleanKey}`) ||
+        stripped === `/v1/support/attachments/${encodedKey}` ||
+        stripped === `/v1/support/attachments/${cleanKey}`
+      );
     };
 
     // Check feedback

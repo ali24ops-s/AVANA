@@ -15,7 +15,7 @@ export const adminSupportRoutes: FastifyPluginAsync<AdminSupportRouteOptions> =
 
     function getActor(request: unknown): Actor {
       const reqAny = request as {
-        user?: { userId: string; email: string; role: string };
+        user?: { userId: string; email: string; role: string; globalRole?: string | null };
       };
       if (!reqAny.user) {
         throw new DomainError("unauthorized", "Not signed in");
@@ -23,6 +23,7 @@ export const adminSupportRoutes: FastifyPluginAsync<AdminSupportRouteOptions> =
       return {
         userId: reqAny.user.userId as Actor["userId"],
         role: reqAny.user.role as Actor["role"],
+        globalRole: (reqAny.user.globalRole as Actor["globalRole"]) ?? null,
       };
     }
 

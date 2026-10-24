@@ -66,6 +66,8 @@ export type AuthState = {
     university?: string,
     faculty?: string,
     department?: string,
+    role?: string,
+    autoSendVerification?: boolean,
   ) => Promise<void>;
   /** Send a verification code to chosen channel (email or phone). */
   sendVerification: (channel: VerificationChannel) => Promise<void>;
@@ -277,6 +279,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       university?: string,
       faculty?: string,
       department?: string,
+      role?: string,
+      autoSendVerification = false,
     ) => {
       setIsLoading(true);
       setError(null);
@@ -293,6 +297,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           university,
           faculty,
           department,
+          role,
+          autoSendVerification,
         );
         setUser(response.user);
         setMemberships(response.memberships ?? []);

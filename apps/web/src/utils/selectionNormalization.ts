@@ -232,7 +232,11 @@ export function getTextNodeEntries(container: Node): {
 
   while (currentNode) {
     const parent = currentNode.parentElement;
-    if (parent && ["PRE", "CODE", "SCRIPT", "STYLE"].includes(parent.tagName)) {
+    if (
+      parent &&
+      (["PRE", "CODE", "SCRIPT", "STYLE"].includes(parent.tagName) ||
+        Boolean(parent.closest && parent.closest("svg")))
+    ) {
       currentNode = walker.nextNode() as Text | null;
       continue;
     }

@@ -42,6 +42,10 @@ import {
   type ResourceContext,
   type QuestionPatternId,
   type QuestionPatternDefinition,
+  type SourcePackRole,
+  canonicalizeSourceRole,
+  sortSourcesByRolePriority,
+  sortChunksByRolePriority,
   DomainError,
   buildActor,
   defaultPolicy,
@@ -193,6 +197,18 @@ export type GenerateResult = {
   document_status: DocumentRecord["status"];
 };
 
+export type SourceChunkItem = {
+  id: string;
+  content: string;
+  heading: string | null;
+  sourceName?: string;
+  role?: SourcePackRole;
+  isPrimary?: boolean;
+  sequence?: number;
+  tokenEstimate?: number;
+  startPage?: number;
+};
+
 export class GenerationStoppedError extends DomainError {
   constructor(message = "عملیات تولید با درخواست کاربر متوقف شد.") {
     super("bad_request", message);
@@ -291,6 +307,130 @@ export function mapPlannerSessionsToContentPlan(
   }));
 }
 
+/**
+ * Safely ensures that every chunk from the primary lecture notes (primary_notes)
+ * is assigned to a session blueprint.
+ *
+ * Rules:
+ * 1. Checks explicit chunk heading and semantic keyword similarity with sessions.
+ * 2. Checks contiguity with adjacent sequential chunks in the primary document.
+ * 3. If no suitable session exists and budget allows, creates a dedicated session.
+ * 4. Otherwise, marks the chunk as unresolved rather than forcing an irrelevant assignment.
+ */
+export function ensurePrimaryNotesChunkCoverage(
+  sessions: ContentPlan["sessions"],
+  allChunks: Array<{
+    id: string;
+    content: string;
+    heading?: string | null;
+    role?: SourcePackRole;
+    sequence?: number;
+  }>,
+  budget: GenerationBudget,
+): {
+  sessions: ContentPlan["sessions"];
+  unresolvedPrimaryChunkIds: string[];
+} {
+  const primaryChunks = allChunks.filter(
+    (c) => canonicalizeSourceRole(c.role) === "primary_notes",
+  );
+  if (primaryChunks.length === 0 || sessions.length === 0) {
+    return { sessions, unresolvedPrimaryChunkIds: [] };
+  }
+
+  const assignedChunkIds = new Set(
+    sessions.flatMap((s) => s.relevantChunkIds || []),
+  );
+  const unassignedPrimary = primaryChunks.filter(
+    (c) => !assignedChunkIds.has(c.id),
+  );
+
+  if (unassignedPrimary.length === 0) {
+    return { sessions, unresolvedPrimaryChunkIds: [] };
+  }
+
+  const updatedSessions: ContentPlan["sessions"] = sessions.map((s) => ({
+    ...s,
+    relevantChunkIds: [...(s.relevantChunkIds || [])],
+  }));
+
+  const unresolvedPrimaryChunkIds: string[] = [];
+
+  for (const chunk of unassignedPrimary) {
+    const chunkHeading = (chunk.heading || "").toLowerCase().trim();
+    const chunkWords = chunkHeading
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+
+    let bestSessionIdx = -1;
+    let bestScore = 0;
+
+    for (let idx = 0; idx < updatedSessions.length; idx++) {
+      const sess = updatedSessions[idx];
+      const sessText = `${sess.title} ${sess.description} ${(sess.coreConcepts || []).map((c) => c.name).join(" ")}`.toLowerCase();
+      let matchCount = 0;
+      for (const word of chunkWords) {
+        if (sessText.includes(word)) {
+          matchCount++;
+        }
+      }
+      if (matchCount > bestScore) {
+        bestScore = matchCount;
+        bestSessionIdx = idx;
+      }
+    }
+
+    // 1. High-confidence semantic heading/keyword match
+    if (bestScore > 0 && bestSessionIdx !== -1) {
+      updatedSessions[bestSessionIdx].relevantChunkIds.push(chunk.id);
+      continue;
+    }
+
+    // 2. Contiguity check: check if adjacent chunk in sequence in same doc was assigned to a session
+    if (typeof chunk.sequence === "number") {
+      const adjacentChunk = primaryChunks.find(
+        (c) =>
+          typeof c.sequence === "number" &&
+          (c.sequence === chunk.sequence! - 1 || c.sequence === chunk.sequence! + 1) &&
+          c.id !== chunk.id,
+      );
+      if (adjacentChunk) {
+        const foundSessIdx = updatedSessions.findIndex((s) =>
+          s.relevantChunkIds.includes(adjacentChunk.id),
+        );
+        if (foundSessIdx !== -1) {
+          updatedSessions[foundSessIdx].relevantChunkIds.push(chunk.id);
+          continue;
+        }
+      }
+    }
+
+    // 3. If no session is a good fit, check if we can add a new session without exceeding maxTopics
+    if (updatedSessions.length < budget.topicBudget.maxTopics) {
+      const newSessionIndex = updatedSessions.length;
+      const title = chunk.heading
+        ? `جلسه ${newSessionIndex + 1}: ${chunk.heading}`
+        : `جلسه ${newSessionIndex + 1}: مبحث تکمیلی جزوه اصلی`;
+      updatedSessions.push({
+        index: newSessionIndex,
+        title,
+        description: `آموزش سرفصل و مفاهیم تکمیلی جزوه اصلی بر اساس داده‌های منبع`,
+        coreConcepts: [],
+        relevantChunkIds: [chunk.id],
+        targetFlashcardCount: budget.flashcardBudget.targetCardsPerTopic,
+        targetQuizCount: budget.quizBudget.targetQuestionsPerTopic,
+      });
+      continue;
+    }
+
+    // 4. If cannot be safely assigned without forcing an irrelevant connection, mark as unresolved
+    unresolvedPrimaryChunkIds.push(chunk.id);
+  }
+
+  return { sessions: updatedSessions, unresolvedPrimaryChunkIds };
+}
+
 export function buildSessionBlueprintPayload(blueprint: ContentPlan["sessions"][number]): {
   index: number;
   title: string;
@@ -374,6 +514,7 @@ export class GenerationService {
         this.generationJobStore,
         this.orgStore,
         this.policy,
+        this.systemOrganizationId,
       );
     this.contentStatusService =
       generationContentStatusService ??
@@ -734,7 +875,14 @@ export class GenerationService {
    */
   public async extractContentPlan(
     doc: DocumentRecord,
-    chunks: Array<{ id: string; content: string; heading: string | null }>,
+    chunks: Array<{
+      id: string;
+      content: string;
+      heading: string | null;
+      sourceName?: string;
+      role?: SourcePackRole;
+      isPrimary?: boolean;
+    }>,
     budget: GenerationBudget,
     promptVersion: string,
     correlationId: string,
@@ -817,13 +965,33 @@ export class GenerationService {
     const existing = claim.record;
     const now = existing.updatedAt || new Date().toISOString();
 
-    const chunkContext = chunks
-      .map(
-        (c, i) =>
-          `[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`,
-      )
+    const roleLabels: Record<string, string> = {
+      primary_notes: "PRIMARY NOTES (جزوه اصلی)",
+      question_template: "QUESTION TEMPLATE (قالب سؤالات)",
+      primary_reference: "PRIMARY REFERENCE (رفرنس اصلی)",
+      supplementary_reference: "SUPPLEMENTARY REFERENCE (رفرنس تکمیلی)",
+      primary: "PRIMARY NOTES (جزوه اصلی)",
+      supplementary: "SUPPLEMENTARY REFERENCE (رفرنس تکمیلی)",
+    };
+
+    // Rule: question_template must NOT be treated as lesson content source or alter syllabus.
+    const nonQuestionChunks = chunks.filter((c) => c.role !== "question_template");
+    const planningChunks = nonQuestionChunks.length > 0 ? nonQuestionChunks : chunks;
+    const effectivePlanningChunks = sortChunksByRolePriority(planningChunks);
+
+    const chunkContext = effectivePlanningChunks
+      .map((c, i) => {
+        const canonicalRole = c.role
+          ? canonicalizeSourceRole(c.role)
+          : (c.isPrimary ? "primary_notes" : "supplementary_reference");
+        const roleLabel = roleLabels[canonicalRole] || canonicalRole;
+        const sourcePrefix = c.sourceName
+          ? `[Source: ${c.sourceName}] [Role: ${roleLabel}] `
+          : `[Role: ${roleLabel}] `;
+        return `${sourcePrefix}[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`;
+      })
       .join("\n\n---\n\n");
-    const chunkIdList = chunks.map((c) => c.id);
+    const chunkIdList = effectivePlanningChunks.map((c) => c.id);
 
     const prompt = buildContentPlanningUserPrompt({
       docName: doc.originalName,
@@ -832,13 +1000,13 @@ export class GenerationService {
       maxTopics: budget.topicBudget.maxTopics,
       minCardsPerTopic: budget.flashcardBudget.minCardsPerTopic,
       minQuestionsPerTopic: budget.quizBudget.minQuestionsPerTopic,
-      chunkCount: chunks.length,
+      chunkCount: effectivePlanningChunks.length,
       chunkContext,
       chunkIdList,
     });
 
     process.stdout.write(
-      `[generation-service] Stage 1: Planning content for "${doc.originalName}" (${chunks.length} chunks, target sessions: ${budget.topicBudget.targetTopicCount})...\n`,
+      `[generation-service] Stage 1: Planning content for "${doc.originalName}" (${effectivePlanningChunks.length} chunks, target sessions: ${budget.topicBudget.targetTopicCount})...\n`,
     );
     process.stdout.write(
       `[GENERATION] stage_started: documentId=${documentId} stage=planning correlationId=${correlationId}\n`,
@@ -976,33 +1144,44 @@ export class GenerationService {
 
           const chunkIdSet = new Set(chunkIdList);
 
-          // Build validated ContentPlan
-          const contentPlan: ContentPlan = {
-            moduleTitle,
-            sourceTopics: (parsed.sourceTopics || []).map((t, idx) => ({
-              id: t.id || `topic-${idx + 1}`,
-              title: t.title,
-              description: t.description || "",
-              category: (t.category as unknown as "major_topic") || "major_topic",
-              relevantChunkIds:
-                Array.isArray(t.relevantChunkIds) && t.relevantChunkIds.length > 0
-                  ? t.relevantChunkIds.filter((id) => chunkIdSet.has(id))
-                  : chunkIdList,
-            })),
-            sessions: mapPlannerSessionsToContentPlan(
+            const initialSessions = mapPlannerSessionsToContentPlan(
               rawSessions,
               chunkIdSet,
               budget.flashcardBudget.targetCardsPerTopic,
               budget.quizBudget.targetQuestionsPerTopic,
               chunkIdList,
-            ),
-            highYieldFacts: (parsed.highYieldFacts || []).map((hy, idx) => ({
-              id: hy.id || `fact-${idx + 1}`,
-              fact: hy.fact,
-              category: (hy.category as unknown as "high_yield") || "high_yield",
-              sessionIndex: hy.sessionIndex ?? 0,
-            })),
-          };
+            );
+
+            const { sessions: coveredSessions, unresolvedPrimaryChunkIds } =
+              ensurePrimaryNotesChunkCoverage(initialSessions, chunks, budget);
+
+            if (unresolvedPrimaryChunkIds.length > 0) {
+              process.stderr.write(
+                `[generation-service] Stage 1 Warning: ${unresolvedPrimaryChunkIds.length} primary notes chunks could not be safely assigned to sessions: ${unresolvedPrimaryChunkIds.join(", ")}\n`,
+              );
+            }
+
+            // Build validated ContentPlan
+            const contentPlan: ContentPlan = {
+              moduleTitle,
+              sourceTopics: (parsed.sourceTopics || []).map((t, idx) => ({
+                id: t.id || `topic-${idx + 1}`,
+                title: t.title,
+                description: t.description || "",
+                category: (t.category as unknown as "major_topic") || "major_topic",
+                relevantChunkIds:
+                  Array.isArray(t.relevantChunkIds) && t.relevantChunkIds.length > 0
+                    ? t.relevantChunkIds.filter((id) => chunkIdSet.has(id))
+                    : chunkIdList,
+              })),
+              sessions: coveredSessions,
+              highYieldFacts: (parsed.highYieldFacts || []).map((hy, idx) => ({
+                id: hy.id || `fact-${idx + 1}`,
+                fact: hy.fact,
+                category: (hy.category as unknown as "high_yield") || "high_yield",
+                sessionIndex: hy.sessionIndex ?? 0,
+              })),
+            };
 
           process.stdout.write(
             `[GENERATION] validation_passed: stage=planning correlationId=${correlationId} sessionsCount=${contentPlan.sessions.length}\n`,
@@ -1086,6 +1265,7 @@ export class GenerationService {
       content: string;
       heading: string | null;
       sourceName?: string;
+      role?: SourcePackRole;
       isPrimary?: boolean;
     }>,
     _budget: GenerationBudget,
@@ -1208,10 +1388,26 @@ export class GenerationService {
             continue;
           }
 
-          const effectiveChunks = relevantChunks;
+          const roleLabels: Record<string, string> = {
+            primary_notes: "PRIMARY NOTES (جزوه اصلی)",
+            question_template: "QUESTION TEMPLATE (قالب سؤالات)",
+            primary_reference: "PRIMARY REFERENCE (رفرنس اصلی)",
+            supplementary_reference: "SUPPLEMENTARY REFERENCE (رفرنس تکمیلی)",
+            primary: "PRIMARY NOTES (جزوه اصلی)",
+            supplementary: "SUPPLEMENTARY REFERENCE (رفرنس تکمیلی)",
+          };
+          const nonQuestionChunks = relevantChunks.filter((c) => c.role !== "question_template");
+          const candidateChunks = nonQuestionChunks.length > 0 ? nonQuestionChunks : relevantChunks;
+          const effectiveChunks = sortChunksByRolePriority(candidateChunks);
           const chunkContext = effectiveChunks
             .map((c, i) => {
-              const sourcePrefix = c.sourceName ? `[Source: ${c.sourceName}] ` : "";
+              const canonicalRole = c.role
+                ? canonicalizeSourceRole(c.role)
+                : (c.isPrimary ? "primary_notes" : "supplementary_reference");
+              const roleLabel = roleLabels[canonicalRole] || canonicalRole;
+              const sourcePrefix = c.sourceName
+                ? `[Source: ${c.sourceName}] [Role: ${roleLabel}] `
+                : `[Role: ${roleLabel}] `;
               return `${sourcePrefix}[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`;
             })
             .join("\n\n---\n\n");
@@ -1531,10 +1727,26 @@ export class GenerationService {
         continue;
       }
 
-      const effectiveChunks = relevantChunks;
+      const roleLabels: Record<string, string> = {
+        primary_notes: "PRIMARY NOTES (جزوه اصلی)",
+        question_template: "QUESTION TEMPLATE (قالب سؤالات)",
+        primary_reference: "PRIMARY REFERENCE (رفرنس اصلی)",
+        supplementary_reference: "SUPPLEMENTARY REFERENCE (رفرنس تکمیلی)",
+        primary: "PRIMARY NOTES (جزوه اصلی)",
+        supplementary: "SUPPLEMENTARY REFERENCE (رفرنس تکمیلی)",
+      };
+      const nonQuestionChunks = relevantChunks.filter((c) => c.role !== "question_template");
+      const candidateChunks = nonQuestionChunks.length > 0 ? nonQuestionChunks : relevantChunks;
+      const effectiveChunks = sortChunksByRolePriority(candidateChunks);
       const chunkContext = effectiveChunks
         .map((c, i) => {
-          const sourcePrefix = c.sourceName ? `[Source: ${c.sourceName}] ` : "";
+          const canonicalRole = c.role
+            ? canonicalizeSourceRole(c.role)
+            : (c.isPrimary ? "primary_notes" : "supplementary_reference");
+          const roleLabel = roleLabels[canonicalRole] || canonicalRole;
+          const sourcePrefix = c.sourceName
+            ? `[Source: ${c.sourceName}] [Role: ${roleLabel}] `
+            : `[Role: ${roleLabel}] `;
           return `${sourcePrefix}[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`;
         })
         .join("\n\n---\n\n");
@@ -1879,9 +2091,12 @@ export class GenerationService {
         }> = [];
 
         for (const blueprint of pendingBlueprints) {
-          const relevantChunks = chunks.filter((c) =>
-            blueprint.relevantChunkIds?.includes(c.id),
+          const nonQuestionChunks = chunks.filter(
+            (c) => (c as { role?: string }).role !== "question_template" && blueprint.relevantChunkIds?.includes(c.id),
           );
+          const relevantChunks = nonQuestionChunks.length > 0
+            ? nonQuestionChunks
+            : chunks.filter((c) => blueprint.relevantChunkIds?.includes(c.id));
 
           if (relevantChunks.length === 0) {
             process.stderr.write(
@@ -1898,7 +2113,7 @@ export class GenerationService {
             continue;
           }
 
-          const effectiveChunks = relevantChunks;
+          const effectiveChunks = sortChunksByRolePriority(relevantChunks);
           const chunkContext = effectiveChunks
             .map(
               (c, i) =>
@@ -2243,9 +2458,12 @@ export class GenerationService {
       const existing = claim.record;
       const now = existing.updatedAt || new Date().toISOString();
 
-      const relevantChunks = chunks.filter((c) =>
-        blueprint.relevantChunkIds?.includes(c.id),
+      const nonQuestionChunks = chunks.filter(
+        (c) => (c as { role?: string }).role !== "question_template" && blueprint.relevantChunkIds?.includes(c.id),
       );
+      const relevantChunks = nonQuestionChunks.length > 0
+        ? nonQuestionChunks
+        : chunks.filter((c) => blueprint.relevantChunkIds?.includes(c.id));
 
       if (relevantChunks.length === 0) {
         process.stderr.write(
@@ -2262,13 +2480,14 @@ export class GenerationService {
         continue;
       }
 
-      const chunkContext = relevantChunks
+      const effectiveChunks = sortChunksByRolePriority(relevantChunks);
+      const chunkContext = effectiveChunks
         .map(
           (c, i) =>
             `[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`,
         )
         .join("\n\n---\n\n");
-      const chunkIdList = relevantChunks.map((c) => c.id);
+      const chunkIdList = effectiveChunks.map((c) => c.id);
 
       const sessionBlueprintJson = JSON.stringify(
         {
@@ -2489,6 +2708,7 @@ export class GenerationService {
     targetCourseId?: CourseId,
     jobId?: string,
     pattern?: QuestionPatternDefinition | null,
+    patterns?: QuestionPatternDefinition[] | null,
   ): Promise<{
     quizzesBySession: Map<
       number,
@@ -2627,8 +2847,8 @@ export class GenerationService {
         }> = [];
 
         for (const blueprint of pendingBlueprints) {
-          const relevantChunks = chunks.filter((c) =>
-            blueprint.relevantChunkIds?.includes(c.id),
+          const relevantChunks = chunks.filter(
+            (c) => c.role !== "question_template" && blueprint.relevantChunkIds?.includes(c.id),
           );
 
           if (relevantChunks.length === 0) {
@@ -2646,7 +2866,7 @@ export class GenerationService {
             continue;
           }
 
-          const effectiveChunks = relevantChunks;
+          const effectiveChunks = sortChunksByRolePriority(relevantChunks);
           const chunkContext = effectiveChunks
             .map(
               (c, i) =>
@@ -2698,6 +2918,24 @@ export class GenerationService {
         }
 
         // 3. Dispatch batch request to DeepSeek
+        const effectivePatterns =
+          Array.isArray(patterns) && patterns.length > 0
+            ? patterns
+            : pattern
+              ? [pattern]
+              : [];
+
+        const questionTemplateChunks = chunks.filter((c) => c.role === "question_template");
+        const questionTemplateContext =
+          questionTemplateChunks.length > 0
+            ? questionTemplateChunks
+                .map(
+                  (c, i) =>
+                    `[Template Sample ${i + 1} - Chunk ID: ${c.id}]:\n${c.content}`,
+                )
+                .join("\n\n---\n\n")
+            : undefined;
+
         const batchKey = `quiz_batch:${validPendingItems.map((v) => v.blueprint.index).join(",")}`;
         const batchPrompt = buildQuizBatchGenerationUserPrompt({
           documentTitle: doc.originalName,
@@ -2710,6 +2948,9 @@ export class GenerationService {
             chunkContext: v.chunkContext,
             chunkIdList: v.chunkIdList,
           })),
+          pattern,
+          patterns: effectivePatterns,
+          questionTemplateContext,
         });
 
         process.stdout.write(
@@ -3097,8 +3338,8 @@ export class GenerationService {
       const existing = claim.record;
       const now = existing.updatedAt || new Date().toISOString();
 
-      const relevantChunks = chunks.filter((c) =>
-        blueprint.relevantChunkIds?.includes(c.id),
+      const relevantChunks = chunks.filter(
+        (c) => c.role !== "question_template" && blueprint.relevantChunkIds?.includes(c.id),
       );
 
       // Strict safeguard against full-document context dilution
@@ -3117,13 +3358,14 @@ export class GenerationService {
         continue;
       }
 
-      const chunkContext = relevantChunks
+      const effectiveChunks = sortChunksByRolePriority(relevantChunks);
+      const chunkContext = effectiveChunks
         .map(
           (c, i) =>
             `[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`,
         )
         .join("\n\n---\n\n");
-      const chunkIdList = relevantChunks.map((c) => c.id);
+      const chunkIdList = effectiveChunks.map((c) => c.id);
       const validChunkSet = new Set(chunkIdList);
 
       const sessionBlueprintJson = JSON.stringify(
@@ -3164,6 +3406,13 @@ export class GenerationService {
               .join("\n\n---\n\n")
           : undefined;
 
+      const effectivePatterns =
+        Array.isArray(patterns) && patterns.length > 0
+          ? patterns
+          : pattern
+            ? [pattern]
+            : [];
+
       const prompt = buildQuizGenerationUserPrompt({
         documentTitle: doc.originalName,
         sessionBlueprint: sessionBlueprintJson,
@@ -3172,6 +3421,7 @@ export class GenerationService {
         chunkContext,
         chunkIdList,
         pattern,
+        patterns: effectivePatterns,
         questionTemplateContext,
       });
 
@@ -3442,13 +3692,14 @@ export class GenerationService {
 
   /**
    * Stage 5: Coverage Audit, Supplemental Gap Filling & Final Report Assembly.
+   * Multi-dimensional audit: Structural Coverage + Content Coverage + Final Status.
    */
   private async auditAndBuildCoverageReport(
     contentPlan: ContentPlan,
-    sessionsMarkdown: Array<{ title: string; contentMarkdown: string }>,
-    flashcardsBySession: Map<number, Array<{ question: string; answer: string }>>,
-    quizzesBySession: Map<number, Array<{ question: string; choices: string[]; correctAnswer: string }>>,
-    _chunks: Array<{ id: string; content: string; heading: string | null }>,
+    sessionsMarkdown: Array<{ title: string; contentMarkdown: string; citationChunkIds?: string[] }>,
+    flashcardsBySession: Map<number, Array<{ question: string; answer: string; citationChunkIds?: string[] }>>,
+    quizzesBySession: Map<number, Array<{ question: string; choices: string[]; correctAnswer: string; citationChunkIds?: string[] }>>,
+    chunks: Array<{ id: string; content: string; heading: string | null; role?: SourcePackRole }>,
     budget: GenerationBudget,
   ): Promise<{
     coverageReport: DocumentCoverageReport;
@@ -3463,10 +3714,33 @@ export class GenerationService {
     const majorConceptsCovered: CoverageConcept[] = [];
     const uncoveredConcepts: CoverageConcept[] = [];
 
+    // Filter primary notes chunks
+    const primaryChunks = chunks.filter(
+      (c) => canonicalizeSourceRole(c.role) === "primary_notes",
+    );
+    const totalPrimaryChunks = primaryChunks.length;
+    const primaryChunkIdSet = new Set(primaryChunks.map((c) => c.id));
+
+    // Track assigned primary chunk IDs across session blueprints
+    const assignedPrimaryChunkIds = new Set(
+      contentPlan.sessions
+        .flatMap((s) => s.relevantChunkIds || [])
+        .filter((id) => primaryChunkIdSet.has(id)),
+    );
+
+    // Track cited primary chunk IDs across generated lessons
+    const citedPrimaryChunkIds = new Set(
+      sessionsMarkdown
+        .flatMap((s) => s.citationChunkIds || [])
+        .filter((id) => primaryChunkIdSet.has(id)),
+    );
+
     contentPlan.sessions.forEach((s) => {
       const cards = flashcardsBySession.get(s.index) || [];
       const questions = quizzesBySession.get(s.index) || [];
-      const md = sessionsMarkdown[s.index]?.contentMarkdown || "";
+      const sessionLesson = sessionsMarkdown[s.index];
+      const md = sessionLesson?.contentMarkdown || "";
+      const sessionCitations = new Set(sessionLesson?.citationChunkIds || []);
 
       const coreConcepts = s.coreConcepts || [];
       totalCoveredByFlashcards += cards.length;
@@ -3482,9 +3756,37 @@ export class GenerationService {
         questionCount: questions.length,
       });
 
-      const coveredByLesson = md.length > 200;
+      const sessionAssignedPrimary = (s.relevantChunkIds || []).filter((id) =>
+        primaryChunkIdSet.has(id),
+      );
+      const sessionCitedPrimary = sessionAssignedPrimary.filter((id) =>
+        sessionCitations.has(id),
+      );
+
+      // Check concept coverage in session text
+      const mdLower = md.toLowerCase();
+      const coveredConceptsInSession = coreConcepts.filter(
+        (c) =>
+          mdLower.includes(c.name.toLowerCase()) ||
+          (c.description && mdLower.includes(c.description.toLowerCase())),
+      );
+      const uncoveredInSession = coreConcepts.filter(
+        (c) => !coveredConceptsInSession.includes(c),
+      );
+      uncoveredInSession.forEach((c) => uncoveredConcepts.push(c));
+
+      const coveredByLesson =
+        md.length > 200 &&
+        (sessionAssignedPrimary.length === 0 || sessionCitedPrimary.length > 0 || sessionCitations.size > 0);
       const coveredByFlashcards = cards.length >= budget.flashcardBudget.minCardsPerTopic;
       const coveredByQuiz = questions.length >= budget.quizBudget.minQuestionsPerTopic;
+
+      const sessionContentCoveragePct =
+        coreConcepts.length > 0
+          ? Math.round((coveredConceptsInSession.length / coreConcepts.length) * 100)
+          : coveredByLesson
+            ? 100
+            : 0;
 
       coreConcepts.forEach((c) => majorConceptsCovered.push(c));
 
@@ -3497,8 +3799,11 @@ export class GenerationService {
         coveredByLesson,
         coveredByFlashcards,
         coveredByQuiz,
-        uncoveredConcepts: [],
+        uncoveredConcepts: uncoveredInSession,
         supplementalNeeded: !coveredByFlashcards || !coveredByQuiz,
+        primaryChunksAssigned: sessionAssignedPrimary.length,
+        primaryChunksCited: sessionCitedPrimary.length,
+        contentCoveragePct: sessionContentCoveragePct,
       });
     });
 
@@ -3513,6 +3818,44 @@ export class GenerationService {
       100,
       Math.round((totalCoveredByQuiz / Math.max(1, totalExpectedQuiz)) * 100),
     );
+
+    // Multi-dimensional metrics calculation
+    const structuralCoveragePct =
+      totalPrimaryChunks > 0
+        ? Math.round((assignedPrimaryChunkIds.size / totalPrimaryChunks) * 100)
+        : 100;
+
+    const primaryCitationCoveragePct =
+      totalPrimaryChunks > 0
+        ? Math.round((citedPrimaryChunkIds.size / totalPrimaryChunks) * 100)
+        : 100;
+
+    const allCoreConcepts = contentPlan.sessions.flatMap((s) => s.coreConcepts || []);
+    const coveredCoreConceptsCount = allCoreConcepts.filter((c) =>
+      sessionsMarkdown.some((sm) => sm.contentMarkdown.toLowerCase().includes(c.name.toLowerCase())),
+    ).length;
+
+    const overallContentCoveragePct =
+      allCoreConcepts.length > 0
+        ? Math.round((coveredCoreConceptsCount / allCoreConcepts.length) * 100)
+        : totalPrimaryChunks > 0
+          ? primaryCitationCoveragePct
+          : 100;
+
+    const resolvedChunks = Array.from(citedPrimaryChunkIds);
+    const unresolvedChunks = primaryChunks
+      .filter((c) => !citedPrimaryChunkIds.has(c.id))
+      .map((c) => c.id);
+
+    let coverageStatus: "complete" | "partial" | "insufficient" = "complete";
+    if (unresolvedChunks.length > 0 || structuralCoveragePct < 100 || overallContentCoveragePct < 80) {
+      coverageStatus = structuralCoveragePct >= 60 ? "partial" : "insufficient";
+    }
+
+    const calculatedLessonCoveragePct =
+      totalPrimaryChunks > 0
+        ? Math.min(100, Math.round((citedPrimaryChunkIds.size / totalPrimaryChunks) * 100))
+        : 100;
 
     const coverageReport: DocumentCoverageReport = {
       sourceTopicsIdentified: contentPlan.sourceTopics,
@@ -3537,11 +3880,29 @@ export class GenerationService {
       coveredByLessons: contentPlan.sessions.length,
       coveredByFlashcards: totalCoveredByFlashcards,
       coveredByQuiz: totalCoveredByQuiz,
-      lessonCoveragePct: 100,
+      lessonCoveragePct: calculatedLessonCoveragePct,
       flashcardCoveragePct,
       quizCoveragePct,
       sessionsAudit,
       supplementalPassTriggered: false,
+      primaryNotesCoverage: {
+        structural: {
+          totalPrimaryChunks,
+          assignedPrimaryChunks: assignedPrimaryChunkIds.size,
+          structuralCoveragePct,
+        },
+        content: {
+          totalCoreConcepts: allCoreConcepts.length,
+          coveredCoreConcepts: coveredCoreConceptsCount,
+          contentCoveragePct: overallContentCoveragePct,
+          citedPrimaryChunksCount: citedPrimaryChunkIds.size,
+          primaryCitationCoveragePct,
+        },
+        status: coverageStatus,
+        resolvedChunks,
+        unresolvedChunks,
+        uncoveredConcepts: uncoveredConcepts.map((c) => c.name),
+      },
     };
 
     return { coverageReport };
@@ -3591,6 +3952,7 @@ export class GenerationService {
       tokenEstimate?: number;
       sourceName?: string;
       isPrimary?: boolean;
+      role?: string;
     }>,
     contentPlan: ContentPlan,
     generatedSessions: Array<{
@@ -3663,10 +4025,12 @@ export class GenerationService {
       const sessionId = sessionObj
         ? `session-${(sessionObj.index ?? hy.sessionIndex) + 1}`
         : `session-${hy.sessionIndex + 1}`;
+      const nonQuestionChunks = chunks.filter((c) => c.role !== "question_template");
+      const effectiveChunks = nonQuestionChunks.length > 0 ? nonQuestionChunks : chunks;
       const sourceChunkIds =
         sessionObj && sessionObj.relevantChunkIds.length > 0
           ? sessionObj.relevantChunkIds
-          : chunks.map((c) => c.id);
+          : effectiveChunks.map((c) => c.id);
 
       return {
         id: hy.id || `fact-${idx + 1}`,
@@ -3697,21 +4061,30 @@ export class GenerationService {
       },
     );
 
-    // 6. Source Chunks for grounding
-    const sourceChunks: ReviewSummarySourceChunk[] = chunks.map((c) => ({
+    // 6. Source Chunks for grounding (strictly exclude question templates)
+    const effectiveSummaryChunks = chunks.filter((c) => c.role !== "question_template");
+    const sourceChunks: ReviewSummarySourceChunk[] = (
+      effectiveSummaryChunks.length > 0 ? effectiveSummaryChunks : chunks
+    ).map((c) => ({
       id: c.id,
       text: c.content,
       sectionTitle: c.heading ?? undefined,
       pageNumber: c.startPage ?? undefined,
+      role: c.role ? canonicalizeSourceRole(c.role) : undefined,
     }));
 
     // 7. Adaptive Generation Context via getReviewSummaryConfig
     const calculatedTokens =
       totalTokens ||
       chunks.reduce((acc, c) => acc + (c.tokenEstimate || 500), 0);
+    const sessionCount =
+      generatedSessions && generatedSessions.length > 0
+        ? generatedSessions.length
+        : (contentPlan.sessions || []).length;
     const budgetConfig = getReviewSummaryConfig({
       chunkCount: chunks.length,
       totalTokens: calculatedTokens,
+      sessionCount,
     });
 
     const generationContext: ReviewSummaryGenerationContext = {
@@ -4032,8 +4405,14 @@ export class GenerationService {
       force?: boolean;
       jobId?: string;
       generationContext?: GenerationContext;
+      sources?: Array<{
+        documentId: DocumentId;
+        order: number;
+        role?: SourcePackRole;
+      }>;
       questionPatternId?: QuestionPatternId | null;
       questionPatternVersion?: number | null;
+      questionPatternIds?: QuestionPatternId[] | null;
     } = {},
   ): Promise<GenerateResult> {
     await this.authorize(actor, organizationId, "content:generate");
@@ -4056,6 +4435,13 @@ export class GenerationService {
     const targetCourseId = input.courseId;
 
     const doc = await this.requireDocument(organizationId, documentId);
+
+    if (targetCourseId && doc.courseId && doc.courseId !== targetCourseId) {
+      throw new DomainError(
+        "bad_request",
+        "Document belongs to a different course",
+      );
+    }
 
     // Start background heartbeat refresher for this active generation run if jobId is provided
     let heartbeatTimer: NodeJS.Timeout | null = null;
@@ -4205,6 +4591,7 @@ export class GenerationService {
             promptVersion,
             courseId: targetCourseId,
             generationKey,
+            sources: input.sources,
           },
         );
         let updatedDoc = await this.requireDocument(organizationId, documentId);
@@ -4237,7 +4624,57 @@ export class GenerationService {
     }
 
     // Load source chunks
-    const chunks = await this.chunkStore.listByDocument(documentId);
+    let chunks: SourceChunkItem[] = [];
+    const isMultiSource = Array.isArray(input.sources) && input.sources.length > 1;
+    let allSourceDocs: DocumentRecord[] = [doc];
+
+    if (isMultiSource) {
+      const sortedSources = sortSourcesByRolePriority(input.sources ?? []);
+      const docsMap = new Map<string, DocumentRecord>();
+      docsMap.set(doc.id, doc);
+
+      for (const s of sortedSources) {
+        if (!docsMap.has(s.documentId)) {
+          const sDoc = await this.requireDocument(organizationId, s.documentId);
+          docsMap.set(s.documentId, sDoc);
+        }
+      }
+      allSourceDocs = sortedSources.map((s) => docsMap.get(s.documentId)!);
+
+      for (const [idx, sDoc] of allSourceDocs.entries()) {
+        const sourceMeta = sortedSources.find((s) => s.documentId === sDoc.id);
+        const semanticRole = sourceMeta?.role
+          ? canonicalizeSourceRole(sourceMeta.role)
+          : (idx === 0 ? "primary_notes" : "supplementary_reference");
+        const docChunks = await this.chunkStore.listByDocument(sDoc.id);
+        const taggedChunks: SourceChunkItem[] = docChunks.map((c) => ({
+          id: c.id,
+          content: c.content,
+          heading: c.heading,
+          sourceName: sDoc.originalName,
+          role: semanticRole,
+          isPrimary: semanticRole === "primary_notes",
+          sequence: c.sequence,
+          tokenEstimate: c.tokenEstimate,
+          startPage: c.startPage,
+        }));
+        chunks.push(...taggedChunks);
+      }
+      chunks = sortChunksByRolePriority(chunks);
+    } else {
+      const docChunks = await this.chunkStore.listByDocument(documentId);
+      chunks = docChunks.map((c) => ({
+        id: c.id,
+        content: c.content,
+        heading: c.heading,
+        sourceName: doc.originalName,
+        role: "primary_notes",
+        isPrimary: true,
+        sequence: c.sequence,
+        tokenEstimate: c.tokenEstimate,
+        startPage: c.startPage,
+      }));
+    }
 
     const now = new Date().toISOString();
     let docStatus: DocumentRecord["status"] = doc.status;
@@ -4250,23 +4687,28 @@ export class GenerationService {
         );
       }
 
-      // Transition document to generating state immediately
-      if (
-        doc.status === "extracted" ||
-        doc.status === "uploaded" ||
-        doc.status === "failed" ||
-        doc.status === "pending_generation"
-      ) {
-        await this.documentStore.update({
-          ...doc,
-          status: "generating",
-          errorCode: null,
-          updatedAt: now,
-        });
-        docStatus = "generating";
+      // Transition documents to generating state immediately
+      for (const sDoc of allSourceDocs) {
+        if (
+          sDoc.status === "extracted" ||
+          sDoc.status === "uploaded" ||
+          sDoc.status === "failed" ||
+          sDoc.status === "pending_generation"
+        ) {
+          await this.documentStore.update({
+            ...sDoc,
+            status: "generating",
+            errorCode: null,
+            updatedAt: now,
+          });
+          if (sDoc.id === doc.id) {
+            docStatus = "generating";
+          }
+        }
       }
 
-      // Calculate adaptive generation budget
+      // Calculate adaptive generation budget across all sources
+      const aggregatePageCount = allSourceDocs.reduce((acc, d) => acc + (d.pageCount || 0), 0) || doc.pageCount;
       const totalTokens = chunks.reduce(
         (acc, c) => acc + (c.tokenEstimate || 1),
         0,
@@ -4276,7 +4718,7 @@ export class GenerationService {
         0,
       );
       const budget = calculateGenerationBudget({
-        pageCount: doc.pageCount,
+        pageCount: aggregatePageCount,
         chunkCount: chunks.length,
         totalTokens,
         totalCharacters,
@@ -4443,17 +4885,34 @@ export class GenerationService {
       let allQuizCitations = new Set<string>();
       let quizUsage = { inputTokens: 0, outputTokens: 0 };
       let resolvedPattern: QuestionPatternDefinition | null = null;
+      let resolvedPatterns: QuestionPatternDefinition[] = [];
 
       if (toGenerate.includes("quiz")) {
         await this.checkCancellation(input.jobId, organizationId, documentId);
 
-        if (input.questionPatternId && this.questionPatternStore) {
-          resolvedPattern = await this.questionPatternStore.findById(
-            input.questionPatternId,
-            typeof input.questionPatternVersion === "number"
-              ? input.questionPatternVersion
-              : undefined,
-          );
+        if (this.questionPatternStore) {
+          const requestedIds: QuestionPatternId[] = [];
+          if (Array.isArray(input.questionPatternIds) && input.questionPatternIds.length > 0) {
+            for (const id of input.questionPatternIds) {
+              if (typeof id === "string" && id.trim()) {
+                requestedIds.push(id.trim() as QuestionPatternId);
+              }
+            }
+          }
+          if (typeof input.questionPatternId === "string" && input.questionPatternId.trim()) {
+            const singleId = input.questionPatternId.trim() as QuestionPatternId;
+            if (!requestedIds.includes(singleId)) {
+              requestedIds.push(singleId);
+            }
+          }
+
+          if (requestedIds.length > 0) {
+            const found = await this.questionPatternStore.findByIds(requestedIds);
+            resolvedPatterns = found.filter((p) => p.isActive && !p.deletedAt);
+            if (resolvedPatterns.length > 0) {
+              resolvedPattern = resolvedPatterns[0];
+            }
+          }
         }
 
         const qzRes = await this.generateQuizzesBatched(
@@ -4469,6 +4928,7 @@ export class GenerationService {
           targetCourseId,
           input.jobId,
           resolvedPattern,
+          resolvedPatterns,
         );
         quizzesBySession = qzRes.quizzesBySession;
         allQuizCitations = qzRes.allCitations;
@@ -4605,6 +5065,8 @@ export class GenerationService {
                   questionPatternId: resolvedPattern.id,
                   questionPatternVersion: resolvedPattern.version,
                   questionPatternTitle: resolvedPattern.title,
+                  questionPatternIds: resolvedPatterns.map((p) => p.id),
+                  questionPatternTitles: resolvedPatterns.map((p) => p.title),
                 }
               : {}),
           };
@@ -4864,14 +5326,16 @@ export class GenerationService {
         contents.push(record);
       }
 
-      // Transition document status generating → review_pending
+      // Transition document status generating → review_pending for all sources
       const nowSuccess = new Date().toISOString();
-      await this.documentStore.update({
-        ...doc,
-        status: "review_pending",
-        errorCode: null,
-        updatedAt: nowSuccess,
-      });
+      for (const sDoc of allSourceDocs) {
+        await this.documentStore.update({
+          ...sDoc,
+          status: "review_pending",
+          errorCode: null,
+          updatedAt: nowSuccess,
+        });
+      }
       docStatus = "review_pending";
       await this.progressService.startStage(documentId, organizationId, "review", 1);
 
@@ -4914,19 +5378,23 @@ export class GenerationService {
         process.stdout.write(
           `[GENERATION] pipeline stopped cleanly: documentId=${documentId} jobId=${input.jobId}\n`,
         );
-        const updatedDoc = await this.requireDocument(organizationId, documentId);
-        if (updatedDoc.status === "generating") {
-          const existingDrafts = await this.generatedContentStore.listByDocument(documentId, organizationId);
-          const newDocStatus = existingDrafts.length > 0 ? "review_pending" : "extracted";
-          await this.documentStore.update({
-            ...updatedDoc,
-            status: newDocStatus,
-            errorCode: null,
-            updatedAt: new Date().toISOString(),
-          });
-          docStatus = newDocStatus;
-        } else {
-          docStatus = updatedDoc.status;
+        for (const sDoc of allSourceDocs) {
+          const updatedDoc = await this.requireDocument(organizationId, sDoc.id);
+          if (updatedDoc.status === "generating") {
+            const existingDrafts = await this.generatedContentStore.listByDocument(sDoc.id, organizationId);
+            const newDocStatus = existingDrafts.length > 0 ? "review_pending" : "extracted";
+            await this.documentStore.update({
+              ...updatedDoc,
+              status: newDocStatus,
+              errorCode: null,
+              updatedAt: new Date().toISOString(),
+            });
+            if (sDoc.id === doc.id) {
+              docStatus = newDocStatus;
+            }
+          } else if (sDoc.id === doc.id) {
+            docStatus = updatedDoc.status;
+          }
         }
 
         const resources = await Promise.all(
@@ -4956,13 +5424,15 @@ export class GenerationService {
         organizationId,
         err instanceof Error ? err.message : String(err),
       );
-      await this.documentStore.update({
-        ...doc,
-        status: "failed",
-        errorCode,
-        retryCount: (doc.retryCount || 0) + 1,
-        updatedAt: nowErr,
-      });
+      for (const sDoc of allSourceDocs) {
+        await this.documentStore.update({
+          ...sDoc,
+          status: "failed",
+          errorCode,
+          retryCount: (sDoc.retryCount || 0) + 1,
+          updatedAt: nowErr,
+        });
+      }
       if (this.auditService) {
         await this.auditService.emit([
           auditGenerationFailed(actor.userId, organizationId, documentId, {
@@ -5050,6 +5520,7 @@ export class GenerationService {
       courseId?: CourseId;
       generationKey?: string;
       generationContext?: GenerationContext;
+      sources?: Array<{ documentId: DocumentId; order: number; role?: SourcePackRole }>;
     },
   ): Promise<GeneratedContentResource> {
     await this.authorize(actor, organizationId, "content:generate");
@@ -5085,7 +5556,58 @@ export class GenerationService {
       }
     }
 
-    const chunks = await this.chunkStore.listByDocument(documentId);
+    const isMultiSource =
+      Array.isArray(options?.sources) && options.sources.length > 1;
+    let chunks: SourceChunkItem[] = [];
+
+    if (isMultiSource) {
+      const sortedSources = sortSourcesByRolePriority(options?.sources ?? []);
+      const docsMap = new Map<string, DocumentRecord>();
+      docsMap.set(doc.id, doc);
+
+      for (const s of sortedSources) {
+        if (!docsMap.has(s.documentId)) {
+          const sDoc = await this.requireDocument(organizationId, s.documentId);
+          docsMap.set(s.documentId, sDoc);
+        }
+      }
+      const allSourceDocs = sortedSources.map((s) => docsMap.get(s.documentId)!);
+
+      for (const [idx, sDoc] of allSourceDocs.entries()) {
+        const sourceMeta = sortedSources.find((s) => s.documentId === sDoc.id);
+        const semanticRole = sourceMeta?.role
+          ? canonicalizeSourceRole(sourceMeta.role)
+          : (idx === 0 ? "primary_notes" : "supplementary_reference");
+        const docChunks = await this.chunkStore.listByDocument(sDoc.id);
+        const taggedChunks: SourceChunkItem[] = docChunks.map((c) => ({
+          id: c.id,
+          content: c.content,
+          heading: c.heading,
+          sourceName: sDoc.originalName,
+          role: semanticRole,
+          isPrimary: semanticRole === "primary_notes",
+          sequence: c.sequence,
+          tokenEstimate: c.tokenEstimate,
+          startPage: c.startPage,
+        }));
+        chunks.push(...taggedChunks);
+      }
+      chunks = sortChunksByRolePriority(chunks);
+    } else {
+      const docChunks = await this.chunkStore.listByDocument(documentId);
+      chunks = docChunks.map((c) => ({
+        id: c.id,
+        content: c.content,
+        heading: c.heading,
+        sourceName: doc.originalName,
+        role: "primary_notes",
+        isPrimary: true,
+        sequence: c.sequence,
+        tokenEstimate: c.tokenEstimate,
+        startPage: c.startPage,
+      }));
+    }
+
     if (chunks.length === 0) {
       throw new DomainError(
         "conflict",
@@ -5637,7 +6159,15 @@ export class GenerationService {
     } else {
       await this.authorize(actor, organizationId, "content:review");
 
-      if (this.entitlementService && actor.role !== "platform_admin" && actor.role !== "organization_admin") {
+      const isStaffManager =
+        actor.role === "platform_admin" ||
+        actor.globalRole === "platform_admin" ||
+        actor.role === "organization_admin" ||
+        actor.role === "course_editor" ||
+        actor.role === "content_worker" ||
+        actor.globalRole === "content_worker";
+
+      if (this.entitlementService && !isStaffManager) {
         const doc = this.documentStore
           ? await this.documentStore.findByIdForOrganization(documentId, targetOrgId).catch(() => undefined)
           : undefined;

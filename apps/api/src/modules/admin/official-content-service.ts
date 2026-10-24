@@ -169,7 +169,13 @@ export class OfficialContentService {
   ) {}
 
   private requireAdmin(actor: Actor): void {
-    if (actor.role !== "platform_admin" && actor.role !== "organization_admin") {
+    if (
+      actor.role !== "platform_admin" &&
+      actor.globalRole !== "platform_admin" &&
+      actor.role !== "organization_admin" &&
+      actor.role !== "course_editor" &&
+      actor.globalRole !== "course_editor"
+    ) {
       throw new DomainError("forbidden", "دسترسی مدیریت به استودیوی محتوای رسمی لازم است.");
     }
   }
@@ -177,8 +183,12 @@ export class OfficialContentService {
   private requireContentManager(actor: Actor): void {
     if (
       actor.role !== "platform_admin" &&
+      actor.globalRole !== "platform_admin" &&
       actor.role !== "organization_admin" &&
-      actor.role !== "content_worker"
+      actor.role !== "content_worker" &&
+      actor.globalRole !== "content_worker" &&
+      actor.role !== "course_editor" &&
+      actor.globalRole !== "course_editor"
     ) {
       throw new DomainError("forbidden", "دسترسی مدیریت یا تولید محتوا به استودیوی محتوای رسمی لازم است.");
     }
@@ -413,6 +423,20 @@ export class OfficialContentService {
     );
     if (!document || document.deletedAt) {
       throw new DomainError("not_found", "سند منبع یافت نشد.");
+    }
+
+    if (!document.courseId) {
+      throw new DomainError(
+        "bad_request",
+        "این سند به دوره‌ای اختصاص نیافته است. لطفاً ابتدا سند را به دوره متصل کنید.",
+      );
+    }
+
+    if (document.courseId !== courseId) {
+      throw new DomainError(
+        "bad_request",
+        "این سند متعلق به دوره دیگری است و امکان تولید محتوا برای این دوره با آن وجود ندارد.",
+      );
     }
 
     // If course is currently generating, check if active or stale
@@ -2371,7 +2395,7 @@ export class OfficialContentService {
     actor: Actor,
     courseId: CourseId,
   ): Promise<{ success: boolean; course: CourseRecord }> {
-    this.requireContentManager(actor);
+    this.requireAdmin(actor);
 
     const course = await this.courseStore.findById(courseId);
     if (!course || course.deletedAt) {
@@ -2379,20 +2403,109 @@ export class OfficialContentService {
     }
 
     // Deactivate product
-    await this.db
-      .update(products)
-      .set({
-        active: false,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(products.targetType, "course"),
-          eq(products.targetId, courseId),
-        ),
-      );
+    if (this.db) {
+      await this.db
+        .update(products)
+        .set({
+          active: false,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(products.targetType, "course"),
+            eq(products.targetId, courseId),
+          ),
+        );
+    }
 
     course.status = "archived";
+    course.updatedAt = new Date().toISOString();
+    const updatedCourse = await this.courseStore.update(course);
+
+    return {
+      success: true,
+      course: updatedCourse,
+    };
+  }
+
+  /**
+   * 9b. Unpublish Official Course — transitions published course back to draft and deactivates product.
+   * Crucial: Existing user entitlements and purchase histories are preserved.
+   */
+  async unpublishOfficialCourse(
+    actor: Actor,
+    courseId: CourseId,
+  ): Promise<{ success: boolean; course: CourseRecord }> {
+    this.requireAdmin(actor);
+
+    const course = await this.courseStore.findById(courseId);
+    if (!course || course.deletedAt) {
+      throw new DomainError("not_found", "دوره رسمی یافت نشد.");
+    }
+
+    if (course.status !== "published") {
+      throw new DomainError(
+        "bad_request",
+        "تنها دوره‌های منتشر شده را می‌توان لغو انتشار کرد.",
+      );
+    }
+
+    // Deactivate product in catalog so it can no longer be purchased as active
+    if (this.db) {
+      await this.db
+        .update(products)
+        .set({
+          active: false,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            or(
+              eq(products.code, `course_${courseId}`),
+              and(
+                eq(products.targetType, "course"),
+                eq(products.targetId, courseId),
+              ),
+            ),
+            isNull(products.deletedAt),
+          ),
+        );
+    }
+
+    // Set course status back to draft
+    course.status = "draft";
+    course.updatedAt = new Date().toISOString();
+    const updatedCourse = await this.courseStore.update(course);
+
+    return {
+      success: true,
+      course: updatedCourse,
+    };
+  }
+
+  /**
+   * 9c. Unarchive / Restore Official Course — transitions archived course back to draft.
+   */
+  async unarchiveOfficialCourse(
+    actor: Actor,
+    courseId: CourseId,
+  ): Promise<{ success: boolean; course: CourseRecord }> {
+    this.requireContentManager(actor);
+
+    const course = await this.courseStore.findById(courseId);
+    if (!course || course.deletedAt) {
+      throw new DomainError("not_found", "دوره رسمی یافت نشد.");
+    }
+
+    if (course.status !== "archived") {
+      throw new DomainError(
+        "bad_request",
+        "تنها دوره‌های بایگانی شده را می‌توان بازگردانی کرد.",
+      );
+    }
+
+    // Set course status back to draft
+    course.status = "draft";
     course.updatedAt = new Date().toISOString();
     const updatedCourse = await this.courseStore.update(course);
 
@@ -2418,7 +2531,7 @@ export class OfficialContentService {
     courseId: CourseId,
     input: DeleteOfficialCourseInput,
   ): Promise<DeleteOfficialCourseResult> {
-    this.requireContentManager(actor);
+    this.requireAdmin(actor);
 
     if (!input?.confirmationName || typeof input.confirmationName !== "string") {
       throw new DomainError("bad_request", "نام دوره برای تأیید الزامی است.");
@@ -2440,9 +2553,9 @@ export class OfficialContentService {
     let deletedProduct = false;
 
     const executeTx =
-      typeof this.db.transaction === "function"
+      this.db && typeof this.db.transaction === "function"
         ? this.db.transaction.bind(this.db)
-        : async (fn: (tx: any) => Promise<any>) => fn(this.db);
+        : async (fn: (tx: any) => Promise<any>) => fn(this.db ?? {});
 
     await executeTx(async (tx: any) => {
       // 1. Fetch linked products and revoke active user entitlements while preserving historical purchase records

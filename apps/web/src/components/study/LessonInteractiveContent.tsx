@@ -28,6 +28,8 @@ export interface LessonInteractiveContentProps {
   courseTitle?: string;
   content: string;
   className?: string;
+  onAskAvana?: (selection: TextSelectionData) => void;
+  onExplainSimply?: (selection: TextSelectionData) => void;
 }
 
 export function LessonInteractiveContent({
@@ -38,6 +40,8 @@ export function LessonInteractiveContent({
   courseTitle,
   content,
   className = "",
+  onAskAvana,
+  onExplainSimply,
 }: LessonInteractiveContentProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -69,11 +73,23 @@ export function LessonInteractiveContent({
 
   // Handlers from toolbar
   const handleAskAvana = (sel: TextSelectionData) => {
+    if (onAskAvana) {
+      const preservedSelection = { ...sel };
+      clearSelection();
+      onAskAvana(preservedSelection);
+      return;
+    }
     setActiveSelectionForModal(sel);
     setIsAskAvanaOpen(true);
   };
 
   const handleExplainSimply = (sel: TextSelectionData) => {
+    if (onExplainSimply) {
+      const preservedSelection = { ...sel };
+      clearSelection();
+      onExplainSimply(preservedSelection);
+      return;
+    }
     setActiveSelectionForModal(sel);
     setIsExplainOpen(true);
   };

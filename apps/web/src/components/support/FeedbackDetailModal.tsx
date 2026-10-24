@@ -8,10 +8,8 @@ import {
   AvanaSelect,
 } from "@avana/ui";
 import {
-  Paperclip,
   CheckCircle2,
   ShieldCheck,
-  ExternalLink,
 } from "lucide-react";
 import {
   FEEDBACK_CATEGORY_LABELS,
@@ -20,6 +18,7 @@ import {
   formatPersianDateTime,
   getFeedbackStatusBadgeVariant,
 } from "./supportUiHelpers.js";
+import { SupportAttachmentAction } from "./SupportAttachmentAction.js";
 import { useAdminRespondFeedback } from "../../hooks/useSupport.js";
 import type {
   FeedbackItem,
@@ -118,16 +117,11 @@ export function FeedbackDetailModal({
 
             {feedback.attachmentUrl && (
               <div className="mt-3 pt-2.5 border-t border-[var(--color-border)]">
-                <a
-                  href={feedback.attachmentUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-xs font-medium text-primary hover:bg-[var(--color-surface-warm)] transition-colors"
-                >
-                  <Paperclip className="w-3.5 h-3.5" />
-                  <span>مشاهده پیوست بازخورد</span>
-                  <ExternalLink className="w-3 h-3 opacity-70" />
-                </a>
+                <SupportAttachmentAction
+                  attachmentUrl={feedback.attachmentUrl}
+                  variant="neutral"
+                  onError={(err) => setErrorMessage(err)}
+                />
               </div>
             )}
           </div>

@@ -1769,9 +1769,15 @@ export class InMemoryCommerceStore implements CommerceStore {
       if (!isSubscriptionProduct(s.productId)) return false;
 
       if (currentCreatedAt !== null) {
-        const subTime = new Date(s.createdAt).getTime();
+        const orderOfSub = s.orderId ? this.orders.find((o) => o.id === s.orderId) : null;
+        const subTime = orderOfSub
+          ? new Date(orderOfSub.createdAt).getTime()
+          : new Date(s.createdAt).getTime();
+        const subTieId = orderOfSub ? orderOfSub.id : s.id;
+        const curTieId = excludeOrderId ?? excludeSubscriptionId;
+
         if (subTime < currentCreatedAt) return true;
-        if (subTime === currentCreatedAt && excludeSubscriptionId && s.id < excludeSubscriptionId) return true;
+        if (subTime === currentCreatedAt && curTieId && subTieId < curTieId) return true;
         return false;
       }
       return true;

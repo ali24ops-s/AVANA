@@ -10,7 +10,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  FileCheck2,
   CheckCircle2,
   XCircle,
   Sparkles,
@@ -62,14 +61,6 @@ export function QuizExperienceSection() {
           transition={{ duration: 0.6 }}
           className="lg:col-span-5 flex flex-col gap-6 z-10"
         >
-          {/* Badge */}
-          <div className="w-full flex justify-center lg:justify-start">
-            <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-[#008080] text-xs font-bold shadow-xs">
-              <FileCheck2 className="w-3.5 h-3.5" />
-              <span>خودسنجی تعاملی</span>
-            </span>
-          </div>
-
           {/* Heading */}
           <h2 className="font-headline text-3xl sm:text-4xl lg:text-[42px] leading-[1.25] font-black text-[#1a2226] tracking-tight text-center lg:text-right">
             فقط نخوان؛
@@ -104,7 +95,7 @@ export function QuizExperienceSection() {
           <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#E2E7EA] shadow-xl">
             {/* Question Header Meta */}
             <div className="flex justify-between items-center pb-3 mb-4 border-b border-[#EEF1F3]">
-              <span className="text-xs font-bold text-[#008080] bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200">
+              <span className="text-xs font-bold text-[#008080]">
                 {quizQuestion.category}
               </span>
 

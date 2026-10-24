@@ -113,6 +113,77 @@ describe("AdminContentReportsPanel UI Component", () => {
       expect(
         screen.getByText("لطفاً این کلمه را اصلاح فرمایید"),
       ).toBeInTheDocument();
+      // Lesson link is visible
+      expect(screen.getByText("مشاهده درسنامه")).toBeInTheDocument();
+      // Content repair button is present
+      expect(screen.getByText("بررسی و عیب‌یابی خودکار درسنامه")).toBeInTheDocument();
+    });
+  });
+
+  it("triggers content repair preview and opens ContentRepairModal when repair button is clicked", async () => {
+    (globalThis.fetch as any).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.includes("/v1/admin/content-reports")) {
+        return new Response(
+          JSON.stringify({
+            items: mockReports,
+            totalCount: 1,
+            page: 1,
+            pageSize: 20,
+            totalPages: 1,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.includes("/content-repair/preview")) {
+        return new Response(
+          JSON.stringify({
+            hasRepairs: true,
+            originalHash: "hash-abc",
+            candidates: [
+              {
+                ruleId: "latex-command-corruption",
+                blockIndex: 0,
+                originalText: "textCaC_2",
+                repairedText: "\\text{CaC}_2",
+                confidence: 0.95,
+                reasonPersian: "الگوی شناخته‌شده خرابی دستورات",
+              },
+            ],
+            repairedBlockCount: 1,
+            originalContent: "textCaC_2",
+            repairedContent: "\\text{CaC}_2",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AdminContentReportsPanel />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("فارماکولوژی بالینی")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "بررسی" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("بررسی و عیب‌یابی خودکار درسنامه")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("بررسی و عیب‌یابی خودکار درسنامه"));
+
+    await waitFor(() => {
+      expect(screen.getByText("اصلاح هوشمند و ساختاری محتوا")).toBeInTheDocument();
+      expect(screen.getByText(/خرابی دستور فرمول \/ شیمی/)).toBeInTheDocument();
     });
   });
 });

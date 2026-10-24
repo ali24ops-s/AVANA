@@ -69,4 +69,66 @@ describe("Document Ingestion Views", () => {
       expect(screen.getByText("هنوز سندی بارگذاری نشده است")).toBeDefined();
     });
   });
+
+  it("CourseDocumentsView excludes documents belonging to other courses or unassigned", async () => {
+    const queryClient = createTestQueryClient();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        request_id: "req-filter",
+        items: [
+          {
+            id: "doc-correct",
+            organization_id: mockOrgId,
+            course_id: mockCourseId,
+            original_name: "valid-course-syllabus.pdf",
+            mime_type: "application/pdf",
+            size_bytes: 1024,
+            status: "ready",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          {
+            id: "doc-foreign",
+            organization_id: mockOrgId,
+            course_id: "other-course-uuid",
+            original_name: "leaked-foreign-file.pdf",
+            mime_type: "application/pdf",
+            size_bytes: 2048,
+            status: "ready",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          {
+            id: "doc-unassigned",
+            organization_id: mockOrgId,
+            course_id: null,
+            original_name: "unassigned-library-file.pdf",
+            mime_type: "application/pdf",
+            size_bytes: 4096,
+            status: "ready",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+      }),
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CourseDocumentsView
+          organizationId={mockOrgId}
+          courseId={mockCourseId}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("valid-course-syllabus.pdf")).toBeDefined();
+    });
+
+    expect(screen.queryByText("leaked-foreign-file.pdf")).toBeNull();
+    expect(screen.queryByText("unassigned-library-file.pdf")).toBeNull();
+  });
 });

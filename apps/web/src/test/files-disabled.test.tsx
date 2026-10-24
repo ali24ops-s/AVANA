@@ -62,17 +62,20 @@ describe("Files Feature Temporary Disable", () => {
   });
 
   it("redirects direct access from /files to /library in router configuration", async () => {
-    // Find the protected shell route in router definition
-    const rootRoutes = router.routes;
-    const protectedParent = rootRoutes.find((r) => r.path === "/" && r.children);
-    expect(protectedParent).toBeDefined();
+    // Find the files route in router definition
+    type RouteConfig = { path?: string; children?: RouteConfig[]; element?: React.ReactNode };
+    const findRouteByPath = (routes: RouteConfig[], targetPath: string): RouteConfig | undefined => {
+      for (const route of routes) {
+        if (route.path === targetPath) return route;
+        if (route.children) {
+          const found = findRouteByPath(route.children, targetPath);
+          if (found) return found;
+        }
+      }
+      return undefined;
+    };
 
-    const shellRoute = protectedParent?.children?.find(
-      (r) => r.children?.some((c) => c.path === "files"),
-    );
-    expect(shellRoute).toBeDefined();
-
-    const filesRoute = shellRoute?.children?.find((c) => c.path === "files");
+    const filesRoute = findRouteByPath(router.routes as RouteConfig[], "files");
     expect(filesRoute).toBeDefined();
 
     // Verify element renders Navigate to /library

@@ -26,6 +26,8 @@ export type RequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   headers?: Record<string, string>;
+  params?: Record<string, unknown>;
+  signal?: AbortSignal;
 };
 
 /**
@@ -84,6 +86,43 @@ export function getApiBaseUrl(): string {
 }
 
 /**
+ * Safely build a path by merging and serializing query parameters.
+ * - Strips `null` and `undefined` values.
+ * - Preserves existing query parameters on `path`.
+ * - For arrays, appends each valid element using standard multi-param serialization (`key=val1&key=val2`).
+ */
+export function buildUrlWithParams(
+  path: string,
+  params?: Record<string, unknown>
+): string {
+  if (!params || Object.keys(params).length === 0) {
+    return path;
+  }
+
+  const [basePath, existingQuery] = path.split("?");
+  const searchParams = new URLSearchParams(existingQuery || "");
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+    if (Array.isArray(value)) {
+      searchParams.delete(key);
+      for (const item of value) {
+        if (item !== undefined && item !== null) {
+          searchParams.append(key, String(item));
+        }
+      }
+    } else {
+      searchParams.set(key, String(value));
+    }
+  }
+
+  const queryString = searchParams.toString();
+  return queryString ? `${basePath}?${queryString}` : basePath;
+}
+
+/**
  * Create a configured API client bound to a base URL.
  */
 export function createApiClient(options: ApiClientOptions) {
@@ -93,7 +132,7 @@ export function createApiClient(options: ApiClientOptions) {
     path: string,
     opts: RequestOptions = {},
   ): Promise<T> {
-    const { method = "GET", body, headers: extraHeaders } = opts;
+    const { method = "GET", body, headers: extraHeaders, params, signal } = opts;
 
     const headers: Record<string, string> = {
       "x-request-id": generateUUID(),
@@ -109,12 +148,13 @@ export function createApiClient(options: ApiClientOptions) {
       headers["x-csrf-token"] = options.csrfToken;
     }
 
-
-    const response = await fetch(`${baseUrl}${path}`, {
+    const finalPath = buildUrlWithParams(path, params);
+    const response = await fetch(`${baseUrl}${finalPath}`, {
       method,
       headers,
       credentials: "include", // Send cookies (avana_session)
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal,
     });
 
     // Handle 204 No Content

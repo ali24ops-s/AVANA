@@ -13,13 +13,14 @@ import {
   Loader2,
   X,
   AlertTriangle,
-  Brain,
+  Pencil,
 } from "lucide-react";
 import {
   toPersianDigits,
   COGNITIVE_LEVEL_LABELS_FA,
   STANDARD_QUESTION_SKILLS,
   type CognitiveLevel,
+  type QuestionPatternCategory,
   type QuestionPatternExtractionResult,
 } from "@avana/domain";
 import type {
@@ -30,6 +31,7 @@ export function QuestionPatternsManager() {
   const adminApi = useAdmin();
   const queryClient = useQueryClient();
 
+  const [selectedCategory, setSelectedCategory] = useState<"all" | QuestionPatternCategory>("all");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [expandedPatternId, setExpandedPatternId] = useState<string | null>(null);
   const [isAddExampleModalOpen, setIsAddExampleModalOpen] = useState(false);
@@ -39,11 +41,22 @@ export function QuestionPatternsManager() {
   const [createMode, setCreateMode] = useState<"manual" | "extract">("manual");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [category, setCategory] = useState<QuestionPatternCategory>("exam");
   const [cognitiveLevel, setCognitiveLevel] = useState<CognitiveLevel>("recall");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [customSkillInput, setCustomSkillInput] = useState("");
   const [systemInstructions, setSystemInstructions] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+
+  // Form states for editing pattern
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingPatternId, setEditingPatternId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editCategory, setEditCategory] = useState<QuestionPatternCategory>("exam");
+  const [editCognitiveLevel, setEditCognitiveLevel] = useState<CognitiveLevel>("recall");
+  const [editSkills, setEditSkills] = useState<string[]>([]);
+  const [editSystemInstructions, setEditSystemInstructions] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Form states for AI Pattern Extraction
   const [sampleQuestionsText, setSampleQuestionsText] = useState("");
@@ -58,15 +71,18 @@ export function QuestionPatternsManager() {
   const [exampleClinicalContext, setExampleClinicalContext] = useState("");
   const [exampleError, setExampleError] = useState<string | null>(null);
 
-  // Query: Pattern list
+  // Query: Pattern list with category filter
   const {
     data: patternsData,
     isLoading,
     isError,
     error,
   } = useQuery({
-    queryKey: ["admin", "question-patterns"],
-    queryFn: () => adminApi.listQuestionPatterns(),
+    queryKey: ["admin", "question-patterns", selectedCategory],
+    queryFn: () =>
+      adminApi.listQuestionPatterns({
+        category: selectedCategory === "all" ? undefined : selectedCategory,
+      }),
   });
 
   const patterns = patternsData?.patterns ?? [];
@@ -83,6 +99,7 @@ export function QuestionPatternsManager() {
     mutationFn: (data: {
       title: string;
       description?: string;
+      category?: QuestionPatternCategory;
       cognitiveLevel: string;
       skills?: string[];
       systemInstructions: string;
@@ -107,9 +124,9 @@ export function QuestionPatternsManager() {
       setIsCreateModalOpen(false);
       setTitle("");
       setDescription("");
+      setCategory("exam");
       setCognitiveLevel("recall");
       setSelectedSkills([]);
-      setCustomSkillInput("");
       setSystemInstructions("");
       setSampleQuestionsText("");
       setExtractedResult(null);
@@ -119,6 +136,28 @@ export function QuestionPatternsManager() {
     },
     onError: (err: Error) => {
       setCreateError(err.message || "خطا در ایجاد الگو");
+    },
+  });
+
+  // Mutation: Update pattern
+  const updatePatternMutation = useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: Parameters<typeof adminApi.updateQuestionPattern>[1];
+    }) => adminApi.updateQuestionPattern(id, data),
+    onSuccess: () => {
+      setIsEditModalOpen(false);
+      setEditingPatternId(null);
+      setEditError(null);
+      void queryClient.invalidateQueries({ queryKey: ["admin", "question-patterns"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin", "question-pattern"] });
+      void queryClient.invalidateQueries({ queryKey: ["active-question-patterns"] });
+    },
+    onError: (err: Error) => {
+      setEditError(err.message || "خطا در ویرایش الگو");
     },
   });
 
@@ -211,9 +250,41 @@ export function QuestionPatternsManager() {
     createMutation.mutate({
       title: title.trim(),
       description: description.trim() || undefined,
+      category,
       cognitiveLevel,
       skills: selectedSkills.length > 0 ? selectedSkills : undefined,
       systemInstructions: systemInstructions.trim(),
+    });
+  };
+
+  const handleOpenEditModal = (pattern: AdminQuestionPatternSummary) => {
+    setEditingPatternId(pattern.id);
+    setEditTitle(pattern.title);
+    setEditDescription(pattern.description || "");
+    setEditCategory((pattern.category as QuestionPatternCategory) || "exam");
+    setEditCognitiveLevel((pattern.cognitiveLevel as CognitiveLevel) || "recall");
+    setEditSkills(pattern.skills || []);
+    setEditSystemInstructions(pattern.systemInstructions || "");
+    setEditError(null);
+    setIsEditModalOpen(true);
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPatternId || !editTitle.trim() || !editSystemInstructions.trim()) {
+      setEditError("عنوان و دستورالعمل ساختاری الگو الزامی است.");
+      return;
+    }
+    updatePatternMutation.mutate({
+      id: editingPatternId,
+      data: {
+        title: editTitle.trim(),
+        description: editDescription.trim() || undefined,
+        category: editCategory,
+        cognitiveLevel: editCognitiveLevel,
+        skills: editSkills,
+        systemInstructions: editSystemInstructions.trim(),
+      },
     });
   };
 
@@ -276,6 +347,29 @@ export function QuestionPatternsManager() {
         </button>
       </div>
 
+      {/* Category Filter Tabs */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1" data-testid="question-pattern-category-tabs">
+        {[
+          { id: "all", label: "همه الگوها" },
+          { id: "exam", label: "الگوهای آزمونی و استاندارد" },
+          { id: "analytical", label: "الگوهای تحلیلی و بالینی" },
+          { id: "supplementary", label: "الگوهای تکمیلی و مفهومی" },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setSelectedCategory(tab.id as typeof selectedCategory)}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+              selectedCategory === tab.id
+                ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-xs"
+                : "bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)] hover:bg-[var(--color-surface-warm)]"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       {/* Patterns List */}
       {isLoading ? (
         <div className="py-16 flex flex-col items-center justify-center gap-3 text-[var(--color-text-muted)]">
@@ -291,7 +385,7 @@ export function QuestionPatternsManager() {
           <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
             <Sparkles className="w-6 h-6" />
           </div>
-          <p className="text-sm font-bold text-[var(--color-text)]">هنوز هیچ الگوی سؤالی تعریف نشده است</p>
+          <p className="text-sm font-bold text-[var(--color-text)]">هنوز هیچ الگوی سؤالی در این دسته‌بندی تعریف نشده است</p>
           <p className="text-xs text-[var(--color-text-muted)] max-w-md mx-auto">
             با تعریف یک الگوی جدید و افزودن سؤالات نمونه مرجع، می‌توانید سبک طراحی آزمون‌های آوانا را ارتقا دهید.
           </p>
@@ -312,6 +406,21 @@ export function QuestionPatternsManager() {
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
                         نگارش {toPersianDigits(pattern.version)}
                       </span>
+                      {pattern.category && (
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                          pattern.category === "analytical"
+                            ? "bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20"
+                            : pattern.category === "supplementary"
+                              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20"
+                              : "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20"
+                        }`}>
+                          {pattern.category === "analytical"
+                            ? "تحلیلی و بالینی"
+                            : pattern.category === "supplementary"
+                              ? "تکمیلی و مفهومی"
+                              : "آزمونی و استاندارد"}
+                        </span>
+                      )}
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
                         {COGNITIVE_LEVEL_LABELS_FA[pattern.cognitiveLevel as CognitiveLevel] || pattern.cognitiveLevel}
                       </span>
@@ -365,6 +474,15 @@ export function QuestionPatternsManager() {
                     >
                       <Plus className="w-3.5 h-3.5" />
                       <span>افزودن نمونه</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditModal(pattern)}
+                      className="p-1.5 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors cursor-pointer"
+                      title="ویرایش الگو"
+                    >
+                      <Pencil className="w-4 h-4" />
                     </button>
 
                     <button
@@ -648,6 +766,21 @@ export function QuestionPatternsManager() {
 
                   <div>
                     <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
+                      دسته‌بندی الگو *
+                    </label>
+                    <select
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value as QuestionPatternCategory)}
+                      className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-xs text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)]"
+                    >
+                      <option value="exam">الگوهای آزمونی و استاندارد (Exam)</option>
+                      <option value="analytical">الگوهای تحلیلی و بالینی (Analytical)</option>
+                      <option value="supplementary">الگوهای تکمیلی و مفهومی (Supplementary)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
                       سطح شناختی (بلوم) *
                     </label>
                     <select
@@ -753,6 +886,21 @@ export function QuestionPatternsManager() {
                   className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-xs text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] transition-all"
                   required
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
+                  دسته‌بندی الگو *
+                </label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as QuestionPatternCategory)}
+                  className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-xs text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] transition-all"
+                >
+                  <option value="exam">الگوهای آزمونی و استاندارد (Exam)</option>
+                  <option value="analytical">الگوهای تحلیلی و بالینی (Analytical)</option>
+                  <option value="supplementary">الگوهای تکمیلی و مفهومی (Supplementary)</option>
+                </select>
               </div>
 
               <div>
@@ -956,6 +1104,161 @@ export function QuestionPatternsManager() {
                 >
                   {addExampleMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   <span>ثبت نمونه سؤال</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: Edit Pattern */}
+      {isEditModalOpen && editingPatternId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative w-full max-w-xl bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl p-6 shadow-2xl space-y-4 my-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--color-border)]">
+              <h3 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
+                <Pencil className="w-5 h-5 text-[var(--color-primary-default)]" />
+                ویرایش الگوی سؤال
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(false)}
+                className="p-1.5 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {editError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs">
+                {editError}
+              </div>
+            )}
+
+            <form onSubmit={handleEditSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
+                  عنوان الگو *
+                </label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder="عنوان الگو..."
+                  className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-xs text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] transition-all"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
+                  دسته‌بندی الگو *
+                </label>
+                <select
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value as QuestionPatternCategory)}
+                  className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-xs text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] transition-all"
+                >
+                  <option value="exam">الگوهای آزمونی و استاندارد (Exam)</option>
+                  <option value="analytical">الگوهای تحلیلی و بالینی (Analytical)</option>
+                  <option value="supplementary">الگوهای تکمیلی و مفهومی (Supplementary)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
+                  سطح شناختی (Cognitive Level - بلوم) *
+                </label>
+                <select
+                  value={editCognitiveLevel}
+                  onChange={(e) => setEditCognitiveLevel(e.target.value as CognitiveLevel)}
+                  className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-xs text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] transition-all"
+                >
+                  <option value="recall">{COGNITIVE_LEVEL_LABELS_FA.recall} (Recall)</option>
+                  <option value="understand">{COGNITIVE_LEVEL_LABELS_FA.understand} (Understand)</option>
+                  <option value="apply">{COGNITIVE_LEVEL_LABELS_FA.apply} (Apply)</option>
+                  <option value="analyze">{COGNITIVE_LEVEL_LABELS_FA.analyze} (Analyze)</option>
+                  <option value="evaluate">{COGNITIVE_LEVEL_LABELS_FA.evaluate} (Evaluate)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
+                  مهارت‌های هدف (Target Skills)
+                </label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {STANDARD_QUESTION_SKILLS.map((skill) => {
+                    const isSelected = editSkills.includes(skill.id);
+                    return (
+                      <button
+                        type="button"
+                        key={skill.id}
+                        onClick={() => {
+                          if (isSelected) {
+                            setEditSkills(editSkills.filter((s) => s !== skill.id));
+                          } else {
+                            setEditSkills([...editSkills, skill.id]);
+                          }
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors cursor-pointer ${
+                          isSelected
+                            ? "bg-teal-500/15 border-teal-500/30 text-[var(--color-primary-default)] font-bold"
+                            : "bg-[var(--color-surface-warm)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                        }`}
+                      >
+                        {skill.labelFa}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
+                  توضیحات کوتاه
+                </label>
+                <input
+                  type="text"
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  placeholder="توضیح هدف این الگو..."
+                  className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-xs text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] transition-all"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
+                  دستورالعمل ساختاری برای مدل هوش مصنوعی *
+                </label>
+                <textarea
+                  rows={5}
+                  value={editSystemInstructions}
+                  onChange={(e) => setEditSystemInstructions(e.target.value)}
+                  placeholder="قوانین ساختار سؤال، طول صورت سؤال، شیوه طراحی گزینه‌های انحرافی و ساختار توضیح تشریحی..."
+                  className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-3 text-xs text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] transition-all"
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[var(--color-border)]">
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-[var(--color-border)] text-xs font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)] cursor-pointer"
+                >
+                  انصراف
+                </button>
+                <button
+                  type="submit"
+                  disabled={updatePatternMutation.isPending || !editTitle.trim() || !editSystemInstructions.trim()}
+                  className="px-5 py-2 rounded-xl bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] text-xs font-bold hover:opacity-90 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {updatePatternMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>ذخیره تغییرات</span>
                 </button>
               </div>
             </form>

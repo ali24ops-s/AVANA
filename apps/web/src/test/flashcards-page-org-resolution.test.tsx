@@ -94,12 +94,8 @@ describe("FlashcardsPage Organization Resolution", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("مطالعه فشرده برای امتحان")).toBeDefined();
+      expect(screen.getByText("مطالعه فشرده")).toBeDefined();
     });
-
-    // Click on exam mode to reveal course cards
-    const examCard = screen.getByText("مطالعه فشرده برای امتحان");
-    examCard.click();
 
     await waitFor(() => {
       expect(screen.getByText("Pharmacology Basics")).toBeDefined();

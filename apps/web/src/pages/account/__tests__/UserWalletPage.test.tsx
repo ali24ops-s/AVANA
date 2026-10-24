@@ -39,7 +39,7 @@ describe("UserWalletPage", () => {
     } as unknown as MockTopupsReturn);
   });
 
-  it("1. Wallet page renders current balance in Credits and Tomans", () => {
+  it("1. Wallet page renders current balance in Tomans and does not display Credit or conversion notes", () => {
     vi.mocked(useWalletHooks.useMyWallet).mockReturnValue({
       data: {
         balance: 12500,
@@ -68,10 +68,15 @@ describe("UserWalletPage", () => {
     expect(screen.getByRole("heading", { level: 1, name: "کیف پول" })).toBeDefined();
     expect(screen.getByText("موجودی شما برای استفاده از خدمات و تولید محتوای هوشمند")).toBeDefined();
     expect(screen.getByText("موجودی کیف پول")).toBeDefined();
-    expect(screen.getByText("Credit")).toBeDefined();
+    expect(screen.getByText("تومان")).toBeDefined();
     expect(screen.getAllByText(/۱۲[٬,]۵۰۰/).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText(/معادل/)).toBeDefined();
-    expect(screen.getByText(/هر ۱ Credit برابر با ۱ تومان است/)).toBeDefined();
+
+    // Negative assertions: Credit, کردیت, and conversion text must NOT exist
+    expect(screen.queryByText("Credit")).toBeNull();
+    expect(screen.queryByText(/Credit/i)).toBeNull();
+    expect(screen.queryByText(/کردیت/)).toBeNull();
+    expect(screen.queryByText(/معادل/)).toBeNull();
+    expect(screen.queryByText(/هر ۱ Credit برابر با ۱ تومان است/)).toBeNull();
   });
 
   it("2. Transactions render correctly with title, description, and Persian date", () => {
@@ -129,6 +134,9 @@ describe("UserWalletPage", () => {
     expect(screen.getByText("تولید هوشمند محتوا")).toBeDefined();
     expect(screen.getByText("واریز / شارژ")).toBeDefined();
     expect(screen.getByText("کسر / مصرف")).toBeDefined();
+    expect(screen.getByText("مانده: ۴۰٬۰۰۰ تومان")).toBeDefined();
+    expect(screen.getByText("مانده: ۲۵٬۰۰۰ تومان")).toBeDefined();
+    expect(screen.queryByText(/Credit/i)).toBeNull();
   });
 
   it("3. Positive and negative amounts display correctly with sign prefix", () => {
@@ -457,6 +465,12 @@ describe("UserWalletPage", () => {
     expect(screen.getByText("واریز نشد")).toBeDefined();
     expect(screen.getByText(/فیش واریزی ناخوانا است/)).toBeDefined();
     expect(screen.getByText(/کد رهگیری: TRK-PENDING-123/)).toBeDefined();
+
+    // Top-up amounts in Tomans without Credit
+    expect(screen.getByText("+۱۰۰٬۰۰۰ تومان")).toBeDefined();
+    expect(screen.getByText("+۵۰٬۰۰۰ تومان")).toBeDefined();
+    expect(screen.getByText("+۲۵٬۰۰۰ تومان")).toBeDefined();
+    expect(screen.queryByText(/Credit/i)).toBeNull();
   });
 });
 

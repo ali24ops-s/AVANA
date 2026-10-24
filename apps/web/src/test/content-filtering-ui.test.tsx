@@ -66,8 +66,8 @@ describe("UI Defensive Content Filtering Safeguards", () => {
       expect(screen.getByText("فارماکولوژی 1")).toBeInTheDocument();
       // Course 2 (0 Questions) MUST NOT be displayed
       expect(screen.queryByText("دوره بدون سوال")).not.toBeInTheDocument();
-      // Course 1 should show only 1 valid module count
-      expect(screen.getByText("دوره آموزشی (1 بخش)")).toBeInTheDocument();
+      // Course 1 should show only 1 valid module count (1 فصل)
+      expect(screen.getByText(/1\s*فصل|۱\s*فصل/)).toBeInTheDocument();
     });
 
     // Expand Course 1 accordion

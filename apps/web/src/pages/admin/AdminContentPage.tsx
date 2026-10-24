@@ -152,14 +152,14 @@ export function AdminContentPage() {
   return (
     <div className="space-y-6 pb-20 text-[var(--color-text)]" dir="rtl">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--color-text)] text-center sm:text-right">مدیریت محتوا</h1>
+        <div className="space-y-1 text-start min-w-0 flex-1">
+          <h1 className="text-2xl font-bold text-[var(--color-text)]">مدیریت محتوا</h1>
           <p className="text-sm text-[var(--color-text-muted)] mt-1">ساختار آموزشی، خروجی و ورود محتوای دوره‌ها</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
           <button
             onClick={() => setIsExportOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)] hover:border-[var(--color-primary-default)]/40 rounded-xl text-sm font-medium transition-all"
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)] hover:border-[var(--color-primary-default)]/40 rounded-xl text-sm font-medium transition-all whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Download className="w-4 h-4 text-[var(--color-primary-default)]" />
             <span>خروجی محتوا (Export)</span>
@@ -167,7 +167,7 @@ export function AdminContentPage() {
           {user?.role !== "content_worker" && (
             <button
               onClick={() => setIsImportOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] rounded-xl text-sm font-medium transition-all shadow-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] rounded-xl text-sm font-medium transition-all shadow-sm whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Upload className="w-4 h-4" />
               <span>ورود محتوا (Import)</span>
@@ -177,7 +177,7 @@ export function AdminContentPage() {
       </div>
 
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
           <StatCard icon={<BookOpen className="w-5 h-5 text-[var(--color-primary-default)]" />} label="دوره‌ها" value={stats.totalCourses !== undefined ? toPersianDigits(stats.totalCourses) : "-"} />
           <StatCard icon={<Layers className="w-5 h-5 text-[var(--color-primary-default)]" />} label="ماژول‌ها" value={stats.totalModules !== undefined ? toPersianDigits(stats.totalModules) : "-"} />
           <StatCard icon={<FileText className="w-5 h-5 text-blue-500" />} label="درس‌ها" value={stats.totalLessons !== undefined ? toPersianDigits(stats.totalLessons) : "-"} />
@@ -187,7 +187,7 @@ export function AdminContentPage() {
       )}
 
       {/* Tab Navigation */}
-      <div className="flex items-center gap-2 p-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl overflow-x-auto text-xs font-bold shadow-sm">
+      <div className="flex items-center gap-2 p-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl overflow-x-auto no-scrollbar text-xs font-bold shadow-sm">
         <button
           type="button"
           onClick={() => setTab("curriculum")}

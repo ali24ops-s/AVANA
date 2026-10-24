@@ -42,7 +42,7 @@ export const DialogHeader: React.FC<DialogHeaderProps> = ({
   hideCloseButton = false,
 }) => (
   <div
-    className={`flex items-start justify-between gap-4 p-5 sm:p-6 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)] shrink-0 ${className}`}
+    className={`flex items-start justify-between gap-3 sm:gap-4 p-4 sm:p-6 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)] shrink-0 ${className}`}
   >
     <div className="min-w-0 flex-1">{children}</div>
     {!hideCloseButton && onClose && (
@@ -68,7 +68,7 @@ export const DialogContent: React.FC<DialogContentProps> = ({
   className = "",
 }) => (
   <div
-    className={`flex-1 overflow-y-auto min-h-0 p-5 sm:p-6 text-start ${className}`}
+    className={`flex-1 overflow-y-auto min-h-0 p-4 sm:p-6 text-start ${className}`}
   >
     {children}
   </div>
@@ -84,7 +84,7 @@ export const DialogFooter: React.FC<DialogFooterProps> = ({
   className = "",
 }) => (
   <div
-    className={`p-5 sm:p-6 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)] flex flex-col sm:flex-row items-center justify-between gap-4 shrink-0 ${className}`}
+    className={`p-4 sm:p-6 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4 shrink-0 ${className}`}
   >
     {children}
   </div>

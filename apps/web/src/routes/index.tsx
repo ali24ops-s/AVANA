@@ -38,8 +38,6 @@ import { EmailVerificationPage } from "../components/shell/EmailVerificationPage
 import { PricingPage } from "../pages/PricingPage.js";
 import { TermsPage } from "../pages/TermsPage.js";
 import { UserSubscriptionPage } from "../pages/account/UserSubscriptionPage.js";
-import { UserPurchasesPage } from "../pages/account/UserPurchasesPage.js";
-import { UserWalletPage } from "../pages/account/UserWalletPage.js";
 import { UserReferralPage } from "../pages/account/UserReferralPage.js";
 import { UserSupportPage } from "../pages/account/UserSupportPage.js";
 import { CardToCardPaymentPage } from "../pages/CardToCardPaymentPage.js";
@@ -113,6 +111,7 @@ import { StudentExamResultsPage } from "../pages/student/StudentExamResultsPage.
 
 // Design Preview Imports (Isolated evaluation routes)
 import { StickerSystemPreviewPage } from "../design-preview/avana-stickers/StickerSystemPreviewPage.js";
+import { WelcomeGiftPreviewPage } from "../pages/dev/WelcomeGiftPreviewPage.js";
 
 const getRouterBasename = () => {
   if (typeof window !== "undefined") {
@@ -216,6 +215,18 @@ export const router = createBrowserRouter(
       path: "/design-preview/stickers",
       element: <StickerSystemPreviewPage />,
     },
+    ...(import.meta.env.DEV
+      ? [
+          {
+            path: "/dev/welcome-gift-preview",
+            element: <WelcomeGiftPreviewPage />,
+          },
+          {
+            path: "/design-preview/welcome-gift",
+            element: <WelcomeGiftPreviewPage />,
+          },
+        ]
+      : []),
 
     // Anatomy Lesson POC Route (Directly viewable in AVANA AuthenticatedShell without authentication barriers)
     {
@@ -321,16 +332,24 @@ export const router = createBrowserRouter(
               element: <Navigate to="/account/subscription" replace />,
             },
             {
+              path: "subscription",
+              element: <Navigate to="/account/subscription" replace />,
+            },
+            {
               path: "account/purchases",
-              element: <UserPurchasesPage />,
+              element: <Navigate to="/account/subscription?tab=purchases" replace />,
             },
             {
               path: "settings/purchases",
-              element: <Navigate to="/account/purchases" replace />,
+              element: <Navigate to="/account/subscription?tab=purchases" replace />,
             },
             {
               path: "account/wallet",
-              element: <UserWalletPage />,
+              element: <Navigate to="/account/subscription?tab=wallet" replace />,
+            },
+            {
+              path: "settings/wallet",
+              element: <Navigate to="/account/subscription?tab=wallet" replace />,
             },
             {
               path: "account/referral",

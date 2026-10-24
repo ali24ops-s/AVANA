@@ -283,7 +283,7 @@ describe("Unified Official Content Studio Workspace — Comprehensive Test Matri
                 {
                   id: "m-1",
                   organization_id: "b4a0b464-16db-4087-92b7-163a1e6f6776",
-                  role: "platform_admin",
+                  role: role === "student" ? "student" : "platform_admin",
                   created_at: "2026-01-01T00:00:00Z",
                 },
               ],
@@ -569,7 +569,7 @@ describe("Unified Official Content Studio Workspace — Comprehensive Test Matri
     await waitFor(() => {
       expect(screen.getByText("pharmacology_source.pdf")).toBeInTheDocument();
       expect(screen.getByText("استخراج‌شده و آماده")).toBeInTheDocument();
-      expect(screen.getByText(/95٪/i)).toBeInTheDocument();
+      expect(screen.getByText(/۹۵٪|95٪/i)).toBeInTheDocument();
     });
   });
 

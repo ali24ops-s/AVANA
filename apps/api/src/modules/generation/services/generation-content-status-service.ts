@@ -25,7 +25,7 @@ import type { GeneratedContentStore } from "../generation-store.js";
 import type { GenerationProgressService } from "../generation-progress-service.js";
 import type { FlashcardStore, QuizStore, QuizQuestionStore } from "../../study/study-store.js";
 import type { OrganizationStore } from "../../organizations/organization-store.js";
-import type { GenerationJobStore } from "../generation-jobs-store.js";
+import type { GenerationJobStore, GenerationJobRecord } from "../generation-jobs-store.js";
 import type { GenerationQueryService } from "./generation-query-service.js";
 
 export type DocumentContentStatusResource = {
@@ -33,6 +33,16 @@ export type DocumentContentStatusResource = {
   document_id: DocumentId;
   course_id: CourseId | null;
   requested_types?: GeneratedContentType[];
+  active_job_id?: string | null;
+  latest_job?: {
+    id: string;
+    status: string;
+    type: string;
+    error_message?: string | null;
+    started_at?: string | null;
+    created_at: string;
+    completed_at?: string | null;
+  } | null;
   lesson: { generated: boolean; count: number; accepted?: boolean };
   flashcards: { generated: boolean; count: number; accepted?: boolean };
   exam: { generated: boolean; count: number; accepted?: boolean };
@@ -286,6 +296,7 @@ export class GenerationContentStatusService {
 
     // 6. Resolve requested content types from latest generation job if available
     let requestedTypes: GeneratedContentType[] | undefined = undefined;
+    let latestJob: GenerationJobRecord | undefined = undefined;
     if (this.generationJobStore) {
       const jobs = await this.generationJobStore.listByDocument(
         documentId,
@@ -297,9 +308,15 @@ export class GenerationContentStatusService {
           (a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
         );
-        requestedTypes = normalizeRequestedContentTypes(activeJobs[0].type);
+        latestJob = activeJobs[0];
+        requestedTypes = normalizeRequestedContentTypes(latestJob.type);
       }
     }
+
+    const activeJobId =
+      latestJob && (latestJob.status === "queued" || latestJob.status === "running")
+        ? latestJob.id
+        : null;
 
     const progress = await this.queryService.getGenerationProgress(
       documentId,
@@ -365,6 +382,18 @@ export class GenerationContentStatusService {
       document_id: documentId,
       course_id: (courseId || doc.courseId || null) as CourseId | null,
       requested_types: requestedTypes,
+      active_job_id: activeJobId,
+      latest_job: latestJob
+        ? {
+            id: latestJob.id,
+            status: latestJob.status,
+            type: latestJob.type,
+            error_message: latestJob.errorMessage,
+            started_at: latestJob.startedAt,
+            created_at: latestJob.createdAt,
+            completed_at: latestJob.completedAt,
+          }
+        : null,
       lesson: {
         generated: lessonGenerated,
         count: totalLessonCount,

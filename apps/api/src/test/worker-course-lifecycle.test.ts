@@ -352,8 +352,12 @@ describe("Worker End-to-End Course Preparation & Authorization Isolation", () =>
       const updatedCourse = await courseStore.findById(course.id);
       expect(updatedCourse?.status).toBe("approved");
 
-      // 10. Archive course as Worker
-      const archiveRes = await officialContentService.archiveOfficialCourse(workerActor, course.id);
+      // 10. Verify Worker cannot archive course (requires admin), but platform_admin can
+      await expect(
+        officialContentService.archiveOfficialCourse(workerActor, course.id),
+      ).rejects.toThrow(DomainError);
+
+      const archiveRes = await officialContentService.archiveOfficialCourse(adminActor, course.id);
       expect(archiveRes.success).toBe(true);
       expect(archiveRes.course.status).toBe("archived");
     });

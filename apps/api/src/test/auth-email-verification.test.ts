@@ -337,5 +337,49 @@ describe("Email Verification System - Unit & API Integration", () => {
 
       await app.close();
     });
+
+    it("creates account without sending code when autoSendVerification is false", async () => {
+      const app = await createTestApp();
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/auth/register",
+        payload: {
+          email: "nosend@example.com",
+          password: "password123",
+          firstName: "بدون",
+          lastName: "ارسال",
+          phoneNumber: "09123456799",
+          autoSendVerification: false,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.user.email).toBe("nosend@example.com");
+      expect(body.user.emailVerified).toBe(false);
+
+      // Verify NO code was dispatched automatically
+      const sentCode = emailService.getLastCodeFor("nosend@example.com");
+      expect(sentCode).toBeUndefined();
+
+      // Session was issued
+      const token = extractSessionToken(res)!;
+      expect(token).toBeDefined();
+
+      // User can now explicitly choose channel and request code
+      const sendRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/verification/send",
+        cookies: { avana_session: token },
+        payload: { channel: "email" },
+      });
+      expect(sendRes.statusCode).toBe(200);
+
+      // Now code exists
+      const codeAfterExplicitSend = emailService.getLastCodeFor("nosend@example.com");
+      expect(codeAfterExplicitSend).toBeDefined();
+
+      await app.close();
+    });
   });
 });

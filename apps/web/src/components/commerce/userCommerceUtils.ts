@@ -203,7 +203,8 @@ export function getSubscriptionStatusBadge(status: string) {
     case "active_pending_payment_review":
       return {
         label: "فعال (در انتظار بررسی نهایی)",
-        className: "bg-indigo-500/15 text-indigo-300 border border-indigo-500/30",
+        className:
+          "bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60",
       };
     case "expired":
       return {
@@ -235,29 +236,34 @@ export function getUrgencyBadge(urgency: RemainingTimeInfo["urgency"]) {
   switch (urgency) {
     case "critical":
       return {
-        className: "bg-rose-500/15 text-rose-400 border-rose-500/30 animate-pulse",
-        dotClassName: "bg-rose-500",
+        className:
+          "bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 animate-pulse",
+        dotClassName: "bg-rose-500 dark:bg-rose-400",
       };
     case "serious":
       return {
-        className: "bg-orange-500/15 text-orange-400 border-orange-500/30",
-        dotClassName: "bg-orange-500",
+        className:
+          "bg-orange-50 dark:bg-orange-950/50 text-orange-800 dark:text-orange-300 border border-orange-200 dark:border-orange-800/60",
+        dotClassName: "bg-orange-500 dark:bg-orange-400",
       };
     case "warning":
       return {
-        className: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-        dotClassName: "bg-amber-400",
+        className:
+          "bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60",
+        dotClassName: "bg-amber-500 dark:bg-amber-400",
       };
     case "expired":
       return {
-        className: "bg-slate-700/50 text-slate-400 border-slate-600/50",
-        dotClassName: "bg-slate-500",
+        className:
+          "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700",
+        dotClassName: "bg-slate-500 dark:bg-slate-400",
       };
     case "normal":
     default:
       return {
-        className: "bg-teal-500/10 text-teal-300 border-teal-500/20",
-        dotClassName: "bg-teal-400",
+        className:
+          "bg-teal-50 dark:bg-teal-950/50 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-800/60",
+        dotClassName: "bg-teal-600 dark:bg-teal-400",
       };
   }
 }

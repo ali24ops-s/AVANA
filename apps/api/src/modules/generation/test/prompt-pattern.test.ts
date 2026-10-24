@@ -71,8 +71,8 @@ describe("buildQuizGenerationUserPrompt Pattern Compatibility", () => {
       pattern: mockPattern,
     });
 
-    expect(promptWithPattern).toContain("QUESTION PATTERN — STRUCTURAL & COGNITIVE GUIDANCE:");
-    expect(promptWithPattern).toContain("Pattern Title: \"الگوی سناریوی بالینی دو‌مرحله‌ای\"");
+    expect(promptWithPattern).toContain("QUESTION PATTERN — STRUCTURAL & COGNITIVE GUIDANCE");
+    expect(promptWithPattern).toContain("PATTERN 1: \"الگوی سناریوی بالینی دو‌مرحله‌ای\"");
     expect(promptWithPattern).toContain("Cognitive Level: analyze");
     expect(promptWithPattern).toContain("Target Skills: clinical_reasoning, scenario_analysis");
     expect(promptWithPattern).toContain("Structural Instructions:\nسؤال باید با یک سناریوی بالینی کوتاه آغاز شود");

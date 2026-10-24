@@ -60,10 +60,27 @@ export function RegisterPage() {
     [],
   );
 
+  const majorOptions = useMemo(
+    () =>
+      ACADEMIC_FIELDS.map((field) => ({
+        value: field.id,
+        label: field.label,
+      })),
+    [],
+  );
+
   useEffect(() => {
     const refFromUrl = searchParams.get("ref");
     if (refFromUrl && !referralCode) {
       setReferralCode(refFromUrl);
+    }
+    const emailFromUrl = searchParams.get("email");
+    if (emailFromUrl && !email) {
+      setEmail(emailFromUrl.trim());
+    }
+    const phoneFromUrl = searchParams.get("phone");
+    if (phoneFromUrl && !phoneNumber) {
+      setPhoneNumber(phoneFromUrl.trim());
     }
   }, [searchParams]);
 
@@ -160,13 +177,18 @@ export function RegisterPage() {
         normalizedUniv,
         normalizedFac,
         normalizedDept,
+        isTeacherContext ? "teacher" : undefined,
+        false, // autoSendVerification = false: user chooses verification channel before code is sent
       );
       trackSignUp("password");
       const verifyRedirect =
         safeRedirect !== "/home"
           ? `/verify-email?redirect=${encodeURIComponent(safeRedirect)}`
           : "/verify-email";
-      navigate(verifyRedirect, { replace: true });
+      navigate(verifyRedirect, {
+        replace: true,
+        state: { step: "select_channel" },
+      });
     } catch (err) {
       if (err instanceof ApiError) {
         const errorMsg =
@@ -421,29 +443,21 @@ export function RegisterPage() {
                       جهت شخصی‌سازی محتوا
                     </span>
                   </div>
-                  <div className="relative">
-                    <GraduationCap className="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
-                    <select
-                      id="major"
-                      value={major}
-                      onChange={(e) => setMajor(e.target.value)}
-                      required
-                      disabled={isSubmitting}
-                      className="w-full ps-10 pe-8 py-2 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-start text-xs sm:text-sm disabled:opacity-50 transition-all appearance-none cursor-pointer"
-                    >
-                      <option value="" disabled>
-                        رشته تحصیلی خود را انتخاب کنید...
-                      </option>
-                      {ACADEMIC_FIELDS.map((field) => (
-                        <option key={field.id} value={field.id}>
-                          {field.label}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="absolute end-3 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--color-text-muted)] text-[10px]">
-                      ▼
-                    </div>
-                  </div>
+                  <AvanaSelect
+                    id="major"
+                    dataTestId="major-select"
+                    options={majorOptions}
+                    value={major}
+                    onChange={(val) => {
+                      setMajor(typeof val === "string" ? val : "");
+                      if (error) setError(null);
+                    }}
+                    placeholder="رشته تحصیلی خود را انتخاب کنید..."
+                    searchPlaceholder="جستجو در رشته‌های تحصیلی..."
+                    isSearchable
+                    disabled={isSubmitting}
+                    icon={<GraduationCap className="w-4 h-4" />}
+                  />
                 </div>
               )}
 

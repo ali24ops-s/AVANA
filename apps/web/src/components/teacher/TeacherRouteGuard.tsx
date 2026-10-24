@@ -13,12 +13,12 @@
  */
 
 import { Link, useLocation, Navigate, Outlet } from "react-router-dom";
-import { GraduationCap, ShieldAlert, Clock, ArrowLeft, LogOut, ArrowRight } from "lucide-react";
+import { GraduationCap, Clock, ArrowLeft, LogOut } from "lucide-react";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { LoadingState } from "../ui/index.js";
 import { BrandLogo } from "../brand/BrandLogo.js";
 
-const TEACHER_ROLES = new Set(["teacher", "organization_admin", "platform_admin"]);
+const TEACHER_ROLES = new Set(["teacher", "platform_admin"]);
 
 export function isTeacherOrAdmin(
   role?: string | null,
@@ -62,6 +62,7 @@ export function TeacherRouteGuard({ children }: { children?: React.ReactNode } =
 
   // 3. Check for genuine pending application status (if present on user object)
   const isApplicationPending =
+    user?.teacherStatus === "pending" ||
     (user as { teacherApplicationStatus?: string }).teacherApplicationStatus === "pending";
 
   if (isApplicationPending) {

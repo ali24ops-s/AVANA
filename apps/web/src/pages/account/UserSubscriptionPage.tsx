@@ -10,8 +10,8 @@
  * - Quick navigation to purchases history (/account/purchases) & full pricing (/pricing)
  */
 
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Crown,
   Sparkles,
@@ -25,8 +25,15 @@ import {
   Loader2,
   ShieldCheck,
   Wallet,
+  WalletCards,
 } from "lucide-react";
-import { useMySubscription, useCommerceProducts } from "../../hooks/useCommerce.js";
+import {
+  useMySubscription,
+  useCommerceProducts,
+  useMyOrders,
+  useMyEntitlements,
+} from "../../hooks/useCommerce.js";
+import { useMyWallet } from "../../hooks/useWallet.js";
 import {
   calculateRemainingTime,
   calculateSubscriptionProgress,
@@ -35,12 +42,101 @@ import {
   getSubscriptionStatusBadge,
 } from "../../components/commerce/userCommerceUtils.js";
 import { PricingModal } from "../../components/commerce/PricingModal.js";
-import { Button, PageHeader } from "../../components/ui/index.js";
+import { Button, PageHeader, Skeleton } from "../../components/ui/index.js";
+import { UserWalletPage } from "./UserWalletPage.js";
+import { UserPurchasesPage } from "./UserPurchasesPage.js";
 
-export function UserSubscriptionPage() {
-  const { data: subData, isLoading: isSubLoading, refetch: refetchSub } = useMySubscription();
+export type FinanceTabKey = "subscription" | "wallet" | "purchases";
+
+const VALID_TABS: Record<string, FinanceTabKey> = {
+  subscription: "subscription",
+  wallet: "wallet",
+  purchases: "purchases",
+  orders: "purchases",
+  invoices: "purchases",
+};
+
+export interface UserSubscriptionPageProps {
+  initialTab?: FinanceTabKey;
+}
+
+export function UserSubscriptionPage(props: UserSubscriptionPageProps = {}) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawTab = searchParams.get("tab");
+
+  const activeTab: FinanceTabKey =
+    rawTab && VALID_TABS[rawTab]
+      ? VALID_TABS[rawTab]
+      : (props.initialTab ?? "subscription");
+
+  // Sanitize invalid query parameter if present
+  useEffect(() => {
+    if (rawTab && !VALID_TABS[rawTab]) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("tab");
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [rawTab, setSearchParams]);
+
+  const handleTabChange = (newTab: FinanceTabKey) => {
+    if (newTab === activeTab) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (newTab === "subscription") {
+          next.set("tab", "subscription");
+        } else {
+          next.set("tab", newTab);
+        }
+        return next;
+      },
+      { replace: false },
+    );
+  };
+
+  const {
+    data: subData,
+    isLoading: isSubLoading,
+    refetch: refetchSub,
+  } = useMySubscription();
+
   const { data: productsData } = useCommerceProducts();
+
+  const {
+    data: walletData,
+    isLoading: isWalletLoading,
+    refetch: refetchWallet,
+  } = useMyWallet();
+
+  const {
+    data: ordersData,
+    isLoading: isOrdersLoading,
+    refetch: refetchOrders,
+  } = useMyOrders();
+
+  const {
+    data: entitlementsData,
+    isLoading: isEntLoading,
+    refetch: refetchEnt,
+  } = useMyEntitlements();
+
   const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
+  const [isWalletTopupOpen, setIsWalletTopupOpen] = useState(false);
+
+  const isRefreshing =
+    isSubLoading || isWalletLoading || isOrdersLoading || isEntLoading;
+
+  const handleRefreshAll = () => {
+    void refetchSub();
+    void refetchWallet();
+    void refetchOrders();
+    void refetchEnt();
+  };
 
   const subscription = subData?.subscription;
   const products = productsData?.items ?? [];
@@ -66,6 +162,15 @@ export function UserSubscriptionPage() {
       subscription?.status === "active_pending_payment_review") &&
       remainingInfo.isExpired);
 
+  const walletBalance = walletData?.balance ?? 0;
+  const orders = ordersData?.items ?? [];
+  const entitlements = entitlementsData?.items ?? [];
+  const totalPermanentCount = entitlements.filter(
+    (e) =>
+      (e.resource_type === "course" || e.resource_type === "content_pack") &&
+      e.resource_id,
+  ).length;
+
   const features = [
     "دسترسی کامل و نامحدود به متن تمام درسنامه‌ها",
     "مرور هوشمند و بدون محدودیت فلش‌کارت‌ها با الگوریتم FSRS",
@@ -75,54 +180,286 @@ export function UserSubscriptionPage() {
   ];
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8" dir="rtl">
+    <div
+      className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8"
+      dir="rtl"
+    >
       {/* 1. Header Banner */}
       <PageHeader
-        title="اشتراک من"
+        title="اشتراک و امور مالی"
         badge={{
-          text: "مدیریت اشتراک و تعرفه‌ها",
-          icon: <Crown className="w-3.5 h-3.5 shrink-0" />,
+          text: "مرکز یکپارچه حساب کاربری",
+          icon: <WalletCards className="w-3.5 h-3.5 shrink-0" />,
         }}
-        description="مشاهده وضعیت اشتراک فعال، مدت زمان باقیمانده و تمدید یا ارتقای پلن آموزشی"
+        description="مدیریت یکپارچه اشتراک، موجودی کیف پول و سوابق سفارش‌ها و فاکتورها"
         actions={
-          <>
-            <Link
-              to="/account/wallet"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs whitespace-nowrap shrink-0"
-            >
-              <Wallet className="w-4 h-4 text-primary" />
-              <span>کیف پول من</span>
-            </Link>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleRefreshAll}
+            title="بروزرسانی اطلاعات"
+            aria-label="بروزرسانی اطلاعات"
+            leftIcon={
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`}
+              />
+            }
+            className="!p-2.5 !h-auto shadow-xs"
+          />
+        }
+      />
 
-            <Link
-              to="/account/purchases"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs whitespace-nowrap shrink-0"
-            >
-              <Receipt className="w-4 h-4 text-primary" />
-              <span>فاکتورها و خریدهای من</span>
-            </Link>
+      {/* 2. Top Summary Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Card 1: Subscription Summary */}
+        <div className="p-5 rounded-3xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xs flex flex-col justify-between space-y-4">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-[var(--color-text-muted)] flex items-center gap-1.5">
+                <Crown className="w-4 h-4 text-amber-500" />
+                <span>وضعیت اشتراک</span>
+              </span>
+              {!isSubLoading && (
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                    isActive
+                      ? statusBadge.className
+                      : isExpired
+                      ? "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900"
+                      : "bg-slate-100 dark:bg-slate-800 text-[var(--color-text-muted)] border border-[var(--color-border)]"
+                  }`}
+                >
+                  {isActive
+                    ? statusBadge.label
+                    : isExpired
+                    ? "منقضی شده"
+                    : "بدون اشتراک"}
+                </span>
+              )}
+            </div>
 
+            {isSubLoading ? (
+              <div className="space-y-2 py-1">
+                <Skeleton width={140} height={20} />
+                <Skeleton width={180} height={14} />
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-[var(--color-text)] truncate">
+                  {isActive
+                    ? currentProduct?.title || "اشتراک ویژه آوانا پلاس"
+                    : isExpired
+                    ? "اشتراک شما منقضی شده است"
+                    : "شما اشتراک فعال ندارید"}
+                </h3>
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  {isActive && subscription?.expires_at ? (
+                    <>
+                      <span>اعتبار تا: {formatPersianDate(subscription.expires_at)}</span>{" "}
+                      <span className="font-semibold text-teal-800 dark:text-teal-200">({remainingInfo.text})</span>
+                    </>
+                  ) : isExpired && subscription?.expires_at ? (
+                    `تاریخ انقضا: ${formatPersianDate(subscription.expires_at)}`
+                  ) : (
+                    "با آوانا پلاس به تمام دوره‌ها و آزمون‌ها دسترسی پیدا کنید"
+                  )}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="pt-2 border-t border-[var(--color-border)] flex items-center justify-between gap-2">
+            <Button
+              type="button"
+              variant={isActive ? "outline" : "primary"}
+              size="sm"
+              onClick={() => setIsPricingModalOpen(true)}
+              leftIcon={
+                <Zap className="w-3.5 h-3.5 text-amber-500 fill-current" />
+              }
+              className="w-full justify-center text-xs"
+            >
+              {isActive ? "تمدید یا ارتقای اشتراک" : "خرید اشتراک آوانا پلاس"}
+            </Button>
+          </div>
+        </div>
+
+        {/* Card 2: Wallet Summary */}
+        <div className="p-5 rounded-3xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xs flex flex-col justify-between space-y-4">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-[var(--color-text-muted)] flex items-center gap-1.5">
+                <Wallet className="w-4 h-4 text-primary" />
+                <span>موجودی کیف پول</span>
+              </span>
+              <span className="text-[11px] font-semibold text-[var(--color-text-muted)]">
+                اعتبار هوشمند
+              </span>
+            </div>
+
+            {isWalletLoading ? (
+              <div className="space-y-2 py-1">
+                <Skeleton width={120} height={24} />
+                <Skeleton width={160} height={14} />
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-extrabold text-[var(--color-text)] font-mono">
+                    {walletBalance.toLocaleString("fa-IR")}
+                  </span>
+                  <span className="text-xs font-bold text-primary">تومان</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="pt-2 border-t border-[var(--color-border)] flex items-center justify-between gap-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => void refetchSub()}
-              title="بروزرسانی وضعیت"
-              aria-label="بروزرسانی وضعیت"
-              leftIcon={<RefreshCw className="w-3.5 h-3.5" />}
-              className="!p-2.5 !h-auto shadow-xs"
-            />
-          </>
-        }
-      />
-
-      {/* Loading State */}
-      {isSubLoading && (
-        <div className="py-20 flex flex-col items-center justify-center text-[var(--color-text-muted)] gap-3 bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] shadow-xs">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-          <span className="text-xs font-medium">در حال دریافت وضعیت اشتراک کاربر...</span>
+              onClick={() => {
+                handleTabChange("wallet");
+                setIsWalletTopupOpen(true);
+              }}
+              leftIcon={<Wallet className="w-3.5 h-3.5 text-primary" />}
+              className="w-full justify-center text-xs"
+            >
+              شارژ و افزایش موجودی
+            </Button>
+          </div>
         </div>
-      )}
+
+        {/* Card 3: Purchases & Invoices Summary */}
+        <div className="p-5 rounded-3xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xs flex flex-col justify-between space-y-4">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-[var(--color-text-muted)] flex items-center gap-1.5">
+                <Receipt className="w-4 h-4 text-primary" />
+                <span>فاکتورها و خریدها</span>
+              </span>
+              <span className="text-[11px] font-semibold text-[var(--color-text-muted)]">
+                سوابق مالی
+              </span>
+            </div>
+
+            {isOrdersLoading || isEntLoading ? (
+              <div className="space-y-2 py-1">
+                <Skeleton width={130} height={20} />
+                <Skeleton width={170} height={14} />
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-[var(--color-text)]">
+                  {orders.length.toLocaleString("fa-IR")} سفارش ثبت‌شده
+                </h3>
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  {totalPermanentCount > 0
+                    ? `${totalPermanentCount.toLocaleString("fa-IR")} دوره و بسته مادام‌العمر فعال`
+                    : "مشاهده تمام فاکتورها و صورت‌حساب‌های پرداخت"}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="pt-2 border-t border-[var(--color-border)] flex items-center justify-between gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => handleTabChange("purchases")}
+              leftIcon={<Receipt className="w-3.5 h-3.5 text-primary" />}
+              className="w-full justify-center text-xs"
+            >
+              مشاهده سوابق و فاکتورها
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Internal Tabs Navigation Bar */}
+      <div className="flex items-center gap-2 border-b border-[var(--color-border)] pb-4 overflow-x-auto no-scrollbar">
+        <button
+          type="button"
+          onClick={() => handleTabChange("subscription")}
+          className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all shrink-0 cursor-pointer ${
+            activeTab === "subscription"
+              ? "bg-primary text-white shadow-md shadow-primary/20"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)]"
+          }`}
+        >
+          <Crown className="w-4 h-4" />
+          <span>اشتراک</span>
+          {isActive && (
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleTabChange("wallet")}
+          className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all shrink-0 cursor-pointer ${
+            activeTab === "wallet"
+              ? "bg-primary text-white shadow-md shadow-primary/20"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)]"
+          }`}
+        >
+          <Wallet className="w-4 h-4" />
+          <span>کیف پول</span>
+          {walletBalance > 0 && (
+            <span
+              className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                activeTab === "wallet"
+                  ? "bg-white/20 text-white"
+                  : "bg-teal-500/10 text-primary"
+              }`}
+            >
+              {walletBalance.toLocaleString("fa-IR")}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleTabChange("purchases")}
+          className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all shrink-0 cursor-pointer ${
+            activeTab === "purchases"
+              ? "bg-primary text-white shadow-md shadow-primary/20"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)]"
+          }`}
+        >
+          <Receipt className="w-4 h-4" />
+          <span>فاکتورها و خریدها</span>
+          {orders.length > 0 && (
+            <span
+              className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                activeTab === "purchases"
+                  ? "bg-white/20 text-white"
+                  : "bg-slate-200 dark:bg-slate-800 text-[var(--color-text-secondary)]"
+              }`}
+            >
+              {orders.length.toLocaleString("fa-IR")}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* 4. Tab Contents */}
+
+      {/* TAB 1: Subscription */}
+      {activeTab === "subscription" && (
+        <div className="space-y-8">
+          {/* Loading State */}
+          {isSubLoading && (
+            <div className="py-20 flex flex-col items-center justify-center text-[var(--color-text-muted)] gap-3 bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] shadow-xs">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <span className="text-xs font-medium">
+                در حال دریافت وضعیت اشتراک کاربر...
+              </span>
+            </div>
+          )}
 
       {/* 2. Active Subscription Card */}
       {!isSubLoading && isActive && (
@@ -360,12 +697,26 @@ export function UserSubscriptionPage() {
           ))}
         </div>
       </div>
-
-      {/* Pricing Modal */}
-      <PricingModal
-        isOpen={isPricingModalOpen}
-        onClose={() => setIsPricingModalOpen(false)}
-      />
     </div>
-  );
+  )}
+
+  {/* TAB 2: Wallet */}
+  {activeTab === "wallet" && (
+    <UserWalletPage
+      isEmbedded
+      isTopupModalOpen={isWalletTopupOpen}
+      onTopupModalChange={setIsWalletTopupOpen}
+    />
+  )}
+
+  {/* TAB 3: Purchases & Orders */}
+  {activeTab === "purchases" && <UserPurchasesPage isEmbedded />}
+
+  {/* Pricing Modal */}
+  <PricingModal
+    isOpen={isPricingModalOpen}
+    onClose={() => setIsPricingModalOpen(false)}
+  />
+</div>
+);
 }

@@ -87,10 +87,11 @@ describe("Teacher Platform - TeacherRouteGuard & Role Authorization", () => {
 
   it("identifies teacher and admin roles accurately via isTeacherOrAdmin", () => {
     expect(isTeacherOrAdmin("teacher")).toBe(true);
-    expect(isTeacherOrAdmin("organization_admin")).toBe(true);
+    expect(isTeacherOrAdmin("organization_admin")).toBe(false);
     expect(isTeacherOrAdmin("platform_admin")).toBe(true);
     expect(isTeacherOrAdmin("student")).toBe(false);
     expect(isTeacherOrAdmin(null, [{ role: "teacher" }])).toBe(true);
+    expect(isTeacherOrAdmin(null, [{ role: "organization_admin" }])).toBe(false);
     expect(isTeacherOrAdmin(null, [{ role: "student" }])).toBe(false);
     expect(isTeacherOrAdmin(undefined, [])).toBe(false);
   });
@@ -591,10 +592,11 @@ describe("Teacher Platform - Organization Context & Switcher Specification", () 
     // isTeacherOrAdmin authorization helper
     expect(isTeacherOrAdmin("platform_admin")).toBe(true);
     expect(isTeacherOrAdmin("teacher")).toBe(true);
-    expect(isTeacherOrAdmin("organization_admin")).toBe(true);
+    expect(isTeacherOrAdmin("organization_admin")).toBe(false);
     expect(isTeacherOrAdmin("student")).toBe(false);
     expect(isTeacherOrAdmin("content_worker")).toBe(false);
     expect(isTeacherOrAdmin(null, [{ role: "student" }])).toBe(false);
+    expect(isTeacherOrAdmin(null, [{ role: "organization_admin" }])).toBe(false);
     expect(isTeacherOrAdmin(null, [{ role: "teacher" }])).toBe(true);
   });
 

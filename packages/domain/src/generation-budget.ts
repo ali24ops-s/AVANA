@@ -438,13 +438,17 @@ export interface ReviewSummaryConfig {
   maxSections: number;
 }
 
+export type ReviewSummaryBudgetInput = Partial<GenerationBudgetInput> & {
+  sessionCount?: number;
+};
+
 /**
  * Calculates adaptive Review Summary budget targeting a 10–15 minute reading experience.
  *
  * Grounded in academic Persian reading speed (~150-180 wpm) and document complexity.
  */
 export function getReviewSummaryConfig(
-  input?: Partial<GenerationBudgetInput>,
+  input?: ReviewSummaryBudgetInput,
 ): ReviewSummaryConfig {
   const wordsPerMinute = 120; // Adjusted for dense, bulleted, high-yield academic Persian
 
@@ -456,34 +460,44 @@ export function getReviewSummaryConfig(
   let targetWordBudget = 1200;
   let minWordBudget = 1000;
   let maxWordBudget = 1500;
-  let maxSections = 6;
+  let baseMaxSections = 6;
 
   if (sizeCategory === "very_small" || chunkCount <= 2) {
     targetWordBudget = 600;
     minWordBudget = 400;
     maxWordBudget = 800;
-    maxSections = 3;
+    baseMaxSections = 3;
   } else if (sizeCategory === "small" || chunkCount <= 5) {
     targetWordBudget = 850;
     minWordBudget = 700;
     maxWordBudget = 1000;
-    maxSections = 4;
+    baseMaxSections = 4;
   } else if (sizeCategory === "medium") {
     targetWordBudget = 1250;
     minWordBudget = 1000;
     maxWordBudget = 1500;
-    maxSections = 6;
+    baseMaxSections = 6;
   } else if (sizeCategory === "large") {
     targetWordBudget = 1600;
     minWordBudget = 1400;
     maxWordBudget = 1800;
-    maxSections = 8;
+    baseMaxSections = 8;
   } else {
     // very_large
     targetWordBudget = 2000;
     minWordBudget = 1700;
     maxWordBudget = 2400;
-    maxSections = 10;
+    baseMaxSections = 10;
+  }
+
+  // Balanced session-aware section budgeting:
+  // If sessionCount is provided, adapt maxSections gracefully without exceeding the hard cap of 10.
+  // Formula: recommendedSections = min(10, max(baseMaxSections, ceil(sessionCount * 0.75)))
+  const sessionCount = input?.sessionCount;
+  let maxSections = baseMaxSections;
+  if (typeof sessionCount === "number" && sessionCount > 0) {
+    const sessionDerived = Math.ceil(sessionCount * 0.75);
+    maxSections = Math.min(10, Math.max(baseMaxSections, sessionDerived));
   }
 
   // Calculate estimated reading times based on the adaptive word budgets

@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Clock,
@@ -11,9 +10,6 @@ import {
   RefreshCw,
   Loader2,
   Bookmark,
-  Hash,
-  Scale,
-  BrainCircuit,
   GraduationCap,
   Lock,
 } from "lucide-react";
@@ -24,11 +20,53 @@ import { useAuth } from "../../providers/AuthProvider.js";
 import { canManageCourseContent } from "../../utils/coursePermissions.js";
 import {
   type ReviewSummaryPayload,
-  flattenReviewSummarySections,
+  type ReviewSummaryComparison,
   cleanEducationalTitle,
   toPersianDigits,
 } from "@avana/domain";
 import { RichContent } from "../markdown/MarkdownRenderer.js";
+
+function renderInlineLabeledItem(
+  label: string,
+  content: string,
+  labelClassName: string,
+) {
+  const trimmed = content.trim();
+  const cleanLabel = label.replace(":", "").trim();
+  const startsWithLabel =
+    trimmed.startsWith(label) ||
+    trimmed.startsWith(cleanLabel) ||
+    (cleanLabel === "نکته آزمونی" &&
+      (trimmed.startsWith("نکته تست") || trimmed.startsWith("تست:"))) ||
+    (cleanLabel === "نکته حفظی" &&
+      (trimmed.startsWith("حفظی:") ||
+        trimmed.startsWith("نکته:") ||
+        trimmed.startsWith("کنترااندیکاسیون"))) ||
+    (cleanLabel === "طبقه‌بندی" && trimmed.startsWith("دسته")) ||
+    (cleanLabel === "اشتباه رایج" &&
+      (trimmed.startsWith("اشتباه:") || trimmed.startsWith("سوءبرداشت:"))) ||
+    (cleanLabel === "کاربرد بالینی" &&
+      (trimmed.startsWith("کاربرد:") || trimmed.startsWith("اندیکاسیون:")));
+
+  if (trimmed.includes("|") && trimmed.includes("\n")) {
+    return (
+      <div className="w-full my-2 overflow-x-auto">
+        <RichContent content={trimmed} compactTables />
+      </div>
+    );
+  }
+
+  if (startsWithLabel) {
+    return <RichContent inline content={trimmed} />;
+  }
+
+  return (
+    <>
+      <span className={`font-bold ${labelClassName}`}>{label} </span>
+      <RichContent inline content={trimmed} />
+    </>
+  );
+}
 
 export interface ReviewSummaryViewerProps {
   organizationId: string;
@@ -80,11 +118,6 @@ export function ReviewSummaryViewer({
 
   const content = reviewSummaryQuery.data?.content;
   const payload = content?.payload as unknown as ReviewSummaryPayload | undefined;
-
-  const categories = useMemo(
-    () => flattenReviewSummarySections(payload?.sections),
-    [payload?.sections],
-  );
 
   const isGenerating = generateMutation.isPending || content?.status === "regenerating";
   const isLoading = reviewSummaryQuery.isLoading;
@@ -239,18 +272,30 @@ export function ReviewSummaryViewer({
   // 5. Completed / Render state
   const estimatedMins = payload.estimatedReadingMinutes || 12;
 
-  const hasKeyPoints = categories.keyPoints.length > 0;
-  const hasMechanisms = categories.mechanisms.length > 0;
-  const hasClassifications = categories.classifications.length > 0;
-  const hasComparisons = categories.comparisons.length > 0;
-  const hasMemorization = categories.memorizationPoints.length > 0;
-  const hasExamPoints = categories.examPoints.length > 0;
+  // Aggregate all exam points across sections into the consolidated golden exam points section
+  const allExamPoints: string[] = [];
+  payload.sections.forEach((section) => {
+    if (Array.isArray(section.examPoints)) {
+      section.examPoints.forEach((ep) => {
+        if (typeof ep === "string" && ep.trim().length > 0) {
+          allExamPoints.push(ep.trim());
+        }
+      });
+    }
+  });
 
   return (
     <div className="space-y-6 font-sans" dir="rtl">
-      {/* Top Header Card */}
-      <Card className="p-6 sm:p-8 relative overflow-hidden shadow-xs">
-        <div className="space-y-4">
+      {/* ========================================================================= */}
+      {/* Unified Educational Document (Single Booklet Container)                   */}
+      {/* Replaces disjoint cards with a cohesive, continuous reading experience    */}
+      {/* ========================================================================= */}
+      <article
+        data-testid="review-summary-document"
+        className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-6 sm:p-10 shadow-xs space-y-8 text-[var(--color-text)] transition-all"
+      >
+        {/* Document Header */}
+        <header className="space-y-4 pb-6 sm:pb-8 border-b border-[var(--color-border)]">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="primary" size="md" icon={<Zap className="w-3.5 h-3.5" />}>
@@ -280,252 +325,311 @@ export function ReviewSummaryViewer({
             )}
           </div>
 
-          <div>
-            <h1 className="text-xl sm:text-2xl font-black text-[var(--color-text)] tracking-tight">
+          <div className="space-y-1.5">
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-[var(--color-text)] tracking-tight leading-snug">
               {cleanEducationalTitle(payload.title, cleanEducationalTitle(documentTitle, "خلاصه جامع و مروری مبحث"))}
             </h1>
-            <p className="text-xs text-[var(--color-text-muted)] mt-1">
+            <p className="text-xs sm:text-sm text-[var(--color-text-muted)]">
               برگه مرور یکپارچه (Review Sheet) جهت یادآوری سریع و فعال‌سازی اطلاعات کلیدی
             </p>
           </div>
-        </div>
-      </Card>
 
-      {/* 1-Minute Quick Overview Box */}
-      {payload.overview && (
-        <Card className="p-5 sm:p-6 bg-[var(--color-primary-soft)]/50 border-[var(--color-primary-muted)] shadow-xs">
-          <div className="flex items-center gap-2 mb-2 text-[var(--color-primary)]">
-            <Sparkles className="w-4 h-4" />
-            <h2 className="text-xs sm:text-sm font-black uppercase tracking-wider">
-              خلاصه یک‌دقیقه‌ای (Quick Core Overview)
-            </h2>
-          </div>
-          <div className="text-xs sm:text-sm text-[var(--color-text)] leading-relaxed font-medium">
-            <RichContent content={payload.overview} />
-          </div>
-        </Card>
-      )}
-
-      {/* ========================================================================= */}
-      {/* Category-First Review Sheet Boxes                                         */}
-      {/* Each category rendered at most ONCE, omitted if empty                     */}
-      {/* ========================================================================= */}
-      <div className="space-y-6">
-        {/* Category 1: Key Points & Core Concepts */}
-        {hasKeyPoints && (
-          <Card className="p-6 sm:p-7 space-y-4 shadow-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--color-border)]">
-              <h3 className="text-base sm:text-lg font-black text-[var(--color-text)] flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-button bg-[var(--color-primary-soft)] text-[var(--color-primary)] flex items-center justify-center">
-                  <CheckCircle2 className="w-4 h-4" />
-                </div>
-                <span>نکات کلیدی و مفاهیم اصلی</span>
-              </h3>
-              <Badge variant="neutral" size="sm">
-                {toPersianDigits(categories.keyPoints.length)} نکته
-              </Badge>
-            </div>
-            <ul className="space-y-3 ps-1">
-              {categories.keyPoints.map((pt, pIdx) => (
-                <li key={pIdx} className="flex items-start gap-3 text-xs sm:text-sm text-[var(--color-text)]">
-                  <span className="w-2 h-2 rounded-full bg-[var(--color-primary)] shrink-0 mt-2 shadow-xs" />
-                  <span className="leading-relaxed font-medium flex-1">
-                    <RichContent inline content={pt} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
-
-        {/* Category 2 & 3: Mechanisms & Classifications Grid */}
-        {(hasMechanisms || hasClassifications) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Category 2: Mechanisms */}
-            {hasMechanisms && (
-              <Card className="p-6 space-y-4 shadow-xs">
-                <div className="flex items-center justify-between pb-3 border-b border-[var(--color-border)]">
-                  <h3 className="text-sm sm:text-base font-black text-[var(--color-text)] flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-sm bg-[var(--color-secondary-soft)] dark:bg-[var(--color-secondary-dark)]/30 text-[var(--color-secondary-dark)] dark:text-[var(--color-secondary-blue)] flex items-center justify-center">
-                      <BrainCircuit className="w-3.5 h-3.5" />
-                    </div>
-                    <span>مکانیسم‌های سلولی / مولکولی</span>
-                  </h3>
-                  <Badge variant="secondary" size="sm">
-                    {toPersianDigits(categories.mechanisms.length)} مکانیسم
-                  </Badge>
-                </div>
-                <ul className="space-y-2.5 text-xs sm:text-sm text-[var(--color-text)] ps-1">
-                  {categories.mechanisms.map((m, mIdx) => (
-                    <li key={mIdx} className="flex items-start gap-2.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-secondary-dark)] dark:bg-[var(--color-secondary-blue)] shrink-0 mt-1.5" />
-                      <span className="leading-relaxed flex-1">
-                        <RichContent inline content={m} />
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-            )}
-
-            {/* Category 3: Classifications */}
-            {hasClassifications && (
-              <Card className="p-6 space-y-4 shadow-xs">
-                <div className="flex items-center justify-between pb-3 border-b border-[var(--color-border)]">
-                  <h3 className="text-sm sm:text-base font-black text-[var(--color-text)] flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-sm bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] flex items-center justify-center">
-                      <Hash className="w-3.5 h-3.5" />
-                    </div>
-                    <span>دسته‌بندی و طبقه‌بندی ساختاری</span>
-                  </h3>
-                  <Badge variant="neutral" size="sm">
-                    {toPersianDigits(categories.classifications.length)} دسته
-                  </Badge>
-                </div>
-                <ul className="space-y-2.5 text-xs sm:text-sm text-[var(--color-text)] ps-1">
-                  {categories.classifications.map((c, cIdx) => (
-                    <li key={cIdx} className="flex items-start gap-2.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] shrink-0 mt-1.5" />
-                      <span className="leading-relaxed flex-1">
-                        <RichContent inline content={c} />
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-            )}
-          </div>
-        )}
-
-        {/* Category 4: Comparisons / Key Distinctions (Single Unified Box for ALL Comparisons) */}
-        {hasComparisons && (
-          <Card className="p-6 sm:p-7 space-y-4 shadow-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--color-border)]">
-              <h3 className="text-base sm:text-lg font-black text-[var(--color-text)] flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-button bg-[var(--color-primary-soft)] text-[var(--color-primary)] flex items-center justify-center">
-                  <Scale className="w-4 h-4" />
-                </div>
-                <span>مقایسه‌ها و تفاوت‌های کلیدی (Key Distinctions)</span>
-              </h3>
-              <Badge variant="primary" size="sm">
-                {toPersianDigits(categories.comparisons.length)} مورد مقایسه
-              </Badge>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-              {categories.comparisons.map((comp, compIdx) => {
-                if (typeof comp === "string") {
-                  return (
-                    <div
-                      key={compIdx}
-                      className="p-3.5 rounded-button bg-[var(--color-surface-warm)] text-xs text-[var(--color-text)] leading-relaxed font-medium border border-[var(--color-border)]"
-                    >
-                      <RichContent inline content={comp} />
-                    </div>
-                  );
-                }
-                return (
-                  <div
-                    key={compIdx}
-                    className="p-4 rounded-button bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs space-y-1.5"
-                  >
-                    <div className="flex items-center gap-2 font-bold text-[var(--color-text)] text-xs sm:text-sm">
-                      <RichContent inline content={comp.conceptA} />
-                      <span className="text-[var(--color-primary-dark)] dark:text-[var(--color-primary-light)] font-black px-1.5 py-0.5 rounded-sm bg-[var(--color-primary-soft)] text-[11px]">
-                        vs
-                      </span>
-                      <RichContent inline content={comp.conceptB} />
-                    </div>
-                    <div className="text-[var(--color-text-muted)] leading-relaxed font-medium">
-                      <span className="font-bold text-[var(--color-text)]">وجه تمایز: </span>
-                      <RichContent inline content={comp.keyDifferences} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-        )}
-
-        {/* Category 5: Numbers, Dosages & Memorization Highlights */}
-        {hasMemorization && (
-          <Card className="p-6 sm:p-7 space-y-4 shadow-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--color-border)]">
-              <h3 className="text-base sm:text-lg font-black text-[var(--color-text)] flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-button bg-[var(--color-warning-soft)] dark:bg-amber-950/40 text-[var(--color-warning)] dark:text-amber-300 flex items-center justify-center">
-                  <Zap className="w-4 h-4" />
-                </div>
-                <span>نکات حفظی و اعداد مهم</span>
-              </h3>
-              <Badge variant="warning" size="sm">
-                {toPersianDigits(categories.memorizationPoints.length)} نکته حفظی
-              </Badge>
-            </div>
-
-            <ul className="space-y-2.5 text-xs sm:text-sm text-[var(--color-text)] ps-1">
-              {categories.memorizationPoints.map((mem, memIdx) => (
-                <li key={memIdx} className="flex items-start gap-2.5">
-                  <span className="w-2 h-2 rounded-full bg-[var(--color-warning)] shrink-0 mt-1.5" />
-                  <span className="leading-relaxed font-semibold flex-1">
-                    <RichContent inline content={mem} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
-
-        {/* Category 6: High-Yield Exam Points */}
-        {hasExamPoints && (
-          <Card className="p-6 sm:p-7 space-y-4 shadow-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--color-border)]">
-              <h3 className="text-base sm:text-lg font-black text-[var(--color-text)] flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-button bg-[var(--color-error-soft)] dark:bg-red-950/40 text-[var(--color-error)] dark:text-red-300 flex items-center justify-center">
-                  <GraduationCap className="w-4 h-4" />
-                </div>
-                <span>نکات مهم و پرتکرار آزمونی</span>
-              </h3>
-              <Badge variant="error" size="sm">
-                {toPersianDigits(categories.examPoints.length)} نکته تست‌خیز
-              </Badge>
-            </div>
-            <ul className="space-y-2.5 text-xs sm:text-sm text-[var(--color-text)] ps-1">
-              {categories.examPoints.map((ex, exIdx) => (
-                <li key={exIdx} className="flex items-start gap-2.5">
-                  <span className="w-2 h-2 rounded-full bg-[var(--color-error)] shrink-0 mt-1.5" />
-                  <span className="leading-relaxed font-bold flex-1">
-                    <RichContent inline content={ex} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
-      </div>
-
-      {/* Final Takeaways Box */}
-      {payload.finalTakeaways && payload.finalTakeaways.length > 0 && (
-        <Card className="p-6 bg-[var(--color-primary-soft)]/30 border-[var(--color-primary-muted)]/50 shadow-xs space-y-3">
-          <div className="flex items-center gap-2 text-[var(--color-primary)]">
-            <Bookmark className="w-4 h-4" />
-            <h2 className="text-sm font-black uppercase tracking-wider">
-              جمع‌بندی نهایی و نکات کلیدی (Final Takeaways)
-            </h2>
-          </div>
-          <ul className="space-y-2 text-xs sm:text-sm text-[var(--color-text)]">
-            {payload.finalTakeaways.map((takeaway, tIdx) => (
-              <li key={tIdx} className="flex items-start gap-2.5">
-                <CheckCircle2 className="w-4 h-4 text-[var(--color-primary)] shrink-0 mt-0.5" />
-                <span className="leading-relaxed font-medium flex-1">
-                  <RichContent inline content={takeaway} />
+          {/* Integrated 1-Minute Quick Overview (Part of the main document flow) */}
+          {payload.overview && (
+            <div className="p-4 sm:p-5 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs sm:text-sm leading-relaxed mt-4">
+              <div className="flex items-center gap-2 mb-2 text-[var(--color-primary)] font-black">
+                <Sparkles className="w-4 h-4 shrink-0" />
+                <span className="text-xs sm:text-sm font-bold uppercase tracking-wider">
+                  خلاصه یک‌دقیقه‌ای (Quick Core Overview)
                 </span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
+              </div>
+              <div className="text-[var(--color-text)] font-medium">
+                <RichContent content={payload.overview} />
+              </div>
+            </div>
+          )}
+        </header>
 
-      {/* Bottom Study Transition Action Banner */}
+        {/* ========================================================================= */}
+        {/* Main Body: Topic Sections in a Continuous, Non-Card Flow                 */}
+        {/* ========================================================================= */}
+        <div className="divide-y divide-[var(--color-border,#E2E7EA)]">
+          {payload.sections.map((section, sIdx) => {
+            const isLastSection = sIdx === payload.sections.length - 1;
+            const keyPoints = Array.isArray(section.keyPoints)
+              ? section.keyPoints.filter((kp) => typeof kp === "string" && kp.trim().length > 0)
+              : [];
+            const mechanisms = Array.isArray(section.mechanisms)
+              ? section.mechanisms.filter((m) => typeof m === "string" && m.trim().length > 0)
+              : [];
+            const classifications = Array.isArray(section.classifications)
+              ? section.classifications.filter((c) => typeof c === "string" && c.trim().length > 0)
+              : [];
+            const rawComparisons = Array.isArray(section.comparisons) ? section.comparisons : [];
+            const stringComparisons = rawComparisons.filter(
+              (comp): comp is string => typeof comp === "string" && comp.trim().length > 0,
+            );
+            const structuredComparisons = rawComparisons.filter(
+              (comp): comp is ReviewSummaryComparison =>
+                Boolean(
+                  comp &&
+                    typeof comp === "object" &&
+                    (comp.conceptA || comp.conceptB || comp.keyDifferences),
+                ),
+            );
+            const memorizationPoints = Array.isArray(section.memorizationPoints)
+              ? section.memorizationPoints.filter((mp) => typeof mp === "string" && mp.trim().length > 0)
+              : [];
+
+            const hasFlowItems =
+              keyPoints.length > 0 ||
+              mechanisms.length > 0 ||
+              classifications.length > 0 ||
+              stringComparisons.length > 0 ||
+              memorizationPoints.length > 0;
+
+            return (
+              <section
+                key={sIdx}
+                className={`space-y-4 ${sIdx > 0 ? "pt-7 sm:pt-9" : "pt-0"} ${!isLastSection ? "pb-7 sm:pb-9" : "pb-2"}`}
+              >
+                {/* Topic Heading */}
+                <div>
+                  <h2 className="text-base sm:text-lg md:text-xl font-black text-[var(--color-text)] tracking-tight flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[var(--color-primary)] shrink-0" />
+                    <span>{section.title}</span>
+                  </h2>
+                </div>
+
+                {/* Natural Continuous Reading Stream */}
+                {hasFlowItems && (
+                  <ul className="space-y-3 ps-1">
+                    {/* 1. Key Points */}
+                    {keyPoints.map((pt, pIdx) => {
+                      const trimmed = pt.trim();
+                      const isTable = trimmed.includes("|") && trimmed.includes("\n");
+                      if (isTable) {
+                        return (
+                          <li key={`kp-${pIdx}`} className="list-none w-full my-2 block">
+                            <div className="w-full overflow-x-auto">
+                              <RichContent content={trimmed} compactTables />
+                            </div>
+                          </li>
+                        );
+                      }
+
+                      const isMisconception =
+                        trimmed.startsWith("اشتباه رایج:") ||
+                        trimmed.startsWith("اشتباه رایج") ||
+                        trimmed.startsWith("سوءبرداشت:");
+                      const isClinical =
+                        trimmed.startsWith("کاربرد بالینی:") ||
+                        trimmed.startsWith("کاربرد بالینی");
+
+                      let bulletColor = "bg-[var(--color-primary)]";
+                      if (isMisconception) bulletColor = "bg-amber-500";
+                      else if (isClinical) bulletColor = "bg-teal-600 dark:bg-teal-400";
+
+                      return (
+                        <li
+                          key={`kp-${pIdx}`}
+                          className={`flex items-start gap-2.5 text-xs sm:text-sm text-[var(--color-text)] ${
+                            isMisconception
+                              ? "p-3 rounded-xl bg-amber-500/10 border border-amber-500/20"
+                              : ""
+                          }`}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${bulletColor} shrink-0 mt-2 shadow-xs`} />
+                          <span className="leading-relaxed font-medium flex-1">
+                            {isMisconception ? (
+                              renderInlineLabeledItem(
+                                "اشتباه رایج:",
+                                trimmed,
+                                "text-amber-800 dark:text-amber-400 font-bold",
+                              )
+                            ) : isClinical ? (
+                              renderInlineLabeledItem(
+                                "کاربرد بالینی:",
+                                trimmed,
+                                "text-teal-800 dark:text-teal-300 font-bold",
+                              )
+                            ) : (
+                              <RichContent inline content={trimmed} />
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
+
+                    {/* 2. Mechanisms */}
+                    {mechanisms.map((m, mIdx) => (
+                      <li
+                        key={`m-${mIdx}`}
+                        className="flex items-start gap-2.5 text-xs sm:text-sm text-[var(--color-text)]"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-secondary-dark)] dark:bg-[var(--color-secondary-blue)] shrink-0 mt-2" />
+                        <span className="leading-relaxed font-medium flex-1">
+                          {renderInlineLabeledItem(
+                            "مکانیسم:",
+                            m,
+                            "text-[var(--color-secondary-dark)] dark:text-[var(--color-secondary-blue)] font-bold",
+                          )}
+                        </span>
+                      </li>
+                    ))}
+
+                    {/* 3. Classifications */}
+                    {classifications.map((c, cIdx) => (
+                      <li
+                        key={`c-${cIdx}`}
+                        className="flex items-start gap-2.5 text-xs sm:text-sm text-[var(--color-text)]"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] shrink-0 mt-2" />
+                        <span className="leading-relaxed font-medium flex-1">
+                          {renderInlineLabeledItem(
+                            "طبقه‌بندی:",
+                            c,
+                            "text-[var(--color-text-muted)] font-bold",
+                          )}
+                        </span>
+                      </li>
+                    ))}
+
+                    {/* 4. Simple String Comparisons */}
+                    {stringComparisons.map((sc, scIdx) => {
+                      const trimmedSc = sc.trim();
+                      const isTable = trimmedSc.includes("|") && trimmedSc.includes("\n");
+                      if (isTable) {
+                        return (
+                          <li key={`sc-${scIdx}`} className="list-none w-full my-2 block">
+                            <div className="w-full overflow-x-auto">
+                              <RichContent content={trimmedSc} compactTables />
+                            </div>
+                          </li>
+                        );
+                      }
+                      return (
+                        <li
+                          key={`sc-${scIdx}`}
+                          className="flex items-start gap-2.5 text-xs sm:text-sm text-[var(--color-text)]"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-primary)] shrink-0 mt-2" />
+                          <span className="leading-relaxed font-medium flex-1">
+                            {renderInlineLabeledItem(
+                              "مقایسه:",
+                              sc,
+                              "text-[var(--color-primary)] font-bold",
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
+
+                    {/* 5. Memorization Points */}
+                    {memorizationPoints.map((mem, memIdx) => (
+                      <li
+                        key={`mem-${memIdx}`}
+                        className="flex items-start gap-2.5 text-xs sm:text-sm text-[var(--color-text)]"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 mt-2" />
+                        <span className="leading-relaxed font-medium flex-1">
+                          {renderInlineLabeledItem(
+                            "نکته حفظی:",
+                            mem,
+                            "text-amber-700 dark:text-amber-400 font-bold",
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {/* Structured Concept Comparisons (conceptA vs conceptB) */}
+                {structuredComparisons.length > 0 && (
+                  <div className="pt-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {structuredComparisons.map((comp, compIdx) => (
+                      <div
+                        key={compIdx}
+                        className="p-3.5 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs space-y-1.5"
+                      >
+                        <div className="flex items-center gap-2 font-bold text-[var(--color-text)] text-xs sm:text-sm">
+                          <RichContent inline content={comp.conceptA} />
+                          <span className="text-[var(--color-primary-dark)] dark:text-[var(--color-primary-light)] font-black px-1.5 py-0.5 rounded-sm bg-[var(--color-primary-soft)] text-[11px]">
+                            vs
+                          </span>
+                          <RichContent inline content={comp.conceptB} />
+                        </div>
+                        <div className="text-[var(--color-text-muted)] leading-relaxed font-medium">
+                          <span className="font-bold text-[var(--color-text)]">وجه تمایز: </span>
+                          <RichContent inline content={comp.keyDifferences} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
+
+        {/* ========================================================================= */}
+        {/* Consolidated Golden Exam Points (نکات طلایی امتحانی)                       */}
+        {/* Part of the main document flow at the end, not a separate card           */}
+        {/* ========================================================================= */}
+        {allExamPoints.length > 0 && (
+          <section className="rounded-xl bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 p-5 sm:p-6 space-y-3.5 mt-8 sm:mt-10">
+            <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+              <Zap className="w-5 h-5 shrink-0" />
+              <h2 className="text-base sm:text-lg font-black tracking-tight">
+                نکات طلایی امتحانی
+              </h2>
+            </div>
+            <ul className="space-y-2.5 text-xs sm:text-sm text-[var(--color-text)] ps-1">
+              {allExamPoints.map((ex, exIdx) => (
+                <li
+                  key={`golden-exam-${exIdx}`}
+                  className="flex items-start gap-2.5 text-xs sm:text-sm text-[var(--color-text)]"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 mt-2" />
+                  <span className="leading-relaxed font-medium flex-1">
+                    {renderInlineLabeledItem(
+                      "نکته آزمونی:",
+                      ex,
+                      "text-amber-700 dark:text-amber-400 font-bold",
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* ========================================================================= */}
+        {/* Concluding Final Takeaways Box                                            */}
+        {/* ========================================================================= */}
+        {payload.finalTakeaways && payload.finalTakeaways.length > 0 && (
+          <section className="rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] p-5 sm:p-6 space-y-3.5 mt-6 sm:mt-8">
+            <div className="flex items-center gap-2 text-[var(--color-primary)]">
+              <Bookmark className="w-4 h-4 shrink-0" />
+              <h2 className="text-sm sm:text-base font-black uppercase tracking-wider">
+                جمع‌بندی نهایی و نکات کلیدی (Final Takeaways)
+              </h2>
+            </div>
+            <ul className="space-y-2 text-xs sm:text-sm text-[var(--color-text)] ps-1">
+              {payload.finalTakeaways.map((takeaway, tIdx) => (
+                <li key={tIdx} className="flex items-start gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-[var(--color-primary)] shrink-0 mt-0.5" />
+                  <span className="leading-relaxed font-medium flex-1">
+                    <RichContent inline content={takeaway} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </article>
+
+      {/* Bottom Study Transition Action Banner (Outside main document) */}
       <Card className="p-6 sm:p-7 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="space-y-1 text-center sm:text-start">
           <h3 className="text-base font-black text-[var(--color-text)] flex items-center justify-center sm:justify-start gap-2">

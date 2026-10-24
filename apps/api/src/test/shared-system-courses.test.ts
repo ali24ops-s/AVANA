@@ -69,8 +69,8 @@ describe("Shared System Courses Integration Tests", () => {
   beforeEach(async () => {
     config = makeTestConfig();
     sessionStore = new InMemorySessionStore();
-    userStore = new InMemoryUserStore();
     orgStore = new InMemoryOrganizationStore();
+    userStore = new InMemoryUserStore(orgStore);
     courseStore = new InMemoryCourseStore();
     moduleStore = new InMemoryModuleStore();
     lessonStore = new InMemoryLessonStore();
@@ -335,6 +335,59 @@ describe("Shared System Courses Integration Tests", () => {
     });
 
     expect(privateLearnRes.statusCode).toBe(404);
+
+    await app.close();
+  });
+
+  it("Scenario 9: Document belongs to Course A, but generation is requested with Course B (both accessible) -> 400 Bad Request", async () => {
+    const app = await buildApp();
+    const user = await registerAndLogin(app, "course_mismatch@example.com");
+
+    const courseBId = randomUUID() as CourseId;
+    await courseStore.create({
+      course: {
+        id: courseBId,
+        organizationId: user.userOrgId,
+        name: "User Second Course",
+        subject: "Pharmacology",
+        examDate: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    const docId = randomUUID() as DocumentId;
+    await documentStore.create({
+      id: docId,
+      organizationId: user.userOrgId,
+      courseId: SYSTEM_COURSE_ID,
+      ownerUserId: user.userId,
+      originalName: "mismatch_doc.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      sha256: "hash_mismatch",
+      storageKey: "storage-key-mismatch",
+      pageCount: 5,
+      status: "extracted",
+      errorCode: null,
+      retryCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    const mismatchRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${user.userOrgId}/courses/${courseBId}/documents/${docId}/generate`,
+      cookies: { avana_session: user.token },
+      payload: {},
+    });
+
+    expect(mismatchRes.statusCode).toBe(400);
+    const body = JSON.parse(mismatchRes.body);
+    expect(body.error.message).toContain("این سند به دوره دیگری تعلق دارد");
 
     await app.close();
   });

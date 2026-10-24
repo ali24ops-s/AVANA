@@ -300,6 +300,11 @@ export function adaptToGeminiJsonSchema(jsonSchema: unknown): Record<string, unk
               choices: { type: "array", items: { type: "string" } },
               correctAnswer: { type: "string" },
               explanation: { type: "string" },
+              difficulty: {
+                type: "string",
+                enum: ["easy", "medium", "hard"],
+              },
+              category: { type: "string" },
               citationChunkIds: { type: "array", items: { type: "string" } },
             },
             required: [

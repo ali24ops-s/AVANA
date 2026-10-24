@@ -100,23 +100,23 @@ export function UserDevicesDrawer({
       <div className="fixed inset-y-0 start-0 max-w-full flex ps-0 sm:ps-10" dir="rtl">
         <div className="w-full max-w-2xl bg-[var(--color-surface)] border-e border-[var(--color-border)] shadow-2xl flex flex-col">
           {/* Drawer Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)]">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] border border-[var(--color-primary-default)]/20">
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)]">
+            <div className="flex items-center gap-3 min-w-0 flex-1 me-2">
+              <div className="p-2 rounded-lg bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] border border-[var(--color-primary-default)]/20 shrink-0">
                 <Laptop className="w-5 h-5" />
               </div>
-              <div>
-                <h2 className="text-lg font-bold text-[var(--color-text)]">
+              <div className="min-w-0 flex-1">
+                <h2 className="text-base sm:text-lg font-bold text-[var(--color-text)] truncate">
                   مدیریت دستگاه‌ها و سشن‌ها
                 </h2>
-                <p className="text-xs text-[var(--color-text-muted)]">
+                <p className="text-xs text-[var(--color-text-muted)] font-mono truncate">
                   {deviceData?.email || userId}
                 </p>
               </div>
             </div>
             <button
               onClick={onClose}
-              className="p-2 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors cursor-pointer"
+              className="p-1.5 sm:p-2 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors cursor-pointer shrink-0"
             >
               <X className="w-5 h-5" />
             </button>
@@ -124,7 +124,7 @@ export function UserDevicesDrawer({
 
           {/* User Info Bar */}
           {deviceData && (
-            <div className="px-6 py-3 bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div className="px-4 sm:px-6 py-3 bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
               <div className="flex flex-wrap items-center gap-4">
                 <span className="text-[var(--color-text-muted)] whitespace-nowrap">
                   وضعیت اشتراک:{" "}
@@ -207,7 +207,7 @@ export function UserDevicesDrawer({
           </div>
 
           {/* Drawer Body */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
             {isLoading ? (
               <div className="py-16 text-center text-[var(--color-text-muted)] text-sm">
                 در حال دریافت اطلاعات...

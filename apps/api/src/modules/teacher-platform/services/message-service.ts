@@ -334,6 +334,21 @@ export class TeacherMessageService {
     unreadCount: number;
   }> {
     const query = validateListTeacherConversationsQuery(rawQuery);
+
+    if (
+      actor.teacherStatus === "rejected" ||
+      actor.teacherStatus === "pending"
+    ) {
+      return {
+        conversations: [],
+        total: 0,
+        page: query.page,
+        limit: query.limit,
+        totalPages: 1,
+        unreadCount: 0,
+      };
+    }
+
     const { conversations, total } =
       await this.conversationStore.listByTeacher(actor.userId, {
         status: query.status,
@@ -395,7 +410,12 @@ export class TeacherMessageService {
     const isOwner = conv.teacherId === actor.userId;
     const isPlatformAdmin =
       actor.globalRole === "platform_admin" || actor.role === "platform_admin";
-    if (!isOwner && !isPlatformAdmin) {
+    if (
+      !isPlatformAdmin &&
+      (!isOwner ||
+        actor.teacherStatus === "rejected" ||
+        actor.teacherStatus === "pending")
+    ) {
       throw new DomainError("not_found", "مکالمه یافت نشد.");
     }
 
@@ -446,7 +466,12 @@ export class TeacherMessageService {
     const isOwner = conv.teacherId === actor.userId;
     const isPlatformAdmin =
       actor.globalRole === "platform_admin" || actor.role === "platform_admin";
-    if (!isOwner && !isPlatformAdmin) {
+    if (
+      !isPlatformAdmin &&
+      (!isOwner ||
+        actor.teacherStatus === "rejected" ||
+        actor.teacherStatus === "pending")
+    ) {
       throw new DomainError("not_found", "مکالمه یافت نشد.");
     }
 
@@ -513,7 +538,12 @@ export class TeacherMessageService {
     const isOwner = conv.teacherId === actor.userId;
     const isPlatformAdmin =
       actor.globalRole === "platform_admin" || actor.role === "platform_admin";
-    if (!isOwner && !isPlatformAdmin) {
+    if (
+      !isPlatformAdmin &&
+      (!isOwner ||
+        actor.teacherStatus === "rejected" ||
+        actor.teacherStatus === "pending")
+    ) {
       throw new DomainError("not_found", "مکالمه یافت نشد.");
     }
 

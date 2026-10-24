@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "../providers/AuthProvider.js";
@@ -107,6 +107,19 @@ describe("Course Lesson Study Page UI/UX Refinements", () => {
               JSON.stringify({
                 request_id: "req-orgs",
                 items: [{ id: orgId, name: "سازمان آموزش پزشکی", slug: "med-org" }],
+              }),
+            ),
+        } as unknown as Response);
+      }
+      if (urlStr.includes("/study-sessions")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({
+                request_id: "req-session",
+                session: { id: "session-test-1", durationSeconds: 0 },
               }),
             ),
         } as unknown as Response);
@@ -338,6 +351,14 @@ describe("Course Lesson Study Page UI/UX Refinements", () => {
     fireEvent.click(screen.getByRole("button", { name: /نمایش سرفصل‌های دوره/i }));
 
     await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "سرفصل‌های دوره" })).toBeDefined();
+    });
+
+    // Chapters are closed by default upon mount. Expand Module 1 to inspect its lessons
+    const mod1Button = screen.getByRole("button", { name: /فصل اول: الکتروفیزیولوژی قلب/i });
+    fireEvent.click(mod1Button);
+
+    await waitFor(() => {
       expect(screen.getByText("گره سینوسی-دهلیزی (SA Node)")).toBeDefined();
     });
 
@@ -417,5 +438,518 @@ describe("Course Lesson Study Page UI/UX Refinements", () => {
 
     // Body scroll should be released
     expect(document.body.style.overflow).not.toBe("hidden");
+  });
+
+  it("renders study tools header with sticky classes, top offset below site header, and no overflow-hidden on article", async () => {
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/courses/${courseId}`]}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/courses/:courseId" element={<LearningPage />} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("study-tools-header")).toBeDefined();
+    });
+
+    const header = screen.getByTestId("study-tools-header");
+    // Verify sticky classes: sticks at top-0 when site header scrolls out of view
+    expect(header.className).toContain("sticky");
+    expect(header.className).toContain("top-0");
+    expect(header.className).toContain("z-30");
+    expect(header.className).toContain("rounded-t-card");
+
+    // Verify parent article has NO overflow-hidden that would break sticky
+    const article = header.closest("article");
+    expect(article).not.toBeNull();
+    expect(article?.className).not.toContain("overflow-hidden");
+    expect(article?.className).toContain("rounded-card");
+
+    // Chapter title badge and buttons are present
+    expect(screen.getByText("فصل اول: الکتروفیزیولوژی قلب")).toBeDefined();
+    const syllabusBtn = within(header).getByRole("button", { name: /نمایش سرفصل‌های دوره/i });
+    expect(syllabusBtn).toBeDefined();
+    expect(syllabusBtn.className).toContain("flex-shrink-0");
+
+    const askAvanaBtn = within(header).getByRole("button", { name: /از آوانا بپرس/i });
+    expect(askAvanaBtn).toBeDefined();
+    expect(askAvanaBtn.className).toContain("flex-shrink-0");
+
+    // Toggling Ask Avana changes button text and renders assistant chat panel
+    fireEvent.click(askAvanaBtn);
+    await waitFor(() => {
+      expect(within(header).getByRole("button", { name: /بستن دستیار/i })).toBeDefined();
+    });
+    fireEvent.click(within(header).getByRole("button", { name: /بستن دستیار/i }));
+    await waitFor(() => {
+      expect(within(header).getByRole("button", { name: /از آوانا بپرس/i })).toBeDefined();
+    });
+  });
+
+  it("filters out source filenames and extraction placeholder text from syllabus drawer while preserving scholarly descriptions", async () => {
+    const customDataWithPollutedDescriptions: CourseLearnResponse = {
+      ...mockCurriculumData,
+      modules: [
+        {
+          id: "mod-dirty-1",
+          title: "فصل اول: الکتروفیزیولوژی قلب",
+          description: "مباحث و جلسات آموزشی استخراج‌شده از 32.pdf",
+          sort_order: 0,
+          lessons: [
+            {
+              id: "les-d1",
+              module_id: "mod-dirty-1",
+              title: "گره پیس‌میکر",
+              content_type: "markdown",
+              content_markdown: "محتوای تست",
+              sort_order: 0,
+              estimated_minutes: 10,
+              completed: true,
+              completed_at: null,
+            },
+          ],
+        },
+        {
+          id: "mod-clean-2",
+          title: "فصل دوم: دینامیک خون",
+          description: "بررسی جامع اصول همودینامیک و مقاومت عروقی",
+          sort_order: 1,
+          lessons: [
+            {
+              id: "les-d2",
+              module_id: "mod-clean-2",
+              title: "فشار سرخرگی",
+              content_type: "markdown",
+              content_markdown: "محتوای فشار",
+              sort_order: 0,
+              estimated_minutes: 8,
+              completed: false,
+              completed_at: null,
+            },
+          ],
+        },
+        {
+          id: "mod-dirty-3",
+          title: "cardiology_notes.pdf",
+          description: "استخراج شده از جزوه_فیزیولوژی.pdf",
+          sort_order: 2,
+          lessons: [
+            {
+              id: "les-d3",
+              module_id: "mod-dirty-3",
+              title: "درس تکمیلی",
+              content_type: "markdown",
+              content_markdown: "محتوای تکمیلی",
+              sort_order: 0,
+              estimated_minutes: 5,
+              completed: false,
+              completed_at: null,
+            },
+          ],
+        },
+        {
+          id: "mod-generic-4",
+          title: "فصل چهارم: فارماکولوژی بالینی",
+          description: "مباحث و جلسات آموزشی جامع",
+          sort_order: 3,
+          lessons: [
+            {
+              id: "les-d4",
+              module_id: "mod-generic-4",
+              title: "فارماکوکینتیک داروها",
+              content_type: "markdown",
+              content_markdown: "محتوای داروها",
+              sort_order: 0,
+              estimated_minutes: 12,
+              completed: false,
+              completed_at: null,
+            },
+          ],
+        },
+      ],
+    };
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/learn")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify(customDataWithPollutedDescriptions)),
+        } as unknown as Response);
+      }
+      if (urlStr.includes("/organizations")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({
+                request_id: "req-orgs",
+                items: [{ id: orgId, name: "سازمان آموزش پزشکی", slug: "med-org" }],
+              }),
+            ),
+        } as unknown as Response);
+      }
+      if (urlStr.includes("/study-sessions")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({
+                request_id: "req-session",
+                session: { id: "session-test-1", durationSeconds: 0 },
+              }),
+            ),
+        } as unknown as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(JSON.stringify({})),
+      } as unknown as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/courses/${courseId}`]}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/courses/:courseId" element={<LearningPage />} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /نمایش سرفصل‌های دوره/i })).toBeDefined();
+    });
+
+    // Open syllabus drawer
+    fireEvent.click(screen.getByRole("button", { name: /نمایش سرفصل‌های دوره/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "سرفصل‌های دوره" })).toBeDefined();
+    });
+
+    // 1. Polluted descriptions MUST NOT be rendered
+    expect(screen.queryByText(/32\.pdf/i)).toBeNull();
+    expect(screen.queryByText(/استخراج‌شده از 32\.pdf/i)).toBeNull();
+    expect(screen.queryByText(/استخراج شده از جزوه_فیزیولوژی/i)).toBeNull();
+    expect(screen.queryByText(/جزوه_فیزیولوژی\.pdf/i)).toBeNull();
+
+    // 2. Polluted title cardiology_notes.pdf MUST NOT be rendered as a raw filename
+    expect(screen.queryByText("cardiology_notes.pdf")).toBeNull();
+
+    // 3. Genuine scholarly description MUST be rendered
+    expect(screen.getByText("بررسی جامع اصول همودینامیک و مقاومت عروقی")).toBeDefined();
+
+    // 4. Generic placeholder description 'مباحث و جلسات آموزشی جامع' MUST NOT be rendered
+    expect(screen.queryByText("مباحث و جلسات آموزشی جامع")).toBeNull();
+
+    // 5. Educational chapter titles and navigation remain fully intact
+    expect(screen.getAllByText("فصل اول: الکتروفیزیولوژی قلب").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("فصل دوم: دینامیک خون")).toBeDefined();
+    expect(screen.getByText("فصل چهارم: فارماکولوژی بالینی")).toBeDefined();
+  });
+
+  it("keeps only the last selected chapter open in syllabus drawer, keeps all closed on mount, and preserves learning progress", async () => {
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/courses/${courseId}`]}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/courses/:courseId" element={<LearningPage />} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "گره سینوسی دهلیزی" })).toBeDefined();
+    });
+
+    // 1. Open drawer
+    fireEvent.click(screen.getByRole("button", { name: /نمایش سرفصل‌های دوره/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "سرفصل‌های دوره" })).toBeDefined();
+    });
+
+    // 2. On mount / initial load, ALL chapters are collapsed by default (Criterion 4)
+    expect(screen.queryByText("گره سینوسی-دهلیزی (SA Node)")).toBeNull();
+    expect(screen.queryByText("قانون استارلینگ قلب")).toBeNull();
+
+    // 3. Opening Chapter A (Module 1) shows only Chapter A's lessons (Criterion 1)
+    const mod1Button = screen.getByRole("button", { name: /فصل اول: الکتروفیزیولوژی قلب/i });
+    fireEvent.click(mod1Button);
+
+    await waitFor(() => {
+      expect(screen.getByText("گره سینوسی-دهلیزی (SA Node)")).toBeDefined();
+    });
+    expect(screen.queryByText("قانون استارلینگ قلب")).toBeNull();
+
+    // 4. Opening Chapter B (Module 2) closes Chapter A and shows only Chapter B's lessons (Criterion 2)
+    const mod2Button = screen.getByRole("button", { name: /فصل دوم: دینامیک خون و فشار/i });
+    fireEvent.click(mod2Button);
+
+    await waitFor(() => {
+      expect(screen.getByText("قانون استارلینگ قلب")).toBeDefined();
+    });
+    // Chapter A's lessons must now be closed
+    expect(screen.queryByText("گره سینوسی-دهلیزی (SA Node)")).toBeNull();
+
+    // 5. Clicking Chapter B again closes it so that no chapters remain open (Criterion 3)
+    fireEvent.click(mod2Button);
+
+    await waitFor(() => {
+      expect(screen.queryByText("قانون استارلینگ قلب")).toBeNull();
+    });
+    expect(screen.queryByText("گره سینوسی-دهلیزی (SA Node)")).toBeNull();
+
+    // 6. Learning progress and completed lessons counter remain unaffected (Criterion 5)
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "33");
+    expect(screen.getByText(/۳۳٪/)).toBeDefined();
+  });
+
+  it("renders study assistant as a side-by-side desktop sidebar with lesson content and returns to full width upon closing", async () => {
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/courses/${courseId}`]}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/courses/:courseId" element={<LearningPage />} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("study-tools-header")).toBeDefined();
+    });
+
+    const header = screen.getByTestId("study-tools-header");
+    const askAvanaBtn = within(header).getByRole("button", { name: /از آوانا بپرس/i });
+
+    // Initially, sidebar is closed and not present in DOM
+    expect(screen.queryByTestId("study-assistant-sidebar")).toBeNull();
+
+    // Open Study Assistant
+    fireEvent.click(askAvanaBtn);
+
+    // Sidebar should now be open
+    await waitFor(() => {
+      expect(screen.getByTestId("study-assistant-sidebar")).toBeDefined();
+    });
+
+    const sidebar = screen.getByTestId("study-assistant-sidebar");
+
+    // Verify desktop classes: 380px on desktop, 430px on xl, sticky, border-s
+    expect(sidebar.className).toContain("lg:w-[380px]");
+    expect(sidebar.className).toContain("xl:w-[430px]");
+    expect(sidebar.className).toContain("lg:sticky");
+    expect(sidebar.className).toContain("lg:border-s");
+
+    // Verify lesson content is in adjacent flex-1 column
+    const workspaceContainer = sidebar.parentElement;
+    expect(workspaceContainer?.className).toContain("lg:flex-row");
+    const readingColumn = workspaceContainer?.firstElementChild;
+    expect(readingColumn?.className).toContain("flex-1");
+    expect(readingColumn?.className).toContain("min-w-0");
+
+    // Close sidebar via the study tools header toggle
+    const closeBtn = within(header).getByRole("button", { name: /بستن دستیار/i });
+    fireEvent.click(closeBtn);
+
+    // Sidebar should be removed and lesson returns to full width
+    await waitFor(() => {
+      expect(screen.queryByTestId("study-assistant-sidebar")).toBeNull();
+    });
+    expect(readingColumn?.className).toContain("w-full");
+  });
+
+  it("preserves conversation messages and chat history across closing and reopening the study assistant sidebar", async () => {
+    // Mock the AI assistant response
+    vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
+      const urlStr = String(url);
+      const method = opts?.method || "GET";
+      if (urlStr.includes("/learn")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify(mockCurriculumData)),
+        } as unknown as Response);
+      }
+      if (urlStr.includes("/organizations")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({
+                request_id: "req-orgs",
+                items: [{ id: orgId, name: "سازمان آموزش پزشکی", slug: "med-org" }],
+              }),
+            ),
+        } as unknown as Response);
+      }
+      if (urlStr.includes("/study-sessions")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({
+                request_id: "req-session",
+                session: { id: "session-test-1", durationSeconds: 0 },
+              }),
+            ),
+        } as unknown as Response);
+      }
+      if ((urlStr.includes("/ai/ask") || urlStr.includes("/ai/study-assistant")) && method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({
+                answer: "پاسخ هوشمند آوانا: گره SA پیس‌میکر طبیعی است.",
+                conversationId: "conv-12345",
+                sources: { lessonTitle: "گره سینوسی دهلیزی" },
+              }),
+            ),
+        } as unknown as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(JSON.stringify({})),
+      } as unknown as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/courses/${courseId}`]}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/courses/:courseId" element={<LearningPage />} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("study-tools-header")).toBeDefined();
+    });
+
+    const header = screen.getByTestId("study-tools-header");
+
+    // 1. Open Assistant
+    fireEvent.click(within(header).getByRole("button", { name: /از آوانا بپرس/i }));
+    await waitFor(() => {
+      expect(screen.getByTestId("study-assistant-sidebar")).toBeDefined();
+    });
+
+    const sidebar = screen.getByTestId("study-assistant-sidebar");
+
+    // 2. Send a user question
+    const textarea = within(sidebar).getByPlaceholderText(/سوال خود را در مورد این درس بنویسید/i);
+    fireEvent.change(textarea, { target: { value: "عملکرد گره SA چگونه است؟" } });
+    const sendBtn = within(sidebar).getByRole("button", { name: /ارسال پیام/i });
+    fireEvent.click(sendBtn);
+
+    // 3. Verify user message and assistant reply are rendered
+    await waitFor(() => {
+      expect(within(sidebar).getByText("عملکرد گره SA چگونه است؟")).toBeDefined();
+      expect(within(sidebar).getByText(/گره SA پیس‌میکر طبیعی است/i)).toBeDefined();
+    });
+
+    // 4. Close the assistant via sidebar's close button (X)
+    const closeBtn = within(sidebar).getByLabelText("بستن دستیار");
+    fireEvent.click(closeBtn);
+
+    // Sidebar is closed
+    await waitFor(() => {
+      expect(screen.queryByTestId("study-assistant-sidebar")).toBeNull();
+    });
+
+    // 5. Reopen the assistant
+    fireEvent.click(within(header).getByRole("button", { name: /از آوانا بپرس/i }));
+    await waitFor(() => {
+      expect(screen.getByTestId("study-assistant-sidebar")).toBeDefined();
+    });
+
+    const reopenedSidebar = screen.getByTestId("study-assistant-sidebar");
+
+    // 6. Verify that PREVIOUS MESSAGES ARE STILL PRESERVED!
+    expect(within(reopenedSidebar).getByText("عملکرد گره SA چگونه است؟")).toBeDefined();
+    expect(within(reopenedSidebar).getByText(/گره SA پیس‌میکر طبیعی است/i)).toBeDefined();
+  });
+
+  it("handles concurrent interactions between study assistant and curriculum syllabus drawer without state corruption", async () => {
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/courses/${courseId}`]}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/courses/:courseId" element={<LearningPage />} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("study-tools-header")).toBeDefined();
+    });
+
+    const header = screen.getByTestId("study-tools-header");
+
+    // 1. Open Assistant
+    fireEvent.click(within(header).getByRole("button", { name: /از آوانا بپرس/i }));
+    await waitFor(() => {
+      expect(screen.getByTestId("study-assistant-sidebar")).toBeDefined();
+    });
+
+    // 2. Open Syllabus Drawer while Assistant is open
+    fireEvent.click(within(header).getByRole("button", { name: /نمایش سرفصل‌های دوره/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "سرفصل‌های دوره" })).toBeDefined();
+    });
+
+    // 3. Verify stacking contexts: Syllabus drawer (z-[70]) is higher than assistant (z-[55] / z-10)
+    const curriculumDrawer = screen.getByRole("dialog", { name: "سرفصل‌های دوره" });
+    expect(curriculumDrawer.className).toContain("z-[70]");
+
+    // 4. Close syllabus drawer via Escape
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "سرفصل‌های دوره" })).toBeNull();
+    });
+
+    // 5. Assistant remains open and functional
+    expect(screen.getByTestId("study-assistant-sidebar")).toBeDefined();
   });
 });

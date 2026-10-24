@@ -190,7 +190,8 @@ describe("Flashcard Scoped Categories Study Sessions", () => {
     flashcardStore.insert(card);
 
     if (params.status !== "new") {
-      // Add schedule & review so it counts as reviewed
+      const pastReviewTime = new Date(now.getTime() - 2 * 86400 * 1000).toISOString();
+      // Add schedule & review so it counts as reviewed in the past
       userFlashcardScheduleStore.upsertSchedule({
         userId: studentUserId,
         flashcardId: id,
@@ -206,7 +207,7 @@ describe("Flashcard Scoped Categories Study Sessions", () => {
         flashcardId: id,
         userId: studentUserId,
         rating: "good",
-        reviewedAt: now.toISOString(),
+        reviewedAt: pastReviewTime,
       });
     }
 

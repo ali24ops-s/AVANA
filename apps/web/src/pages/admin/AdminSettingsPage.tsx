@@ -69,16 +69,16 @@ export function AdminSettingsPage() {
         <SettingPanel title="زیرساخت سیستم" data={settings.system} />
         
         {/* Feature Flags */}
-        <div className="bg-[var(--color-surface)] p-6 rounded-2xl border border-[var(--color-border)] shadow-sm space-y-4">
+        <div className="bg-[var(--color-surface)] p-4 sm:p-6 rounded-2xl border border-[var(--color-border)] shadow-sm space-y-4">
           <h2 className="text-base font-bold text-[var(--color-text)] border-b border-[var(--color-border)] pb-3 flex items-center gap-2">
-            <ToggleLeft className="w-5 h-5 text-[var(--color-primary-default)]" />
-            <span>قابلیت‌های پلتفرم (Feature Availability)</span>
+            <ToggleLeft className="w-5 h-5 text-[var(--color-primary-default)] shrink-0" />
+            <span className="truncate">قابلیت‌های پلتفرم (Feature Availability)</span>
           </h2>
           <div className="space-y-3">
             {features.map(f => (
-              <div key={f.id} className="flex items-center justify-between py-1 border-b border-[var(--color-border)] last:border-0">
-                <span className="text-[var(--color-text)] text-xs sm:text-sm font-medium">{f.name}</span>
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+              <div key={f.id} className="flex items-center justify-between py-1.5 border-b border-[var(--color-border)] last:border-0 gap-3">
+                <span className="text-[var(--color-text)] text-xs sm:text-sm font-medium min-w-0 flex-1">{f.name}</span>
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border shrink-0 ${
                   f.status === 'enabled'
                     ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-300'
                     : 'bg-[var(--color-surface-subtle)] border-[var(--color-border)] text-[var(--color-text-muted)]'
@@ -96,13 +96,13 @@ export function AdminSettingsPage() {
 
 function SettingPanel({ title, data }: { title: string; data: Record<string, string> }) {
   return (
-    <div className="bg-[var(--color-surface)] p-6 rounded-2xl border border-[var(--color-border)] shadow-sm space-y-4">
-      <h2 className="text-base font-bold text-[var(--color-text)] border-b border-[var(--color-border)] pb-3">{title}</h2>
+    <div className="bg-[var(--color-surface)] p-4 sm:p-6 rounded-2xl border border-[var(--color-border)] shadow-sm space-y-4">
+      <h2 className="text-base font-bold text-[var(--color-text)] border-b border-[var(--color-border)] pb-3 truncate">{title}</h2>
       <div className="space-y-2.5">
         {Object.entries(data).map(([key, value]) => (
-          <div key={key} className="flex justify-between items-center py-1.5 border-b border-[var(--color-border)] last:border-0 gap-4">
-            <span className="text-[var(--color-text-muted)] text-xs font-mono" dir="ltr">{key}</span>
-            <span className="text-[var(--color-text)] text-xs sm:text-sm font-semibold truncate" dir="ltr">{value}</span>
+          <div key={key} className="flex justify-between items-center py-1.5 border-b border-[var(--color-border)] last:border-0 gap-3 min-w-0">
+            <span className="text-[var(--color-text-muted)] text-xs font-mono shrink-0" dir="ltr">{key}</span>
+            <span className="text-[var(--color-text)] text-xs sm:text-sm font-semibold truncate text-left min-w-0" dir="ltr">{value}</span>
           </div>
         ))}
       </div>

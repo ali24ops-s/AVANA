@@ -515,6 +515,154 @@ describe("StudyService", () => {
       expect(events[0].details?.correct).toBe(1);
     });
 
+    it("scores attempt accurately against filtered question subset when questionIds is specified", async () => {
+      const quiz = seedQuiz();
+      const now = new Date().toISOString();
+      const questions: QuizQuestionRecord[] = [
+        {
+          id: randomUUID() as QuizQuestionId,
+          quizId: quiz.id,
+          generatedContentId: null,
+          question: "What is an agonist?",
+          questionType: "multiple_choice",
+          choices: ["Activates receptor", "Blocks receptor"],
+          correctAnswer: "Activates receptor",
+          explanation: "Agonists activate target receptors.",
+          difficulty: "easy",
+          sortOrder: 1,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: randomUUID() as QuizQuestionId,
+          quizId: quiz.id,
+          generatedContentId: null,
+          question: "What is an antagonist?",
+          questionType: "multiple_choice",
+          choices: ["Activates receptor", "Blocks receptor"],
+          correctAnswer: "Blocks receptor",
+          explanation: "Antagonists block target receptors.",
+          difficulty: "hard",
+          sortOrder: 2,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ];
+      quizQuestionStore.createMany(questions);
+      quizStore.setQuestionsForQuiz(quiz.id, questions);
+
+      // Student took a filtered attempt containing only easy questions (question 0)
+      const result = await service.submitQuizAttempt(student, organizationId, {
+        quizId: quiz.id,
+        questionIds: [questions[0].id],
+        answers: [
+          { questionId: questions[0].id, answer: "Activates receptor" }, // Correct
+        ],
+      });
+
+      expect(result.quizId).toBe(quiz.id);
+      expect(result.total).toBe(1);
+      expect(result.correct).toBe(1);
+      expect(result.score).toBe(100);
+
+      const stored = await quizAttemptStore.findById(result.attemptId as QuizAttemptId);
+      expect(stored).toBeDefined();
+      expect(stored!.score).toBe(100);
+      expect(stored!.questionSnapshot).toHaveLength(1);
+      expect(stored!.questionSnapshot[0].id).toBe(questions[0].id);
+    });
+
+    it("rejects attempt when questionIds contains foreign, duplicate, or empty IDs", async () => {
+      const quiz = seedQuiz();
+      const questions = seedQuizQuestions(quiz.id);
+
+      // 1. Empty questionIds array
+      await expect(
+        service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz.id,
+          questionIds: [],
+          answers: [],
+        }),
+      ).rejects.toThrow("لیست شناسه‌های سؤال نمی‌تواند خالی باشد.");
+
+      // 2. Duplicate questionIds
+      await expect(
+        service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz.id,
+          questionIds: [questions[0].id, questions[0].id],
+          answers: [{ questionId: questions[0].id, answer: "A" }],
+        }),
+      ).rejects.toThrow("شناسه تکراری در لیست سؤالات مجاز نیست.");
+
+      // 3. Foreign question ID from another quiz
+      const foreignId = randomUUID();
+      await expect(
+        service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz.id,
+          questionIds: [questions[0].id, foreignId],
+          answers: [{ questionId: questions[0].id, answer: "A" }],
+        }),
+      ).rejects.toThrow(`سؤال با شناسه ${foreignId} متعلق به این آزمون نیست.`);
+    });
+
+    it("rejects attempt when questionIds is an arbitrary cherry-picked subset not matching valid filter rules", async () => {
+      const quiz = seedQuiz();
+      const now = new Date().toISOString();
+      // Seed 4 questions, all with difficulty 'medium'
+      const questions: QuizQuestionRecord[] = Array.from({ length: 4 }, (_, i) => ({
+        id: randomUUID() as QuizQuestionId,
+        quizId: quiz.id,
+        generatedContentId: null,
+        question: `Medium Question ${i + 1}`,
+        questionType: "multiple_choice",
+        choices: ["A", "B"],
+        correctAnswer: "A",
+        explanation: "",
+        difficulty: "medium",
+        sortOrder: i + 1,
+        createdAt: now,
+        updatedAt: now,
+      }));
+      quizQuestionStore.createMany(questions);
+      quizStore.setQuestionsForQuiz(quiz.id, questions);
+
+      // Student maliciously sends questionIds with only 1 question [questions[0].id]
+      // Valid filter options for medium are either count 10/20/30 (which all yield all 4 questions) or all 4.
+      // 1 question cannot be legitimately produced.
+      await expect(
+        service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz.id,
+          questionIds: [questions[0].id],
+          answers: [{ questionId: questions[0].id, answer: "A" }],
+        }),
+      ).rejects.toThrow("مجموعه سؤالات ارسالی با گزینه‌های فیلتر مجاز این آزمون مطابقت ندارد.");
+    });
+
+    it("rejects attempt when answers array contains duplicate answers or answers for questions outside the attempt", async () => {
+      const quiz = seedQuiz();
+      const questions = seedQuizQuestions(quiz.id);
+
+      // 1. Answer for question not in quiz
+      const foreignId = randomUUID();
+      await expect(
+        service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz.id,
+          answers: [{ questionId: foreignId, answer: "something" }],
+        }),
+      ).rejects.toThrow(`پاسخ ارسال‌شده برای سؤال ${foreignId} معتبر نیست یا جزو سؤالات این تلاش آزمون نمی‌باشد.`);
+
+      // 2. Duplicate answers for same question
+      await expect(
+        service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz.id,
+          answers: [
+            { questionId: questions[0].id, answer: "A" },
+            { questionId: questions[0].id, answer: "B" },
+          ],
+        }),
+      ).rejects.toThrow(`ثبت بیش از یک پاسخ برای سؤال ${questions[0].id} مجاز نیست.`);
+    });
+
     it("allows student to retrieve their own quiz attempt", async () => {
       const quiz = seedQuiz();
       const questions = seedQuizQuestions(quiz.id);
@@ -1934,6 +2082,246 @@ describe("StudyService", () => {
         const fullQueue = await service.listFlashcardsForReview(student, organizationId, courseId);
         expect(fullQueue.length).toBe(35);
         expect(fullQueue.map((c) => c.id).sort()).toEqual(dueCards.map((c) => c.id).sort());
+      });
+    });
+
+    describe("Course learning page dual queue & studied content gating", () => {
+      const seedCardForLesson = (lessonId: LessonId | null): FlashcardRecord => {
+        const id = randomUUID() as FlashcardId;
+        const card: FlashcardRecord = {
+          id,
+          organizationId,
+          courseId,
+          documentId,
+          lessonId: lessonId ?? undefined,
+          generatedContentId: null,
+          question: `Q-${id}`,
+          answer: `A-${id}`,
+          explanation: `E-${id}`,
+          cardType: "concept",
+          difficulty: "medium",
+          dueAt: new Date(0).toISOString(),
+          intervalDays: 0,
+          easeFactor: 2.5,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        };
+        flashcardStore.create(card);
+        return card;
+      };
+
+      it("restricts new cards strictly to completed lessons when onlyStudied is true", async () => {
+        const lessonCompleted = randomUUID() as LessonId;
+        const lessonUncompleted = randomUUID() as LessonId;
+
+        await progressStore.upsert({
+          id: randomUUID(),
+          userId: student.userId,
+          lessonId: lessonCompleted,
+          completed: true,
+          completedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        await progressStore.upsert({
+          id: randomUUID(),
+          userId: student.userId,
+          lessonId: lessonUncompleted,
+          completed: false,
+          completedAt: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        const completedCards = [
+          seedCardForLesson(lessonCompleted),
+          seedCardForLesson(lessonCompleted),
+          seedCardForLesson(lessonCompleted),
+        ];
+        seedCardForLesson(lessonUncompleted);
+        seedCardForLesson(lessonUncompleted);
+        seedCardForLesson(null);
+
+        const result = await service.getCustomStudyFlashcardsWithMeta(
+          student,
+          organizationId,
+          "new",
+          [courseId],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          true,
+        );
+
+        expect(result.completedLessonsCount).toBe(1);
+        expect(result.cards.length).toBe(3);
+        expect(result.cards.map((c) => c.id).sort()).toEqual(
+          completedCards.map((c) => c.id).sort(),
+        );
+      });
+
+      it("reduces daily new cards limit by cards already learned today", async () => {
+        const lessonId = randomUUID() as LessonId;
+        await progressStore.upsert({
+          id: randomUUID(),
+          userId: student.userId,
+          lessonId,
+          completed: true,
+          completedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        const cards = [
+          seedCardForLesson(lessonId),
+          seedCardForLesson(lessonId),
+          seedCardForLesson(lessonId),
+          seedCardForLesson(lessonId),
+        ];
+
+        // Before studying today: with limit 4, remaining quota is 4
+        const initial = await service.getCustomStudyFlashcardsWithMeta(
+          student,
+          organizationId,
+          "new",
+          [courseId],
+          4,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          true,
+        );
+        expect(initial.learnedToday).toBe(0);
+        expect(initial.remainingQuota).toBe(4);
+        expect(initial.cards.length).toBe(4);
+
+        // Student reviews 1 card today
+        const learnedCard = cards[0];
+        await flashcardReviewStore.create({
+          id: randomUUID(),
+          flashcardId: learnedCard.id,
+          userId: student.userId,
+          rating: "good",
+          reviewedAt: new Date().toISOString(),
+          reactionMs: 2500,
+        });
+        await userFlashcardScheduleStore.upsertSchedule({
+          userId: student.userId,
+          flashcardId: learnedCard.id,
+          dueAt: new Date(Date.now() + 86400000).toISOString(),
+          intervalDays: 1,
+          easeFactor: 2.5,
+          reviewCount: 1,
+          lastReviewedAt: new Date().toISOString(),
+        });
+
+        // After reviewing 1 card today: with limit 4, 1 learned today, remaining quota is 3
+        const updated = await service.getCustomStudyFlashcardsWithMeta(
+          student,
+          organizationId,
+          "new",
+          [courseId],
+          4,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          true,
+        );
+        expect(updated.learnedToday).toBe(1);
+        expect(updated.remainingQuota).toBe(3);
+        expect(updated.cards.length).toBe(3);
+        expect(updated.cards.some((c) => c.id === learnedCard.id)).toBe(false);
+
+        // When daily limit is set to 1 and 1 has already been learned: remainingQuota is 0
+        const capped = await service.getCustomStudyFlashcardsWithMeta(
+          student,
+          organizationId,
+          "new",
+          [courseId],
+          1,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          true,
+        );
+        expect(capped.learnedToday).toBe(1);
+        expect(capped.remainingQuota).toBe(0);
+        expect(capped.cards.length).toBe(0);
+      });
+
+      it("separates due review cards and new cards so due cards do not block new cards", async () => {
+        const lessonId = randomUUID() as LessonId;
+        await progressStore.upsert({
+          id: randomUUID(),
+          userId: student.userId,
+          lessonId,
+          completed: true,
+          completedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        // 2 due cards
+        const dueCard1 = seedCardForLesson(lessonId);
+        const dueCard2 = seedCardForLesson(lessonId);
+        for (const card of [dueCard1, dueCard2]) {
+          await flashcardReviewStore.create({
+            id: randomUUID(),
+            flashcardId: card.id,
+            userId: student.userId,
+            rating: "good",
+            reviewedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
+            reactionMs: 2000,
+          });
+          await userFlashcardScheduleStore.upsertSchedule({
+            userId: student.userId,
+            flashcardId: card.id,
+            dueAt: new Date(Date.now() - 3600000).toISOString(), // due in past
+            intervalDays: 1,
+            easeFactor: 2.5,
+            reviewCount: 1,
+            lastReviewedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
+          });
+        }
+
+        // 3 unreviewed new cards
+        const newCards = [
+          seedCardForLesson(lessonId),
+          seedCardForLesson(lessonId),
+          seedCardForLesson(lessonId),
+        ];
+
+        // SRS due queue returns only the 2 due cards
+        const dueQueue = await service.listFlashcardsForReviewMulti(
+          student,
+          organizationId,
+          [courseId],
+        );
+        expect(dueQueue.length).toBe(2);
+        expect(dueQueue.map((c) => c.id).sort()).toEqual([dueCard1.id, dueCard2.id].sort());
+
+        // New queue returns the 3 new cards, unaffected by the presence of due cards
+        const newQueue = await service.getCustomStudyFlashcardsWithMeta(
+          student,
+          organizationId,
+          "new",
+          [courseId],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          true,
+        );
+        expect(newQueue.cards.length).toBe(3);
+        expect(newQueue.cards.map((c) => c.id).sort()).toEqual(newCards.map((c) => c.id).sort());
       });
     });
   });

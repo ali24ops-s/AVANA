@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { eq, desc, and, or, count, ilike } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { eq, desc, and, or, count, ilike, inArray, isNull } from "drizzle-orm";
+import { alias, type AnyPgColumn } from "drizzle-orm/pg-core";
 import type { DbClient } from "@avana/database/client";
 import {
   feedbacks,
@@ -462,6 +462,7 @@ export class DrizzleSupportStore implements SupportStore {
       attachmentUrl: row.msg.attachmentUrl,
       isInternalNote: row.msg.isInternalNote,
       createdAt: row.msg.createdAt.toISOString(),
+      readAt: row.msg.readAt ? row.msg.readAt.toISOString() : null,
     };
   }
 
@@ -496,25 +497,60 @@ export class DrizzleSupportStore implements SupportStore {
       attachmentUrl: r.msg.attachmentUrl,
       isInternalNote: r.msg.isInternalNote,
       createdAt: r.msg.createdAt.toISOString(),
+      readAt: r.msg.readAt ? r.msg.readAt.toISOString() : null,
     }));
+  }
+
+  async markMessagesAsRead(
+    ticketId: string,
+    messageIds: string[],
+    readAt: Date,
+  ): Promise<number> {
+    if (!messageIds || messageIds.length === 0) {
+      return 0;
+    }
+
+    const updatedRows = await this.db
+      .update(supportMessages)
+      .set({ readAt })
+      .where(
+        and(
+          eq(supportMessages.ticketId, ticketId),
+          inArray(supportMessages.id, messageIds),
+          eq(supportMessages.senderRole, "admin"),
+          eq(supportMessages.isInternalNote, false),
+          isNull(supportMessages.readAt),
+        ),
+      )
+      .returning({ id: supportMessages.id });
+
+    return updatedRows.length;
   }
 
   async findAttachmentOwner(
     storageKey: string,
   ): Promise<{ userId: UserId; ticketId?: string; feedbackId?: string } | null> {
     const cleanKey = decodeURIComponent(storageKey);
-    const rawKey = storageKey;
+    const encodedKey = encodeURIComponent(cleanKey);
+    const escapeLike = (str: string) => str.replace(/[%_\\]/g, "\\$&");
+    const safeClean = escapeLike(cleanKey);
+    const safeEncoded = escapeLike(encodedKey);
+
+    const matchConditions = (col: AnyPgColumn) =>
+      or(
+        ilike(col, `%/attachments/${safeEncoded}`),
+        ilike(col, `%/attachments/${safeClean}`),
+        ilike(col, `%/attachments/${safeEncoded}?%`),
+        ilike(col, `%/attachments/${safeClean}?%`),
+        ilike(col, `%/${safeEncoded}`),
+        ilike(col, `%/${safeClean}`),
+      );
 
     // 1. Check feedback
     const fbRows = await this.db
       .select({ id: feedbacks.id, userId: feedbacks.userId })
       .from(feedbacks)
-      .where(
-        or(
-          ilike(feedbacks.attachmentUrl, `%${cleanKey}%`),
-          ilike(feedbacks.attachmentUrl, `%${rawKey}%`),
-        ),
-      )
+      .where(matchConditions(feedbacks.attachmentUrl))
       .limit(1);
 
     if (fbRows.length > 0) {
@@ -525,12 +561,7 @@ export class DrizzleSupportStore implements SupportStore {
     const ticketRows = await this.db
       .select({ id: supportTickets.id, userId: supportTickets.userId })
       .from(supportTickets)
-      .where(
-        or(
-          ilike(supportTickets.attachmentUrl, `%${cleanKey}%`),
-          ilike(supportTickets.attachmentUrl, `%${rawKey}%`),
-        ),
-      )
+      .where(matchConditions(supportTickets.attachmentUrl))
       .limit(1);
 
     if (ticketRows.length > 0) {
@@ -547,12 +578,7 @@ export class DrizzleSupportStore implements SupportStore {
       })
       .from(supportMessages)
       .leftJoin(supportTickets, eq(supportMessages.ticketId, supportTickets.id))
-      .where(
-        or(
-          ilike(supportMessages.attachmentUrl, `%${cleanKey}%`),
-          ilike(supportMessages.attachmentUrl, `%${rawKey}%`),
-        ),
-      )
+      .where(matchConditions(supportMessages.attachmentUrl))
       .limit(1);
 
     if (msgRows.length > 0) {

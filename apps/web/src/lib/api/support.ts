@@ -1,9 +1,9 @@
-import { generateUUID, type ApiClient } from "./client.js";
+import { generateUUID, getApiBaseUrl, type ApiClient } from "./client.js";
 import { ApiError } from "./errors.js";
+import type { ErrorEnvelope } from "@avana/contracts";
 import type {
   FeedbackCategory,
   FeedbackItem,
-  FeedbackStatus,
   FeedbackType,
   SupportMessageItem,
   SupportTicketItem,
@@ -11,6 +11,153 @@ import type {
   TicketPriority,
   TicketStatus,
 } from "@avana/domain";
+
+export interface DownloadAttachmentResult {
+  blob: Blob;
+  objectUrl: string;
+  filename: string;
+  mimeType: string;
+}
+
+/**
+ * Safely resolves an attachment URL to avoid duplicate base URLs
+ * or hitting SPA frontend routing when API is on another origin.
+ */
+export function resolveAttachmentUrl(attachmentUrl: string): string {
+  if (!attachmentUrl) return "";
+  const trimmed = attachmentUrl.trim();
+
+  // Guard against path traversal
+  if (trimmed.includes("..")) {
+    throw new Error("مسیر فایل ضمیمه نامعتبر است.");
+  }
+
+  // Blob and data URLs are used for local previews
+  if (trimmed.startsWith("blob:") || trimmed.startsWith("data:")) {
+    return trimmed;
+  }
+
+  const baseUrl = getApiBaseUrl();
+
+  // If already absolute URL, verify it targets our API or frontend origin
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    try {
+      const parsed = new URL(trimmed);
+      const fallbackOrigin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+      const allowedOrigins = [
+        typeof window !== "undefined" ? window.location.origin : "",
+        baseUrl ? new URL(baseUrl, fallbackOrigin).origin : "",
+      ].filter(Boolean);
+
+      if (allowedOrigins.length > 0 && !allowedOrigins.includes(parsed.origin)) {
+        throw new Error("دامنه فایل ضمیمه نامعتبر است.");
+      }
+      return trimmed;
+    } catch (err: unknown) {
+      if ((err as Error)?.message === "دامنه فایل ضمیمه نامعتبر است.") throw err;
+      throw new Error("آدرس فایل ضمیمه نامعتبر است.");
+    }
+  }
+
+  const normalizedPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath;
+}
+
+/**
+ * Safely fetches a support/feedback attachment with authentication credentials and x-request-id.
+ * Returns the Blob, a newly created object URL, and the parsed filename.
+ */
+export async function downloadAttachment(
+  attachmentUrl: string,
+  options?: { fallbackFilename?: string },
+): Promise<DownloadAttachmentResult> {
+  const url = resolveAttachmentUrl(attachmentUrl);
+  const requestId = generateUUID();
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "GET",
+      credentials: "include",
+      headers: {
+        "x-request-id": requestId,
+      },
+    });
+  } catch {
+    throw new Error("خطا در برقراری ارتباط با سرور. لطفاً اتصال اینترنت خود را بررسی کنید.");
+  }
+
+  if (!res.ok) {
+    let errorMessage = "";
+    try {
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const errorData = await res.json();
+        if (errorData?.message) {
+          errorMessage = errorData.message;
+        } else if (errorData?.error?.message) {
+          errorMessage = errorData.error.message;
+        }
+      }
+    } catch {
+      // ignore json parsing errors
+    }
+
+    if (!errorMessage) {
+      if (res.status === 401) {
+        errorMessage = "نشست کاربری شما منقضی شده است. لطفاً دوباره وارد شوید.";
+      } else if (res.status === 403) {
+        errorMessage = "شما دسترسی لازم برای مشاهده یا دانلود این فایل ضمیمه را ندارید.";
+      } else if (res.status === 404) {
+        errorMessage = "فایل ضمیمه مورد نظر در سرور یافت نشد یا حذف شده است.";
+      } else {
+        errorMessage = "خطا در دریافت فایل ضمیمه.";
+      }
+    }
+
+    throw new Error(errorMessage);
+  }
+
+  // Parse filename from Content-Disposition if present
+  let filename = options?.fallbackFilename || "attachment";
+  const disposition = res.headers.get("content-disposition");
+  if (disposition) {
+    const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+      try {
+        filename = decodeURIComponent(utf8Match[1].trim());
+      } catch {
+        // fallback
+      }
+    } else {
+      const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+      if (asciiMatch?.[1]) {
+        filename = asciiMatch[1].trim();
+      }
+    }
+  } else {
+    try {
+      const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+      const urlObj = new URL(url, origin);
+      const parts = urlObj.pathname.split("/");
+      const lastPart = parts[parts.length - 1];
+      if (lastPart) {
+        filename = decodeURIComponent(lastPart);
+      }
+    } catch {
+      // fallback
+    }
+  }
+
+  const blob = await res.blob();
+  const mimeType = res.headers.get("content-type") || blob.type || "application/octet-stream";
+  const objectUrl =
+    typeof window !== "undefined" && window.URL
+      ? window.URL.createObjectURL(blob)
+      : "";
+
+  return { blob, objectUrl, filename, mimeType };
+}
 
 export interface ListFeedbackResponse {
   items: FeedbackItem[];
@@ -77,7 +224,17 @@ export interface SupportApi {
 
   reopenTicket(ticketId: string): Promise<{ ticket: SupportTicketItem }>;
 
+  markMessagesAsRead(
+    ticketId: string,
+    messageIds: string[],
+  ): Promise<{ success: boolean; markedCount: number }>;
+
   uploadAttachment(file: File): Promise<UploadAttachmentResponse>;
+
+  downloadAttachment(
+    attachmentUrl: string,
+    options?: { fallbackFilename?: string },
+  ): Promise<DownloadAttachmentResult>;
 
   // Admin APIs
   listAdminFeedbacks(params?: {
@@ -210,11 +367,19 @@ export function createSupportApi(client: ApiClient): SupportApi {
       );
     },
 
+    async markMessagesAsRead(ticketId, messageIds) {
+      return client.post<{ success: boolean; markedCount: number }>(
+        `/v1/support/tickets/${ticketId}/messages/read`,
+        { message_ids: messageIds },
+      );
+    },
+
     async uploadAttachment(file: File): Promise<UploadAttachmentResponse> {
       const formData = new FormData();
       formData.append("file", file, file.name);
 
-      const response = await fetch("/v1/support/attachments", {
+      const url = `${getApiBaseUrl()}/v1/support/attachments`;
+      const response = await fetch(url, {
         method: "POST",
         headers: {
           "x-request-id": generateUUID(),
@@ -240,7 +405,9 @@ export function createSupportApi(client: ApiClient): SupportApi {
         throw new ApiError({
           request_id: response.headers.get("x-request-id") || generateUUID(),
           error: {
-            code: (errorData?.error?.code as any) || "internal_error",
+            code:
+              (errorData?.error?.code as ErrorEnvelope["error"]["code"]) ||
+              "internal_error",
             message:
               errorData?.error?.message ||
               "بارگذاری فایل ضمیمه با خطا مواجه شد.",
@@ -249,6 +416,10 @@ export function createSupportApi(client: ApiClient): SupportApi {
       }
 
       return data as UploadAttachmentResponse;
+    },
+
+    async downloadAttachment(attachmentUrl, options) {
+      return downloadAttachment(attachmentUrl, options);
     },
 
     // Admin APIs

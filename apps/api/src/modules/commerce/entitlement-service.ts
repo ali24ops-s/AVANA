@@ -192,7 +192,10 @@ export class EntitlementService {
     // -----------------------------------------------------------------------
     // 2. Creator & Platform Admin Bypass
     // -----------------------------------------------------------------------
-    if (actor.role === "platform_admin") {
+    if (
+      actor.role === "platform_admin" ||
+      actor.globalRole === "platform_admin"
+    ) {
       return {
         granted: true,
         reason: "admin_grant",

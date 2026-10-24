@@ -91,29 +91,15 @@ export function SourceProductionPanel({
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const docsApi = createDocumentsApi(apiClient);
 
-  // List documents for this course (including course-assigned and general unassigned documents)
+  // List documents exclusively for this course
   const docsQuery = useQuery({
     queryKey: ["course-documents", organizationId, course.id],
     queryFn: async () => {
-      const [courseRes, unassignedRes] = await Promise.all([
-        docsApi.listDocuments(organizationId, {
-          courseId: course.id,
-          limit: 100,
-        }),
-        docsApi.listDocuments(organizationId, {
-          used: "unused",
-          limit: 100,
-        }),
-      ]);
-
-      const docMap = new Map<string, DocumentResource>();
-      for (const item of courseRes.items) {
-        docMap.set(item.id, item);
-      }
-      for (const item of unassignedRes.items) {
-        docMap.set(item.id, item);
-      }
-      return Array.from(docMap.values());
+      const courseRes = await docsApi.listDocuments(organizationId, {
+        courseId: course.id,
+        limit: 100,
+      });
+      return courseRes.items;
     },
     refetchInterval: (query) => {
       const docs = query.state.data ?? [];
@@ -175,6 +161,7 @@ export function SourceProductionPanel({
         force?: boolean;
         questionPatternId?: string | null;
         questionPatternVersion?: number | null;
+        questionPatternIds?: string[] | null;
       };
     }) => {
       setGenerateError(null);
@@ -193,6 +180,7 @@ export function SourceProductionPanel({
             force: options.force,
             questionPatternId: options.questionPatternId,
             questionPatternVersion: options.questionPatternVersion,
+            questionPatternIds: options.questionPatternIds,
           }),
         },
       );
@@ -243,6 +231,7 @@ export function SourceProductionPanel({
     review_summary: boolean;
     questionPatternId?: string | null;
     questionPatternVersion?: number | null;
+    questionPatternIds?: string[] | null;
   }) => {
     if (!selectedDocForGeneration) return;
     generateMutation.mutate({
@@ -255,6 +244,7 @@ export function SourceProductionPanel({
         force: false,
         questionPatternId: selected.questionPatternId,
         questionPatternVersion: selected.questionPatternVersion,
+        questionPatternIds: selected.questionPatternIds,
       },
     });
   };

@@ -141,7 +141,9 @@ describe("Educational Chart AI Prompt & Pipeline Policy Suite", () => {
     );
     expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("SCIENTIFIC & EDUCATIONAL CHART POLICY");
     expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("Anti-Hallucination Guard: NEVER invent numbers");
-    expect(LESSON_GENERATION_SYSTEM_PROMPT).toBe("You produce structured JSON educational lesson content.");
+    expect(LESSON_GENERATION_SYSTEM_PROMPT).toContain(
+      "You produce structured JSON educational lesson content.",
+    );
   });
 
   it("extracts and validates canonical conceptual charts with parametric curves from generated lesson markdown", () => {

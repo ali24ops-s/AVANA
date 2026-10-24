@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   ChevronDown,
   ChevronLeft,
@@ -8,6 +8,8 @@ import {
   BookOpen,
   FolderTree,
   FileText,
+  Search,
+  X,
 } from "lucide-react";
 import { toPersianDigits } from "@avana/domain";
 
@@ -24,6 +26,7 @@ export type TaxonomyModule = {
   itemCount?: number;
   itemBadges?: React.ReactNode;
   lessons?: TaxonomyLesson[];
+  sortOrder?: number;
 };
 
 export type TaxonomyCourse = {
@@ -47,6 +50,12 @@ export interface TaxonomySelectorProps {
   emptyMessage?: string;
   itemLabelSingular?: string;
   hideLessons?: boolean;
+  enableCourseSearch?: boolean;
+  courseSearchPlaceholder?: string;
+  className?: string;
+  layout?: "accordion" | "two-panel";
+  activeCourseId?: string | null;
+  onActiveCourseChange?: (courseId: string | null) => void;
 }
 
 export function TaxonomySelector({
@@ -58,7 +67,16 @@ export function TaxonomySelector({
   emptyMessage = "برای این بخش هنوز سرفصل یا محتوایی ثبت نشده است.",
   itemLabelSingular = "کارت",
   hideLessons = false,
+  enableCourseSearch = false,
+  courseSearchPlaceholder = "جست‌وجوی دوره...",
+  className = "",
+  layout = "accordion",
+  activeCourseId: propActiveCourseId,
+  onActiveCourseChange,
 }: TaxonomySelectorProps) {
+  // Search query state
+  const [searchQuery, setSearchQuery] = useState("");
+
   // Accordion expansion state for Course and Module nodes
   const [expandedCourses, setExpandedCourses] = useState<Set<string>>(
     () => new Set(),
@@ -66,6 +84,64 @@ export function TaxonomySelector({
   const [expandedModules, setExpandedModules] = useState<Set<string>>(
     () => new Set(),
   );
+
+  // Two-panel layout active course state
+  const [internalActiveCourseId, setInternalActiveCourseId] = useState<string | null>(null);
+
+  const activeCourseId = propActiveCourseId !== undefined ? propActiveCourseId : internalActiveCourseId;
+  const setActiveCourseId = (id: string | null) => {
+    if (onActiveCourseChange) {
+      onActiveCourseChange(id);
+    }
+    setInternalActiveCourseId(id);
+  };
+
+  const activeCourse = useMemo(() => {
+    if (!activeCourseId) return null;
+    return courses.find((c) => c.id === activeCourseId) ?? null;
+  }, [courses, activeCourseId]);
+
+  const selectAllActiveCourseModules = () => {
+    if (!activeCourse) return;
+    const nextModules = new Set(selectedModuleIds);
+    const nextCourses = new Set(selectedCourseIds);
+    const nextLessons = new Set(selectedLessonIds);
+
+    for (const m of activeCourse.modules) {
+      nextModules.add(m.id);
+      if (m.lessons) {
+        for (const l of m.lessons) nextLessons.add(l.id);
+      }
+    }
+    nextCourses.add(activeCourse.id);
+
+    onSelectionChange({
+      courseIds: nextCourses,
+      moduleIds: nextModules,
+      lessonIds: nextLessons,
+    });
+  };
+
+  const deselectAllActiveCourseModules = () => {
+    if (!activeCourse) return;
+    const nextModules = new Set(selectedModuleIds);
+    const nextCourses = new Set(selectedCourseIds);
+    const nextLessons = new Set(selectedLessonIds);
+
+    for (const m of activeCourse.modules) {
+      nextModules.delete(m.id);
+      if (m.lessons) {
+        for (const l of m.lessons) nextLessons.delete(l.id);
+      }
+    }
+    nextCourses.delete(activeCourse.id);
+
+    onSelectionChange({
+      courseIds: nextCourses,
+      moduleIds: nextModules,
+      lessonIds: nextLessons,
+    });
+  };
 
   const toggleExpandCourse = (courseId: string) => {
     setExpandedCourses((prev) => {
@@ -254,9 +330,313 @@ export function TaxonomySelector({
     );
   }
 
+  // Filter courses by search query without changing their relative order
+  const filteredCourses = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return courses;
+    return courses.filter((c) => c.title.toLowerCase().includes(q));
+  }, [courses, searchQuery]);
+
+  // Two-panel layout branch
+  if (layout === "two-panel") {
+    const activeCourseSelectedCount = activeCourse
+      ? activeCourse.modules.filter((m) => selectedModuleIds.has(m.id)).length
+      : 0;
+
+    return (
+      <div className={`font-sans text-start ${className}`} dir="rtl">
+        <div className="grid grid-cols-1 md:grid-cols-12 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xs overflow-hidden">
+          {/* Panel 1 (Right in RTL): Courses List */}
+          <div className="md:col-span-5 lg:col-span-4 flex flex-col border-b md:border-b-0 md:border-inline-end border-[var(--color-border)] bg-[var(--color-surface)] md:h-[480px] min-h-0">
+            {/* Course Search */}
+            {enableCourseSearch && (
+              <div className="shrink-0 p-3 sm:p-3.5 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder={courseSearchPlaceholder}
+                    aria-label="جست‌وجوی دوره"
+                    className="w-full ps-9 pe-8 py-2 rounded-xl bg-[var(--color-background)] border border-[var(--color-border)] text-xs text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 focus:border-[var(--color-primary)] transition-all"
+                  />
+                  <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery("")}
+                      aria-label="پاک کردن جست‌وجو"
+                      className="absolute end-2.5 top-1/2 -translate-y-1/2 p-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] rounded-sm cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Courses Scroll Area */}
+            <div className="flex-1 overflow-y-auto overscroll-contain p-2 sm:p-2.5 space-y-1.5 max-h-[260px] md:max-h-none">
+              {filteredCourses.length === 0 && searchQuery ? (
+                <div className="p-6 text-center text-xs text-[var(--color-text-muted)]">
+                  دوره‌ای با عبارت «{searchQuery}» یافت نشد.
+                </div>
+              ) : (
+                filteredCourses.map((course) => {
+                  const isActive = activeCourseId === course.id;
+                  const cState = getCourseState(course);
+                  const selectedCount = course.modules.filter((m) =>
+                    selectedModuleIds.has(m.id),
+                  ).length;
+
+                  return (
+                    <div
+                      key={course.id}
+                      onClick={() => setActiveCourseId(course.id)}
+                      className={`group p-3 rounded-xl border text-sm transition-all flex items-center justify-between gap-2.5 cursor-pointer select-none ${
+                        isActive
+                          ? "bg-[var(--color-primary-soft)] border-[var(--color-primary)] text-[var(--color-primary-dark)] dark:text-[var(--color-primary-light)] shadow-xs"
+                          : "bg-[var(--color-surface)] border-[var(--color-border)]/70 text-[var(--color-text)] hover:border-[var(--color-primary)]/40 hover:bg-[var(--color-surface-warm)]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                        {/* Course Select Checkbox */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleCourseSelect(course);
+                          }}
+                          className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                            cState === "checked"
+                              ? "bg-[var(--color-primary)] border-[var(--color-primary)] text-white"
+                              : cState === "indeterminate"
+                              ? "bg-[var(--color-primary-soft)] border-[var(--color-primary)] text-[var(--color-primary)]"
+                              : "border-[var(--color-border)] bg-[var(--color-surface)]"
+                          }`}
+                          aria-label={`انتخاب کل دوره ${course.title}`}
+                        >
+                          {cState === "checked" && (
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          )}
+                          {cState === "indeterminate" && (
+                            <Minus className="w-3.5 h-3.5 stroke-[3]" />
+                          )}
+                        </button>
+
+                        {/* Course Icon */}
+                        <div
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                            isActive
+                              ? "bg-[var(--color-primary)] text-white shadow-xs"
+                              : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] group-hover:text-[var(--color-primary)]"
+                          }`}
+                        >
+                          <BookOpen className="w-4 h-4" />
+                        </div>
+
+                        {/* Title and stats */}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-bold text-xs sm:text-sm text-[var(--color-text)] truncate leading-snug">
+                            {course.title}
+                          </h3>
+                          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[var(--color-text-muted)]">
+                            <span>{toPersianDigits(course.modules.length)} فصل</span>
+                            {course.itemCount !== undefined && course.itemCount > 0 && (
+                              <>
+                                <span>•</span>
+                                <span>
+                                  {toPersianDigits(course.itemCount)} {itemLabelSingular}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Left Badge and Chevron */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {selectedCount > 0 && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-[var(--color-primary-soft)] text-[var(--color-primary-dark)] dark:text-[var(--color-primary-light)] border border-[var(--color-primary)]/30 whitespace-nowrap">
+                            {toPersianDigits(selectedCount)} از {toPersianDigits(course.modules.length)}
+                          </span>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (activeCourseId === course.id) {
+                              setActiveCourseId(null);
+                            } else {
+                              setActiveCourseId(course.id);
+                            }
+                          }}
+                          aria-label={`سرفصل‌های ${course.title}`}
+                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                            isActive
+                              ? "text-[var(--color-primary)] bg-[var(--color-primary)]/10"
+                              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                          }`}
+                        >
+                          <ChevronLeft
+                            className={`w-4 h-4 transition-transform ${
+                              isActive ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Panel 2 (Left in RTL): Chapters of Active Course */}
+          <div className="md:col-span-7 lg:col-span-8 flex flex-col bg-[var(--color-surface)] md:h-[480px] min-h-0">
+            {/* Chapters Header */}
+            <div className="shrink-0 p-3.5 sm:p-4 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-between gap-3 flex-wrap min-h-[57px]">
+              {activeCourse ? (
+                <>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="p-1.5 rounded-lg bg-[var(--color-primary-soft)] text-[var(--color-primary)] shrink-0">
+                      <FolderTree className="w-4 h-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <h4 className="text-xs sm:text-sm font-bold text-[var(--color-text)] truncate">
+                        سرفصل‌های {activeCourse.title}
+                      </h4>
+                      <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
+                        {toPersianDigits(activeCourseSelectedCount)} از{" "}
+                        {toPersianDigits(activeCourse.modules.length)} فصل انتخاب شده
+                      </p>
+                    </div>
+                  </div>
+
+                  {activeCourse.modules.length > 0 && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={selectAllActiveCourseModules}
+                        disabled={activeCourseSelectedCount === activeCourse.modules.length}
+                        className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-[var(--color-surface-warm)] text-[var(--color-primary)] hover:bg-[var(--color-primary-soft)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      >
+                        انتخاب همه
+                      </button>
+                      <button
+                        type="button"
+                        onClick={deselectAllActiveCourseModules}
+                        disabled={activeCourseSelectedCount === 0}
+                        className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--avana-error)] hover:bg-rose-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      >
+                        لغو انتخاب
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex items-center gap-2 text-[var(--color-text-muted)] text-xs font-semibold">
+                  <FolderTree className="w-4 h-4" />
+                  <span>سرفصل‌های دوره</span>
+                </div>
+              )}
+            </div>
+
+            {/* Chapters Scroll Area */}
+            <div className="flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4 space-y-2 max-h-[320px] md:max-h-none">
+              {!activeCourse ? (
+                <div className="h-full flex flex-col items-center justify-center p-8 text-center text-[var(--color-text-muted)] space-y-2 min-h-[220px]">
+                  <FolderTree className="w-8 h-8 opacity-40 mb-1" />
+                  <p className="text-xs font-semibold">
+                    یک دوره را از لیست سمت راست انتخاب کنید تا سرفصل‌های آن نمایش داده شود.
+                  </p>
+                </div>
+              ) : activeCourse.modules.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center p-8 text-center text-[var(--color-text-muted)] space-y-2 min-h-[220px]">
+                  <FolderX className="w-8 h-8 opacity-40 mb-1" />
+                  <p className="text-xs font-semibold">سرفصلی برای این دوره ثبت نشده است.</p>
+                </div>
+              ) : (
+                activeCourse.modules.map((module) => {
+                  const isSelected = selectedModuleIds.has(module.id);
+
+                  return (
+                    <div
+                      key={module.id}
+                      onClick={() => toggleModuleSelect(activeCourse, module)}
+                      className={`p-3 rounded-xl border text-xs sm:text-sm flex items-center justify-between gap-3 transition-all cursor-pointer select-none ${
+                        isSelected
+                          ? "bg-[var(--color-primary-soft)]/70 border-[var(--color-primary)] font-bold text-[var(--color-primary-dark)] dark:text-[var(--color-primary-light)] shadow-xs"
+                          : "bg-[var(--color-surface)] border-[var(--color-border)]/80 text-[var(--color-text)] hover:border-[var(--color-primary)]/40 hover:bg-[var(--color-surface-warm)]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                        <div
+                          className={`w-4.5 h-4.5 rounded-sm border flex items-center justify-center shrink-0 transition-colors ${
+                            isSelected
+                              ? "bg-[var(--color-primary)] border-[var(--color-primary)] text-white"
+                              : "border-[var(--color-border)] bg-[var(--color-surface)]"
+                          }`}
+                        >
+                          {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                        </div>
+                        <span className="flex-1 min-w-0 leading-relaxed break-words">
+                          {module.title}
+                        </span>
+                      </div>
+
+                      {module.itemCount !== undefined && (
+                        <span className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md bg-[var(--color-surface)] text-[11px] font-bold text-[var(--color-text-muted)] border border-[var(--color-border)] shrink-0 whitespace-nowrap">
+                          {toPersianDigits(module.itemCount)} {itemLabelSingular}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-4 font-sans text-start" dir="rtl">
-      {courses.map((course) => {
+    <div className={`space-y-4 font-sans text-start ${className}`} dir="rtl">
+      {/* Course Search Bar */}
+      {enableCourseSearch && courses.length > 0 && (
+        <div className="relative mb-2 sticky top-0 z-10 bg-[var(--color-surface)] pb-1">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={courseSearchPlaceholder}
+            aria-label="جست‌وجوی دوره"
+            className="w-full ps-10 pe-9 py-2 rounded-button bg-[var(--color-surface)] border border-[var(--color-border)] text-xs text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 focus:border-[var(--color-primary)] transition-all"
+          />
+          <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              aria-label="پاک کردن جست‌وجو"
+              className="absolute end-2.5 top-1/2 -translate-y-1/2 p-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] rounded-sm cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Empty Search Feedback */}
+      {filteredCourses.length === 0 && searchQuery && (
+        <div className="p-6 text-center text-xs text-[var(--color-text-muted)] bg-[var(--color-surface)] border border-dashed border-[var(--color-border)] rounded-card">
+          دوره‌ای با عبارت «{searchQuery}» یافت نشد.
+        </div>
+      )}
+
+      {filteredCourses.map((course) => {
         const cState = getCourseState(course);
         const isExpanded = expandedCourses.has(course.id);
         const isCourseSelected = cState !== "unchecked";
@@ -407,7 +787,7 @@ export function TaxonomySelector({
 
             {/* Level 2: Modules List */}
             {isExpanded && course.modules.length > 0 && (
-              <div className="p-3 border-t border-[var(--color-border)] space-y-2 bg-[var(--color-surface)]">
+              <div className="p-3 border-t border-[var(--color-border)] space-y-2 bg-[var(--color-surface)] max-h-[240px] sm:max-h-[280px] overflow-y-auto pe-1 overscroll-contain">
                 {course.modules.map((module) => {
                   const mState = getModuleState(module);
                   const isMExpanded = expandedModules.has(module.id);

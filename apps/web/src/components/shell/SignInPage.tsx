@@ -61,11 +61,16 @@ export function SignInPage() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorGuidance, setErrorGuidance] = useState<{
+    type: "phone_not_found" | "email_credentials";
+    target: string;
+  } | null>(null);
 
   const navigate = useNavigate();
 
   async function handleWorkerAutoLogin() {
     setError(null);
+    setErrorGuidance(null);
     setIsSubmitting(true);
     try {
       const res = await workerAutoLogin();
@@ -105,6 +110,7 @@ export function SignInPage() {
   async function handleEmailSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setErrorGuidance(null);
 
     const trimmedEmail = email.trim();
     if (!trimmedEmail) {
@@ -128,13 +134,34 @@ export function SignInPage() {
       navigate(target, { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
-        const errorMsg =
-          err.message === "Email domain not allowed"
-            ? "دامنه ایمیل مجاز نیست."
-            : err.message;
+        let errorMsg = err.message;
+        if (err.message === "Email domain not allowed") {
+          errorMsg = "دامنه ایمیل مجاز نیست.";
+          setErrorGuidance(null);
+        } else if (
+          err.message === "A server error occurred. Please try again later." ||
+          err.message === "Internal error" ||
+          err.code === "internal_error"
+        ) {
+          errorMsg = "خطایی در ارتباط با سرور رخ داده است. لطفاً بعداً دوباره تلاش کنید.";
+          setErrorGuidance(null);
+        } else if (
+          err.status === 401 ||
+          err.code === "unauthorized" ||
+          err.message.includes("نادرست است")
+        ) {
+          // Keep generic message to prevent enumeration, provide helpful non-assertive guidance
+          setErrorGuidance({
+            type: "email_credentials",
+            target: trimmedEmail,
+          });
+        } else {
+          setErrorGuidance(null);
+        }
         setError(errorMsg);
       } else {
         setError("ورود به سیستم با خطا مواجه شد. لطفاً دوباره تلاش کنید.");
+        setErrorGuidance(null);
       }
     } finally {
       setIsSubmitting(false);
@@ -145,6 +172,7 @@ export function SignInPage() {
   async function handleSendPhoneOtp(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setErrorGuidance(null);
 
     const trimmedPhone = phoneNumber.trim();
     if (!trimmedPhone) {
@@ -166,10 +194,23 @@ export function SignInPage() {
       setOtpCode("");
     } catch (err) {
       if (err instanceof ApiError) {
+        if (
+          err.status === 404 ||
+          err.code === "not_found" ||
+          err.message.includes("یافت نشد")
+        ) {
+          setError(err.message);
+          setErrorGuidance({
+            type: "phone_not_found",
+            target: validation.normalized,
+          });
+          return;
+        }
         setError(err.message);
       } else {
         setError("ارسال کد ورود با خطا مواجه شد. لطفاً دوباره تلاش کنید.");
       }
+      setErrorGuidance(null);
     } finally {
       setIsSubmitting(false);
     }
@@ -179,6 +220,7 @@ export function SignInPage() {
   async function handleVerifyPhoneOtp(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setErrorGuidance(null);
 
     const cleanCode = otpCode.trim();
     if (cleanCode.length !== 6 || !/^\d{6}$/.test(cleanCode)) {
@@ -202,6 +244,7 @@ export function SignInPage() {
       const target = redirectParam ? getSafeInternalRedirect(redirectParam, targetDefault) : targetDefault;
       navigate(target, { replace: true });
     } catch (err) {
+      setErrorGuidance(null);
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
@@ -276,6 +319,7 @@ export function SignInPage() {
                 onClick={() => {
                   setMethod("email");
                   setError(null);
+                  setErrorGuidance(null);
                 }}
                 className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-2 py-2 min-h-[42px] rounded-button text-xs font-bold transition-all cursor-pointer ${
                   method === "email"
@@ -291,6 +335,7 @@ export function SignInPage() {
                 onClick={() => {
                   setMethod("phone");
                   setError(null);
+                  setErrorGuidance(null);
                 }}
                 className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-2 py-2 min-h-[42px] rounded-button text-xs font-bold transition-all cursor-pointer ${
                   method === "phone"
@@ -304,8 +349,54 @@ export function SignInPage() {
             </div>
 
             {error && (
-              <div className="mb-6 p-3.5 rounded-card bg-[var(--avana-error-bg)] border border-[var(--avana-error-border)] text-[var(--avana-error)] text-xs font-medium leading-relaxed">
-                {error}
+              <div className="mb-6 space-y-2.5">
+                <div className="p-3.5 rounded-card bg-[var(--avana-error-bg)] border border-[var(--avana-error-border)] text-[var(--avana-error)] text-xs font-medium leading-relaxed">
+                  {error}
+                </div>
+
+                {errorGuidance?.type === "phone_not_found" && (
+                  <div className="p-3.5 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                    <span className="text-[var(--color-text)] font-medium">
+                      اگر هنوز در آوانا حساب ندارید، ابتدا ثبت‌نام کنید.
+                    </span>
+                    <Link
+                      to={
+                        isTeacherContext
+                          ? `/sign-up?phone=${encodeURIComponent(errorGuidance.target)}&redirect=${encodeURIComponent(safeRedirect)}&role=teacher`
+                          : `/register?phone=${encodeURIComponent(errorGuidance.target)}`
+                      }
+                      className="inline-flex items-center justify-center min-h-[44px] px-4 py-2 rounded-button bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-colors shrink-0 w-full sm:w-auto"
+                    >
+                      رفتن به ثبت‌نام
+                    </Link>
+                  </div>
+                )}
+
+                {errorGuidance?.type === "email_credentials" && (
+                  <div className="p-3.5 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)] space-y-2.5 text-xs">
+                    <div className="text-[var(--color-text-muted)] leading-relaxed">
+                      رمز عبور را اشتباه وارد کرده‌اید؟ یا هنوز در آوانا حساب کاربری نساخته‌اید؟
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      <Link
+                        to={`/forgot-password${errorGuidance.target ? `?email=${encodeURIComponent(errorGuidance.target)}` : ""}`}
+                        className="inline-flex items-center justify-center min-h-[40px] px-3.5 py-1.5 rounded-button text-xs font-semibold text-primary bg-[var(--color-surface)] border border-[var(--color-border)] hover:bg-[var(--avana-accent-soft)] transition-colors"
+                      >
+                        بازیابی رمز عبور
+                      </Link>
+                      <Link
+                        to={
+                          isTeacherContext
+                            ? `/sign-up?${errorGuidance.target ? `email=${encodeURIComponent(errorGuidance.target)}&` : ""}redirect=${encodeURIComponent(safeRedirect)}&role=teacher`
+                            : `/register${errorGuidance.target ? `?email=${encodeURIComponent(errorGuidance.target)}` : ""}`
+                        }
+                        className="inline-flex items-center justify-center min-h-[40px] px-3.5 py-1.5 rounded-button text-xs font-semibold text-primary bg-[var(--color-surface)] border border-primary/30 hover:bg-[var(--avana-accent-soft)] transition-colors"
+                      >
+                        رفتن به ثبت‌نام
+                      </Link>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -535,9 +626,9 @@ export function SignInPage() {
               </form>
             )}
 
-            <div className="mt-8 pt-6 border-t border-[var(--color-border)] text-center space-y-3">
+            <div className="mt-8 pt-6 border-t border-[var(--color-border)] space-y-4">
               {WORKER_MODE_ENABLED && (
-                <div>
+                <div className="text-center">
                   <button
                     type="button"
                     onClick={handleWorkerAutoLogin}
@@ -548,15 +639,22 @@ export function SignInPage() {
                   </button>
                 </div>
               )}
-              <div className="text-xs text-[var(--color-text-muted)]">
-                حساب کاربری ندارید؟{" "}
+              <div className="p-4 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)] flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-start">
+                <div>
+                  <div className="text-xs font-bold text-[var(--color-text)]">
+                    حساب کاربری ندارید؟
+                  </div>
+                  <div className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
+                    در کمتر از یک دقیقه در آوانا عضو شوید.
+                  </div>
+                </div>
                 <Link
                   to={
                     isTeacherContext
                       ? `/sign-up?redirect=${encodeURIComponent(safeRedirect)}&role=teacher`
                       : "/register"
                   }
-                  className="font-bold text-primary hover:underline transition-colors"
+                  className="inline-flex items-center justify-center min-h-[44px] px-5 py-2.5 rounded-button text-xs font-bold text-primary bg-[var(--color-surface)] hover:bg-[var(--avana-accent-soft)] border border-primary/30 hover:border-primary transition-all shadow-xs cursor-pointer w-full sm:w-auto shrink-0"
                 >
                   ثبت‌نام کنید
                 </Link>

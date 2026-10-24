@@ -8,11 +8,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
-  GraduationCap,
-  Users,
-  FileCheck2,
-  FileText,
-  BarChart3,
   ArrowLeft,
   ShieldCheck,
   UserCheck,
@@ -42,8 +37,6 @@ export function TeacherIntroPage() {
   const showcaseSections = [
     {
       id: "classrooms",
-      badge: "مدیریت کلاس‌ها",
-      icon: Users,
       title: "کلاس‌ها و دانشجوها، یکجا",
       description: "کلاس‌ها، اعضا و وضعیت دسترسی دانشجوها را از یک محیط مدیریت کنید.",
       preview: <ClassroomsPreview />,
@@ -51,8 +44,6 @@ export function TeacherIntroPage() {
     },
     {
       id: "exam-builder",
-      badge: "ساخت آزمون",
-      icon: FileCheck2,
       title: "آزمون را دقیقاً مطابق نیازتان بسازید",
       description: "سؤال‌ها، کلید پاسخ، زمان‌بندی و تنظیمات آزمون را در یک ویرایشگر مدیریت کنید.",
       preview: <ExamEditorPreview />,
@@ -60,8 +51,6 @@ export function TeacherIntroPage() {
     },
     {
       id: "assignments",
-      badge: "تکلیف و بازخورد",
-      icon: FileText,
       title: "از ارسال تا نمره‌دهی، یکجا",
       description: "ارسال‌های دانشجوها را بررسی کنید، نمره بدهید و بازخورد ثبت کنید.",
       preview: <AssignmentsPreview />,
@@ -69,8 +58,6 @@ export function TeacherIntroPage() {
     },
     {
       id: "results",
-      badge: "تحلیل نتایج",
-      icon: BarChart3,
       title: "عملکرد دانشجوها را بهتر ببینید",
       description: "میانگین، قبولی و توزیع نمرات را در یک نگاه بررسی کنید.",
       preview: <ResultsPreview />,
@@ -111,12 +98,6 @@ export function TeacherIntroPage() {
           transition={{ duration: 0.35 }}
           className="w-full flex flex-col items-center space-y-5 sm:space-y-6"
         >
-          {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-[#008080] text-xs sm:text-sm font-bold shadow-2xs">
-            <GraduationCap className="w-4 h-4 text-[#008080]" />
-            <span>پنل استاد AVANA</span>
-          </div>
-
           {/* Title & One-line Description */}
           <div className="space-y-3 max-w-2xl">
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-[#1a2226] tracking-tight">
@@ -193,51 +174,41 @@ export function TeacherIntroPage() {
 
       {/* 3. Visual Showcase Sections (Visual Walkthrough) */}
       <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-16 sm:space-y-24">
-        {showcaseSections.map((section, idx) => {
-          const Icon = section.icon;
-          return (
-            <motion.section
-              key={section.id}
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-80px" }}
-              transition={{ duration: 0.5, delay: idx * 0.05 }}
-              className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center"
-              aria-label={section.title}
+        {showcaseSections.map((section, idx) => (
+          <motion.section
+            key={section.id}
+            initial={{ opacity: 0, y: 24 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-80px" }}
+            transition={{ duration: 0.5, delay: idx * 0.05 }}
+            className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center"
+            aria-label={section.title}
+          >
+            {/* Text Column (~40% on Desktop) */}
+            <div
+              className={`lg:col-span-5 flex flex-col gap-3 text-center lg:text-right ${
+                section.reverse ? "lg:order-2" : "lg:order-1"
+              }`}
             >
-              {/* Text Column (~40% on Desktop) */}
-              <div
-                className={`lg:col-span-5 flex flex-col gap-4 text-center lg:text-right ${
-                  section.reverse ? "lg:order-2" : "lg:order-1"
-                }`}
-              >
-                <div className="flex justify-center lg:justify-start">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-50 border border-teal-200 text-[#008080] text-xs font-bold">
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{section.badge}</span>
-                  </span>
-                </div>
+              <h2 className="text-xl sm:text-2xl lg:text-3xl font-black text-[#1a2226] tracking-tight">
+                {section.title}
+              </h2>
 
-                <h2 className="text-xl sm:text-2xl lg:text-3xl font-black text-[#1a2226] tracking-tight">
-                  {section.title}
-                </h2>
+              <p className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed">
+                {section.description}
+              </p>
+            </div>
 
-                <p className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed">
-                  {section.description}
-                </p>
-              </div>
-
-              {/* Preview Window Column (~60% on Desktop) */}
-              <div
-                className={`lg:col-span-7 w-full ${
-                  section.reverse ? "lg:order-1" : "lg:order-2"
-                }`}
-              >
-                {section.preview}
-              </div>
-            </motion.section>
-          );
-        })}
+            {/* Preview Window Column (~60% on Desktop) */}
+            <div
+              className={`lg:col-span-7 w-full ${
+                section.reverse ? "lg:order-1" : "lg:order-2"
+              }`}
+            >
+              {section.preview}
+            </div>
+          </motion.section>
+        ))}
       </main>
 
       {/* 4. Final CTA Section */}
