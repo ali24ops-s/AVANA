@@ -326,14 +326,14 @@ describe("Auth Login & Device Management Regression Test Suite", () => {
       expect(device2).toBeDefined();
       expect(device2).not.toBe(device1);
 
-      // 3. Old session MUST be revoked with session_takeover
+      // 3. Under multi-device policy, platform_admin previous session remains active concurrently
       const meOldRes = await app.inject({
         method: "GET",
         url: "/v1/me",
         headers: { cookie: `avana_session=${session1}` },
       });
-      expect(meOldRes.statusCode).toBe(401);
-      expect(meOldRes.json().error.code).toBe("SESSION_REVOKED");
+      expect(meOldRes.statusCode).toBe(200);
+      expect(meOldRes.json().user.email).toBe("ali1383mohammadlo@gmail.com");
 
       // 4. New session MUST be active and return correct user
       const meNewRes = await app.inject({
@@ -487,14 +487,14 @@ describe("Auth Login & Device Management Regression Test Suite", () => {
         expect(device2).toBeDefined();
         expect(device2).not.toBe(device1);
 
-        // Session 1 is revoked with session_takeover
+        // Under multi-device policy, Session 1 remains active concurrently
         const meOld = await appPg.inject({
           method: "GET",
           url: "/v1/me",
           headers: { cookie: `avana_session=${session1}` },
         });
-        expect(meOld.statusCode).toBe(401);
-        expect(meOld.json().error.code).toBe("SESSION_REVOKED");
+        expect(meOld.statusCode).toBe(200);
+        expect(meOld.json().user.email).toBe(testAdminEmail);
 
         // Session 2 is active and valid
         const meNew = await appPg.inject({

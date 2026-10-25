@@ -90,6 +90,27 @@ export class InMemorySessionStore implements SessionStore {
     return { id, revokedCount };
   }
 
+  async revokeDeviceSession(
+    userId: UserId,
+    deviceId: string,
+    revocationReason = "device_relogin",
+  ): Promise<number> {
+    const now = new Date().toISOString();
+    let count = 0;
+    for (const session of this.sessions.values()) {
+      if (
+        session.userId === userId &&
+        session.deviceId === deviceId &&
+        !session.revokedAt
+      ) {
+        session.revokedAt = now;
+        session.revocationReason = revocationReason;
+        count++;
+      }
+    }
+    return count;
+  }
+
   async findByTokenHash(tokenHash: string): Promise<SessionRecord | undefined> {
     for (const session of this.sessions.values()) {
       if (session.tokenHash === tokenHash) return session;
@@ -346,15 +367,39 @@ export class InMemoryDeviceStore implements DeviceStore {
         isNewDevice = true;
       }
 
-      // Atomically revoke old active sessions and insert new active session
-      const { id: sessionId, revokedCount } =
-        await this.sessionStore.createSessionWithTakeover({
+      // Session management
+      let revokedSessionsCount = 0;
+      let sessionId: string;
+
+      if (!params.isPlatformAdmin) {
+        // Regular user: atomically revoke old active sessions and insert new active session
+        const res = await this.sessionStore.createSessionWithTakeover({
           userId: params.userId,
           tokenHash: params.tokenHash,
           expiresAt: params.expiresAt,
           deviceId: finalDevice.id,
           revocationReason: "session_takeover",
         });
+        sessionId = res.id;
+        revokedSessionsCount = res.revokedCount;
+      } else {
+        // Platform Admin: allow multi-device concurrent sessions
+        // Only revoke previous session for the same recognized device if matchedDevice is present
+        if (matchedDevice && this.sessionStore instanceof InMemorySessionStore) {
+          revokedSessionsCount = await this.sessionStore.revokeDeviceSession(
+            params.userId,
+            matchedDevice.id,
+            "device_relogin",
+          );
+        }
+        const insertRes = await this.sessionStore.insert({
+          userId: params.userId,
+          tokenHash: params.tokenHash,
+          expiresAt: params.expiresAt,
+          deviceId: finalDevice.id,
+        });
+        sessionId = insertRes.id;
+      }
 
       return {
         status: "SUCCESS",
@@ -362,7 +407,7 @@ export class InMemoryDeviceStore implements DeviceStore {
         canonicalDeviceId: finalDevice.deviceId,
         sessionId,
         isNewDevice,
-        revokedSessionsCount: revokedCount,
+        revokedSessionsCount,
       };
     } finally {
       releaseLock!();

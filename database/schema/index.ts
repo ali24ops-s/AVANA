@@ -542,7 +542,8 @@ export const userDevices = pgTable(
  *
  * Server-controlled browser sessions. Tokens are stored hashed (SHA-256)
  * so the raw token is never persisted.
- * Exactly ONE active session is allowed per user.
+ * Single active session for regular users is enforced atomically at the application layer.
+ * Platform admins are permitted concurrent multi-device sessions.
  */
 export const sessions = pgTable(
   "sessions",
@@ -569,9 +570,10 @@ export const sessions = pgTable(
     tokenHashIdx: uniqueIndex("idx_sessions_token_hash").on(table.tokenHash),
     userIdx: index("idx_sessions_user").on(table.userId),
     expiresAtIdx: index("idx_sessions_expires_at").on(table.expiresAt),
-    singleActiveSessionIdx: uniqueIndex("idx_sessions_single_active_user")
-      .on(table.userId)
-      .where(sql`${table.revokedAt} IS NULL`),
+    userRevokedIdx: index("idx_sessions_user_revoked").on(
+      table.userId,
+      table.revokedAt,
+    ),
     deviceIdx: index("idx_sessions_device").on(table.deviceId),
   }),
 );

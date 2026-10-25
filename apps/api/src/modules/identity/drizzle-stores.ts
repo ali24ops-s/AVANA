@@ -473,6 +473,7 @@ export class DrizzleDeviceStore implements DeviceStore {
       ip,
       tokenHash,
       expiresAt,
+      isPlatformAdmin = false,
     } = params;
     const now = new Date();
 
@@ -559,22 +560,47 @@ export class DrizzleDeviceStore implements DeviceStore {
         isNewDevice = true;
       }
 
-      // 3. Atomically revoke all active sessions for this user under lock
-      const revoked = await tx
-        .update(sessions)
-        .set({
-          revokedAt: now,
-          revocationReason: "session_takeover",
-        })
-        .where(
-          and(
-            eq(sessions.userId, userId),
-            sql`${sessions.revokedAt} IS NULL`,
-          ),
-        )
-        .returning({ id: sessions.id });
+      // 3. Session management under user lock
+      let revokedSessionsCount = 0;
+      if (!isPlatformAdmin) {
+        // Regular users and other roles: strictly single active session across all devices
+        const revoked = await tx
+          .update(sessions)
+          .set({
+            revokedAt: now,
+            revocationReason: "session_takeover",
+          })
+          .where(
+            and(
+              eq(sessions.userId, userId),
+              sql`${sessions.revokedAt} IS NULL`,
+            ),
+          )
+          .returning({ id: sessions.id });
+        revokedSessionsCount = revoked.length;
+      } else {
+        // Platform Admin: allow multi-device concurrent sessions.
+        // Only if logging in from the EXACT same recognized device (matchedDevice), revoke previous session of this device.
+        if (matchedDevice) {
+          const revoked = await tx
+            .update(sessions)
+            .set({
+              revokedAt: now,
+              revocationReason: "device_relogin",
+            })
+            .where(
+              and(
+                eq(sessions.userId, userId),
+                eq(sessions.deviceId, matchedDevice.id),
+                sql`${sessions.revokedAt} IS NULL`,
+              ),
+            )
+            .returning({ id: sessions.id });
+          revokedSessionsCount = revoked.length;
+        }
+      }
 
-      // 4. Create single active session under lock
+      // 4. Create new active session under lock
       const [newSession] = await tx
         .insert(sessions)
         .values({
@@ -591,7 +617,7 @@ export class DrizzleDeviceStore implements DeviceStore {
         canonicalDeviceId: finalDevice.deviceId,
         sessionId: newSession.id,
         isNewDevice,
-        revokedSessionsCount: revoked.length,
+        revokedSessionsCount,
       };
     });
   }
