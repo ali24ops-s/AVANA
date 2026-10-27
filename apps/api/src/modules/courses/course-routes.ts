@@ -930,7 +930,17 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
 
       return {
         request_id: request.id,
-        publication: result.publication,
+        publication: result.publication
+          ? {
+              ...result.publication,
+              reviewNotes: result.publication.metadata?.reviewNotes ?? null,
+              rejectionReason: result.publication.metadata?.rejectionReason ?? null,
+              isUpdate: Boolean(result.publication.metadata?.isUpdate),
+              baseVersion: result.publication.metadata?.baseVersion ?? null,
+              diffSummary: result.publication.metadata?.diffSummary ?? null,
+            }
+          : null,
+        publishedPublication: result.publishedPublication,
         isOfficial: result.isOfficial,
       };
     },

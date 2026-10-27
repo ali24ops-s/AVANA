@@ -25,14 +25,28 @@ export function ProtectedRoute() {
     );
   }
 
-  // Not authenticated — redirect to sign-in
-  if (!isAuthenticated) {
-    return <Navigate to="/sign-in" replace />;
+  // Dev preview bypass: in development mode, allow instant previewing of onboarding/welcome modals
+  const isDevPreview =
+    import.meta.env.DEV &&
+    (location.search.includes("preview-tour") ||
+      location.search.includes("preview=tour") ||
+      location.search.includes("preview=onboarding") ||
+      location.search.includes("preview-welcome-gift") ||
+      location.search.includes("preview=welcome-gift"));
+
+  // Not authenticated — redirect to sign-in with preserved return path (unless previewing in dev)
+  if (!isAuthenticated && !isDevPreview) {
+    const returnUrl = location.pathname + location.search;
+    const redirectSearch =
+      returnUrl && returnUrl !== "/" && returnUrl !== "/home"
+        ? `?redirect=${encodeURIComponent(returnUrl)}`
+        : "";
+    return <Navigate to={`/sign-in${redirectSearch}`} replace />;
   }
 
-  // Authenticated but unverified — redirect to /verify-email
+  // Authenticated but unverified — redirect to /verify-email (unless previewing in dev)
   const verified = isVerified || isEmailVerified || isPhoneVerified;
-  if (!verified && location.pathname !== "/verify-email") {
+  if (!verified && !isDevPreview && location.pathname !== "/verify-email") {
     return <Navigate to="/verify-email" replace />;
   }
 

@@ -392,6 +392,20 @@ export function createCourseApi(client: ApiClient) {
         rejectionReason: string | null;
         reviewedAt: string | null;
         accessType: string | null;
+        reviewNotes?: string | null;
+        metadata?: any;
+        stats: any;
+      } | null;
+      publishedPublication?: {
+        id: string;
+        version: number;
+        status: string;
+        publishedAt: string | null;
+        rejectionReason: string | null;
+        reviewedAt: string | null;
+        accessType: string | null;
+        reviewNotes?: string | null;
+        metadata?: any;
         stats: any;
       } | null;
       isOfficial?: boolean;

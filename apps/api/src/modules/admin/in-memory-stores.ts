@@ -182,9 +182,20 @@ export class InMemoryAdminStore implements AdminStore {
   }
 
   public rejectedContents: AdminRejectedContentRecord[] = [];
+  public generationJobs: AdminGenerationDetail[] = [];
 
-  async listGenerationJobs(_params?: { page: number; pageSize: number; status?: string }): Promise<{ jobs: AdminGenerationJobRecord[]; totalCount: number }> {
-    return { jobs: [], totalCount: 0 };
+  async listGenerationJobs(params?: { page: number; pageSize: number; status?: string }): Promise<{ jobs: AdminGenerationJobRecord[]; totalCount: number }> {
+    let filtered = [...this.generationJobs];
+    if (params?.status) {
+      filtered = filtered.filter((j) => j.status === params.status);
+    }
+    const page = params?.page || 1;
+    const pageSize = params?.pageSize || 20;
+    const offset = (page - 1) * pageSize;
+    return {
+      totalCount: filtered.length,
+      jobs: filtered.slice(offset, offset + pageSize),
+    };
   }
 
   async listRejectedGeneratedContents(params: {
@@ -546,6 +557,7 @@ export class InMemoryAdminStore implements AdminStore {
           moduleId: l.moduleId,
           publicationStatus: l.publicationStatus || "draft",
           contentMarkdown: l.contentMarkdown || "",
+          reference: l.reference || undefined,
           createdAt: l.createdAt || new Date().toISOString(),
           flashcards: [],
           quizQuestions: [],
@@ -562,6 +574,28 @@ export class InMemoryAdminStore implements AdminStore {
         await this.learningStores.lessonStore.update({
           ...l,
           contentMarkdown,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  async updateLesson(
+    id: string,
+    updates: { reference?: string | null; title?: string; contentMarkdown?: string },
+  ): Promise<void> {
+    if (this.learningStores?.lessonStore) {
+      const l = await this.learningStores.lessonStore.findById(id);
+      if (l) {
+        await this.learningStores.lessonStore.update({
+          ...l,
+          ...(updates.reference !== undefined
+            ? { reference: updates.reference ? updates.reference.trim() : null }
+            : {}),
+          ...(updates.title !== undefined ? { title: updates.title.trim() } : {}),
+          ...(updates.contentMarkdown !== undefined
+            ? { contentMarkdown: updates.contentMarkdown }
+            : {}),
           updatedAt: new Date().toISOString(),
         });
       }
@@ -642,8 +676,9 @@ export class InMemoryAdminStore implements AdminStore {
     };
   }
 
-  async getGenerationJob(_id: string): Promise<AdminGenerationDetail | null> {
-    return null;
+  async getGenerationJob(id: string): Promise<AdminGenerationDetail | null> {
+    const job = this.generationJobs.find((j) => j.id === id);
+    return job ? { ...job } : null;
   }
 
   async getAnalytics(): Promise<AdminAnalytics> {

@@ -2395,6 +2395,10 @@ components:
             - string
             - "null"
           format: date-time
+        reference:
+          type:
+            - string
+            - "null"
 
     CourseLearnProgress:
       type: object
@@ -2575,6 +2579,10 @@ components:
         updated_at:
           type: string
           description: UTC ISO datetime
+        reference:
+          type:
+            - string
+            - "null"
 
     CreateContentLessonRequest:
       type: object
@@ -2590,6 +2598,10 @@ components:
         estimated_minutes:
           type: integer
           nullable: true
+        reference:
+          type:
+            - string
+            - "null"
 
     UpdateContentLessonRequest:
       type: object
@@ -2604,6 +2616,10 @@ components:
         estimated_minutes:
           type: integer
           nullable: true
+        reference:
+          type:
+            - string
+            - "null"
 
     ContentLessonResponse:
       type: object

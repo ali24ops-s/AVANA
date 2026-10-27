@@ -31,6 +31,7 @@ import {
   X,
   AlertCircle,
   Trash2,
+  Info,
 } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
@@ -45,11 +46,15 @@ import {
   useCurrentPersianDate,
   calculateDaysRemaining,
   formatPersianExamDate,
+  isExamUpcoming,
+  calculateExamDaysRemaining,
 } from "../utils/date.js";
 import { PersianDatePicker } from "../components/ui/PersianDatePicker.js";
 import { useDailyMotivationalQuote } from "../utils/dailyQuote.js";
 import { StudyAssistantModal } from "../components/ai/StudyAssistantModal.js";
 import { WelcomeGiftModal } from "../components/welcome/WelcomeGiftModal.js";
+import { DashboardOnboardingModal } from "../components/onboarding/DashboardOnboardingModal.js";
+import { createOnboardingTourApi } from "../lib/api/onboarding.js";
 import { StudyPlanner } from "../components/planner/StudyPlanner.js";
 import { ExamDeleteConfirmModal } from "../components/courses/ExamDeleteConfirmModal.js";
 import { CourseCard } from "../components/avana/CourseCard.js";
@@ -64,6 +69,7 @@ export function HomePage() {
   const { user, memberships } = useAuth();
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isAddExamOpen, setIsAddExamOpen] = useState(false);
+  const [examModalMode, setExamModalMode] = useState<"create" | "edit">("create");
   const [selectedCourseIdForExam, setSelectedCourseIdForExam] = useState<string | undefined>();
   const [examToDelete, setExamToDelete] = useState<CourseResource | null>(null);
 
@@ -72,6 +78,7 @@ export function HomePage() {
   const courseApi = createCourseApi(apiClient);
   const studyApi = createStudyApi(apiClient);
   const welcomeGiftApi = useMemo(() => createWelcomeGiftApi(apiClient), [apiClient]);
+  const onboardingTourApi = useMemo(() => createOnboardingTourApi(apiClient), [apiClient]);
 
   const [searchParams] = useSearchParams();
   const isDevPreview =
@@ -91,7 +98,15 @@ export function HomePage() {
     retry: 1,
   });
 
+  const isTourDevPreview =
+    import.meta.env.DEV &&
+    (searchParams.get("preview-tour") === "1" ||
+      searchParams.get("preview-tour") === "true" ||
+      searchParams.get("preview") === "tour" ||
+      searchParams.get("preview") === "onboarding");
+
   const shouldShowWelcomeModal =
+    !isTourDevPreview &&
     !isWelcomeModalDismissedLocally &&
     (isDevPreview ||
       Boolean(
@@ -99,6 +114,67 @@ export function HomePage() {
         welcomeGiftQuery.data?.granted &&
         !welcomeGiftQuery.data?.popup_seen
       ));
+
+  const [isOnboardingTourDismissedLocally, setIsOnboardingTourDismissedLocally] = useState<boolean>(() => {
+    if (typeof window === "undefined" || !window.sessionStorage) return false;
+    try {
+      if (
+        import.meta.env.DEV &&
+        (window.location.search.includes("preview-tour") ||
+          window.location.search.includes("preview=tour") ||
+          window.location.search.includes("preview=onboarding"))
+      ) {
+        return false;
+      }
+      return window.sessionStorage.getItem("avana_onboarding_tour_dismissed") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [isUpdatingTour, setIsUpdatingTour] = useState(false);
+
+  const onboardingTourQuery = useQuery({
+    queryKey: ["onboarding-tour-status", user?.id],
+    queryFn: () => onboardingTourApi.getStatus(),
+    enabled: !!user?.id && !isDevPreview && !isTourDevPreview,
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  const shouldShowOnboardingTour =
+    !shouldShowWelcomeModal &&
+    !isOnboardingTourDismissedLocally &&
+    (isTourDevPreview ||
+      Boolean(
+        onboardingTourQuery.data?.eligible &&
+        onboardingTourQuery.data?.status === "unseen"
+      ));
+
+  const handleCloseOnboardingTour = async (action: "skip" | "complete", step: number) => {
+    setIsOnboardingTourDismissedLocally(true);
+    if (isTourDevPreview) {
+      // Safe preview mode: do not call backend or mutate database
+      return;
+    }
+
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      try {
+        window.sessionStorage.setItem("avana_onboarding_tour_dismissed", "true");
+      } catch {
+        // Ignore session storage error
+      }
+    }
+
+    setIsUpdatingTour(true);
+    try {
+      await onboardingTourApi.updateStatus(action, step);
+      await queryClient.invalidateQueries({ queryKey: ["onboarding-tour-status"] });
+    } catch {
+      // Graceful error handling: dashboard remains unblocked and session storage prevents re-showing
+    } finally {
+      setIsUpdatingTour(false);
+    }
+  };
 
   const handleAcknowledgeWelcomeGift = async () => {
     setIsWelcomeModalDismissedLocally(true);
@@ -139,6 +215,8 @@ export function HomePage() {
     await queryClient.invalidateQueries({ queryKey: ["my-courses"] });
     await queryClient.invalidateQueries({ queryKey: ["all-courses"] });
     await queryClient.invalidateQueries({ queryKey: ["course"] });
+    await queryClient.invalidateQueries({ queryKey: ["course-learning"] });
+    await queryClient.invalidateQueries({ queryKey: ["course-learn"] });
     await queryClient.invalidateQueries({ queryKey: ["daily-study-plan"] });
   };
 
@@ -176,12 +254,12 @@ export function HomePage() {
   const allOrgCourses = (allCoursesQuery.data?.items as CourseResource[] | undefined) ?? [];
   const availableCourses = allOrgCourses.length > 0 ? allOrgCourses.filter((c) => !c.archived) : courses.filter((c) => !c.archived);
 
-  // Upcoming exams: sorted by nearest date ascending (smallest days remaining first)
+  // Upcoming exams: filtered strictly to active/upcoming exams and sorted by nearest date ascending
   const upcomingExams = courses
-    .filter((c) => !!c.exam_at && !c.archived)
+    .filter((c) => !!c.exam_at && !c.archived && isExamUpcoming(c.exam_at))
     .map((c) => ({
       course: c,
-      daysRemaining: calculateDaysRemaining(c.exam_at!),
+      daysRemaining: calculateExamDaysRemaining(c.exam_at!) ?? 0,
     }))
     .filter((item) => item.daysRemaining >= 0)
     .sort((a, b) => {
@@ -316,6 +394,7 @@ export function HomePage() {
           {/* AI Mentor Card (Stitch Reference) */}
           <section
             id="assistant-section"
+            data-tour="smart-assistant"
             className="bg-[var(--color-surface)] p-6 rounded-card border border-[var(--color-border)] shadow-card relative overflow-hidden space-y-4"
           >
             <div className="flex items-center gap-3 relative z-10">
@@ -358,10 +437,15 @@ export function HomePage() {
           <StudentClassroomExamsWidget />
 
           {/* Today's Study Plan (Real Planner Component) */}
-          <StudyPlanner />
+          <div data-tour="study-planner">
+            <StudyPlanner />
+          </div>
 
           {/* Upcoming Exams Section (Replaced Content Recommendations) */}
-          <section className="bg-[var(--color-surface)] p-6 rounded-card border border-[var(--color-border)] shadow-xs space-y-4">
+          <section
+            data-tour="upcoming-exams"
+            className="bg-[var(--color-surface)] p-6 rounded-card border border-[var(--color-border)] shadow-xs space-y-4"
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
                 <GraduationCap className="w-5 h-5 text-primary" />
@@ -370,6 +454,7 @@ export function HomePage() {
               <Button
                 type="button"
                 onClick={() => {
+                  setExamModalMode("create");
                   setSelectedCourseIdForExam(undefined);
                   setIsAddExamOpen(true);
                 }}
@@ -443,6 +528,7 @@ export function HomePage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => {
+                            setExamModalMode("edit");
                             setSelectedCourseIdForExam(course.id);
                             setIsAddExamOpen(true);
                           }}
@@ -482,6 +568,7 @@ export function HomePage() {
                 <Button
                   type="button"
                   onClick={() => {
+                    setExamModalMode("create");
                     setSelectedCourseIdForExam(undefined);
                     setIsAddExamOpen(true);
                   }}
@@ -508,6 +595,7 @@ export function HomePage() {
       {/* Add / Edit Exam Modal */}
       <AddExamModal
         isOpen={isAddExamOpen}
+        mode={examModalMode}
         onClose={() => {
           setIsAddExamOpen(false);
           setSelectedCourseIdForExam(undefined);
@@ -534,12 +622,20 @@ export function HomePage() {
         subscriptionDays={welcomeGiftQuery.data?.gift?.subscription_days ?? 7}
         isAcknowledging={isAcknowledgingGift}
       />
+
+      {/* Dashboard Onboarding Tour Modal */}
+      <DashboardOnboardingModal
+        isOpen={shouldShowOnboardingTour}
+        onClose={handleCloseOnboardingTour}
+        isSaving={isUpdatingTour}
+      />
     </div>
   );
 }
 
 interface AddExamModalProps {
   isOpen: boolean;
+  mode?: "create" | "edit";
   onClose: () => void;
   organizationId?: string;
   courses: CourseResource[];
@@ -549,6 +645,7 @@ interface AddExamModalProps {
 
 function AddExamModal({
   isOpen,
+  mode = "create",
   onClose,
   organizationId,
   courses,
@@ -573,20 +670,71 @@ function AddExamModal({
 
   const availableModules = courseLearnQuery.data?.modules ?? [];
 
-  // Sync state when modal opens or initialCourseId changes
+  // Sync state when modal opens, mode changes, or initialCourseId changes
   useEffect(() => {
     if (isOpen) {
       setIsScopeExpanded(false);
-      const courseId = initialCourseId || (courses.length > 0 ? courses[0].id : "");
-      setSelectedCourseId(courseId);
-      const found = courses.find((c) => c.id === courseId);
+      setError(null);
+      setIsSubmitting(false);
+
+      if (mode === "edit") {
+        const courseId = initialCourseId || "";
+        setSelectedCourseId(courseId);
+        const found = courses.find((c) => c.id === courseId);
+        if (found?.exam_at) {
+          try {
+            const match = found.exam_at.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (match) {
+              setExamDate(`${match[1]}-${match[2]}-${match[3]}`);
+            } else {
+              const d = new Date(found.exam_at);
+              setExamDate(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran" }).format(d));
+            }
+          } catch {
+            setExamDate("");
+          }
+        } else {
+          setExamDate("");
+        }
+
+        if (found?.exam_scope?.moduleIds && Array.isArray(found.exam_scope.moduleIds)) {
+          setSelectedModuleIds(found.exam_scope.moduleIds);
+        } else {
+          setSelectedModuleIds([]);
+        }
+      } else {
+        // Mode is "create":
+        // Respect initialCourseId if specifically provided, otherwise start blank.
+        // Form fields (date and modules) always start completely empty in create mode.
+        setSelectedCourseId(initialCourseId || "");
+        setExamDate("");
+        setSelectedModuleIds([]);
+      }
+    } else {
+      // Clear all state when modal closes so no stale inputs persist
+      setSelectedCourseId("");
+      setExamDate("");
+      setSelectedModuleIds([]);
+      setIsScopeExpanded(false);
+      setIsSubmitting(false);
+      setError(null);
+    }
+  }, [isOpen, initialCourseId, courses, mode]);
+
+  // When course selection changes in dropdown
+  const handleCourseChange = (newCourseId: string) => {
+    setSelectedCourseId(newCourseId);
+    if (mode === "edit") {
+      const found = courses.find((c) => c.id === newCourseId);
       if (found?.exam_at) {
         try {
-          const d = new Date(found.exam_at);
-          const yyyy = d.getFullYear();
-          const mm = String(d.getMonth() + 1).padStart(2, "0");
-          const dd = String(d.getDate()).padStart(2, "0");
-          setExamDate(`${yyyy}-${mm}-${dd}`);
+          const match = found.exam_at.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (match) {
+            setExamDate(`${match[1]}-${match[2]}-${match[3]}`);
+          } else {
+            const d = new Date(found.exam_at);
+            setExamDate(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran" }).format(d));
+          }
         } catch {
           setExamDate("");
         }
@@ -599,33 +747,8 @@ function AddExamModal({
       } else {
         setSelectedModuleIds([]);
       }
-      setError(null);
     }
-  }, [isOpen, initialCourseId, courses]);
-
-  // When course selection changes, prefill if that course has an exam date & scope
-  const handleCourseChange = (newCourseId: string) => {
-    setSelectedCourseId(newCourseId);
-    const found = courses.find((c) => c.id === newCourseId);
-    if (found?.exam_at) {
-      try {
-        const d = new Date(found.exam_at);
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, "0");
-        const dd = String(d.getDate()).padStart(2, "0");
-        setExamDate(`${yyyy}-${mm}-${dd}`);
-      } catch {
-        setExamDate("");
-      }
-    } else {
-      setExamDate("");
-    }
-
-    if (found?.exam_scope?.moduleIds && Array.isArray(found.exam_scope.moduleIds)) {
-      setSelectedModuleIds(found.exam_scope.moduleIds);
-    } else {
-      setSelectedModuleIds([]);
-    }
+    // In create mode: changing course does NOT populate previous exam data
   };
 
   // Keyboard Escape listener & scroll lock
@@ -695,6 +818,8 @@ function AddExamModal({
       await queryClient.invalidateQueries({ queryKey: ["my-courses"] });
       await queryClient.invalidateQueries({ queryKey: ["all-courses"] });
       await queryClient.invalidateQueries({ queryKey: ["course"] });
+      await queryClient.invalidateQueries({ queryKey: ["course-learning"] });
+      await queryClient.invalidateQueries({ queryKey: ["course-learn"] });
       await queryClient.invalidateQueries({ queryKey: ["daily-study-plan"] });
 
       onClose();
@@ -722,7 +847,7 @@ function AddExamModal({
           <div className="flex items-center gap-2 text-primary">
             <GraduationCap className="w-5 h-5" />
             <h3 id="add-exam-modal-title" className="text-base font-bold text-[var(--color-text)]">
-              {selectedCourse?.exam_at ? "ویرایش تاریخ و مباحث امتحان" : "افزودن تاریخ امتحان"}
+              {mode === "edit" ? "ویرایش تاریخ و مباحث امتحان" : "افزودن تاریخ امتحان"}
             </h3>
           </div>
           <Button
@@ -758,13 +883,14 @@ function AddExamModal({
                 id="exam-course-select"
                 value={selectedCourseId}
                 onChange={(e) => handleCourseChange(e.target.value)}
-                className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-input px-3.5 py-2.5 text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors cursor-pointer"
+                disabled={mode === "edit"}
+                className={`w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-input px-3.5 py-2.5 text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors ${mode === "edit" ? "opacity-75 cursor-not-allowed" : "cursor-pointer"}`}
                 required
               >
                 <option value="">-- یک درس را انتخاب کنید --</option>
                 {courses.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.title} {c.exam_at ? " (دارای امتحان)" : ""}
+                    {c.title} {isExamUpcoming(c.exam_at) ? " (دارای امتحان فعال)" : ""}
                   </option>
                 ))}
               </select>
@@ -774,6 +900,19 @@ function AddExamModal({
               </p>
             )}
           </div>
+
+          {mode === "create" && selectedCourse?.exam_at && isExamUpcoming(selectedCourse.exam_at) && (
+            <div className="p-3 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text-muted)] flex items-center gap-2">
+              <Info className="w-4 h-4 text-primary shrink-0" />
+              <span>
+                این درس در حال حاضر دارای امتحان پیش‌رو در تاریخ{" "}
+                <strong className="text-[var(--color-text)]">
+                  {formatPersianExamDate(selectedCourse.exam_at)}
+                </strong>{" "}
+                است. با ثبت تاریخ جدید، زمان‌بندی امتحان این دوره به‌روزرسانی خواهد شد.
+              </span>
+            </div>
+          )}
 
           {/* Persian Exam Date Picker */}
           <div className="space-y-1.5">
@@ -909,7 +1048,7 @@ function AddExamModal({
           {/* Footer Actions */}
           <div className="pt-3 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 border-t border-[var(--color-border)]">
             <div>
-              {selectedCourse?.exam_at && onDeleteExam && (
+              {mode === "edit" && selectedCourse?.exam_at && onDeleteExam && (
                 <Button
                   type="button"
                   onClick={() => {
@@ -944,7 +1083,7 @@ function AddExamModal({
                 size="sm"
                 className="flex-1 sm:flex-initial"
               >
-                ثبت امتحان
+                {mode === "edit" ? "ثبت تغییرات" : "ثبت امتحان"}
               </Button>
             </div>
           </div>
@@ -1323,7 +1462,10 @@ function HeroCoursesCarousel({
   // 0 courses: Empty State
   if (topCourses.length === 0) {
     return (
-      <section className="bg-[var(--color-surface)] rounded-card p-6 md:p-8 border border-[var(--color-border)] shadow-card relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-6 min-h-[250px]">
+      <section
+        data-tour="my-courses"
+        className="bg-[var(--color-surface)] rounded-card p-6 md:p-8 border border-[var(--color-border)] shadow-card relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-6 min-h-[250px]"
+      >
         <div className="z-10 w-full md:w-2/3 space-y-4">
           <span className="inline-block px-3 py-1 bg-[var(--avana-accent-soft)] text-primary text-xs font-semibold rounded-full border border-primary/20">
             شروع یادگیری با آوانا
@@ -1341,6 +1483,7 @@ function HeroCoursesCarousel({
           <div className="pt-2">
             <Link
               to="/courses"
+              data-tour="course-action"
               className="w-full md:w-auto bg-primary text-[var(--color-primary-foreground)] px-6 py-2.5 rounded-button text-sm font-bold hover:opacity-90 transition-opacity inline-flex items-center justify-center gap-2 shadow-xs cursor-pointer"
             >
               <Plus className="w-4 h-4" />
@@ -1370,6 +1513,7 @@ function HeroCoursesCarousel({
 
   return (
     <section
+      data-tour="my-courses"
       className={`bg-[var(--color-surface)] rounded-card p-4 sm:p-6 md:p-8 border border-[var(--color-border)] shadow-card relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-4 sm:gap-6 min-h-[220px] sm:min-h-[250px] transition-all duration-300 ${cursorClass}`}
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
@@ -1503,6 +1647,7 @@ function HeroCoursesCarousel({
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <Link
                   to={`/courses/${current.course.id}`}
+                  data-tour="course-action"
                   className="w-full md:w-auto bg-primary text-[var(--color-primary-foreground)] px-6 py-2.5 rounded-button text-sm font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-xs cursor-pointer group"
                 >
                   <span>

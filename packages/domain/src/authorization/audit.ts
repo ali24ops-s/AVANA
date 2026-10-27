@@ -74,6 +74,7 @@ export type AuditAction =
   | "course.submitted_for_publication"
   | "course_publication.approved"
   | "course_publication.rejected"
+  | "course_publication.changes_requested"
   | "admin.reset_user_devices"
   | "admin.delete_user"
   | "user_device.revoked"

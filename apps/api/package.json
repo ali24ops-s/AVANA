@@ -187,6 +187,7 @@
     "jszip": "^3.10.1",
     "pg": "^8.22.0",
     "pino": "^10.3.1",
+    "sharp": "^0.35.5",
     "socks-proxy-agent": "^10.1.0"
   },
   "devDependencies": {

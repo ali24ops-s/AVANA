@@ -1133,4 +1133,179 @@ describe("ReviewSummaryViewer Component", () => {
       expect(sections[1].className).toContain("pb-2");
     });
   });
+
+  describe("Regeneration Failure, Error Banner & Recovery Workflow", () => {
+    it("preserves existing summary, displays inline error banner and retry button when regeneration fails", async () => {
+      mockAuth = {
+        user: { id: "admin-1", email: "admin@avana.ir", role: "platform_admin", globalRole: "platform_admin" as any },
+        memberships: [{ organization_id: mockOrgId, role: "platform_admin" as any }],
+        isAuthenticated: true,
+      };
+
+      let postCount = 0;
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = String(input);
+        if (urlStr.includes("/review-summary") && (!init || !init.method || init.method === "GET")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-1",
+              content: {
+                id: "content-1",
+                type: "review_summary",
+                payload: mockPayload,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            }),
+          };
+        }
+        if (urlStr.includes("/review-summary") && init?.method === "POST") {
+          postCount++;
+          return {
+            ok: false,
+            status: 504,
+            json: async () => ({
+              error: {
+                code: "gateway_timeout",
+                message: "خطا در اتصال یا تایم‌اوت در پردازش هوش مصنوعی (۵۰۴)",
+              },
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      }) as any;
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ReviewSummaryViewer
+            organizationId={mockOrgId}
+            documentId={mockDocId}
+            courseId={mockCourseId}
+            documentTitle="cardio.pdf"
+          />
+        </QueryClientProvider>,
+      );
+
+      // Verify existing summary is loaded
+      expect(await screen.findByText(/خلاصه مروری فارماکولوژی قلب و عروق/)).toBeInTheDocument();
+
+      // Click regenerate button
+      const regenerateBtn = screen.getByTitle("تولید مجدد خلاصه مروری");
+      expect(regenerateBtn).toBeInTheDocument();
+      fireEvent.click(regenerateBtn);
+
+      // Verify error banner is rendered with Persian message
+      expect(await screen.findByText(/خطا در به‌روزرسانی خلاصه مروری/)).toBeInTheDocument();
+      expect(screen.getByText(/خطا در اتصال یا تایم‌اوت در پردازش هوش مصنوعی/)).toBeInTheDocument();
+
+      // Crucial requirement: PREVIOUS SUMMARY MUST REMAIN VISIBLE
+      expect(screen.getByText(/خلاصه مروری فارماکولوژی قلب و عروق/)).toBeInTheDocument();
+      expect(screen.getByText(/مهارکننده‌های سیستم رنین-آنژیوتانسین/)).toBeInTheDocument();
+
+      // Verify retry button exists
+      const retryBtn = screen.getByRole("button", { name: /تلاش مجدد/ });
+      expect(retryBtn).toBeInTheDocument();
+      expect(postCount).toBe(1);
+    });
+
+    it("clears error banner and updates summary when retry succeeds", async () => {
+      mockAuth = {
+        user: { id: "admin-1", email: "admin@avana.ir", role: "platform_admin", globalRole: "platform_admin" as any },
+        memberships: [{ organization_id: mockOrgId, role: "platform_admin" as any }],
+        isAuthenticated: true,
+      };
+
+      const updatedPayload: ReviewSummaryPayload = {
+        ...mockPayload,
+        title: "نسخه جدید و به‌روزشده خلاصه فارماکولوژی",
+      };
+
+      let currentPayload = mockPayload;
+      let postAttempt = 0;
+
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = String(input);
+        if (urlStr.includes("/review-summary") && (!init || !init.method || init.method === "GET")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-1",
+              content: {
+                id: "content-1",
+                type: "review_summary",
+                payload: currentPayload,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            }),
+          };
+        }
+        if (urlStr.includes("/review-summary") && init?.method === "POST") {
+          postAttempt++;
+          if (postAttempt === 1) {
+            return {
+              ok: false,
+              status: 500,
+              json: async () => ({
+                error: { code: "internal_error", message: "خطای موقت در سرور" },
+              }),
+            };
+          } else {
+            currentPayload = updatedPayload;
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                request_id: "req-2",
+                content: {
+                  id: "content-1",
+                  type: "review_summary",
+                  payload: updatedPayload,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                },
+              }),
+            };
+          }
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      }) as any;
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ReviewSummaryViewer
+            organizationId={mockOrgId}
+            documentId={mockDocId}
+            courseId={mockCourseId}
+            documentTitle="cardio.pdf"
+          />
+        </QueryClientProvider>,
+      );
+
+      // 1. Initial summary visible
+      expect(await screen.findByText(/خلاصه مروری فارماکولوژی قلب و عروق/)).toBeInTheDocument();
+
+      // 2. Click regenerate (fails first time)
+      const regenerateBtn = screen.getByTitle("تولید مجدد خلاصه مروری");
+      fireEvent.click(regenerateBtn);
+
+      // 3. Error banner appears
+      expect(await screen.findByText(/خطا در به‌روزرسانی خلاصه مروری/)).toBeInTheDocument();
+      expect(screen.getByText(/خطای موقت در سرور/)).toBeInTheDocument();
+
+      // 4. Click Retry button
+      const retryBtn = screen.getByRole("button", { name: /تلاش مجدد/ });
+      fireEvent.click(retryBtn);
+
+      // 5. Successful recovery: new summary displayed, error banner removed
+      expect(await screen.findByText(/نسخه جدید و به‌روزشده خلاصه فارماکولوژی/)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.queryByText(/خطا در به‌روزرسانی خلاصه مروری/)).toBeNull();
+      });
+      expect(postAttempt).toBe(2);
+    });
+  });
 });

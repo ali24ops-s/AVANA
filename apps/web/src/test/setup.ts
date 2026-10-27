@@ -27,6 +27,42 @@ class TestIntersectionObserver implements IntersectionObserver {
 globalThis.IntersectionObserver = TestIntersectionObserver;
 
 if (typeof window !== "undefined") {
+  if (typeof HTMLCanvasElement !== "undefined") {
+    HTMLCanvasElement.prototype.getContext = function (contextId: string) {
+      if (contextId === "2d") {
+        return {
+          font: "",
+          measureText: (text: string) => ({
+            width: (text?.length ?? 0) * 8,
+            actualBoundingBoxAscent: 10,
+            actualBoundingBoxDescent: 2,
+          }),
+          fillRect: () => {},
+          clearRect: () => {},
+          getImageData: () => ({ data: new Array(4) }),
+          putImageData: () => {},
+          createImageData: () => [],
+          setTransform: () => {},
+          drawImage: () => {},
+          save: () => {},
+          fillText: () => {},
+          restore: () => {},
+          beginPath: () => {},
+          moveTo: () => {},
+          lineTo: () => {},
+          closePath: () => {},
+          stroke: () => {},
+          translate: () => {},
+          scale: () => {},
+          rotate: () => {},
+          arc: () => {},
+          fill: () => {},
+        } as unknown as CanvasRenderingContext2D;
+      }
+      return null;
+    } as unknown as typeof HTMLCanvasElement.prototype.getContext;
+  }
+
   if (!window.PointerEvent) {
     class PointerEvent extends MouseEvent {
       pointerId: number;

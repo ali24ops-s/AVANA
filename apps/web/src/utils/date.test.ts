@@ -15,6 +15,10 @@ import {
   jalaliToGregorian,
   getJalaliMonthDays,
   getJalaliFirstDayOfWeek,
+  isExamUpcoming,
+  isExamPast,
+  calculateExamDaysRemaining,
+  isDateOnlyExamString,
 } from "./date.js";
 
 describe("Persian Date Utilities (utils/date.ts)", () => {
@@ -371,6 +375,60 @@ describe("Persian Date Utilities (utils/date.ts)", () => {
       expect(combinedEarly.getDate()).toBe(3);
       expect(combinedEarly.getHours()).toBe(0);
       expect(combinedEarly.getMinutes()).toBe(0);
+    });
+  });
+
+  describe("Exam Lifecycle & Validity Utilities (Re-exported from Domain)", () => {
+    it("evaluates upcoming and past exam states accurately", () => {
+      // Reference date: 2026-10-15 14:00 Tehran time
+      const refDate = new Date("2026-10-15T10:30:00Z");
+
+      // Past date (yesterday)
+      expect(isExamUpcoming("2026-10-14", refDate)).toBe(false);
+      expect(isExamPast("2026-10-14", refDate)).toBe(true);
+      expect(calculateExamDaysRemaining("2026-10-14", refDate)).toBe(-1);
+
+      // Future date (tomorrow)
+      expect(isExamUpcoming("2026-10-16", refDate)).toBe(true);
+      expect(isExamPast("2026-10-16", refDate)).toBe(false);
+      expect(calculateExamDaysRemaining("2026-10-16", refDate)).toBe(1);
+
+      // Today date-only (valid through end of today)
+      expect(isExamUpcoming("2026-10-15", refDate)).toBe(true);
+      expect(isExamPast("2026-10-15", refDate)).toBe(false);
+      expect(calculateExamDaysRemaining("2026-10-15", refDate)).toBe(0);
+
+      // Today past exact time (12:00 Tehran < 14:00 Tehran)
+      const pastTimeToday = "2026-10-15T08:30:00Z";
+      expect(isExamUpcoming(pastTimeToday, refDate)).toBe(false);
+      expect(isExamPast(pastTimeToday, refDate)).toBe(true);
+      expect(calculateExamDaysRemaining(pastTimeToday, refDate)).toBe(-1);
+
+      // Today future exact time (16:00 Tehran > 14:00 Tehran)
+      const futureTimeToday = "2026-10-15T12:30:00Z";
+      expect(isExamUpcoming(futureTimeToday, refDate)).toBe(true);
+      expect(isExamPast(futureTimeToday, refDate)).toBe(false);
+      expect(calculateExamDaysRemaining(futureTimeToday, refDate)).toBe(0);
+    });
+
+    it("identifies date-only exam string formats correctly", () => {
+      expect(isDateOnlyExamString("2026-10-15")).toBe(true);
+      expect(isDateOnlyExamString("2026-10-15T00:00:00.000Z")).toBe(true);
+      expect(isDateOnlyExamString("2026-10-15T14:30:00.000Z")).toBe(false);
+    });
+
+    it("formats exam dates consistently in Asia/Tehran timezone without day boundary shifts", () => {
+      // 2026-08-20T00:00:00.000Z is 03:30 AM on 29 Mordad 1405 in Tehran
+      const formattedUtcMidnight = formatPersianExamDate("2026-08-20T00:00:00.000Z");
+      expect(formattedUtcMidnight).toContain("۲۹");
+      expect(formattedUtcMidnight).toContain("مرداد");
+      expect(formattedUtcMidnight).toContain("۱۴۰۵");
+
+      // Date-only string "2026-08-20" also represents 29 Mordad 1405
+      const formattedDateOnly = formatPersianExamDate("2026-08-20");
+      expect(formattedDateOnly).toContain("۲۹");
+      expect(formattedDateOnly).toContain("مرداد");
+      expect(formattedDateOnly).toContain("۱۴۰۵");
     });
   });
 });

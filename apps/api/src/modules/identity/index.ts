@@ -72,5 +72,12 @@ export {
 } from "./welcome-gift-store.js";
 export { WelcomeGiftService } from "./welcome-gift-service.js";
 export type { WelcomeGiftServiceOptions } from "./welcome-gift-service.js";
+export type { OnboardingTourStore } from "./onboarding-tour-store.js";
+export {
+  DrizzleOnboardingTourStore,
+  InMemoryOnboardingTourStore,
+} from "./onboarding-tour-store.js";
+export { OnboardingTourService } from "./onboarding-tour-service.js";
+export type { OnboardingTourServiceOptions } from "./onboarding-tour-service.js";
 
 

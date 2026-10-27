@@ -44,4 +44,5 @@ export * from "./teacher-academic-profile.js";
 export * from "./seo.js";
 export * from "./source-pack.js";
 export * from "./welcome-gift.js";
+export * from "./onboarding.js";
 

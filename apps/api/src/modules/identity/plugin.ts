@@ -40,6 +40,8 @@ export interface IdentityPluginOptions {
   auditService?: import("../../observability/audit-service.js").AuditService;
   welcomeGiftStore?: import("./welcome-gift-store.js").WelcomeGiftStore;
   welcomeGiftService?: import("./welcome-gift-service.js").WelcomeGiftService;
+  onboardingTourStore?: import("./onboarding-tour-store.js").OnboardingTourStore;
+  onboardingTourService?: import("./onboarding-tour-service.js").OnboardingTourService;
 }
 
 export async function registerIdentityModule(
@@ -89,6 +91,16 @@ export async function registerIdentityModule(
         })
       : undefined);
 
+  // Create onboarding tour service if store or service provided
+  const onboardingTourService =
+    options.onboardingTourService ??
+    (options.onboardingTourStore
+      ? new (await import("./onboarding-tour-service.js")).OnboardingTourService({
+          store: options.onboardingTourStore,
+          userStore,
+        })
+      : undefined);
+
   // Register auth routes as a Fastify plugin with typed options
   const authOpts: AuthRouteOptions = {
     identityAdapter,
@@ -105,6 +117,7 @@ export async function registerIdentityModule(
     referralService: options.referralService,
     auditService: options.auditService,
     welcomeGiftService,
+    onboardingTourService,
     appUrl: config.appUrl,
   };
   await app.register(authRoutes, authOpts);

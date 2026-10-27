@@ -42,6 +42,7 @@ export interface AuthRouteOptions {
   referralService?: import("../referral/referral-service.js").ReferralService;
   auditService?: AuditService;
   welcomeGiftService?: import("./welcome-gift-service.js").WelcomeGiftService;
+  onboardingTourService?: import("./onboarding-tour-service.js").OnboardingTourService;
   appUrl?: string;
 }
 
@@ -2114,6 +2115,73 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
 
     const result = await opts.welcomeGiftService.acknowledgePopup(
       sessionUser.userId,
+    );
+    return {
+      request_id: request.id,
+      ...result,
+    };
+  });
+
+  /**
+   * GET /v1/onboarding/tour — Checks eligibility and returns user's onboarding tour status.
+   */
+  app.get("/v1/onboarding/tour", async (request, _reply) => {
+    const token = extractSessionToken(request);
+    if (!token) {
+      throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    const sessionUser = await sessionService.validateSession(token);
+    if (!sessionUser) {
+      throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    if (!opts.onboardingTourService) {
+      return {
+        request_id: request.id,
+        eligible: false,
+        status: "completed",
+      };
+    }
+
+    const status = await opts.onboardingTourService.getStatus(sessionUser.userId);
+    return {
+      request_id: request.id,
+      ...status,
+    };
+  });
+
+  /**
+   * POST /v1/onboarding/tour — Updates the onboarding tour status (skipped or completed).
+   */
+  app.post("/v1/onboarding/tour", async (request, _reply) => {
+    const token = extractSessionToken(request);
+    if (!token) {
+      throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    const sessionUser = await sessionService.validateSession(token);
+    if (!sessionUser) {
+      throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    const body = (request.body as { action?: "skip" | "complete"; step?: number }) || {};
+    const action = body.action === "complete" ? "complete" : "skip";
+    const step = typeof body.step === "number" ? body.step : 1;
+
+    if (!opts.onboardingTourService) {
+      return {
+        request_id: request.id,
+        success: true,
+        status: action === "complete" ? "completed" : "skipped",
+        updated_at: new Date().toISOString(),
+      };
+    }
+
+    const result = await opts.onboardingTourService.updateStatus(
+      sessionUser.userId,
+      action,
+      step,
     );
     return {
       request_id: request.id,

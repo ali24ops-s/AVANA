@@ -18,6 +18,7 @@ import {
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
 import { createCourseApi } from "../lib/api/courses.js";
+import { isExamUpcoming } from "../utils/date.js";
 
 export function CourseDetailPage() {
   const { courseId } = useParams<{ courseId: string }>();
@@ -107,13 +108,15 @@ export function CourseDetailPage() {
     year: "numeric",
   });
 
-  const examDate = course.exam_at
-    ? new Date(course.exam_at).toLocaleDateString("fa-IR", {
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      })
-    : null;
+  const isUpcoming = isExamUpcoming(course.exam_at);
+  const examDate =
+    course.exam_at && isUpcoming
+      ? new Date(course.exam_at).toLocaleDateString("fa-IR", {
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+        })
+      : null;
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">

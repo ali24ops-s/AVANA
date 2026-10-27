@@ -25,7 +25,7 @@ import {
   DomainError,
   auditLessonCompleted,
 } from "@avana/domain";
-import type { CourseStore } from "../courses/course-store.js";
+import type { CourseStore, CoursePublicationStore } from "../courses/course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type {
   ModuleStore,
@@ -79,6 +79,7 @@ export type CourseLearnResponse = {
       title: string;
       content_type: string;
       content_markdown: string;
+      reference?: string | null;
       sort_order: number;
       estimated_minutes: number | null;
       completed: boolean;
@@ -146,6 +147,7 @@ export class LearningService {
     private readonly entitlementService?: EntitlementService,
     private readonly subCourseGroupStore?: SubCourseGroupStore,
     private readonly studySessionStore?: StudySessionStore,
+    private readonly coursePublicationStore?: CoursePublicationStore,
   ) {}
 
   /**
@@ -204,14 +206,19 @@ export class LearningService {
       throw new DomainError("not_found", "Course not found");
     }
 
-    // Unpublished official courses must not be accessible to students
+    // Unpublished official courses must not be accessible to students.
+    // Privileged admin check must be scoped to the course's organization (or global platform admin)
+    // so that an org admin of an unrelated personal org cannot see unapproved drafts of other orgs.
+    const courseMembership = memberships.find(
+      (m) => m.organizationId === organizationId,
+    );
     const isPrivilegedAdmin =
       fullActor.globalRole === "platform_admin" ||
       fullActor.role === "platform_admin" ||
-      fullActor.role === "organization_admin" ||
-      fullActor.role === "course_editor" ||
-      fullActor.role === "content_worker" ||
-      fullActor.globalRole === "content_worker";
+      fullActor.globalRole === "content_worker" ||
+      courseMembership?.role === "organization_admin" ||
+      courseMembership?.role === "course_editor" ||
+      courseMembership?.role === "content_worker";
     if (
       course.isOfficial === true &&
       course.status !== "published" &&
@@ -220,27 +227,75 @@ export class LearningService {
       throw new DomainError("not_found", "Course not found");
     }
 
-    // 4. Load modules (ordered by sort_order)
-    const modules = await this.moduleStore.listByCourse(courseId);
-    let activeModules = modules.filter((m) => m.deletedAt === null);
+    // 4. Load course content: If course has an approved published publication,
+    // isolate enrolled learners strictly to approved snapshot content.
+    const publishedPub = this.coursePublicationStore
+      ? await this.coursePublicationStore.findPublishedByCourse(courseId)
+      : undefined;
 
-    // Scope check: If scoped to a specific chapter package / module, filter strictly
-    if (options?.moduleId) {
-      const targetModule = activeModules.find((m) => m.id === options.moduleId);
-      if (!targetModule) {
-        throw new DomainError("not_found", "Module not found in this course");
+    let activeModules: any[];
+    let activeLessons: LessonRecord[];
+
+    if (publishedPub && !isPrivilegedAdmin) {
+      const snapChapters = publishedPub.snapshot?.chapters ?? [];
+      let filteredChapters = snapChapters;
+      if (options?.moduleId) {
+        filteredChapters = snapChapters.filter((c) => c.id === options.moduleId);
+        if (filteredChapters.length === 0) {
+          throw new DomainError("not_found", "Module not found in this course");
+        }
       }
-      activeModules = [targetModule];
-    }
 
-    // 5. Load lessons for active modules (batch) — exclude drafts for learners
-    const moduleIds = activeModules.map((m) => m.id);
-    const allLessons = await this.lessonStore.listByModules(moduleIds);
-    const activeLessons = allLessons.filter(
-      (l) =>
-        l.deletedAt === null &&
-        (l.publicationStatus === "published" || isPrivilegedAdmin),
-    );
+      activeModules = filteredChapters.map((c) => ({
+        id: c.id,
+        courseId,
+        title: c.title,
+        description: c.description ?? null,
+        sortOrder: c.sortOrder ?? 0,
+        subCourseGroupId: null,
+        deletedAt: null,
+        createdAt: publishedPub.publishedAt ?? publishedPub.createdAt,
+        updatedAt: publishedPub.updatedAt,
+      }));
+
+      activeLessons = filteredChapters.flatMap((c) =>
+        (c.lessons ?? []).map((l) => ({
+          id: l.id,
+          organizationId,
+          moduleId: c.id,
+          title: l.title,
+          contentMarkdown: l.contentMarkdown,
+          contentType: "markdown",
+          sortOrder: l.sortOrder ?? 0,
+          estimatedMinutes: l.estimatedMinutes ?? null,
+          publicationStatus: "published",
+          reference: null,
+          deletedAt: null,
+          createdAt: publishedPub.publishedAt ?? publishedPub.createdAt,
+          updatedAt: publishedPub.updatedAt,
+        } as unknown as LessonRecord)),
+      );
+    } else {
+      const modules = await this.moduleStore.listByCourse(courseId);
+      let loadedModules = modules.filter((m) => m.deletedAt === null);
+
+      if (options?.moduleId) {
+        const targetModule = loadedModules.find((m) => m.id === options.moduleId);
+        if (!targetModule) {
+          throw new DomainError("not_found", "Module not found in this course");
+        }
+        loadedModules = [targetModule];
+      }
+      activeModules = loadedModules;
+
+      const moduleIds = activeModules.map((m) => m.id);
+      const allLessons = await this.lessonStore.listByModules(moduleIds);
+      activeLessons = allLessons.filter(
+        (l) =>
+          l.deletedAt === null &&
+          (l.publicationStatus === "published" || isPrivilegedAdmin),
+      );
+    }
 
     // 6. Load user's lesson progress for this course
     const progressRecords = await this.progressStore.listByUserAndCourse(
@@ -382,6 +437,7 @@ export class LearningService {
               title: lesson.title,
               content_type: lesson.contentType,
               content_markdown: contentMarkdown,
+              reference: lesson.reference ?? null,
               sort_order: lesson.sortOrder,
               estimated_minutes: lesson.estimatedMinutes,
               completed: progress?.completed ?? false,
@@ -455,14 +511,14 @@ export class LearningService {
       course: {
         id: course.id,
         organization_id: course.organizationId,
-        title: course.name,
-        subject: course.subject,
+        title: (publishedPub && !isPrivilegedAdmin ? publishedPub.snapshot?.title : null) || course.name,
+        subject: (publishedPub && !isPrivilegedAdmin ? publishedPub.snapshot?.subject : null) ?? course.subject,
         exam_at: course.examDate,
         locked: isCourseLocked,
         access_reason: isCourseLocked ? "locked" : (accessResult?.reason ?? "free"),
         isOfficial: isOfficialCourse,
         is_official: isOfficialCourse,
-        version: course.version ?? 1,
+        version: (publishedPub && !isPrivilegedAdmin ? publishedPub.version : null) ?? course.version ?? 1,
       } as any,
       groups: activeGroups.map((g) => ({
         id: g.id,
@@ -590,6 +646,29 @@ export class LearningService {
       throw new DomainError("not_found", "Lesson not found");
     }
 
+    const courseMembership = memberships.find(
+      (m) => m.organizationId === organizationId,
+    );
+    const isPrivilegedAdmin =
+      fullActor.globalRole === "platform_admin" ||
+      fullActor.role === "platform_admin" ||
+      fullActor.globalRole === "content_worker" ||
+      courseMembership?.role === "organization_admin" ||
+      courseMembership?.role === "course_editor" ||
+      courseMembership?.role === "content_worker";
+
+    if (this.coursePublicationStore) {
+      const publishedPub = await this.coursePublicationStore.findPublishedByCourse(courseId);
+      if (publishedPub && !isPrivilegedAdmin) {
+        const snapLessonIds = new Set(
+          publishedPub.snapshot?.chapters?.flatMap((ch) => ch.lessons.map((l) => l.id)) ?? [],
+        );
+        if (!snapLessonIds.has(lessonId)) {
+          throw new DomainError("not_found", "Lesson not found");
+        }
+      }
+    }
+
     // Check entitlement: locked lessons cannot be marked as completed
     if (this.entitlementService) {
       const lessonAccess = await this.entitlementService.checkAccess(actor, {
@@ -700,14 +779,35 @@ export class LearningService {
       throw new DomainError("not_found", "Course not found");
     }
 
-    // 4. Load modules and count lessons
-    const modules = await this.moduleStore.listByCourse(courseId);
-    const activeModules = modules.filter((m) => m.deletedAt === null);
-    const moduleIds = activeModules.map((m) => m.id);
-    const allLessons = await this.lessonStore.listByModules(moduleIds);
-    const activeLessons = allLessons.filter(
-      (l) => l.deletedAt === null && l.publicationStatus === "published",
+    const courseMembership = memberships.find(
+      (m) => m.organizationId === organizationId,
     );
+    const isPrivilegedAdmin =
+      fullActor.globalRole === "platform_admin" ||
+      fullActor.role === "platform_admin" ||
+      fullActor.globalRole === "content_worker" ||
+      courseMembership?.role === "organization_admin" ||
+      courseMembership?.role === "course_editor" ||
+      courseMembership?.role === "content_worker";
+
+    // 4. Load lessons: if course has published publication and actor is learner, count strictly from snapshot
+    const publishedPub = this.coursePublicationStore
+      ? await this.coursePublicationStore.findPublishedByCourse(courseId)
+      : undefined;
+
+    let activeLessons: Array<{ id: string }>;
+    if (publishedPub && !isPrivilegedAdmin) {
+      activeLessons =
+        publishedPub.snapshot?.chapters?.flatMap((ch) => ch.lessons) ?? [];
+    } else {
+      const modules = await this.moduleStore.listByCourse(courseId);
+      const activeModules = modules.filter((m) => m.deletedAt === null);
+      const moduleIds = activeModules.map((m) => m.id);
+      const allLessons = await this.lessonStore.listByModules(moduleIds);
+      activeLessons = allLessons.filter(
+        (l) => l.deletedAt === null && l.publicationStatus === "published",
+      );
+    }
     const totalLessons = activeLessons.length;
 
     // 5. Count completed lessons

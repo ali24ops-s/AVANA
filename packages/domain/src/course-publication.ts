@@ -26,6 +26,7 @@ import type {
 
 export type CoursePublicationStatus =
   | "pending_review"
+  | "changes_requested"
   | "approved"
   | "published"
   | "rejected"
@@ -33,6 +34,7 @@ export type CoursePublicationStatus =
 
 export const COURSE_PUBLICATION_STATUSES: readonly CoursePublicationStatus[] = [
   "pending_review",
+  "changes_requested",
   "approved",
   "published",
   "rejected",
@@ -137,11 +139,40 @@ export type CoursePublicationPricing = {
   product_id: string | null;
 };
 
+export interface CoursePublicationDiffSummary {
+  addedLessons: Array<{ id: string; title: string; chapterTitle: string }>;
+  updatedLessons: Array<{
+    id: string;
+    title: string;
+    chapterTitle: string;
+    contentChanged: boolean;
+    titleChanged: boolean;
+  }>;
+  deletedLessons: Array<{ id: string; title: string; chapterTitle: string }>;
+  addedChapters: Array<{ id: string; title: string }>;
+  updatedChapters: Array<{ id: string; title: string }>;
+  deletedChapters: Array<{ id: string; title: string }>;
+  courseInfoChanged: {
+    titleChanged: boolean;
+    descriptionChanged: boolean;
+    subjectChanged: boolean;
+    oldTitle?: string;
+    newTitle?: string;
+  };
+  totalChanges: number;
+}
+
 export type CoursePublicationMetadata = {
   accessType?: CoursePublicationAccessType;
   rejectionReason?: string | null;
   reviewedAt?: string | null;
   reviewedByUserId?: string | null;
+  isUpdate?: boolean;
+  baseVersion?: number;
+  basePublicationId?: string | null;
+  diffSummary?: CoursePublicationDiffSummary | null;
+  reviewNotes?: string | null;
+  requestType?: "initial" | "update";
   stats?: {
     chapterCount: number;
     lessonCount: number;
@@ -241,4 +272,156 @@ export function validateCoursePublicationEligibility(
   }
 
   return { eligible: true };
+}
+
+export function computePublicationDiff(
+  baseSnapshot: CoursePublicationSnapshot | null | undefined,
+  newSnapshot: CoursePublicationSnapshot,
+): CoursePublicationDiffSummary {
+  const result: CoursePublicationDiffSummary = {
+    addedLessons: [],
+    updatedLessons: [],
+    deletedLessons: [],
+    addedChapters: [],
+    updatedChapters: [],
+    deletedChapters: [],
+    courseInfoChanged: {
+      titleChanged: false,
+      descriptionChanged: false,
+      subjectChanged: false,
+    },
+    totalChanges: 0,
+  };
+
+  if (!baseSnapshot) {
+    // Initial publication — all chapters and lessons are newly added
+    for (const ch of newSnapshot.chapters) {
+      result.addedChapters.push({ id: ch.id, title: ch.title });
+      for (const l of ch.lessons) {
+        result.addedLessons.push({
+          id: l.id,
+          title: l.title,
+          chapterTitle: ch.title,
+        });
+      }
+    }
+    result.totalChanges =
+      result.addedChapters.length + result.addedLessons.length;
+    return result;
+  }
+
+  // Compare course info
+  const titleChanged = baseSnapshot.title !== newSnapshot.title;
+  const descriptionChanged =
+    (baseSnapshot.description ?? "").trim() !==
+    (newSnapshot.description ?? "").trim();
+  const subjectChanged =
+    (baseSnapshot.subject ?? "").trim() !== (newSnapshot.subject ?? "").trim();
+
+  result.courseInfoChanged = {
+    titleChanged,
+    descriptionChanged,
+    subjectChanged,
+    oldTitle: titleChanged ? baseSnapshot.title : undefined,
+    newTitle: titleChanged ? newSnapshot.title : undefined,
+  };
+
+  // Build maps for chapters
+  const baseChapterMap = new Map<string, CoursePublicationChapterSnapshot>();
+  for (const ch of baseSnapshot.chapters) {
+    baseChapterMap.set(ch.id, ch);
+  }
+
+  const newChapterMap = new Map<string, CoursePublicationChapterSnapshot>();
+  for (const ch of newSnapshot.chapters) {
+    newChapterMap.set(ch.id, ch);
+  }
+
+  // Compare chapters
+  for (const ch of newSnapshot.chapters) {
+    const baseCh = baseChapterMap.get(ch.id);
+    if (!baseCh) {
+      result.addedChapters.push({ id: ch.id, title: ch.title });
+    } else if (baseCh.title !== ch.title) {
+      result.updatedChapters.push({ id: ch.id, title: ch.title });
+    }
+  }
+
+  for (const baseCh of baseSnapshot.chapters) {
+    if (!newChapterMap.has(baseCh.id)) {
+      result.deletedChapters.push({ id: baseCh.id, title: baseCh.title });
+    }
+  }
+
+  // Build maps for lessons (persistent lesson IDs)
+  const baseLessonMap = new Map<
+    string,
+    { lesson: CoursePublicationLessonSnapshot; chapterTitle: string }
+  >();
+  for (const ch of baseSnapshot.chapters) {
+    for (const l of ch.lessons) {
+      baseLessonMap.set(l.id, { lesson: l, chapterTitle: ch.title });
+    }
+  }
+
+  const newLessonMap = new Map<
+    string,
+    { lesson: CoursePublicationLessonSnapshot; chapterTitle: string }
+  >();
+  for (const ch of newSnapshot.chapters) {
+    for (const l of ch.lessons) {
+      newLessonMap.set(l.id, { lesson: l, chapterTitle: ch.title });
+    }
+  }
+
+  // Compare lessons
+  for (const [newId, newEntry] of newLessonMap.entries()) {
+    const baseEntry = baseLessonMap.get(newId);
+    if (!baseEntry) {
+      result.addedLessons.push({
+        id: newId,
+        title: newEntry.lesson.title,
+        chapterTitle: newEntry.chapterTitle,
+      });
+    } else {
+      const titleChanged =
+        baseEntry.lesson.title.trim() !== newEntry.lesson.title.trim();
+      const contentChanged =
+        (baseEntry.lesson.contentMarkdown || "").trim() !==
+        (newEntry.lesson.contentMarkdown || "").trim();
+
+      if (titleChanged || contentChanged) {
+        result.updatedLessons.push({
+          id: newId,
+          title: newEntry.lesson.title,
+          chapterTitle: newEntry.chapterTitle,
+          titleChanged,
+          contentChanged,
+        });
+      }
+    }
+  }
+
+  for (const [baseId, baseEntry] of baseLessonMap.entries()) {
+    if (!newLessonMap.has(baseId)) {
+      result.deletedLessons.push({
+        id: baseId,
+        title: baseEntry.lesson.title,
+        chapterTitle: baseEntry.chapterTitle,
+      });
+    }
+  }
+
+  result.totalChanges =
+    result.addedChapters.length +
+    result.updatedChapters.length +
+    result.deletedChapters.length +
+    result.addedLessons.length +
+    result.updatedLessons.length +
+    result.deletedLessons.length +
+    (titleChanged ? 1 : 0) +
+    (descriptionChanged ? 1 : 0) +
+    (subjectChanged ? 1 : 0);
+
+  return result;
 }

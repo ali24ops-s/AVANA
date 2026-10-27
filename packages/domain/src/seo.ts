@@ -56,17 +56,15 @@ export const SEED_BLOG_DATA: DynamicBlogSitemapData = {
 };
 
 /**
- * Routes that must not be crawled by search engines.
- * Covers API, Admin, Teacher Platform, User learning & course dashboards, and Authentication routes.
- * Rules use specific paths to avoid accidentally blocking unrelated public URLs.
+ * Routes that must not be crawled by search engines via robots.txt Disallow directives.
+ * Note: Admin platform (/admin) is intentionally NOT disallowed here so search engines
+ * can crawl the pages, discover the `X-Robots-Tag: noindex, nofollow` HTTP header
+ * and `<meta name="robots" content="noindex, nofollow" />` tag, and permanently de-index them.
  */
 export const DISALLOWED_CRAWL_ROUTES = [
   // API & Internal endpoints
   "/v1/",
   "/api/",
-  // Admin platform
-  "/admin/",
-  "/admin",
   // Teacher platform
   "/teacher/",
   "/teacher",
@@ -102,6 +100,69 @@ export const DISALLOWED_CRAWL_ROUTES = [
   "/reset-password",
   "/verify-email",
 ] as const;
+
+/**
+ * Admin routes that must NEVER be indexed by search engines.
+ * Excluded strictly from sitemap.xml and tagged with noindex, nofollow.
+ */
+export const ADMIN_NOINDEX_ROUTES = [
+  "/admin",
+  "/admin/",
+] as const;
+
+/**
+ * Authentication and credential recovery routes that should not be indexed.
+ */
+export const AUTH_NOINDEX_ROUTES = [
+  "/sign-in",
+  "/login",
+  "/register",
+  "/sign-up",
+  "/forgot-password",
+  "/reset-password",
+  "/verify-email",
+] as const;
+
+/**
+ * Checks whether a given pathname belongs to the AVANA Admin Panel.
+ * Uses strict path boundaries so that "/admin" and "/admin/*" match,
+ * but "/administrator" or "/admin-settings" do NOT match.
+ * Automatically ignores query parameters and hash fragments.
+ */
+export function isAdminPath(pathname: string): boolean {
+  if (!pathname) return false;
+  const clean = pathname.split(/[?#]/)[0].trim();
+  return clean === "/admin" || clean.startsWith("/admin/");
+}
+
+/**
+ * Checks whether a given pathname is an authentication/account recovery route.
+ * Automatically ignores query parameters and hash fragments.
+ */
+export function isAuthPath(pathname: string): boolean {
+  if (!pathname) return false;
+  const clean = pathname.split(/[?#]/)[0].trim().replace(/\/+$/, "") || "/";
+  for (const authRoute of AUTH_NOINDEX_ROUTES) {
+    if (clean === authRoute || clean.startsWith(`${authRoute}/`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Checks whether a given pathname must receive `noindex, nofollow`.
+ * Covers admin routes, auth routes, and other private application surfaces.
+ */
+export function isNoindexRoute(pathname: string): boolean {
+  if (!pathname) return false;
+  if (isAdminPath(pathname)) return true;
+  if (isAuthPath(pathname)) return true;
+  const clean = pathname.split(/[?#]/)[0].trim();
+  if (clean === "/teacher" || clean.startsWith("/teacher/")) return true;
+  if (clean.startsWith("/design-preview") || clean.startsWith("/dev")) return true;
+  return false;
+}
 
 export const ALLOWED_CRAWL_ROUTES = [
   "/",
@@ -160,13 +221,19 @@ export function generateSitemapEntries(
   const origin = canonicalOrigin.replace(/\/+$/, "");
   const entriesMap = new Map<string, SitemapUrlEntry>();
 
+  const excludedPaths = [
+    ...DISALLOWED_CRAWL_ROUTES,
+    ...ADMIN_NOINDEX_ROUTES,
+    ...AUTH_NOINDEX_ROUTES,
+  ];
+
   const addEntry = (entry: SitemapUrlEntry) => {
     // Safety check: Never add disallowed, non-canonical, or duplicate paths
     const url = entry.loc;
     if (!url.startsWith(origin)) return;
 
     const path = url.slice(origin.length) || "/";
-    const isDisallowed = DISALLOWED_CRAWL_ROUTES.some(
+    const isDisallowed = excludedPaths.some(
       (disallowed) => path === disallowed || (disallowed.endsWith("/") && path.startsWith(disallowed)),
     );
 

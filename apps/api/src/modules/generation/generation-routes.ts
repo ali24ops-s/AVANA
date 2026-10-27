@@ -32,6 +32,8 @@ import {
   type ReferencePricingBaseline,
   normalizeRequestedContentTypes,
   normalizeGenerationSources,
+  isOfficialCourse,
+  canManageOfficialContent,
 } from "@avana/domain";
 import type { WalletService } from "../wallet/wallet-service.js";
 import type { WalletStore } from "../wallet/wallet-store.js";
@@ -192,12 +194,14 @@ export const generationRoutes: FastifyPluginAsync<
     }
   }
 
-  /**
-   * Helper to extract actor from authenticated request.
-   */
   function getActor(request: unknown): Actor {
     const reqAny = request as {
-      user?: { userId: string; email: string; role: string };
+      user?: {
+        userId: string;
+        email: string;
+        role: string;
+        globalRole?: string | null;
+      };
     };
     if (!reqAny.user) {
       throw new DomainError("unauthorized", "Not signed in");
@@ -205,6 +209,7 @@ export const generationRoutes: FastifyPluginAsync<
     return {
       userId: reqAny.user.userId as Actor["userId"],
       role: reqAny.user.role as Actor["role"],
+      globalRole: (reqAny.user.globalRole as import("@avana/domain").Role) ?? null,
     };
   }
 
@@ -326,6 +331,21 @@ export const generationRoutes: FastifyPluginAsync<
       requestedTypes = ["lesson", "flashcard", "quiz", "review_summary"];
     }
 
+    if (opts.courseStore && courseId) {
+      const sysOrgId =
+        opts.systemOrganizationId ??
+        (process.env.SYSTEM_ORGANIZATION_ID as OrganizationId);
+      const course = await opts.courseStore.findById(courseId);
+      if (course && isOfficialCourse(course, sysOrgId)) {
+        if (!canManageOfficialContent(actor, sysOrgId)) {
+          throw new DomainError(
+            "forbidden",
+            "امکان تولید یا تخمین هزینه محتوا برای دوره‌های رسمی آوانا وجود ندارد.",
+          );
+        }
+      }
+    }
+
     const estimate = await service.estimateCostForDocument(
       actor,
       organizationId,
@@ -418,19 +438,22 @@ export const generationRoutes: FastifyPluginAsync<
         const sysOrgId =
           opts.systemOrganizationId ??
           (process.env.SYSTEM_ORGANIZATION_ID as OrganizationId);
-        const course = await opts.courseStore.findByIdForUser(
-          courseId,
-          actor.userId,
-          sysOrgId,
-        );
+        const course = await opts.courseStore.findById(courseId);
         if (!course) {
           throw new DomainError("not_found", "Course not found");
         }
-        if (
-          course.organizationId !== organizationId &&
-          (!sysOrgId || course.organizationId !== sysOrgId)
-        ) {
-          throw new DomainError("forbidden", "Access denied to this course");
+        const isOfficial = isOfficialCourse(course, sysOrgId);
+        if (isOfficial) {
+          if (!canManageOfficialContent(actor, sysOrgId)) {
+            throw new DomainError(
+              "forbidden",
+              "امکان تولید یا ارسال محتوا برای دوره‌های رسمی آوانا وجود ندارد.",
+            );
+          }
+        } else {
+          if (course.organizationId !== organizationId) {
+            throw new DomainError("forbidden", "Access denied to this course");
+          }
         }
       }
 
@@ -696,19 +719,22 @@ export const generationRoutes: FastifyPluginAsync<
         const sysOrgId =
           opts.systemOrganizationId ??
           (process.env.SYSTEM_ORGANIZATION_ID as OrganizationId);
-        const course = await opts.courseStore.findByIdForUser(
-          courseId,
-          actor.userId,
-          sysOrgId,
-        );
+        const course = await opts.courseStore.findById(courseId);
         if (!course) {
           throw new DomainError("not_found", "Course not found");
         }
-        if (
-          course.organizationId !== organizationId &&
-          (!sysOrgId || course.organizationId !== sysOrgId)
-        ) {
-          throw new DomainError("forbidden", "Access denied to this course");
+        const isOfficial = isOfficialCourse(course, sysOrgId);
+        if (isOfficial) {
+          if (!canManageOfficialContent(actor, sysOrgId)) {
+            throw new DomainError(
+              "forbidden",
+              "امکان تولید یا ارسال محتوا برای دوره‌های رسمی آوانا وجود ندارد.",
+            );
+          }
+        } else {
+          if (course.organizationId !== organizationId) {
+            throw new DomainError("forbidden", "Access denied to this course");
+          }
         }
       }
 
@@ -963,6 +989,21 @@ export const generationRoutes: FastifyPluginAsync<
       const organizationId = getOrganizationId(params);
       const courseId = getCourseId(params);
 
+      if (opts.courseStore) {
+        const sysOrgId =
+          opts.systemOrganizationId ??
+          (process.env.SYSTEM_ORGANIZATION_ID as OrganizationId);
+        const course = await opts.courseStore.findById(courseId);
+        if (course && isOfficialCourse(course, sysOrgId)) {
+          if (!canManageOfficialContent(actor, sysOrgId)) {
+            throw new DomainError(
+              "forbidden",
+              "امکان تولید یا تخمین هزینه محتوا برای دوره‌های رسمی آوانا وجود ندارد.",
+            );
+          }
+        }
+      }
+
       const body = (request.body ?? {}) as {
         sources?: Array<{ documentId: string; order?: number }>;
         types?: string[];
@@ -1205,29 +1246,63 @@ export const generationRoutes: FastifyPluginAsync<
     const documentId = getDocumentId(req.params);
     const courseId = req.params.courseId ? getCourseId(req.params) : undefined;
 
-    let isActorAdmin =
-      actor.role === "platform_admin" ||
-      actor.role === "organization_admin" ||
-      actor.role === "course_editor";
+    const sysOrgId =
+      opts.systemOrganizationId ??
+      (process.env.SYSTEM_ORGANIZATION_ID as OrganizationId);
 
-    if (!isActorAdmin && organizationStore && typeof organizationStore.findMembership === "function") {
-      const membership = await organizationStore.findMembership(organizationId, actor.userId);
-      if (membership && (membership.role === "organization_admin" || membership.role === "course_editor")) {
-        isActorAdmin = true;
-      }
-    }
-
-    if (!isActorAdmin) {
-      throw new DomainError(
-        "forbidden",
-        "Direct review summary generation is restricted to course editors and administrators",
-      );
-    }
+    let effectiveOrgId: OrganizationId;
 
     if (courseId) {
+      if (!opts.courseStore) {
+        throw new DomainError("bad_request", "Course store is not configured");
+      }
+      const course = await opts.courseStore.findById(courseId);
+      if (!course) {
+        throw new DomainError("not_found", "Course not found");
+      }
+
+      const isOfficial = isOfficialCourse(course, sysOrgId);
+      if (isOfficial) {
+        if (!canManageOfficialContent(actor, sysOrgId)) {
+          throw new DomainError(
+            "forbidden",
+            "امکان تولید یا ارسال محتوا برای دوره‌های رسمی آوانا وجود ندارد.",
+          );
+        }
+        const realCourseOrgId = course.organizationId || sysOrgId;
+        if (!realCourseOrgId) {
+          throw new DomainError("bad_request", "سازمان مالک دوره رسمی یافت نشد.");
+        }
+        effectiveOrgId = realCourseOrgId;
+      } else {
+        if (!course.organizationId || course.organizationId !== organizationId) {
+          throw new DomainError("forbidden", "Access denied to this course");
+        }
+        effectiveOrgId = course.organizationId;
+
+        let isActorAdmin =
+          actor.role === "platform_admin" ||
+          actor.role === "organization_admin" ||
+          actor.role === "course_editor";
+
+        if (!isActorAdmin && organizationStore && typeof organizationStore.findMembership === "function") {
+          const membership = await organizationStore.findMembership(effectiveOrgId, actor.userId);
+          if (membership && (membership.role === "organization_admin" || membership.role === "course_editor")) {
+            isActorAdmin = true;
+          }
+        }
+
+        if (!isActorAdmin) {
+          throw new DomainError(
+            "forbidden",
+            "Direct review summary generation is restricted to course editors and administrators",
+          );
+        }
+      }
+
       const doc = await documentStore.findByIdForOrganization(
         documentId,
-        organizationId,
+        effectiveOrgId,
       );
       if (!doc) {
         throw new DomainError("not_found", "Document not found");
@@ -1244,6 +1319,35 @@ export const generationRoutes: FastifyPluginAsync<
           "این سند به دوره دیگری تعلق دارد.",
         );
       }
+    } else {
+      effectiveOrgId = organizationId;
+
+      let isActorAdmin =
+        actor.role === "platform_admin" ||
+        actor.role === "organization_admin" ||
+        actor.role === "course_editor";
+
+      if (!isActorAdmin && organizationStore && typeof organizationStore.findMembership === "function") {
+        const membership = await organizationStore.findMembership(effectiveOrgId, actor.userId);
+        if (membership && (membership.role === "organization_admin" || membership.role === "course_editor")) {
+          isActorAdmin = true;
+        }
+      }
+
+      if (!isActorAdmin) {
+        throw new DomainError(
+          "forbidden",
+          "Direct review summary generation is restricted to course editors and administrators",
+        );
+      }
+
+      const doc = await documentStore.findByIdForOrganization(
+        documentId,
+        effectiveOrgId,
+      );
+      if (!doc) {
+        throw new DomainError("not_found", "Document not found");
+      }
     }
 
     const generationContext: GenerationContext = "admin";
@@ -1252,7 +1356,7 @@ export const generationRoutes: FastifyPluginAsync<
 
     const content = await targetService.generateReviewSummaryDirect(
       actor,
-      organizationId,
+      effectiveOrgId,
       documentId,
       {
         force: req.body?.force ?? false,

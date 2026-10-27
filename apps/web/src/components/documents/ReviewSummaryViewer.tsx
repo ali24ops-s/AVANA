@@ -13,7 +13,7 @@ import {
   GraduationCap,
   Lock,
 } from "lucide-react";
-import { Card, Button, Badge } from "@avana/ui";
+import { Card, Button, Badge, Alert } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createGenerationApi } from "../../lib/api/generation.js";
 import { useAuth } from "../../providers/AuthProvider.js";
@@ -107,6 +107,7 @@ export function ReviewSummaryViewer({
         force: options?.force ?? true,
       }),
     onSuccess: () => {
+      generateMutation.reset();
       void queryClient.invalidateQueries({
         queryKey: ["review-summary", organizationId, documentId, courseId],
       });
@@ -142,8 +143,8 @@ export function ReviewSummaryViewer({
     );
   }
 
-  // 2. Generating state
-  if (isGenerating) {
+  // 2. Generating state (only when no payload is loaded yet)
+  if (isGenerating && !payload) {
     return (
       <Card className="flex flex-col items-center justify-center p-12 text-center space-y-4 font-sans" dir="rtl">
         <div className="w-16 h-16 rounded-button bg-[var(--color-primary-soft)] text-[var(--color-primary)] flex items-center justify-center relative shadow-xs">
@@ -314,16 +315,61 @@ export function ReviewSummaryViewer({
                 variant="outline"
                 size="sm"
                 onClick={() => {
+                  generateMutation.reset();
                   generateMutation.mutate({ force: true });
                 }}
                 disabled={isGenerating}
                 title="تولید مجدد خلاصه مروری"
                 leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin" : ""}`} />}
               >
-                <span>به‌روزرسانی خلاصه</span>
+                <span>{isGenerating ? "در حال به‌روزرسانی..." : "به‌روزرسانی خلاصه"}</span>
               </Button>
             )}
           </div>
+
+          {/* Mutation Error banner when previous payload exists */}
+          {generateMutation.error && (
+            <Alert
+              variant="error"
+              title="خطا در به‌روزرسانی خلاصه مروری"
+              className="my-3"
+              icon={<AlertTriangle className="w-5 h-5 text-[var(--color-error)]" />}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                <span className="text-xs sm:text-sm font-medium">
+                  {(generateMutation.error as Error)?.message || "خطا در تولید مجدد خلاصه مروری. لطفاً دوباره تلاش کنید."}
+                </span>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => {
+                    generateMutation.reset();
+                    generateMutation.mutate({ force: true });
+                  }}
+                  disabled={isGenerating}
+                  leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin" : ""}`} />}
+                >
+                  <span>تلاش مجدد</span>
+                </Button>
+              </div>
+            </Alert>
+          )}
+
+          {/* Regenerating progress banner when previous payload exists */}
+          {isGenerating && (
+            <div
+              data-testid="regenerating-banner"
+              className="my-3 flex items-center justify-between gap-3 p-3.5 rounded-xl bg-[var(--color-primary-soft)] border border-[var(--color-primary-soft)] text-xs text-[var(--color-primary)] font-medium"
+            >
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                <span>در حال استخراج و ساخت نسخه به‌روزشده خلاصه مروری با هوش مصنوعی...</span>
+              </div>
+              <Badge variant="primary" size="sm">
+                در حال پردازش
+              </Badge>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-[var(--color-text)] tracking-tight leading-snug">

@@ -8,11 +8,13 @@
 import { Outlet } from "react-router-dom";
 import { usePageTracking } from "./usePageTracking.js";
 import { CookieConsentBanner } from "./CookieConsentBanner.js";
+import { RouteMetaRobotsManager } from "./RouteMetaRobotsManager.js";
 
 export function RootTrackerLayout() {
   usePageTracking();
   return (
     <>
+      <RouteMetaRobotsManager />
       <Outlet />
       <CookieConsentBanner />
     </>

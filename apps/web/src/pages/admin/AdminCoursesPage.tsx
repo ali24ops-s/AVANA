@@ -96,10 +96,7 @@ export function AdminCoursesPage() {
   // Main courses query with scope
   const coursesQuery = useQuery({
     queryKey: ["admin", "courses", currentTab, page, search],
-    queryFn: () =>
-      tabParam
-        ? adminApi.listCourses(page, pageSize, search, currentTab)
-        : adminApi.listCourses(page, pageSize, search),
+    queryFn: () => adminApi.listCourses(page, pageSize, search, currentTab),
     placeholderData: (prev) => prev,
   });
 
@@ -221,17 +218,32 @@ export function AdminCoursesPage() {
           }
         : c.counts;
 
-      const scope = c.scope || (official?.isOfficial ? "official" : (currentTab || "official"));
+      const isOfficial = Boolean(c.isOfficial ?? official?.isOfficial ?? false);
+      const scope: AdminCourseScope = c.scope || (isOfficial ? "official" : "user");
 
       return {
         ...c,
         status,
         scope,
-        isOfficial: c.isOfficial ?? official?.isOfficial ?? (scope === "official"),
+        isOfficial,
         product: c.product ?? official?.product ?? null,
         description: c.description ?? official?.description ?? null,
         counts,
       };
+    });
+
+    // Ensure displayed courses strictly conform to the active tab's scope
+    result = result.filter((c) => {
+      if (currentTab === "official") {
+        return c.scope === "official" || c.isOfficial === true;
+      }
+      if (currentTab === "teacher") {
+        return c.scope === "teacher";
+      }
+      if (currentTab === "user") {
+        return c.scope === "user" && !c.isOfficial;
+      }
+      return true;
     });
 
     // Filter by status if requested (for official tab)
@@ -259,7 +271,7 @@ export function AdminCoursesPage() {
     });
 
     return result;
-  }, [rawCourses, officialMap, statusFilter, sortBy]);
+  }, [rawCourses, officialMap, statusFilter, sortBy, currentTab]);
 
   const clearFilters = () => {
     setSearch("");

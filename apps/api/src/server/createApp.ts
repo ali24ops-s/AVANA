@@ -5,7 +5,7 @@ import type pino from "pino";
 import type { ApiConfig } from "../config.js";
 import { requestIdPlugin } from "../http/requestId.js";
 import { writeErrorEnvelope } from "../http/errorEnvelope.js";
-import { DomainError } from "@avana/domain";
+import { DomainError, isAdminPath } from "@avana/domain";
 import { createLogger } from "../observability/logger.js";
 import { observabilityPlugin } from "../observability/plugin.js";
 import { securityPlugin } from "../http/security.js";
@@ -111,6 +111,14 @@ export function createApp({
 
   // Register global security middleware (Helmet, CORS, rate-limit)
   void app.register(securityPlugin, { config });
+
+  // SEO & Crawler protection: attach X-Robots-Tag: noindex, nofollow to admin paths
+  app.addHook("onSend", async (request, reply) => {
+    const rawUrl = request.raw.url || request.url;
+    if (isAdminPath(rawUrl)) {
+      void reply.header("X-Robots-Tag", "noindex, nofollow");
+    }
+  });
 
   // Register multipart parsing for document uploads (max 50 MB).
   void app.register(multipart, {

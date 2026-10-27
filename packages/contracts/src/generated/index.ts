@@ -292,6 +292,7 @@ export type LessonResource = {
   estimated_minutes: number | null;
   completed: boolean;
   completed_at: string | null;
+  reference?: string | null;
   locked?: boolean;
   is_preview?: boolean;
   access_reason?: string;
@@ -386,6 +387,7 @@ export type ContentLessonResource = {
   publication_status: LessonPublicationStatus;
   created_at: string;
   updated_at: string;
+  reference?: string | null;
 };
 
 export type ContentModuleResource = {
@@ -411,12 +413,14 @@ export type CreateContentLessonRequest = {
   title: string;
   content_markdown?: string;
   estimated_minutes?: number | null;
+  reference?: string | null;
 };
 
 export type UpdateContentLessonRequest = {
   title?: string;
   content_markdown?: string;
   estimated_minutes?: number | null;
+  reference?: string | null;
 };
 
 export type ContentLessonResponse = {

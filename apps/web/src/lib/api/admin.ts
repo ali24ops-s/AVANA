@@ -209,6 +209,41 @@ export interface AdminCoursesList {
   };
 }
 
+export type GenerationUserCostStatus = "debited" | "refunded" | "free" | "unavailable";
+
+export interface GenerationUserCost {
+  isAvailable: boolean;
+  status: GenerationUserCostStatus;
+  statusLabel: string;
+  chargedAmountToman?: number;
+  refundedAmountToman?: number;
+  netPaidAmountToman?: number;
+  formattedNetPaid?: string;
+  isFree?: boolean;
+}
+
+export interface FileOperationFinancialRecord {
+  jobId: string;
+  type: string;
+  status: string;
+  createdAt: string;
+  userCost: GenerationUserCost;
+}
+
+export interface FileFinancialSummary {
+  documentId: string;
+  documentName: string;
+  totalOperationsCount: number;
+  totalDebitedToman: number;
+  totalRefundedToman: number;
+  totalNetPaidToman: number;
+  formattedTotalNetPaid: string;
+  hasUnavailableRecords: boolean;
+  hasRefundedRecords: boolean;
+  isComplete: boolean;
+  operations: FileOperationFinancialRecord[];
+}
+
 export interface AdminGenerationJobRecord {
   id: string;
   type: string;
@@ -218,6 +253,7 @@ export interface AdminGenerationJobRecord {
   completedAt: string | null;
   documentName?: string;
   userEmail?: string;
+  userCost?: GenerationUserCost;
 }
 
 export interface AdminGenerationDetailSource {
@@ -246,6 +282,7 @@ export interface AdminGenerationDetail extends AdminGenerationJobRecord {
   document?: { id: string; originalName: string; sizeBytes?: number; mimeType?: string };
   course?: { id: string; name?: string };
   sources?: AdminGenerationDetailSource[];
+  fileFinancialSummary?: FileFinancialSummary;
 }
 
 export interface AdminRejectedContentRecord {
@@ -616,6 +653,16 @@ export function createAdminApi(client: {
       return client.get<AdminLessonDetail>(`/v1/admin/content/lessons/${encodeURIComponent(lessonId)}${qs}`);
     },
 
+    async updateLesson(
+      lessonId: string,
+      updates: { reference?: string | null; title?: string; contentMarkdown?: string },
+    ): Promise<AdminLessonDetail> {
+      return client.patch<AdminLessonDetail>(
+        `/v1/admin/content/lessons/${encodeURIComponent(lessonId)}`,
+        updates,
+      );
+    },
+
     async listCourseSubmissions(params?: {
       page?: number;
       pageSize?: number;
@@ -635,11 +682,11 @@ export function createAdminApi(client: {
 
     async approveCourseSubmission(
       id: string,
-      data?: { reviewNotes?: string; targetPrice?: number },
+      data: ApproveCourseSubmissionPayload,
     ): Promise<{ success: boolean; publication: AdminCourseSubmissionItem }> {
       return client.post<{ success: boolean; publication: AdminCourseSubmissionItem }>(
         `/v1/admin/course-submissions/${encodeURIComponent(id)}/approve`,
-        data || {},
+        data,
       );
     },
 
@@ -650,6 +697,16 @@ export function createAdminApi(client: {
       return client.post<{ success: boolean; publication: AdminCourseSubmissionItem }>(
         `/v1/admin/course-submissions/${encodeURIComponent(id)}/reject`,
         { reason },
+      );
+    },
+
+    async requestCourseSubmissionChanges(
+      id: string,
+      notes: string,
+    ): Promise<{ success: boolean; publication: AdminCourseSubmissionItem; reviewNotes: string }> {
+      return client.post<{ success: boolean; publication: AdminCourseSubmissionItem; reviewNotes: string }>(
+        `/v1/admin/course-submissions/${encodeURIComponent(id)}/request-changes`,
+        { notes },
       );
     },
 
@@ -2220,6 +2277,7 @@ export interface AdminLessonDetail {
   moduleId?: string;
   publicationStatus?: string;
   contentMarkdown: string;
+  reference?: string | null;
   createdAt: string;
   flashcards?: Array<{
     id: string;
@@ -2238,6 +2296,23 @@ export interface AdminLessonDetail {
   }>;
 }
 
+export async function updateLessonDetails(
+  lessonId: string,
+  updates: { reference?: string | null; title?: string; contentMarkdown?: string },
+): Promise<AdminLessonDetail> {
+  return api.patch<AdminLessonDetail>(
+    `/admin/content/lessons/${encodeURIComponent(lessonId)}`,
+    updates,
+  );
+}
+
+export interface ApproveCourseSubmissionPayload {
+  accessType: "free" | "paid";
+  price?: number;
+  priceTomans?: number;
+  reviewNotes?: string;
+}
+
 export interface AdminCourseSubmissionItem {
   id: string;
   courseId: string;
@@ -2245,18 +2320,37 @@ export interface AdminCourseSubmissionItem {
   title: string;
   description?: string | null;
   subject?: string | null;
-  status: "pending_review" | "approved" | "rejected" | "published" | "draft";
+  status:
+    | "pending_review"
+    | "changes_requested"
+    | "approved"
+    | "rejected"
+    | "published"
+    | "draft";
   creator: {
     id: string;
     name: string;
     email?: string;
     avatarUrl?: string;
   };
+  accessType?: "free" | "paid";
+  pricing?: {
+    is_free: boolean;
+    price: number;
+    currency: string;
+    product_id: string | null;
+  };
   product?: {
     id: string;
-    priceAmount: number;
-    priceCurrency: string;
+    priceAmount?: number;
+    price?: number;
+    priceCurrency?: string;
+    currency?: string;
   } | null;
+  isUpdate?: boolean;
+  baseVersion?: number | null;
+  diffSummary?: any;
+  rejectionReason?: string | null;
   createdAt: string;
   submittedAt?: string;
   reviewNotes?: string;
@@ -2310,15 +2404,16 @@ export async function getCourseSubmission(id: string): Promise<{
       }>;
     };
   };
+  basePublication?: any;
 }> {
   return api.get(`/admin/course-submissions/${encodeURIComponent(id)}`);
 }
 
 export async function approveCourseSubmission(
   id: string,
-  data?: { reviewNotes?: string; targetPrice?: number },
+  data: ApproveCourseSubmissionPayload,
 ): Promise<{ success: boolean; publication: AdminCourseSubmissionItem }> {
-  return api.post(`/admin/course-submissions/${encodeURIComponent(id)}/approve`, data || {});
+  return api.post(`/admin/course-submissions/${encodeURIComponent(id)}/approve`, data);
 }
 
 export async function rejectCourseSubmission(
@@ -2326,6 +2421,13 @@ export async function rejectCourseSubmission(
   reason: string,
 ): Promise<{ success: boolean; publication: AdminCourseSubmissionItem }> {
   return api.post(`/admin/course-submissions/${encodeURIComponent(id)}/reject`, { reason });
+}
+
+export async function requestCourseSubmissionChanges(
+  id: string,
+  notes: string,
+): Promise<{ success: boolean; publication: AdminCourseSubmissionItem; reviewNotes: string }> {
+  return api.post(`/admin/course-submissions/${encodeURIComponent(id)}/request-changes`, { notes });
 }
 
 

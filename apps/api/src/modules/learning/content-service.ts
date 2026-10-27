@@ -52,6 +52,7 @@ export type ContentLessonRecord = {
   sort_order: number;
   estimated_minutes: number | null;
   publication_status: "draft" | "published";
+  reference?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -174,6 +175,7 @@ export class ContentService {
       sort_order: lesson.sortOrder,
       estimated_minutes: lesson.estimatedMinutes,
       publication_status: lesson.publicationStatus,
+      reference: lesson.reference ?? null,
       created_at: lesson.createdAt,
       updated_at: lesson.updatedAt,
     };
@@ -375,6 +377,7 @@ export class ContentService {
     title: string,
     contentMarkdown: string | undefined,
     estimatedMinutes: number | null | undefined,
+    reference?: string | null,
   ): Promise<ContentLessonResponse> {
     await this.authorize(actor, organizationId, "content:write", {
       courseId,
@@ -406,6 +409,7 @@ export class ContentService {
       sortOrder: nextSortOrder,
       estimatedMinutes: estimatedMinutes ?? null,
       publicationStatus: "draft",
+      reference: reference ? reference.trim() : null,
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
@@ -436,6 +440,7 @@ export class ContentService {
       title?: string;
       contentMarkdown?: string;
       estimatedMinutes?: number | null;
+      reference?: string | null;
     },
   ): Promise<ContentLessonResponse> {
     await this.authorize(actor, organizationId, "content:write", {
@@ -471,6 +476,11 @@ export class ContentService {
     if (updates.estimatedMinutes !== undefined) {
       lesson.estimatedMinutes = updates.estimatedMinutes;
       changedFields.push("estimated_minutes");
+    }
+    if (updates.reference !== undefined) {
+      const trimmedRef = updates.reference ? updates.reference.trim() : null;
+      lesson.reference = trimmedRef;
+      changedFields.push("reference");
     }
     if (changedFields.length === 0)
       return { request_id: "", lesson: this.toContentLesson(lesson) };

@@ -1035,7 +1035,7 @@ describe("HomePage Component", () => {
     const cPastId = "cpast-exam";
 
     const now = new Date();
-    const todayExam = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0).toISOString();
+    const todayExam = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
     const in3DaysExam = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 12, 0, 0).toISOString();
     const in10DaysExam = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 10, 12, 0, 0).toISOString();
     const pastExam = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 5, 12, 0, 0).toISOString();

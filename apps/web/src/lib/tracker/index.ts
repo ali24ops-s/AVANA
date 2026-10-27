@@ -13,4 +13,5 @@ export * from "./currency.js";
 export * from "./cookies.js";
 export * from "./consent.js";
 export * from "./CookieConsentBanner.js";
+export * from "./RouteMetaRobotsManager.js";
 

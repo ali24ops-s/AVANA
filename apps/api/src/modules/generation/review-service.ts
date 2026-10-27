@@ -67,7 +67,10 @@ import {
   isPollutedModuleTitle,
   stripContentTypePrefix,
   validateFlashcardDifficulty,
+  isOfficialCourse,
+  canManageOfficialContent,
 } from "@avana/domain";
+import type { CourseStore } from "../courses/course-store.js";
 import type { CommerceStore } from "../commerce/commerce-store.js";
 import type {
   DocumentStore,
@@ -139,6 +142,7 @@ export type ReviewScopedStores = {
   commerceStore?: CommerceStore;
   auditService?: AuditService;
   specialExamAutomationService?: SpecialExamAutomationService;
+  courseStore?: CourseStore;
 };
 
 export type ReviewDocumentResource = {
@@ -266,6 +270,7 @@ export class ReviewService {
     private readonly db?: DbClient,
     private readonly specialExamAutomationService?: SpecialExamAutomationService,
     private readonly systemOrganizationId?: OrganizationId,
+    private readonly courseStore?: CourseStore,
   ) {}
 
   /**
@@ -428,6 +433,18 @@ export class ReviewService {
       }
     }
 
+    if (this.courseStore && record.courseId) {
+      const course = await this.courseStore.findById(record.courseId);
+      if (course && isOfficialCourse(course, this.systemOrganizationId)) {
+        if (!canManageOfficialContent(actor, this.systemOrganizationId)) {
+          throw new DomainError(
+            "forbidden",
+            "مدیریت محتوای دوره‌های رسمی آوانا برای شما مجاز نیست.",
+          );
+        }
+      }
+    }
+
     if (!hasRolePermission && !isOwner) {
       throw new DomainError(
         "forbidden",
@@ -469,6 +486,26 @@ export class ReviewService {
     },
   ): Promise<ReviewQueueResponse> {
     await this.authorize(actor, organizationId, "content:review");
+
+    if (this.courseStore) {
+      const course = await this.courseStore.findById(courseId);
+      if (!course) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      const isOfficial = isOfficialCourse(course, this.systemOrganizationId);
+      if (isOfficial) {
+        if (!canManageOfficialContent(actor, this.systemOrganizationId)) {
+          throw new DomainError(
+            "forbidden",
+            "دسترسی به صف بررسی دوره‌های رسمی آوانا مجاز نیست.",
+          );
+        }
+      } else {
+        if (course.organizationId !== organizationId) {
+          throw new DomainError("forbidden", "Access denied to this course");
+        }
+      }
+    }
 
     // 1. Fetch all course contents
     const allCourseContents = await this.generatedContentStore.listByCourse(
@@ -655,6 +692,17 @@ export class ReviewService {
     await this.authorize(actor, organizationId, "content:review");
 
     const record = await this.requireContent(organizationId, contentId);
+    if (this.courseStore && record.courseId) {
+      const course = await this.courseStore.findById(record.courseId);
+      if (course && isOfficialCourse(course, this.systemOrganizationId)) {
+        if (!canManageOfficialContent(actor, this.systemOrganizationId)) {
+          throw new DomainError(
+            "forbidden",
+            "دسترسی به محتوای بررسی دوره‌های رسمی آوانا مجاز نیست.",
+          );
+        }
+      }
+    }
     const citations = await this.citationStore.listByGeneratedContent(
       record.id,
     );
@@ -1496,6 +1544,12 @@ export class ReviewService {
     for (let idx = 0; idx < sessionList.length; idx++) {
       const sess = sessionList[idx];
       const matchingLiveLesson = sessionMatches[idx];
+      const draftRef =
+        typeof (sess as any).reference === "string" && (sess as any).reference.trim()
+          ? (sess as any).reference.trim()
+          : typeof (payload as any).reference === "string" && (payload as any).reference.trim()
+          ? (payload as any).reference.trim()
+          : null;
 
       let targetLessonId: LessonId;
       if (matchingLiveLesson) {
@@ -1504,6 +1558,9 @@ export class ReviewService {
 
         matchingLiveLesson.title = sess.title;
         matchingLiveLesson.contentMarkdown = normalizeEducationalContent(sess.contentMarkdown);
+        if (draftRef !== null) {
+          matchingLiveLesson.reference = draftRef;
+        }
         matchingLiveLesson.sortOrder = idx;
         matchingLiveLesson.publicationStatus = "published";
         matchingLiveLesson.updatedAt = now;
@@ -1519,6 +1576,7 @@ export class ReviewService {
           title: sess.title,
           contentType: "markdown",
           contentMarkdown: normalizeEducationalContent(sess.contentMarkdown),
+          reference: draftRef,
           sortOrder: idx,
           estimatedMinutes: null,
           publicationStatus: "published",

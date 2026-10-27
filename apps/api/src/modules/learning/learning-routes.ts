@@ -25,7 +25,7 @@ import {
 import { LearningService } from "./learning-service.js";
 import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
 import { makeAuthMiddleware } from "../../http/authMiddleware.js";
-import type { CourseStore } from "../courses/course-store.js";
+import type { CourseStore, CoursePublicationStore } from "../courses/course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type {
   ModuleStore,
@@ -50,6 +50,7 @@ export interface LearningRouteOptions {
   systemOrganizationId?: OrganizationId;
   entitlementService?: EntitlementService;
   studySessionStore?: StudySessionStore;
+  coursePublicationStore?: CoursePublicationStore;
 }
 
 export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
@@ -69,6 +70,7 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
     systemOrganizationId,
     entitlementService,
     studySessionStore,
+    coursePublicationStore,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
@@ -84,6 +86,7 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
     entitlementService,
     subCourseGroupStore,
     studySessionStore,
+    coursePublicationStore,
   );
 
   /**

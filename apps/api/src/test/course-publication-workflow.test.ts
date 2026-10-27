@@ -79,6 +79,10 @@ describe("Personal Courses and Course Publication Workflow E2E", () => {
       user.globalRole = "platform_admin";
       user.role = "platform_admin";
       userStore.insert({ ...user });
+    } else if (role === Roles.content_worker) {
+      user.globalRole = "content_worker";
+      user.role = "content_worker";
+      userStore.insert({ ...user });
     }
     const orgId = randomUUID() as OrganizationId;
     await orgStore.createWithAdminMembership({
@@ -918,5 +922,1167 @@ describe("Personal Courses and Course Publication Workflow E2E", () => {
     const learnBody = learnRes.json();
     expect(learnBody.course.isOfficial).toBe(true);
     expect(learnBody.course.is_official).toBe(true);
+  });
+
+  test("Regression: Rejection of approval when accessType is missing or invalid", async () => {
+    const pubId = asCoursePublicationId(randomUUID());
+    const courseId = asCourseId(randomUUID());
+    const now = new Date().toISOString();
+
+    await courseStore.create({
+      course: {
+        id: courseId,
+        organizationId: regularUserOrgId,
+        name: "دوره تست اعتبارسنجی accessType",
+        description: null,
+        subject: null,
+        status: "pending_review",
+        isOfficial: false,
+        examDate: null,
+        examScope: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    await coursePublicationStore.create({
+      id: pubId,
+      courseId,
+      organizationId: regularUserOrgId,
+      version: 1,
+      title: "دوره تست اعتبارسنجی accessType",
+      description: "دوره ارسالی توسط مدرس",
+      subject: "برنامه‌نویسی",
+      status: "pending_review",
+      creatorUserId: regularUserId,
+      creatorRole: "teacher",
+      publishedAt: null,
+      metadata: {
+        accessType: "paid",
+        rejectionReason: null,
+        reviewedAt: null,
+        reviewedByUserId: null,
+      },
+      snapshot: {
+        courseId,
+        title: "دوره تست اعتبارسنجی accessType",
+        chapters: [],
+      },
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // 1. Missing accessType (empty body or targetPrice only like previous bug)
+    const emptyRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${pubId}/approve`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${adminUserToken}`,
+      },
+      payload: {
+        targetPrice: 50000,
+        reviewNotes: "یادداشت تست",
+      },
+    });
+    expect(emptyRes.statusCode).toBe(400);
+    expect(emptyRes.json().message).toBe("نوع دسترسی (accessType) باید 'free' یا 'paid' باشد.");
+
+    // 2. Invalid accessType
+    const invalidRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${pubId}/approve`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${adminUserToken}`,
+      },
+      payload: {
+        accessType: "subscription",
+      },
+    });
+    expect(invalidRes.statusCode).toBe(400);
+    expect(invalidRes.json().message).toBe("نوع دسترسی (accessType) باید 'free' یا 'paid' باشد.");
+  });
+
+  test("Regression: Rejection of paid course approval when price is zero, negative, or decimal", async () => {
+    const pubId = asCoursePublicationId(randomUUID());
+    const courseId = asCourseId(randomUUID());
+    const now = new Date().toISOString();
+
+    await courseStore.create({
+      course: {
+        id: courseId,
+        organizationId: regularUserOrgId,
+        name: "دوره تست اعتبارسنجی قیمت",
+        description: null,
+        subject: null,
+        status: "pending_review",
+        isOfficial: false,
+        examDate: null,
+        examScope: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    await coursePublicationStore.create({
+      id: pubId,
+      courseId,
+      organizationId: regularUserOrgId,
+      version: 1,
+      title: "دوره تست اعتبارسنجی قیمت",
+      description: "دوره ارسالی توسط مدرس",
+      subject: "پزشکی",
+      status: "pending_review",
+      creatorUserId: regularUserId,
+      creatorRole: "teacher",
+      publishedAt: null,
+      metadata: {
+        accessType: "paid",
+        rejectionReason: null,
+        reviewedAt: null,
+        reviewedByUserId: null,
+      },
+      snapshot: {
+        courseId,
+        title: "دوره تست اعتبارسنجی قیمت",
+        chapters: [],
+      },
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // 1. Paid accessType with price = 0
+    const zeroPriceRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${pubId}/approve`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${adminUserToken}`,
+      },
+      payload: {
+        accessType: "paid",
+        price: 0,
+      },
+    });
+    expect(zeroPriceRes.statusCode).toBe(400);
+    expect(zeroPriceRes.json().message).toBe("برای دوره آموزشی پولی، قیمت معتبر به تومان الزامی است (بزرگتر از صفر).");
+
+    // 2. Paid accessType with negative price
+    const negPriceRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${pubId}/approve`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${adminUserToken}`,
+      },
+      payload: {
+        accessType: "paid",
+        price: -50000,
+      },
+    });
+    expect(negPriceRes.statusCode).toBe(400);
+    expect(negPriceRes.json().message).toBe("برای دوره آموزشی پولی، قیمت معتبر به تومان الزامی است (بزرگتر از صفر).");
+
+    // 3. Paid accessType with decimal price
+    const decPriceRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${pubId}/approve`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${adminUserToken}`,
+      },
+      payload: {
+        accessType: "paid",
+        price: 25000.75,
+      },
+    });
+    expect(decPriceRes.statusCode).toBe(400);
+    expect(decPriceRes.json().message).toBe("برای دوره آموزشی پولی، قیمت معتبر به تومان الزامی است (بزرگتر از صفر).");
+
+    // 4. Paid accessType with missing price
+    const noPriceRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${pubId}/approve`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${adminUserToken}`,
+      },
+      payload: {
+        accessType: "paid",
+      },
+    });
+    expect(noPriceRes.statusCode).toBe(400);
+    expect(noPriceRes.json().message).toBe("برای دوره آموزشی پولی، قیمت معتبر به تومان الزامی است (بزرگتر از صفر).");
+  });
+
+  test("Regression: Switching from paid to free deactivates previous commerce product, and unapproved courses have no active product", async () => {
+    const pubId = asCoursePublicationId(randomUUID());
+    const courseId = asCourseId(randomUUID());
+    const now = new Date().toISOString();
+
+    await courseStore.create({
+      course: {
+        id: courseId,
+        organizationId: regularUserOrgId,
+        name: "دوره تست تغییر مدل مالی",
+        description: null,
+        subject: null,
+        status: "pending_review",
+        isOfficial: false,
+        examDate: null,
+        examScope: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    await coursePublicationStore.create({
+      id: pubId,
+      courseId,
+      organizationId: regularUserOrgId,
+      version: 1,
+      title: "دوره تست تغییر مدل مالی",
+      description: "دوره ارسالی توسط مدرس",
+      subject: "برنامه‌نویسی",
+      status: "pending_review",
+      creatorUserId: regularUserId,
+      creatorRole: "teacher",
+      publishedAt: null,
+      metadata: {
+        accessType: "paid",
+        rejectionReason: null,
+        reviewedAt: null,
+        reviewedByUserId: null,
+      },
+      snapshot: {
+        courseId,
+        title: "دوره تست تغییر مدل مالی",
+        chapters: [],
+      },
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // 1. Unapproved course has no active commerce product
+    const unapprovedProduct = await commerceStore.findProductByTarget("course_publication", pubId);
+    expect(unapprovedProduct).toBeNull();
+
+    // 2. Admin approves as Paid (80,000 Tomans)
+    const approvePaidRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${pubId}/approve`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${adminUserToken}`,
+      },
+      payload: {
+        accessType: "paid",
+        price: 80000,
+        reviewNotes: "تأیید شد با قیمت اولیه",
+      },
+    });
+    expect(approvePaidRes.statusCode).toBe(200);
+    const paidPub = await coursePublicationStore.findById(asCoursePublicationId(pubId));
+    expect(paidPub?.metadata.accessType).toBe("paid");
+    expect(paidPub?.metadata.reviewNotes).toBe("تأیید شد با قیمت اولیه");
+
+    const activeProd = await commerceStore.findProductByTarget("course_publication", pubId);
+    expect(activeProd).toBeDefined();
+    expect(activeProd?.active).toBe(true);
+    expect(activeProd?.price).toBe(80000);
+
+    // 3. Admin updates/re-approves as Free
+    const approveFreeRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${pubId}/approve`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${adminUserToken}`,
+      },
+      payload: {
+        accessType: "free",
+        reviewNotes: "تبدیل به دوره عمومی رایگان",
+      },
+    });
+    expect(approveFreeRes.statusCode).toBe(200);
+    const freeBody = approveFreeRes.json();
+    expect(freeBody.accessType).toBe("free");
+    expect(freeBody.priceTomans).toBe(0);
+
+    // 4. Product was deactivated
+    const deactivatedProd = await commerceStore.findProductByTarget("course_publication", pubId);
+    expect(deactivatedProd).toBeDefined();
+    expect(deactivatedProd?.active).toBe(false);
+
+    // 5. Publication metadata updated to free
+    const updatedPub = await coursePublicationStore.findById(asCoursePublicationId(pubId));
+    expect(updatedPub?.metadata.accessType).toBe("free");
+    expect(updatedPub?.metadata.reviewNotes).toBe("تبدیل به دوره عمومی رایگان");
+  });
+
+  test("Published course update request: zero-downtime, diff computation, change requests, rejection immunity, and content materialization", async () => {
+    // 1. Setup an initially published course (v1)
+    const courseId = asCourseId(randomUUID());
+    const now = new Date().toISOString();
+    await courseStore.create({
+      course: {
+        id: courseId,
+        organizationId: regularUserOrgId,
+        name: "دوره جامع فیزیک کوانتوم",
+        description: "مفاهیم پایه کوانتوم",
+        subject: "فیزیک",
+        status: "published",
+        isOfficial: false,
+        version: 1,
+        examDate: null,
+        examScope: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    const v1PubId = asCoursePublicationId(randomUUID());
+    await coursePublicationStore.create({
+      id: v1PubId,
+      courseId,
+      organizationId: regularUserOrgId,
+      version: 1,
+      title: "دوره جامع فیزیک کوانتوم",
+      description: "مفاهیم پایه کوانتوم",
+      subject: "فیزیک",
+      status: "published",
+      creatorUserId: regularUserId,
+      creatorRole: "teacher",
+      publishedAt: now,
+      metadata: {
+        accessType: "paid",
+        rejectionReason: null,
+        reviewedAt: now,
+        reviewedByUserId: adminUserId,
+      },
+      snapshot: {
+        courseId,
+        title: "دوره جامع فیزیک کوانتوم",
+        chapters: [
+          {
+            id: "ch-1",
+            title: "فصل ۱: دوگانگی موج و ذره",
+            sortOrder: 0,
+            lessons: [
+              {
+                id: "lesson-1",
+                title: "آزمایش یانگ",
+                contentMarkdown: "آزمایش دوشکاف یانگ و الگوی تداخل...",
+                sortOrder: 0,
+                estimatedMinutes: 15,
+              },
+            ],
+          },
+        ],
+        stats: {
+          lessonCount: 1,
+          chapterCount: 1,
+          flashcardCount: 0,
+          quizCount: 0,
+          quizQuestionCount: 0,
+          summaryCount: 0,
+          totalEstimatedMinutes: 15,
+        },
+      },
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // Create active commercial product for v1
+    const v1ProductId = asProductId(randomUUID());
+    await commerceStore.createProduct({
+      id: v1ProductId,
+      code: `course_pub_${v1PubId}`,
+      type: "course",
+      title: "دوره جامع فیزیک کوانتوم",
+      description: "مفاهیم پایه کوانتوم",
+      price: 50000,
+      currency: "toman",
+      targetType: "course_publication",
+      targetId: v1PubId,
+      durationDays: null,
+      active: true,
+      metadata: { coursePublicationId: v1PubId, courseId },
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // Populate moduleStore & subCourseGroupStore so chapter structure is intact
+    const ch1Group = await subCourseGroupStore.create({
+      id: "ch-1" as any,
+      courseId,
+      title: "فصل ۱: دوگانگی موج و ذره",
+      description: null,
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+    const mod1 = await moduleStore.create({
+      id: randomUUID() as any,
+      courseId,
+      subCourseGroupId: ch1Group.id,
+      title: "مقدمه کوانتوم",
+      description: null,
+      documentId: null,
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+    await lessonStore.create({
+      id: "lesson-1" as any,
+      organizationId: regularUserOrgId,
+      moduleId: mod1.id,
+      title: "آزمایش یانگ",
+      contentMarkdown: "آزمایش دوشکاف یانگ و الگوی تداخل...",
+      sortOrder: 0,
+      estimatedMinutes: 15,
+      publicationStatus: "published",
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // 2. Creator prepares update content: adds a 2nd chapter and a draft lesson
+    const createCh2Res = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${regularUserOrgId}/courses/${courseId}/chapters`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${regularUserToken}`,
+      },
+      payload: {
+        title: "فصل ۲: اصل عدم قطعیت هایزنبرگ",
+        orderIndex: 1,
+      },
+    });
+    expect(createCh2Res.statusCode).toBe(201);
+    const ch2 = createCh2Res.json().chapter;
+
+    const mod2 = await moduleStore.create({
+      id: randomUUID() as any,
+      courseId,
+      subCourseGroupId: ch2.id,
+      title: "ماژول عدم قطعیت",
+      description: null,
+      documentId: null,
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    const draftLessonId = "lesson-2-draft";
+    await lessonStore.create({
+      id: draftLessonId as any,
+      organizationId: regularUserOrgId,
+      moduleId: mod2.id,
+      title: "روابط عدم قطعیت تکانه و مکان",
+      contentMarkdown: "دلتا ایکس در دلتا پی بزرگتر مساوی اچ بار دوم...",
+      sortOrder: 0,
+      estimatedMinutes: 20,
+      publicationStatus: "draft",
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // Verify draft lesson is draft
+    const draftedLessonBefore = await lessonStore.findById(draftLessonId as any);
+    expect(draftedLessonBefore?.publicationStatus).toBe("draft");
+
+    // 3. Creator submits update request
+    const updateSubmitRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${regularUserOrgId}/courses/${courseId}/publish`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${regularUserToken}`,
+      },
+      payload: {
+        title: "دوره جامع فیزیک کوانتوم (ویرایش جدید)",
+        description: "مفاهیم کوانتوم با اضافه شدن اصل عدم قطعیت",
+      },
+    });
+    expect(updateSubmitRes.statusCode).toBe(201);
+    const updateBody = updateSubmitRes.json();
+    const v2Pub = updateBody.publication;
+    expect(v2Pub.status).toBe("pending_review");
+    expect(v2Pub.version).toBe(2);
+    expect(v2Pub.metadata.isUpdate).toBe(true);
+    expect(v2Pub.metadata.baseVersion).toBe(1);
+    expect(v2Pub.metadata.requestType).toBe("update");
+    expect(v2Pub.metadata.diffSummary).toBeDefined();
+    expect(v2Pub.metadata.diffSummary.addedLessons.some((l: any) => l.title === "روابط عدم قطعیت تکانه و مکان")).toBe(true);
+
+    // ZERO DOWNTIME CHECK: Course in courseStore MUST still be published!
+    const liveCourseAfterSubmit = await courseStore.findById(courseId);
+    expect(liveCourseAfterSubmit?.status).toBe("published");
+
+    // Product must still be active!
+    const activeProdAfterSubmit = await commerceStore.findProductByTarget("course_publication", v1PubId);
+    expect(activeProdAfterSubmit?.active).toBe(true);
+
+    // 4. Duplicate pending update submission must fail with 409
+    const duplicateSubmitRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${regularUserOrgId}/courses/${courseId}/publish`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${regularUserToken}`,
+      },
+      payload: {
+        title: "ارسال دوباره",
+      },
+    });
+    expect(duplicateSubmitRes.statusCode).toBe(409);
+
+    // 5. Admin lists submissions: verifies isUpdate and diffSummary
+    const adminListRes = await app.inject({
+      method: "GET",
+      url: `/v1/admin/course-submissions?courseId=${courseId}`,
+      headers: {
+        Cookie: `avana_session=${adminUserToken}`,
+      },
+    });
+    expect(adminListRes.statusCode).toBe(200);
+    const submissionsList = adminListRes.json();
+    const pendingItem = submissionsList.items.find((s: any) => s.id === v2Pub.id);
+    expect(pendingItem.isUpdate).toBe(true);
+    expect(pendingItem.baseVersion).toBe(1);
+    expect(pendingItem.diffSummary).toBeDefined();
+
+    // 6. Admin requests changes
+    const requestChangesRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${v2Pub.id}/request-changes`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${adminUserToken}`,
+      },
+      payload: {
+        reviewNotes: "لطفاً تمرین حل شده به درس جدید اضافه کنید.",
+      },
+    });
+    expect(requestChangesRes.statusCode).toBe(200);
+    expect(requestChangesRes.json().status).toBe("changes_requested");
+
+    // Check creator's publication status endpoint returns both publication and publishedPublication
+    const statusRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${regularUserOrgId}/courses/${courseId}/publication-status`,
+      headers: {
+        Cookie: `avana_session=${regularUserToken}`,
+      },
+    });
+    expect(statusRes.statusCode).toBe(200);
+    const pubStatus = statusRes.json();
+    expect(pubStatus.publication.status).toBe("changes_requested");
+    expect(pubStatus.publication.reviewNotes).toBe("لطفاً تمرین حل شده به درس جدید اضافه کنید.");
+    expect(pubStatus.publishedPublication).toBeDefined();
+    expect(pubStatus.publishedPublication.version).toBe(1);
+
+    // 7. Creator updates lesson and resubmits
+    await lessonStore.update({
+      ...(await lessonStore.findById(draftLessonId as any))!,
+      contentMarkdown: "دلتا ایکس در دلتا پی بزرگتر مساوی اچ بار دوم به همراه دو مثال حل‌شده.",
+    });
+
+    const resubmitRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${regularUserOrgId}/courses/${courseId}/publish`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${regularUserToken}`,
+      },
+      payload: {
+        title: "دوره جامع فیزیک کوانتوم (ویرایش ۲ نهایی)",
+      },
+    });
+    expect(resubmitRes.statusCode).toBe(201);
+    const resubmittedPub = resubmitRes.json().publication;
+    expect(resubmittedPub.status).toBe("pending_review");
+
+    // 8. Admin rejects the update request -> Live course MUST REMAIN published!
+    const rejectUpdateRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${resubmittedPub.id}/reject`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${adminUserToken}`,
+      },
+      payload: {
+        rejectionReason: "کیفیت محتوا با استانداردهای علمی تطابق ندارد.",
+      },
+    });
+    expect(rejectUpdateRes.statusCode).toBe(200);
+
+    // ZERO DOWNTIME CHECK: Course in courseStore MUST STILL be published!
+    const liveCourseAfterReject = await courseStore.findById(courseId);
+    expect(liveCourseAfterReject?.status).toBe("published");
+    const activeProdAfterReject = await commerceStore.findProductByTarget("course_publication", v1PubId);
+    expect(activeProdAfterReject?.active).toBe(true);
+
+    // 9. Creator resubmits again, admin approves
+    const submitAgainRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${regularUserOrgId}/courses/${courseId}/publish`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${regularUserToken}`,
+      },
+      payload: {
+        title: "دوره جامع فیزیک کوانتوم (تأییدیه دانشگاهی)",
+      },
+    });
+    expect(submitAgainRes.statusCode).toBe(201);
+    const finalPubId = submitAgainRes.json().publication.id;
+
+    const approveUpdateRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${finalPubId}/approve`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${adminUserToken}`,
+      },
+      payload: {
+        accessType: "paid",
+        price: 65000,
+        reviewNotes: "بسیار عالی، به روزرسانی تایید شد.",
+      },
+    });
+    expect(approveUpdateRes.statusCode).toBe(200);
+
+    // Direct Persistence Verification: Live course version updated to 2, status published
+    const finalLiveCourse = await courseStore.findById(courseId);
+    expect(finalLiveCourse?.status).toBe("published");
+    expect(finalLiveCourse?.version).toBe(2);
+    expect(finalLiveCourse?.name).toBe("دوره جامع فیزیک کوانتوم (تأییدیه دانشگاهی)");
+
+    // DRAFT LESSON IS NOW MATERIALIZED / ACTIVATED TO PUBLISHED!
+    const activatedLesson = await lessonStore.findById(draftLessonId as any);
+    expect(activatedLesson?.publicationStatus).toBe("published");
+
+    // Commerce product updated with new price
+    const updatedProd = await commerceStore.findProductByTarget("course_publication", finalPubId);
+    expect(updatedProd).toBeDefined();
+    expect(updatedProd?.active).toBe(true);
+    expect(updatedProd?.price).toBe(65000);
+  });
+
+  test("Role boundaries: content_worker cannot approve, reject, or request changes on course submissions", async () => {
+    const worker = await createAuthenticatedUser("worker_mod@avana.ir", Roles.content_worker);
+    const pubId = asCoursePublicationId(randomUUID());
+    const courseId = asCourseId(randomUUID());
+
+    await coursePublicationStore.create({
+      id: pubId,
+      courseId,
+      organizationId: regularUserOrgId,
+      version: 1,
+      title: "دوره تست نقش محتواکار",
+      description: "تست",
+      subject: "شیمی",
+      status: "pending_review",
+      creatorUserId: regularUserId,
+      creatorRole: "teacher",
+      publishedAt: null,
+      metadata: {
+        accessType: "free",
+        rejectionReason: null,
+        reviewedAt: null,
+        reviewedByUserId: null,
+      },
+      snapshot: {
+        courseId,
+        title: "دوره تست نقش محتواکار",
+        chapters: [],
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    // Content worker cannot approve
+    const approveRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${pubId}/approve`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${worker.token}`,
+      },
+      payload: { accessType: "free" },
+    });
+    expect(approveRes.statusCode).toBe(403);
+
+    // Content worker cannot reject
+    const rejectRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${pubId}/reject`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${worker.token}`,
+      },
+      payload: { rejectionReason: "رد توسط محتواکار" },
+    });
+    expect(rejectRes.statusCode).toBe(403);
+
+    // Content worker cannot request changes
+    const changeRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${pubId}/request-changes`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${worker.token}`,
+      },
+      payload: { reviewNotes: "درخواست تغییر توسط محتواکار" },
+    });
+    expect(changeRes.statusCode).toBe(403);
+  });
+
+  test("Live vs Proposed Isolation: Learner calling /learn and /progress is strictly isolated from unapproved edits, deletions, and draft additions", async () => {
+    const student = await createAuthenticatedUser("student_isolation@avana.ir", Roles.student);
+    const now = new Date().toISOString();
+    const courseId = asCourseId(randomUUID());
+
+    // Grant student active subscription and membership in organization
+    await commerceStore.createSubscription({
+      id: "sub-student-isolation" as any,
+      userId: student.userId,
+      planType: "monthly",
+      status: "active",
+      startsAt: new Date(Date.now() - 86400000).toISOString(),
+      expiresAt: new Date(Date.now() + 86400000 * 30).toISOString(),
+      renewsAt: null,
+      canceledAt: null,
+      metadata: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await orgStore.addMembership({
+      id: randomUUID() as any,
+      organizationId: regularUserOrgId,
+      userId: student.userId,
+      role: Roles.student,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // 1. Setup published course with 2 lessons
+    await courseStore.create({
+      course: {
+        id: courseId,
+        organizationId: regularUserOrgId,
+        name: "شیمی آلی دارویی ۱ (نسخه رسمی ۱)",
+        description: "شیمی آلی مقدماتی",
+        subject: "شیمی",
+        status: "published",
+        isOfficial: false,
+        version: 1,
+        examDate: null,
+        examScope: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    const ch1 = await subCourseGroupStore.create({
+      id: randomUUID() as any,
+      courseId,
+      title: "فصل ۱: گروه‌های عاملی",
+      description: null,
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+    const mod1 = await moduleStore.create({
+      id: randomUUID() as any,
+      courseId,
+      subCourseGroupId: ch1.id,
+      title: "آلکان‌ها و آلکن‌ها",
+      description: null,
+      documentId: null,
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+    const lesson1Id = randomUUID() as any;
+    const lesson2Id = randomUUID() as any;
+
+    await lessonStore.create({
+      id: lesson1Id,
+      organizationId: regularUserOrgId,
+      moduleId: mod1.id,
+      title: "درس ۱: ساختار آلکان",
+      contentMarkdown: "محتوای تأیید شده درس ۱",
+      sortOrder: 0,
+      estimatedMinutes: 10,
+      publicationStatus: "published",
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+    await lessonStore.create({
+      id: lesson2Id,
+      organizationId: regularUserOrgId,
+      moduleId: mod1.id,
+      title: "درس ۲: سنتز آلکن",
+      contentMarkdown: "محتوای تأیید شده درس ۲",
+      sortOrder: 1,
+      estimatedMinutes: 12,
+      publicationStatus: "published",
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // Published publication v1
+    const v1PubId = asCoursePublicationId(randomUUID());
+    await coursePublicationStore.create({
+      id: v1PubId,
+      courseId,
+      organizationId: regularUserOrgId,
+      version: 1,
+      title: "شیمی آلی دارویی ۱ (نسخه رسمی ۱)",
+      description: "شیمی آلی مقدماتی",
+      subject: "شیمی",
+      status: "published",
+      creatorUserId: regularUserId,
+      creatorRole: "teacher",
+      publishedAt: now,
+      metadata: {
+        accessType: "free",
+      },
+      snapshot: {
+        courseId,
+        title: "شیمی آلی دارویی ۱ (نسخه رسمی ۱)",
+        chapters: [
+          {
+            id: mod1.id,
+            title: "فصل ۱: گروه‌های عاملی",
+            sortOrder: 0,
+            lessons: [
+              {
+                id: lesson1Id,
+                title: "درس ۱: ساختار آلکان",
+                contentMarkdown: "محتوای تأیید شده درس ۱",
+                sortOrder: 0,
+                estimatedMinutes: 10,
+              },
+              {
+                id: lesson2Id,
+                title: "درس ۲: سنتز آلکن",
+                contentMarkdown: "محتوای تأیید شده درس ۲",
+                sortOrder: 1,
+                estimatedMinutes: 12,
+              },
+            ],
+          },
+        ],
+        stats: {
+          lessonCount: 2,
+          chapterCount: 1,
+          flashcardCount: 0,
+          quizCount: 0,
+          quizQuestionCount: 0,
+          summaryCount: 0,
+          totalEstimatedMinutes: 22,
+        },
+      },
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // Student completes lesson 1
+    const markL1Res = await app.inject({
+      method: "POST",
+      url: `/v1/courses/${courseId}/lessons/${lesson1Id}/progress`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${student.token}`,
+      },
+      payload: { completed: true },
+    });
+    expect(markL1Res.statusCode).toBe(200);
+
+    // 2. Creator makes unapproved draft changes in working tables:
+    // - renames course
+    // - edits lesson 1 content
+    // - soft deletes lesson 2
+    // - adds unapproved lesson 3
+    const liveCourse = await courseStore.findById(courseId);
+    await courseStore.update({
+      ...liveCourse!,
+      name: "عنوان پیش‌نویس تأیید نشده که نباید دیده شود",
+    });
+
+    const dbL1 = await lessonStore.findById(lesson1Id);
+    await lessonStore.update({
+      ...dbL1!,
+      title: "عنوان تغییریافته درس ۱ پیش‌نویس",
+      contentMarkdown: "متن لو رفته پیش‌نویس درس ۱",
+    });
+
+    const dbL2 = await lessonStore.findById(lesson2Id);
+    await lessonStore.update({
+      ...dbL2!,
+      deletedAt: new Date().toISOString(), // Soft-deleted by creator
+    });
+
+    const unapprovedLesson3Id = randomUUID() as any;
+    await lessonStore.create({
+      id: unapprovedLesson3Id,
+      organizationId: regularUserOrgId,
+      moduleId: mod1.id,
+      title: "درس ۳ پیش‌نویس بدون تأیید",
+      contentMarkdown: "متن پیش‌نویس",
+      sortOrder: 2,
+      estimatedMinutes: 15,
+      publicationStatus: "draft",
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // 3. Student requests course learning: /v1/courses/:id/learn
+    const learnRes = await app.inject({
+      method: "GET",
+      url: `/v1/courses/${courseId}/learn`,
+      headers: {
+        Cookie: `avana_session=${student.token}`,
+      },
+    });
+    expect(learnRes.statusCode).toBe(200);
+    const learnBody = learnRes.json();
+
+    // Verification: Student sees official v1 title, NOT the draft rename
+    expect(learnBody.course.title).toBe("شیمی آلی دارویی ۱ (نسخه رسمی ۱)");
+    expect(learnBody.course.version).toBe(1);
+
+    // Verification: Student sees 2 published lessons (lesson 2 is NOT deleted for student)
+    const lessonsInMod = learnBody.modules[0].lessons;
+    expect(lessonsInMod.length).toBe(2);
+
+    const servedL1 = lessonsInMod.find((l: any) => l.id === lesson1Id);
+    expect(servedL1).toBeDefined();
+    expect(servedL1.title).toBe("درس ۱: ساختار آلکان");
+    expect(servedL1.content_markdown).toBe("محتوای تأیید شده درس ۱");
+    expect(servedL1.completed).toBe(true);
+
+    const servedL2 = lessonsInMod.find((l: any) => l.id === lesson2Id);
+    expect(servedL2).toBeDefined();
+    expect(servedL2.title).toBe("درس ۲: سنتز آلکن");
+    expect(servedL2.content_markdown).toBe("محتوای تأیید شده درس ۲");
+    expect(servedL2.completed).toBe(false);
+
+    // Unapproved lesson 3 is NOT present for student
+    expect(lessonsInMod.some((l: any) => l.id === unapprovedLesson3Id)).toBe(false);
+
+    // Verification: Progress percentage is strictly 50% (1 of 2 completed)
+    expect(learnBody.progress.total_lessons).toBe(2);
+    expect(learnBody.progress.completed_lessons).toBe(1);
+    expect(learnBody.progress.progress_percent).toBe(50);
+
+    // 4. Student calls /v1/courses/:id/progress
+    const progressRes = await app.inject({
+      method: "GET",
+      url: `/v1/courses/${courseId}/progress`,
+      headers: {
+        Cookie: `avana_session=${student.token}`,
+      },
+    });
+    expect(progressRes.statusCode).toBe(200);
+    const progressBody = progressRes.json();
+    expect(progressBody.total_lessons).toBe(2);
+    expect(progressBody.completed_lessons).toBe(1);
+    expect(progressBody.percentage).toBe(50);
+
+    // 5. Student cannot complete unapproved draft lesson 3
+    const markUnapprovedRes = await app.inject({
+      method: "POST",
+      url: `/v1/courses/${courseId}/lessons/${unapprovedLesson3Id}/progress`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${student.token}`,
+      },
+      payload: { completed: true },
+    });
+    expect(markUnapprovedRes.statusCode).toBe(404);
+  });
+
+  test("Post-submission draft safety: draft lesson created after update submission is NOT activated on approval", async () => {
+    const now = new Date().toISOString();
+    const courseId = asCourseId(randomUUID());
+
+    // 1. Setup published course v1
+    await courseStore.create({
+      course: {
+        id: courseId,
+        organizationId: regularUserOrgId,
+        name: "فیزیک هالیدی",
+        description: "مکانیک",
+        subject: "فیزیک",
+        status: "published",
+        isOfficial: false,
+        version: 1,
+        examDate: null,
+        examScope: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    const v1PubId = asCoursePublicationId(randomUUID());
+    await coursePublicationStore.create({
+      id: v1PubId,
+      courseId,
+      organizationId: regularUserOrgId,
+      version: 1,
+      title: "فیزیک هالیدی",
+      description: "مکانیک",
+      subject: "فیزیک",
+      status: "published",
+      creatorUserId: regularUserId,
+      creatorRole: "teacher",
+      publishedAt: now,
+      metadata: { accessType: "free" },
+      snapshot: {
+        courseId,
+        title: "فیزیک هالیدی",
+        chapters: [],
+        stats: {
+          lessonCount: 0,
+          chapterCount: 0,
+          flashcardCount: 0,
+          quizCount: 0,
+          quizQuestionCount: 0,
+          summaryCount: 0,
+          totalEstimatedMinutes: 0,
+        },
+      },
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    const ch = await subCourseGroupStore.create({
+      id: randomUUID() as any,
+      courseId,
+      title: "فصل دینامیک",
+      description: null,
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+    const mod = await moduleStore.create({
+      id: randomUUID() as any,
+      courseId,
+      subCourseGroupId: ch.id,
+      title: "قوانین نیوتن",
+      description: null,
+      documentId: null,
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    const approvedLessonId = randomUUID() as any;
+    await lessonStore.create({
+      id: approvedLessonId,
+      organizationId: regularUserOrgId,
+      moduleId: mod.id,
+      title: "قانون اول نیوتن",
+      contentMarkdown: "لختی اجسام",
+      sortOrder: 0,
+      estimatedMinutes: 10,
+      publicationStatus: "draft",
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // 2. Creator submits update v2
+    const submitRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${regularUserOrgId}/courses/${courseId}/publish`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${regularUserToken}`,
+      },
+      payload: {
+        title: "فیزیک هالیدی ویرایش دوم",
+      },
+    });
+    expect(submitRes.statusCode).toBe(201);
+    const pubId = submitRes.json().publication.id;
+
+    // 3. Creator creates another draft lesson AFTER submitting update
+    const postSubmitDraftId = randomUUID() as any;
+    await lessonStore.create({
+      id: postSubmitDraftId,
+      organizationId: regularUserOrgId,
+      moduleId: mod.id,
+      title: "قانون گرانش بعد از ارسال پیش‌نویس شد",
+      contentMarkdown: "هنوز کامل نیست",
+      sortOrder: 1,
+      estimatedMinutes: 15,
+      publicationStatus: "draft",
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // 4. Admin approves v2
+    const approveRes = await app.inject({
+      method: "POST",
+      url: `/v1/admin/course-submissions/${pubId}/approve`,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `avana_session=${adminUserToken}`,
+      },
+      payload: {
+        accessType: "free",
+      },
+    });
+    expect(approveRes.statusCode).toBe(200);
+
+    // 5. Verification:
+    // Approved lesson is activated to "published"
+    const activatedL = await lessonStore.findById(approvedLessonId);
+    expect(activatedL?.publicationStatus).toBe("published");
+
+    // Post-submission draft lesson REMAINS "draft" (NOT activated prematurely!)
+    const postDraftL = await lessonStore.findById(postSubmitDraftId);
+    expect(postDraftL?.publicationStatus).toBe("draft");
   });
 });

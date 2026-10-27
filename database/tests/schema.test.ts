@@ -149,6 +149,12 @@ describe("PR-6 database schema", () => {
     expect(cols.publicationStatus.default).toBe("draft");
   });
 
+  test("lessons has optional reference column", () => {
+    const cols = getTableColumns(schema.lessons);
+    expect(cols).toHaveProperty("reference");
+    expect(cols.reference.notNull).toBe(false);
+  });
+
   // -----------------------------------------------------------------------
   // PR-7 auth tables
   // -----------------------------------------------------------------------

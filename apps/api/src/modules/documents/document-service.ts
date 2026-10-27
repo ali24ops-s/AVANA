@@ -23,6 +23,8 @@ import {
   DomainError,
   auditDocumentUploaded,
   auditDocumentDeleted,
+  isOfficialCourse,
+  canManageOfficialContent,
 } from "@avana/domain";
 import type {
   DocumentRecord,
@@ -352,12 +354,48 @@ export class DocumentService {
    * the client can upload to. No metadata row is created until the upload is
    * confirmed (confirmUpload).
    */
+  private async assertCourseUploadPermission(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+  ): Promise<void> {
+    if (!this.courseStore) return;
+    const course = await this.courseStore.findById(courseId);
+    if (!course) {
+      throw new DomainError("not_found", "Course not found");
+    }
+    const isOfficial = isOfficialCourse(course, this.systemOrganizationId);
+    if (isOfficial) {
+      if (!canManageOfficialContent(actor, this.systemOrganizationId)) {
+        throw new DomainError(
+          "forbidden",
+          "بارگذاری سند برای دوره‌های رسمی آوانا مجاز نیست.",
+        );
+      }
+    } else {
+      if (course.organizationId !== organizationId) {
+        throw new DomainError(
+          "bad_request",
+          "دوره انتخاب‌شده متعلق به این سازمان نیست.",
+        );
+      }
+    }
+  }
+
   async createUploadIntent(
     actor: Actor,
     organizationId: OrganizationId,
-    input: { originalName: string; mimeType: string; sizeBytes: number },
+    input: { originalName: string; mimeType: string; sizeBytes: number; courseId?: string | null },
   ): Promise<UploadIntentResponse> {
     await this.authorize(actor, organizationId, "document:upload");
+
+    if (input.courseId) {
+      await this.assertCourseUploadPermission(
+        actor,
+        organizationId,
+        input.courseId as CourseId,
+      );
+    }
 
     const mimeType = normalizeMimeType(input.originalName, input.mimeType);
     validateUploadMetadata({
@@ -405,14 +443,17 @@ export class DocumentService {
   ): Promise<{ document: DocumentResource; duplicate: boolean }> {
     await this.authorize(actor, organizationId, "document:upload");
 
+    const inputCourseId = input.courseId ? (input.courseId as CourseId) : null;
+    if (inputCourseId) {
+      await this.assertCourseUploadPermission(actor, organizationId, inputCourseId);
+    }
+
     const mimeType = normalizeMimeType(input.originalName, input.mimeType);
     validateUploadMetadata({
       originalName: input.originalName,
       mimeType,
       sizeBytes: input.sizeBytes,
     });
-
-    const inputCourseId = input.courseId ? (input.courseId as CourseId) : null;
     const sha256 = sha256Hex(input.data);
 
     // Duplicate detection: same org + same sha256

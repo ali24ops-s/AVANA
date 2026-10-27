@@ -24,11 +24,14 @@ import {
   AlertTriangle,
   Info,
   X,
+  MessageSquare,
+  GitCompare,
 } from "lucide-react";
 import {
   listCourseSubmissions,
   approveCourseSubmission,
   rejectCourseSubmission,
+  requestCourseSubmissionChanges,
   type AdminCourseRecord,
   type OfficialCourse,
   type AdminCourseSubmissionItem,
@@ -89,6 +92,9 @@ export function AdminCourseHubPage() {
   const [rejectingSubmission, setRejectingSubmission] = useState<AdminCourseSubmissionItem | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
   const [approvingSubmission, setApprovingSubmission] = useState<AdminCourseSubmissionItem | null>(null);
+  const [requestingChangesSubmission, setRequestingChangesSubmission] = useState<AdminCourseSubmissionItem | null>(null);
+  const [changeRequestNotes, setChangeRequestNotes] = useState("");
+  const [submissionAccessType, setSubmissionAccessType] = useState<"free" | "paid" | null>(null);
   const [approvalNotes, setApprovalNotes] = useState("");
   const [targetPrice, setTargetPrice] = useState<number | undefined>(undefined);
   const [isSubmittingModeration, setIsSubmittingModeration] = useState(false);
@@ -103,13 +109,33 @@ export function AdminCourseHubPage() {
   const pendingSubmission = submissionsQuery.data?.items?.[0] || null;
 
   const handleApproveSubmission = async () => {
-    if (!pendingSubmission) return;
+    if (!pendingSubmission || isSubmittingModeration) return;
+
+    if (!submissionAccessType) {
+      setModerationError("لطفاً نوع دسترسی دوره (رایگان یا پولی) را مشخص کنید.");
+      return;
+    }
+
+    if (submissionAccessType === "paid") {
+      if (
+        targetPrice === undefined ||
+        targetPrice === null ||
+        isNaN(targetPrice) ||
+        !Number.isInteger(targetPrice) ||
+        targetPrice <= 0
+      ) {
+        setModerationError("برای دوره آموزشی پولی، قیمت معتبر به تومان الزامی است (بزرگتر از صفر).");
+        return;
+      }
+    }
+
     try {
       setIsSubmittingModeration(true);
       setModerationError(null);
       await approveCourseSubmission(pendingSubmission.id, {
-        reviewNotes: approvalNotes || undefined,
-        targetPrice: targetPrice !== undefined ? targetPrice : pendingSubmission.product?.priceAmount,
+        accessType: submissionAccessType,
+        price: submissionAccessType === "paid" ? targetPrice : undefined,
+        reviewNotes: approvalNotes.trim() || undefined,
       });
       setApprovingSubmission(null);
       void submissionsQuery.refetch();
@@ -135,6 +161,24 @@ export function AdminCourseHubPage() {
       void queryClient.invalidateQueries({ queryKey: ["admin-courses"] });
     } catch (err) {
       setModerationError(err instanceof Error ? err.message : "خطا در رد انتشار دوره");
+    } finally {
+      setIsSubmittingModeration(false);
+    }
+  };
+
+  const handleRequestChanges = async () => {
+    if (!pendingSubmission || !changeRequestNotes.trim() || isSubmittingModeration) return;
+    try {
+      setIsSubmittingModeration(true);
+      setModerationError(null);
+      await requestCourseSubmissionChanges(pendingSubmission.id, changeRequestNotes.trim());
+      setRequestingChangesSubmission(null);
+      setChangeRequestNotes("");
+      void submissionsQuery.refetch();
+      void fetchCourse();
+      void queryClient.invalidateQueries({ queryKey: ["admin-courses"] });
+    } catch (err) {
+      setModerationError(err instanceof Error ? err.message : "خطا در ارسال درخواست اصلاحات");
     } finally {
       setIsSubmittingModeration(false);
     }
@@ -569,28 +613,75 @@ export function AdminCourseHubPage() {
 
       {/* Teacher/User Course Submission Moderation Banner */}
       {pendingSubmission && (
-        <div className="bg-amber-500/10 border-2 border-amber-500/30 rounded-2xl p-5 shadow-sm space-y-4">
+        <div className={`border-2 rounded-2xl p-5 shadow-sm space-y-4 ${
+          pendingSubmission.isUpdate
+            ? "bg-blue-500/10 border-blue-500/30"
+            : "bg-amber-500/10 border-amber-500/30"
+        }`}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <div className="flex items-center gap-2 flex-wrap">
+                <AlertTriangle className={`w-5 h-5 shrink-0 ${pendingSubmission.isUpdate ? "text-blue-600 dark:text-blue-400" : "text-amber-600 dark:text-amber-400"}`} />
                 <h3 className="text-base font-black text-[var(--color-text)]">
-                  درخواست بررسی و انتشار دوره توسط مدرس
+                  {pendingSubmission.isUpdate
+                    ? "درخواست به‌روزرسانی دوره منتشرشده"
+                    : "درخواست بررسی و انتشار دوره توسط مدرس"}
                 </h3>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300">
-                  نسخه {toPersianDigits(pendingSubmission.version)}
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                  pendingSubmission.isUpdate
+                    ? "bg-blue-500/20 text-blue-700 dark:text-blue-300"
+                    : "bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                }`}>
+                  {pendingSubmission.isUpdate
+                    ? `نسخه به‌روزرسانی ${toPersianDigits(pendingSubmission.version)} (پایه: ${toPersianDigits(pendingSubmission.baseVersion || 1)})`
+                    : `نسخه اولیه ${toPersianDigits(pendingSubmission.version)}`}
                 </span>
               </div>
               <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-                این دوره توسط <strong className="text-[var(--color-text)]">{pendingSubmission.creator.name}</strong> ({pendingSubmission.creator.email || "بدون ایمیل"}) برای بررسی و اشتراک در کاتالوگ عمومی ارسال شده است. شما می‌توانید تمام درس‌ها، فلش‌کارت‌ها و آزمون‌های دوره را در برگه «ساختار و سرفصل‌ها» بررسی نمایید.
+                این دوره توسط <strong className="text-[var(--color-text)]">{pendingSubmission.creator.name}</strong> ({pendingSubmission.creator.email || "بدون ایمیل"}) برای بررسی و {pendingSubmission.isUpdate ? "اعمال تغییرات در نسخه رسمی" : "اشتراک در کاتالوگ عمومی"} ارسال شده است. شما می‌توانید تمام درس‌ها، فلش‌کارت‌ها و آزمون‌های دوره را در برگه «ساختار و سرفصل‌ها» بررسی نمایید.
               </p>
+              {pendingSubmission.isUpdate && (
+                <div className="text-[11px] text-blue-700 dark:text-blue-300 bg-blue-500/10 border border-blue-500/20 rounded-xl p-2.5 mt-2 flex items-center gap-2">
+                  <Info className="w-4 h-4 shrink-0 text-blue-500" />
+                  <span>
+                    نسخه فعلی دوره بدون وقفه در حال ارائه به دانشجویان در کاتالوگ رسمی است. درس‌ها و تغییرات پیش‌نویس جدید تنها پس از تأیید نهایی شما جایگزین و عمومی خواهند شد.
+                  </span>
+                </div>
+              )}
             </div>
 
-            <div className="flex items-center gap-2.5 shrink-0">
+            <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
               <button
                 type="button"
+                data-testid="admin-approve-submission-button"
                 onClick={() => {
-                  setTargetPrice(pendingSubmission.product?.priceAmount ?? 0);
+                  let initialAccess: "free" | "paid" | null = null;
+                  let initialPrice: number | undefined = undefined;
+
+                  const rawPrice =
+                    pendingSubmission.product?.price ??
+                    pendingSubmission.product?.priceAmount ??
+                    pendingSubmission.pricing?.price;
+
+                  if (
+                    pendingSubmission.accessType === "free" ||
+                    pendingSubmission.pricing?.is_free === true
+                  ) {
+                    initialAccess = "free";
+                    initialPrice = undefined;
+                  } else if (
+                    pendingSubmission.accessType === "paid" ||
+                    (typeof rawPrice === "number" && rawPrice > 0)
+                  ) {
+                    initialAccess = "paid";
+                    initialPrice = typeof rawPrice === "number" && rawPrice > 0 ? rawPrice : undefined;
+                  } else {
+                    initialAccess = null;
+                    initialPrice = undefined;
+                  }
+
+                  setSubmissionAccessType(initialAccess);
+                  setTargetPrice(initialPrice);
                   setApprovalNotes("");
                   setModerationError(null);
                   setApprovingSubmission(pendingSubmission);
@@ -598,11 +689,26 @@ export function AdminCourseHubPage() {
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>تأیید و انتشار عمومی</span>
+                <span>{pendingSubmission.isUpdate ? "تأیید و اعمال به‌روزرسانی" : "تأیید و انتشار عمومی"}</span>
               </button>
 
               <button
                 type="button"
+                data-testid="admin-request-changes-button"
+                onClick={() => {
+                  setChangeRequestNotes("");
+                  setModerationError(null);
+                  setRequestingChangesSubmission(pendingSubmission);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 font-bold text-xs transition-all cursor-pointer"
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>درخواست اصلاحات</span>
+              </button>
+
+              <button
+                type="button"
+                data-testid="admin-reject-submission-button"
                 onClick={() => {
                   setRejectionReason("");
                   setModerationError(null);
@@ -615,6 +721,48 @@ export function AdminCourseHubPage() {
               </button>
             </div>
           </div>
+
+          {/* Diff summary card if available */}
+          {pendingSubmission.diffSummary && (
+            <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-3.5 space-y-2.5 mt-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-[var(--color-text)]">
+                <GitCompare className="w-4 h-4 text-[var(--color-primary-default)]" />
+                <span>خلاصه تغییرات نسبت به نسخه فعال (پایه {toPersianDigits(pendingSubmission.baseVersion || 1)})</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                  <div className="font-bold">درس‌های جدید: {toPersianDigits(pendingSubmission.diffSummary.addedLessons?.length || 0)}</div>
+                  {pendingSubmission.diffSummary.addedLessons?.length > 0 && (
+                    <div className="text-[11px] truncate text-emerald-600 mt-0.5">
+                      {pendingSubmission.diffSummary.addedLessons.map((l: any) => l.title).join("، ")}
+                    </div>
+                  )}
+                </div>
+                <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300">
+                  <div className="font-bold">درس‌های ویرایش‌شده: {toPersianDigits(pendingSubmission.diffSummary.modifiedLessons?.length || 0)}</div>
+                  {pendingSubmission.diffSummary.modifiedLessons?.length > 0 && (
+                    <div className="text-[11px] truncate text-blue-600 mt-0.5">
+                      {pendingSubmission.diffSummary.modifiedLessons.map((l: any) => l.title).join("، ")}
+                    </div>
+                  )}
+                </div>
+                <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300">
+                  <div className="font-bold">درس‌های حذف‌شده: {toPersianDigits(pendingSubmission.diffSummary.deletedLessons?.length || 0)}</div>
+                  {pendingSubmission.diffSummary.deletedLessons?.length > 0 && (
+                    <div className="text-[11px] truncate text-rose-600 mt-0.5">
+                      {pendingSubmission.diffSummary.deletedLessons.map((l: any) => l.title).join("، ")}
+                    </div>
+                  )}
+                </div>
+                <div className="p-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-300">
+                  <div className="font-bold">سرفصل‌ها: +{toPersianDigits(pendingSubmission.diffSummary.addedChapters?.length || 0)} / ~{toPersianDigits(pendingSubmission.diffSummary.modifiedChapters?.length || 0)}</div>
+                  <div className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
+                    {pendingSubmission.diffSummary.titleChanged ? "تغییر عنوان دوره" : "عنوان دوره بدون تغییر"}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -915,24 +1063,112 @@ export function AdminCourseHubPage() {
               با تأیید این درخواست، دوره «{course.name}» (نسخه {toPersianDigits(approvingSubmission.version)}) رسماً در فهرست دوره‌های آوانا منتشر شده و برای کاربران قابل مشاهده خواهد شد.
             </p>
 
-            <div className="space-y-3 pt-1">
+            <div className="space-y-4 pt-1">
               <div>
-                <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
-                  قیمت فروش نهایی (تومان)
+                <label className="block text-xs font-bold text-[var(--color-text)] mb-2">
+                  نوع دسترسی دوره (Access Type)
                 </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1000"
-                  value={targetPrice ?? 0}
-                  onChange={(e) => setTargetPrice(parseInt(e.target.value || "0", 10))}
-                  placeholder="0 برای دوره رایگان"
-                  className="w-full px-3 py-2 text-xs bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)]"
-                />
-                <span className="text-[11px] text-[var(--color-text-muted)] mt-1 block">
-                  {targetPrice === 0 || !targetPrice ? "این دوره رایگان خواهد بود." : `${formatToman(targetPrice)}`}
-                </span>
+                <div className="grid grid-cols-2 gap-3">
+                  <label
+                    htmlFor="submission-access-free"
+                    className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                      submissionAccessType === "free"
+                        ? "bg-[var(--color-surface-warm)] border-[var(--color-primary-default)] text-[var(--color-text)] ring-1 ring-[var(--color-primary-default)]/40"
+                        : "bg-[var(--color-surface-subtle)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-warm)]"
+                    }`}
+                  >
+                    <input
+                      id="submission-access-free"
+                      type="radio"
+                      name="courseSubmissionAccessType"
+                      checked={submissionAccessType === "free"}
+                      onChange={() => {
+                        setSubmissionAccessType("free");
+                        setModerationError(null);
+                      }}
+                      disabled={isSubmittingModeration}
+                      className="mt-0.5 text-[var(--color-primary-default)] focus:ring-[var(--color-primary-default)]"
+                    />
+                    <div>
+                      <span className="font-bold text-xs text-[var(--color-text)] block">
+                        دوره رایگان (Free)
+                      </span>
+                      <span className="text-[11px] text-[var(--color-text-muted)] block mt-0.5 leading-snug">
+                        دسترسی عمومی بدون پرداخت هزینه
+                      </span>
+                    </div>
+                  </label>
+
+                  <label
+                    htmlFor="submission-access-paid"
+                    className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                      submissionAccessType === "paid"
+                        ? "bg-[var(--color-surface-warm)] border-[var(--color-primary-default)] text-[var(--color-text)] ring-1 ring-[var(--color-primary-default)]/40"
+                        : "bg-[var(--color-surface-subtle)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-warm)]"
+                    }`}
+                  >
+                    <input
+                      id="submission-access-paid"
+                      type="radio"
+                      name="courseSubmissionAccessType"
+                      checked={submissionAccessType === "paid"}
+                      onChange={() => {
+                        setSubmissionAccessType("paid");
+                        setModerationError(null);
+                      }}
+                      disabled={isSubmittingModeration}
+                      className="mt-0.5 text-[var(--color-primary-default)] focus:ring-[var(--color-primary-default)]"
+                    />
+                    <div>
+                      <span className="font-bold text-xs text-[var(--color-text)] block">
+                        دوره پولی (Paid)
+                      </span>
+                      <span className="text-[11px] text-[var(--color-text-muted)] block mt-0.5 leading-snug">
+                        نیازمند خرید و پرداخت نقدی
+                      </span>
+                    </div>
+                  </label>
+                </div>
               </div>
+
+              {submissionAccessType === "paid" && (
+                <div>
+                  <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
+                    قیمت فروش نهایی (تومان)
+                  </label>
+                  <input
+                    type="number"
+                    min="1000"
+                    step="1000"
+                    value={targetPrice ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value === "" ? undefined : parseInt(e.target.value, 10);
+                      setTargetPrice(val);
+                      if (moderationError) setModerationError(null);
+                    }}
+                    disabled={isSubmittingModeration}
+                    placeholder="مثلاً ۵۰,۰۰۰ تومان"
+                    className="w-full px-3 py-2 text-xs bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] disabled:opacity-50"
+                  />
+                  <span className="text-[11px] text-[var(--color-text-muted)] mt-1 block">
+                    {targetPrice && targetPrice > 0
+                      ? formatToman(targetPrice)
+                      : "قیمت باید بزرگتر از صفر باشد."}
+                  </span>
+                </div>
+              )}
+
+              {submissionAccessType === "free" && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-700 dark:text-emerald-300">
+                  این دوره پس از تأیید به صورت کاملاً رایگان برای تمام کاربران در دسترس خواهد بود.
+                </div>
+              )}
+
+              {!submissionAccessType && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-700 dark:text-amber-300">
+                  وضعیت دسترسی مشخص نیست؛ لطفاً یکی از گزینه‌های رایگان یا پولی را انتخاب نمایید.
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
@@ -942,8 +1178,9 @@ export function AdminCourseHubPage() {
                   rows={3}
                   value={approvalNotes}
                   onChange={(e) => setApprovalNotes(e.target.value)}
+                  disabled={isSubmittingModeration}
                   placeholder="توضیحاتی برای مدرس یا ثبت در سابقه بازبینی..."
-                  className="w-full px-3 py-2 text-xs bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] resize-none"
+                  className="w-full px-3 py-2 text-xs bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] resize-none disabled:opacity-50"
                 />
               </div>
             </div>
@@ -977,6 +1214,71 @@ export function AdminCourseHubPage() {
         </div>
       )}
 
+      {/* Request Changes Modal */}
+      {requestingChangesSubmission && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-md bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
+              <h3 className="font-bold text-base text-[var(--color-text)] flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 text-amber-500" />
+                <span>درخواست اصلاحات از مدرس</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setRequestingChangesSubmission(null)}
+                disabled={isSubmittingModeration}
+                className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+              توضیحات و موارد لازم برای اصلاح را برای مدرس «{pendingSubmission?.creator?.name}» بنویسید. دوره در وضعیت نیاز به اصلاح قرار خواهد گرفت و مدرس می‌تواند پس از اعمال موارد، دوره را مجدداً ارسال نماید.
+            </p>
+
+            <div>
+              <label className="block text-xs font-bold text-[var(--color-text)] mb-1">
+                توضیحات اصلاحات <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                rows={4}
+                value={changeRequestNotes}
+                onChange={(e) => setChangeRequestNotes(e.target.value)}
+                placeholder="مثلاً: لطفاً فایل صوتی درس سوم را با کیفیت بهتری بارگذاری کرده و تمرین پایانی فصل را کامل کنید..."
+                className="w-full px-3 py-2 text-xs bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
+              />
+            </div>
+
+            {moderationError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-600 dark:text-rose-400 font-medium">
+                {moderationError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--color-border)]">
+              <button
+                type="button"
+                onClick={() => setRequestingChangesSubmission(null)}
+                disabled={isSubmittingModeration}
+                className="px-4 py-2 text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] rounded-xl"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                onClick={handleRequestChanges}
+                disabled={isSubmittingModeration || !changeRequestNotes.trim()}
+                className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
+              >
+                {isSubmittingModeration && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>ارسال درخواست اصلاحات</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Reject Submission Modal */}
       {rejectingSubmission && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
@@ -984,7 +1286,11 @@ export function AdminCourseHubPage() {
             <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
               <h3 className="font-bold text-base text-[var(--color-text)] flex items-center gap-2">
                 <AlertCircle className="w-5 h-5 text-rose-500" />
-                <span>رد درخواست انتشار دوره</span>
+                <span>
+                  {rejectingSubmission.isUpdate
+                    ? "رد درخواست به‌روزرسانی دوره"
+                    : "رد درخواست انتشار دوره"}
+                </span>
               </h3>
               <button
                 type="button"
@@ -997,8 +1303,14 @@ export function AdminCourseHubPage() {
             </div>
 
             <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              لطفاً علت رد درخواست انتشار دوره «{course.name}» را ذکر کنید. این بازخورد در اختیار مدرس قرار خواهد گرفت تا اصلاحات لازم را انجام دهد.
+              لطفاً علت رد درخواست {rejectingSubmission.isUpdate ? "به‌روزرسانی" : "انتشار"} دوره «{course.name}» را ذکر کنید. این بازخورد در اختیار مدرس قرار خواهد گرفت تا اصلاحات لازم را انجام دهد.
             </p>
+
+            {rejectingSubmission.isUpdate && (
+              <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs text-blue-700 dark:text-blue-300">
+                توجه: رد این درخواست به‌روزرسانی تأثیری بر نسخه در حال انتشار دوره نخواهد داشت و دوره در کاتالوگ عمومی بدون وقفه فعال باقی می‌ماند.
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-bold text-[var(--color-text)] mb-1">

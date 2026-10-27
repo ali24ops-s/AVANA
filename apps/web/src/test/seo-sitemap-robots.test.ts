@@ -102,10 +102,14 @@ describe("AVANA SEO — sitemap.xml and robots.txt integrity", () => {
     expect(urls).toContain("https://aavana.ir/blog/tag/pharmacology");
   });
 
-  it("should disallow private paths in robots.txt without blocking public URLs", () => {
+  it("should allow crawling /admin in robots.txt so Google can see noindex, while disallowing other private endpoints", () => {
     const robotsContent = fs.readFileSync(robotsPath, "utf-8");
 
-    expect(robotsContent).toContain("Disallow: /admin");
+    // Admin MUST NOT be disallowed, enabling search engines to crawl and read noindex
+    expect(robotsContent).not.toContain("Disallow: /admin");
+    expect(robotsContent).not.toContain("Disallow: /admin/");
+
+    // Other private & API paths remain disallowed
     expect(robotsContent).toContain("Disallow: /teacher");
     expect(robotsContent).toContain("Disallow: /courses");
     expect(robotsContent).toContain("Disallow: /home");

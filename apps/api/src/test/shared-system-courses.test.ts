@@ -130,11 +130,16 @@ describe("Shared System Courses Integration Tests", () => {
     return app;
   }
 
-  async function registerAndLogin(_app: Awaited<ReturnType<typeof buildApp>>, email: string) {
+  async function registerAndLogin(
+    _app: Awaited<ReturnType<typeof buildApp>>,
+    email: string,
+    globalRole?: "platform_admin" | "course_editor",
+  ) {
     const user = await userStore.createUserWithPassword({
       email,
       passwordHash: "hash",
       name: "New Student",
+      globalRole: globalRole ?? null,
     });
     const sessionService = new SessionService(sessionStore, config.session);
     const session = await sessionService.createSession(user.id);
@@ -182,7 +187,7 @@ describe("Shared System Courses Integration Tests", () => {
 
   it("Scenario 3 & 4: Generation with valid courseId succeeds (202), invalid courseId returns 400", async () => {
     const app = await buildApp();
-    const { token, userOrgId, userId } = await registerAndLogin(app, "newstudent2@example.com");
+    const { token, userOrgId, userId } = await registerAndLogin(app, "newstudent2@example.com", "course_editor");
 
     const docId = "00000000-0000-4000-8000-000000000001" as DocumentId;
     await documentStore.create({

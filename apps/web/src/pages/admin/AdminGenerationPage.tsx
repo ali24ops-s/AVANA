@@ -322,6 +322,7 @@ export function AdminGenerationPage() {
                     <th className="px-6 py-4 font-medium whitespace-nowrap">فایل مبدا</th>
                     <th className="px-6 py-4 font-medium whitespace-nowrap">کاربر</th>
                     <th className="px-6 py-4 font-medium whitespace-nowrap">وضعیت</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap">هزینه کاربر</th>
                     <th className="px-6 py-4 font-medium whitespace-nowrap">تاریخ درخواست</th>
                     <th className="px-6 py-4 font-medium whitespace-nowrap text-center">عملیات</th>
                   </tr>
@@ -330,7 +331,7 @@ export function AdminGenerationPage() {
                   {isJobsLoading ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={7}
                         className="px-6 py-8 text-center text-[var(--color-text-muted)]"
                       >
                         در حال جستجو و بارگذاری...
@@ -339,7 +340,7 @@ export function AdminGenerationPage() {
                   ) : isJobsError ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={7}
                         className="px-6 py-8 text-center text-rose-600 dark:text-rose-400"
                       >
                         خطا در دریافت اطلاعات: {(jobsError as Error).message}
@@ -348,7 +349,7 @@ export function AdminGenerationPage() {
                   ) : jobsData?.jobs.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={7}
                         className="px-6 py-8 text-center text-[var(--color-text-muted)]"
                       >
                         {jobsSearchTerm
@@ -389,6 +390,30 @@ export function AdminGenerationPage() {
                             >
                               {job.errorMessage}
                             </p>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-xs font-medium whitespace-nowrap">
+                          {job.userCost?.isAvailable ? (
+                            job.userCost.isFree ? (
+                              <span className="text-blue-700 dark:text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full text-[11px]">
+                                رایگان
+                              </span>
+                            ) : job.userCost.status === "refunded" ? (
+                              <span
+                                className="text-purple-700 dark:text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full text-[11px]"
+                                title={`مبلغ اولیه: ${toPersianDigits((job.userCost.chargedAmountToman || 0).toLocaleString("fa-IR"))} تومان`}
+                              >
+                                بازپرداخت‌شده
+                              </span>
+                            ) : (
+                              <span className="text-[var(--color-text)] font-bold">
+                                {toPersianDigits((job.userCost.netPaidAmountToman || 0).toLocaleString("fa-IR"))} تومان
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-[var(--color-text-muted)] text-[11px]">
+                              اطلاعات در دسترس نیست
+                            </span>
                           )}
                         </td>
                         <td className="px-6 py-4 text-[var(--color-text-muted)]">

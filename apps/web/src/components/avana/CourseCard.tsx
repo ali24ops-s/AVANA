@@ -24,6 +24,7 @@ import {
   Trash2,
   HelpCircle,
   Clock,
+  Share2,
 } from "lucide-react";
 import { Card, Badge, Button } from "@avana/ui";
 import {
@@ -32,6 +33,7 @@ import {
   cleanEducationalDescription,
 } from "@avana/domain";
 import { formatToman } from "../commerce/userCommerceUtils.js";
+import { CourseShareModal } from "../courses/CourseShareModal.js";
 import type { LibraryCourseItem } from "../../lib/api/library.js";
 import type { CourseResource } from "@avana/contracts";
 
@@ -87,6 +89,7 @@ export interface CourseCardProps {
   onBuy?: () => void;
   onDelete?: () => void;
   onSelect?: () => void;
+  onShare?: () => void;
 
   /** Custom styling & test attributes */
   className?: string;
@@ -140,6 +143,8 @@ function CourseHeaderRow({
   variant,
   archived,
   onDelete,
+  onShare,
+  courseId,
 }: {
   hasCoverImage: boolean;
   subject?: string | null;
@@ -149,6 +154,8 @@ function CourseHeaderRow({
   variant?: "library" | "my-courses" | "compact";
   archived?: boolean;
   onDelete?: () => void;
+  onShare?: () => void;
+  courseId?: string;
 }) {
   const isPurchased = access?.isPurchased === true;
   const isSubscription = access?.isSubscription === true;
@@ -173,7 +180,8 @@ function CourseHeaderRow({
     price > 0 ||
     !hasAccess ||
     archived ||
-    onDelete,
+    onDelete ||
+    onShare,
   );
 
   if (!hasStartContent && !hasEndContent) {
@@ -264,6 +272,23 @@ function CourseHeaderRow({
               leftIcon={<Trash2 className="w-4 h-4" />}
             />
           )}
+
+          {onShare && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onShare();
+              }}
+              className="!p-1.5 !h-auto text-[var(--color-text-muted)] hover:text-primary hover:bg-primary/10 rounded-[8px]"
+              title="اشتراک‌گذاری دوره"
+              aria-label="اشتراک‌گذاری دوره"
+              data-testid={`share-course-btn-${courseId ?? ""}`}
+              leftIcon={<Share2 className="w-3.5 h-3.5" />}
+            />
+          )}
         </div>
       )}
     </div>
@@ -289,9 +314,20 @@ export function CourseCard({
   onBuy,
   onDelete,
   onSelect,
+  onShare,
   className = "",
   dataTestId,
 }: CourseCardProps) {
+  const [internalShareOpen, setInternalShareOpen] = React.useState(false);
+
+  const handleShare = () => {
+    if (onShare) {
+      onShare();
+    } else {
+      setInternalShareOpen(true);
+    }
+  };
+
   const targetHref = href || `/courses/${id}`;
   const cleanTitle = cleanEducationalTitle(title, "دوره آموزشی جامع");
   const cleanDesc = description ? cleanEducationalDescription(description, "") : null;
@@ -334,6 +370,7 @@ export function CourseCard({
   };
 
   return (
+    <>
     <Card
       data-testid={resolvedTestId}
       hoverable
@@ -369,6 +406,8 @@ export function CourseCard({
           variant={variant}
           archived={archived}
           onDelete={onDelete}
+          onShare={handleShare}
+          courseId={id}
         />
 
         {/* Course Title Link */}
@@ -587,6 +626,21 @@ export function CourseCard({
         )}
       </div>
     </Card>
+    {!onShare && (
+      <CourseShareModal
+        isOpen={internalShareOpen}
+        onClose={() => setInternalShareOpen(false)}
+        course={{
+          id,
+          title: cleanTitle,
+          subject,
+          description: cleanDesc,
+          coverImage,
+          stats,
+        }}
+      />
+    )}
+    </>
   );
 }
 

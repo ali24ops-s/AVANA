@@ -14,6 +14,7 @@ export interface LessonSessionData {
 export interface LessonFormEditorData {
   title: string;
   contentMarkdown: string;
+  reference?: string;
   sessions?: LessonSessionData[];
 }
 
@@ -172,6 +173,25 @@ export function LessonFormEditor({
           placeholder="عنوان کلی درسنامه را وارد نمایید..."
           error={errors?.title}
           className="text-sm font-bold"
+        />
+      </div>
+
+      {/* Content Reference */}
+      <div className="space-y-1">
+        <label
+          htmlFor="lesson-reference-input"
+          className="text-xs font-bold text-[var(--color-text)] flex items-center gap-1.5"
+        >
+          <BookOpen className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
+          <span>رفرنس محتوا</span>
+          <span className="text-[var(--color-text-muted)] text-[11px] font-normal">(اختیاری)</span>
+        </label>
+        <Input
+          id="lesson-reference-input"
+          value={data.reference || ""}
+          onChange={(e) => onChange({ ...data, reference: e.target.value })}
+          placeholder="نام کتاب، جزوه، منبع علمی یا مرجع استفاده‌شده..."
+          className="text-xs"
         />
       </div>
 

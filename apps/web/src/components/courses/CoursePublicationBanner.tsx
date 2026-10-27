@@ -54,7 +54,24 @@ export function CoursePublicationBanner({
   }
 
   const publication = publicationQuery.data?.publication;
+  const publishedPublication = publicationQuery.data?.publishedPublication;
   const status = publication?.status;
+
+  const isCourseAlreadyPublished = Boolean(
+    publishedPublication && publishedPublication.status === "published",
+  );
+  const isUpdatePending =
+    isCourseAlreadyPublished &&
+    publication &&
+    publication.id !== publishedPublication?.id &&
+    status === "pending_review";
+  const isUpdateChangesRequested =
+    isCourseAlreadyPublished && status === "changes_requested";
+  const isUpdateRejected =
+    isCourseAlreadyPublished &&
+    publication &&
+    publication.id !== publishedPublication?.id &&
+    status === "rejected";
 
   const handleSubmitted = () => {
     void queryClient.invalidateQueries({
@@ -65,6 +82,9 @@ export function CoursePublicationBanner({
     });
     void queryClient.invalidateQueries({
       queryKey: ["course-learning", organizationId, courseId],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["course-structure", organizationId, courseId],
     });
   };
 
@@ -80,8 +100,69 @@ export function CoursePublicationBanner({
             <Loader2 className="w-3.5 h-3.5 animate-spin text-[#008080]" />
             <span>در حال بررسی وضعیت انتشار...</span>
           </div>
+        ) : isUpdatePending ? (
+          /* State: Update Pending Admin Review */
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
+                <Clock className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-[var(--color-text)]">
+                    وضعیت انتشار در کتابخانه:
+                  </span>
+                  <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 text-[11px] font-bold">
+                    <Clock className="w-3 h-3 ml-1" />
+                    در انتظار بررسی به‌روزرسانی (نسخه {publication?.version})
+                  </Badge>
+                  <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                    (نسخه {publishedPublication?.version} هم‌اکنون فعال است)
+                  </span>
+                </div>
+                <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                  درخواست به‌روزرسانی محتوای این دوره در صف بررسی ادمین قرار دارد. تا زمان تأیید، نسخه فعلی همچنان برای فراگیران بدون وقفه قابل استفاده است.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : isUpdateChangesRequested || status === "changes_requested" ? (
+          /* State: Changes Requested by Admin */
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
+                <AlertCircle className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-[var(--color-text)]">
+                    وضعیت انتشار در کتابخانه:
+                  </span>
+                  <Badge className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20 text-[11px] font-bold">
+                    نیازمند اصلاح محتوا
+                  </Badge>
+                </div>
+                <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
+                  {publication?.reviewNotes || (publication?.metadata as any)?.reviewNotes
+                    ? `توضیحات ادمین: ${publication?.reviewNotes || (publication?.metadata as any)?.reviewNotes}`
+                    : "درخواست انتشار دوره نیازمند انجام برخی اصلاحات است."}
+                </p>
+              </div>
+            </div>
+
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setIsModalOpen(true)}
+              className="text-xs bg-[#008080] hover:bg-[#006666] text-white font-bold flex-shrink-0 self-start sm:self-center"
+              data-testid="request-update-resubmit-button"
+            >
+              <RotateCcw className="w-3.5 h-3.5 ml-1.5" />
+              <span>ارسال مجدد پس از اصلاح</span>
+            </Button>
+          </div>
         ) : status === "pending_review" ? (
-          /* State 1: Pending Admin Review */
+          /* State 1: Initial Pending Admin Review */
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-start sm:items-center gap-3 min-w-0">
               <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
@@ -103,8 +184,46 @@ export function CoursePublicationBanner({
               </div>
             </div>
           </div>
-        ) : status === "published" ? (
-          /* State 2: Published in Library */
+        ) : isUpdateRejected ? (
+          /* State: Update Rejected */
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center flex-shrink-0">
+                <AlertCircle className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-[var(--color-text)]">
+                    وضعیت انتشار در کتابخانه:
+                  </span>
+                  <Badge className="bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 text-[11px] font-bold">
+                    رد درخواست به‌روزرسانی
+                  </Badge>
+                  <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                    (نسخه {publishedPublication?.version} همچنان در کتابخانه فعال است)
+                  </span>
+                </div>
+                <p className="text-xs text-rose-600 dark:text-rose-400 mt-0.5">
+                  {publication?.rejectionReason
+                    ? `علت عدم تأیید: ${publication.rejectionReason}`
+                    : "آخرین درخواست به‌روزرسانی مورد تأیید قرار نگرفت."}
+                </p>
+              </div>
+            </div>
+
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setIsModalOpen(true)}
+              className="text-xs bg-[#008080] hover:bg-[#006666] text-white font-bold flex-shrink-0 self-start sm:self-center"
+              data-testid="request-update-retry-button"
+            >
+              <RotateCcw className="w-3.5 h-3.5 ml-1.5" />
+              <span>درخواست مجدد به‌روزرسانی</span>
+            </Button>
+          </div>
+        ) : status === "published" || isCourseAlreadyPublished ? (
+          /* State 2: Published in Library with Update Option */
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-start sm:items-center gap-3 min-w-0">
               <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0">
@@ -119,15 +238,31 @@ export function CoursePublicationBanner({
                     <CheckCircle2 className="w-3 h-3 ml-1" />
                     منتشر شده در کتابخانه
                   </Badge>
+                  {(publishedPublication?.version ?? publication?.version) && (
+                    <span className="text-xs text-[var(--color-text-muted)] font-medium">
+                      (نسخه {publishedPublication?.version ?? publication?.version})
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-                  این دوره با موفقیت بررسی شده و در کتابخانه عمومی آوانا در دسترس همگان قرار دارد.
+                  این دوره با موفقیت بررسی شده و در کتابخانه عمومی آوانا در دسترس همگان قرار دارد. پس از افزودن یا ویرایش درس‌ها می‌توانید درخواست به‌روزرسانی ثبت کنید.
                 </p>
               </div>
             </div>
+
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setIsModalOpen(true)}
+              className="text-xs bg-[#008080] hover:bg-[#006666] text-white font-bold flex-shrink-0 self-start sm:self-center"
+              data-testid="request-update-cta-button"
+            >
+              <Sparkles className="w-3.5 h-3.5 ml-1.5" />
+              <span>درخواست به‌روزرسانی دوره</span>
+            </Button>
           </div>
         ) : status === "rejected" ? (
-          /* State 3: Rejected with reason & retry option */
+          /* State 3: Initial Rejection with reason & retry option */
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-start sm:items-center gap-3 min-w-0">
               <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center flex-shrink-0">
@@ -199,6 +334,8 @@ export function CoursePublicationBanner({
         courseTitle={courseTitle}
         courseDescription={courseDescription}
         courseSubject={courseSubject}
+        isUpdate={isCourseAlreadyPublished}
+        currentVersion={publishedPublication?.version ?? publication?.version ?? 1}
         onSubmitted={handleSubmitted}
       />
     </>

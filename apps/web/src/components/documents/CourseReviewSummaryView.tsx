@@ -14,6 +14,8 @@ export interface CourseReviewSummaryViewProps {
   modules?: Array<{ id: string; title: string; document_id?: string | null; sort_order?: number }>;
   previewDocumentId?: string | null;
   isPreview?: boolean;
+  isOfficial?: boolean;
+  isManagerOrAdmin?: boolean;
   onNavigateToFlashcards?: () => void;
   onNavigateToQuiz?: () => void;
   onUnlock?: () => void;
@@ -35,6 +37,8 @@ export function CourseReviewSummaryView({
   modules,
   previewDocumentId,
   isPreview,
+  isOfficial,
+  isManagerOrAdmin,
   onNavigateToFlashcards,
   onNavigateToQuiz,
   onUnlock,
@@ -131,9 +135,15 @@ export function CourseReviewSummaryView({
           <Zap className="w-8 h-8" />
         </div>
         <div className="space-y-1 max-w-md mx-auto">
-          <h3 className="text-base font-bold text-[var(--color-text)]">هنوز سندی برای این دوره بارگذاری نشده است</h3>
+          <h3 className="text-base font-bold text-[var(--color-text)]">
+            {isOfficial && !isManagerOrAdmin
+              ? "خلاصه مروری برای این دوره هنوز منتشر نشده است"
+              : "هنوز سندی برای این دوره بارگذاری نشده است"}
+          </h3>
           <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-            برای ساخت و مرور خلاصه مروری ۱۰ تا ۱۵ دقیقه‌ای، لطفاً ابتدا جزوه یا فایل آموزشی خود را در بخش «منابع و اسناد (PDF)» بارگذاری کنید.
+            {isOfficial && !isManagerOrAdmin
+              ? "خلاصه مروری این دوره آموزشی به زودی پس از انتشار در دسترس قرار خواهد گرفت."
+              : "برای ساخت و مرور خلاصه مروری ۱۰ تا ۱۵ دقیقه‌ای، لطفاً ابتدا جزوه یا فایل آموزشی خود را در بخش «منابع و اسناد (PDF)» بارگذاری کنید."}
           </p>
         </div>
       </Card>

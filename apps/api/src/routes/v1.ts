@@ -100,6 +100,10 @@ import {
   WelcomeGiftService,
   DrizzleWelcomeGiftStore,
   InMemoryWelcomeGiftStore,
+  type OnboardingTourStore,
+  OnboardingTourService,
+  DrizzleOnboardingTourStore,
+  InMemoryOnboardingTourStore,
 } from "../modules/identity/index.js";
 import type { StorageProvider } from "../modules/storage/index.js";
 import type { AuditService } from "../observability/audit-service.js";
@@ -254,6 +258,8 @@ export interface V1RouteOptions {
   sourcePackService?: SourcePackService;
   welcomeGiftStore?: WelcomeGiftStore;
   welcomeGiftService?: WelcomeGiftService;
+  onboardingTourStore?: OnboardingTourStore;
+  onboardingTourService?: OnboardingTourService;
   db?: import("@avana/database/client").DbClient;
   ga4Service?: Ga4MeasurementProtocolService;
 }
@@ -265,7 +271,11 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
 ) => {
   void app.register(healthRoutes);
   void app.register(readinessRoutes);
-  void app.register(seoRoutes, { blogStore: opts.blogStore });
+  void app.register(seoRoutes, {
+    blogStore: opts.blogStore,
+    courseStore: opts.courseStore,
+    appUrl: opts.config?.appUrl,
+  });
 
   const ga4Service =
     opts.ga4Service ??
@@ -320,6 +330,21 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
         })
       : undefined);
 
+  const onboardingTourStore =
+    opts.onboardingTourStore ??
+    (effectiveDb
+      ? new DrizzleOnboardingTourStore(effectiveDb)
+      : new InMemoryOnboardingTourStore());
+
+  const onboardingTourService =
+    opts.onboardingTourService ??
+    (onboardingTourStore && opts.userStore
+      ? new OnboardingTourService({
+          store: onboardingTourStore,
+          userStore: opts.userStore,
+        })
+      : undefined);
+
   // Register identity (auth) module if stores are provided
   if (opts.config && opts.sessionStore && opts.userStore) {
     await registerIdentityModule(app, {
@@ -337,6 +362,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       auditService: opts.auditService,
       welcomeGiftStore,
       welcomeGiftService,
+      onboardingTourStore,
+      onboardingTourService,
     });
   }
 
@@ -431,6 +458,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
       entitlementService,
       studySessionStore: opts.studySessionStore,
+      coursePublicationStore: opts.coursePublicationStore,
     });
   }
 
@@ -599,6 +627,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       auditService: opts.auditService,
       db: opts.db,
       systemOrganizationId: opts.config?.systemOrganizationId as OrganizationId,
+      courseStore: opts.courseStore,
     });
   }
 

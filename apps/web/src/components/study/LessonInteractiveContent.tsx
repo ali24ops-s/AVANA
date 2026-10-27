@@ -9,6 +9,7 @@
  */
 
 import React, { useRef, useState, useLayoutEffect, useCallback } from "react";
+import { BookOpen } from "lucide-react";
 import { MarkdownRenderer } from "../markdown/MarkdownRenderer.js";
 import { useTextSelection, type TextSelectionData } from "../../hooks/useTextSelection.js";
 import { useLessonAnnotations } from "../../hooks/useLessonAnnotations.js";
@@ -27,6 +28,7 @@ export interface LessonInteractiveContentProps {
   moduleTitle?: string;
   courseTitle?: string;
   content: string;
+  reference?: string | null;
   className?: string;
   onAskAvana?: (selection: TextSelectionData) => void;
   onExplainSimply?: (selection: TextSelectionData) => void;
@@ -39,6 +41,7 @@ export function LessonInteractiveContent({
   moduleTitle,
   courseTitle,
   content,
+  reference,
   className = "",
   onAskAvana,
   onExplainSimply,
@@ -348,6 +351,31 @@ export function LessonInteractiveContent({
       >
         {memoizedRenderer}
       </div>
+
+      {/* Lesson Reference Section (Displayed only when reference is provided and non-empty) */}
+      {reference && reference.trim().length > 0 && (
+        <div
+          data-testid="lesson-reference-section"
+          className="mt-8 pt-5 border-t border-[var(--color-border)] not-prose"
+        >
+          <div className="p-4 rounded-2xl bg-[var(--color-surface-warm)]/60 border border-[var(--color-border)] flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-primary/10 text-primary dark:text-teal-300 shrink-0 mt-0.5">
+              <BookOpen className="w-4 h-4" />
+            </div>
+            <div className="min-w-0 flex-1 space-y-1">
+              <span className="text-xs font-bold text-[var(--color-text)] block">
+                رفرنس
+              </span>
+              <p
+                data-testid="lesson-reference-text"
+                className="text-xs text-[var(--color-text-secondary)] leading-relaxed font-medium break-words select-text"
+              >
+                {reference.trim()}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Floating Selection Toolbar */}
       {!isAnyDialogOpen && selectionData && (

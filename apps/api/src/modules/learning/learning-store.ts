@@ -56,6 +56,7 @@ export type LessonRecord = {
   sortOrder: number;
   estimatedMinutes: number | null;
   publicationStatus: "draft" | "published";
+  reference?: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;

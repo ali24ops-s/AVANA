@@ -17,6 +17,7 @@ export const NotificationTypes = {
   CONTENT_REPORT_STATUS_CHANGED: "content_report_status_changed",
   COURSE_PUBLISHED: "course_published",
   COURSE_REJECTED: "course_rejected",
+  COURSE_CHANGES_REQUESTED: "course_changes_requested",
   REFERRAL_REWARD_EARNED: "referral_reward_earned",
   SUPPORT_TICKET_REPLIED: "support_ticket_replied",
   SUPPORT_TICKET_STATUS_CHANGED: "support_ticket_status_changed",

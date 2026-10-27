@@ -205,6 +205,11 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
         );
       }
 
+      const queryCourse = (request.query as { course_id?: string })?.course_id;
+      const bodyWithCourse = body as { course_id?: string; courseId?: string };
+      const rawCourse = bodyWithCourse.course_id ?? bodyWithCourse.courseId ?? queryCourse;
+      const courseId = rawCourse && UUID_RE.test(rawCourse) ? rawCourse : null;
+
       const intent = await documentService.createUploadIntent(
         actor,
         organizationId,
@@ -212,6 +217,7 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
           originalName: body.original_name,
           mimeType: body.mime_type,
           sizeBytes: body.size_bytes,
+          courseId,
         },
       );
 

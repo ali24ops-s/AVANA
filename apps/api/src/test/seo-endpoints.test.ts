@@ -44,7 +44,8 @@ describe("SEO Endpoints (/robots.txt and /sitemap.xml)", () => {
     const body = response.body;
     expect(body).toContain("User-agent: *");
     expect(body).toContain("Disallow: /v1/");
-    expect(body).toContain("Disallow: /admin");
+    expect(body).not.toContain("Disallow: /admin");
+    expect(body).not.toContain("Disallow: /admin/");
     expect(body).toContain("Disallow: /courses");
     expect(body).toContain("Disallow: /home");
     expect(body).toContain("Disallow: /sign-in");
@@ -52,6 +53,45 @@ describe("SEO Endpoints (/robots.txt and /sitemap.xml)", () => {
     expect(body).toContain("Allow: /teachers");
     expect(body).toContain("Allow: /blog");
     expect(body).toContain("Sitemap: https://aavana.ir/sitemap.xml");
+  });
+
+  test("HTTP responses on /admin/* set X-Robots-Tag: noindex, nofollow with strict path boundary", async () => {
+    const app = await setupTestApp();
+
+    // 1. Direct /admin path
+    const resAdmin = await app.inject({
+      method: "GET",
+      url: "/admin",
+    });
+    expect(resAdmin.headers["x-robots-tag"]).toBe("noindex, nofollow");
+
+    // 2. Deep sub-route with query parameters
+    const resDeep = await app.inject({
+      method: "GET",
+      url: "/admin/courses/123?tab=settings",
+    });
+    expect(resDeep.headers["x-robots-tag"]).toBe("noindex, nofollow");
+
+    // 3. Nested dashboard
+    const resDashboard = await app.inject({
+      method: "GET",
+      url: "/admin/dashboard",
+    });
+    expect(resDashboard.headers["x-robots-tag"]).toBe("noindex, nofollow");
+
+    // 4. Strict path boundary: /administrator must NOT match
+    const resAdministrator = await app.inject({
+      method: "GET",
+      url: "/administrator",
+    });
+    expect(resAdministrator.headers["x-robots-tag"]).toBeUndefined();
+
+    // 5. Public / API route must NOT receive X-Robots-Tag
+    const resHealth = await app.inject({
+      method: "GET",
+      url: "/v1/health",
+    });
+    expect(resHealth.headers["x-robots-tag"]).toBeUndefined();
   });
 
   test("GET /sitemap.xml should return 200 with application/xml content type and valid protocol XML", async () => {

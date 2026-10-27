@@ -104,6 +104,7 @@ function toLessonRecord(row: {
   sortOrder: number;
   estimatedMinutes: number | null;
   publicationStatus: string;
+  reference?: string | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
@@ -117,6 +118,7 @@ function toLessonRecord(row: {
     sortOrder: row.sortOrder,
     estimatedMinutes: row.estimatedMinutes,
     publicationStatus: row.publicationStatus as "draft" | "published",
+    reference: row.reference ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     deletedAt: row.deletedAt?.toISOString() ?? null,
@@ -511,6 +513,7 @@ export class DrizzleLessonStore implements LessonStore {
         sortOrder: lesson.sortOrder,
         estimatedMinutes: lesson.estimatedMinutes,
         publicationStatus: lesson.publicationStatus,
+        reference: lesson.reference ?? null,
         createdAt: new Date(lesson.createdAt),
         updatedAt: new Date(lesson.updatedAt),
       })
@@ -529,6 +532,7 @@ export class DrizzleLessonStore implements LessonStore {
         sortOrder: lesson.sortOrder,
         estimatedMinutes: lesson.estimatedMinutes,
         publicationStatus: lesson.publicationStatus,
+        reference: lesson.reference !== undefined ? (lesson.reference ? lesson.reference.trim() : null) : undefined,
         updatedAt: new Date(lesson.updatedAt),
         deletedAt: lesson.deletedAt ? new Date(lesson.deletedAt) : null,
       })

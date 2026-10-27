@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
@@ -17,9 +17,11 @@ import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createDocumentsApi } from "../../lib/api/documents.js";
 import { createGenerationApi } from "../../lib/api/generation.js";
 import { createSourcePacksApi } from "../../lib/api/source-packs.js";
+import { useAuth } from "../../providers/AuthProvider.js";
 import { DocumentUploader } from "./DocumentUploader.js";
 import { DocumentStatusCard } from "./DocumentStatusCard.js";
 import { SourcePackCard } from "./SourcePackCard.js";
+import { ContentGenerationGuideModal } from "./ContentGenerationGuideModal.js";
 import type { DocumentResource, SourcePackRole } from "@avana/contracts";
 import { toPersianDigits, type SourceRole } from "@avana/domain";
 
@@ -81,13 +83,20 @@ export interface CourseDocumentsViewProps {
   organizationId: string;
   courseId: string;
   onNavigateToReview?: () => void;
+  isActiveTab?: boolean;
 }
 
 export function CourseDocumentsView({
   organizationId,
   courseId,
   onNavigateToReview,
+  isActiveTab = true,
 }: CourseDocumentsViewProps) {
+  const { user, isLoading: isAuthLoading } = useAuth();
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const userScope = user?.id || "guest";
+  const guideStorageKey = `avana_content_guide_seen_${userScope}_${courseId}`;
+
   const [localDocs, setLocalDocs] = useState<DocumentResource[]>([]);
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [multiGenError, setMultiGenError] = useState<string | null>(null);
@@ -104,6 +113,54 @@ export function CourseDocumentsView({
   const docsApi = useMemo(() => createDocumentsApi(apiClient), [apiClient]);
   const genApi = useMemo(() => createGenerationApi(apiClient), [apiClient]);
   const packApi = useMemo(() => createSourcePacksApi(apiClient), [apiClient]);
+
+  const inMemorySeenKeys = useRef<Set<string>>(new Set());
+
+  // Check whether guide has been seen for this user and course combination
+  useEffect(() => {
+    if (isAuthLoading) return;
+    if (!courseId || courseId.trim().length === 0) return;
+    if (isActiveTab === false) return;
+
+    if (inMemorySeenKeys.current.has(guideStorageKey)) {
+      setIsGuideOpen(false);
+      return;
+    }
+
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        const seen = window.localStorage.getItem(guideStorageKey);
+        if (!seen) {
+          setIsGuideOpen(true);
+        } else {
+          setIsGuideOpen(false);
+        }
+      } else {
+        setIsGuideOpen(true);
+      }
+    } catch {
+      // Gracefully handle storage errors (e.g. private browsing mode)
+      if (!inMemorySeenKeys.current.has(guideStorageKey)) {
+        setIsGuideOpen(true);
+      }
+    }
+  }, [guideStorageKey, isAuthLoading, courseId, isActiveTab]);
+
+  const handleCloseGuide = useCallback(() => {
+    setIsGuideOpen(false);
+    inMemorySeenKeys.current.add(guideStorageKey);
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.setItem(guideStorageKey, "true");
+      }
+    } catch {
+      // Gracefully handle storage errors
+    }
+  }, [guideStorageKey]);
+
+  const handleOpenGuideManual = useCallback(() => {
+    setIsGuideOpen(true);
+  }, []);
 
   // Clear local docs when switching course
   useEffect(() => {
@@ -144,6 +201,24 @@ export function CourseDocumentsView({
   }
   const documentsList = Array.from(allDocsMap.values());
   const sourcePacksList = packsQuery.data ?? [];
+
+  const packDocumentIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const pack of sourcePacksList) {
+      if (Array.isArray(pack.documents)) {
+        for (const doc of pack.documents) {
+          if (doc?.document_id) {
+            ids.add(doc.document_id);
+          }
+        }
+      }
+    }
+    return ids;
+  }, [sourcePacksList]);
+
+  const standaloneDocuments = useMemo(() => {
+    return documentsList.filter((doc) => !packDocumentIds.has(doc.id));
+  }, [documentsList, packDocumentIds]);
 
   const toggleSelect = (docId: string) => {
     setSelectedDocIds((prev) =>
@@ -397,7 +472,16 @@ export function CourseDocumentsView({
       {/* Unified Document Upload Box (Single & Multi-File) */}
       {uploadMode === "single" ? (
         <div className="space-y-2.5">
-          <div className="flex items-center justify-end">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={handleOpenGuideManual}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-gray-700 hover:text-[#008080] bg-white hover:bg-slate-50 border border-[#E2E7EA] rounded-xl transition-all shadow-xs cursor-pointer"
+              title="راهنمای تولید محتوای هوشمند"
+            >
+              <HelpCircle className="w-4 h-4 text-[#008080]" />
+              <span>راهنمای تولید محتوا</span>
+            </button>
             <button
               type="button"
               onClick={() => setUploadMode("multi")}
@@ -436,18 +520,29 @@ export function CourseDocumentsView({
               </p>
             </div>
 
-            <button
-              type="button"
-              disabled={isSubmittingPack}
-              onClick={() => {
-                setUploadMode("single");
-                setMultiDocs([]);
-                setMultiValidationError(null);
-              }}
-              className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-xl border border-[#E2E7EA] transition-colors shrink-0 cursor-pointer"
-            >
-              <span>بازگشت به حالت یک فایل</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleOpenGuideManual}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-gray-700 hover:text-[#008080] hover:bg-gray-50 rounded-xl border border-[#E2E7EA] transition-colors shrink-0 cursor-pointer"
+                title="راهنمای تولید محتوای هوشمند"
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-[#008080]" />
+                <span>راهنمای تولید محتوا</span>
+              </button>
+              <button
+                type="button"
+                disabled={isSubmittingPack}
+                onClick={() => {
+                  setUploadMode("single");
+                  setMultiDocs([]);
+                  setMultiValidationError(null);
+                }}
+                className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-xl border border-[#E2E7EA] transition-colors shrink-0 cursor-pointer"
+              >
+                <span>بازگشت به حالت یک فایل</span>
+              </button>
+            </div>
           </div>
 
           {/* Hidden multi-file input */}
@@ -767,17 +862,17 @@ export function CourseDocumentsView({
             تمام اسناد و فایل‌های درس
           </h3>
           <span className="text-xs font-semibold text-[var(--color-text-muted)] bg-[var(--color-surface)] px-3 py-1 rounded-xl border border-[var(--color-border)]">
-            {toPersianDigits(documentsList.length + sourcePacksList.length)} منبع
+            {toPersianDigits(standaloneDocuments.length + sourcePacksList.length)} منبع
           </span>
         </div>
 
-        {docsQuery.isLoading && documentsList.length === 0 && sourcePacksList.length === 0 && (
+        {docsQuery.isLoading && standaloneDocuments.length === 0 && sourcePacksList.length === 0 && (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-6 h-6 animate-spin text-[#008080]" />
           </div>
         )}
 
-        {docsQuery.isError && documentsList.length === 0 && sourcePacksList.length === 0 && (
+        {docsQuery.isError && standaloneDocuments.length === 0 && sourcePacksList.length === 0 && (
           <div className="flex items-center justify-between p-4 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-2xl text-red-700 dark:text-red-400 text-xs">
             <div className="flex items-center gap-2">
               <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -793,7 +888,7 @@ export function CourseDocumentsView({
           </div>
         )}
 
-        {documentsList.length === 0 && sourcePacksList.length === 0 && !docsQuery.isLoading && (
+        {standaloneDocuments.length === 0 && sourcePacksList.length === 0 && !docsQuery.isLoading && (
           <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center">
             <UploadCloud className="w-10 h-10 text-[var(--color-text-muted)] mx-auto mb-3" />
             <h4 className="text-sm font-bold text-[var(--color-text)]">
@@ -805,7 +900,7 @@ export function CourseDocumentsView({
           </div>
         )}
 
-        {(documentsList.length > 0 || sourcePacksList.length > 0) && (
+        {(standaloneDocuments.length > 0 || sourcePacksList.length > 0) && (
           <div className="grid gap-4">
             {sourcePacksList.map((pack) => (
               <SourcePackCard
@@ -820,7 +915,7 @@ export function CourseDocumentsView({
                 }}
               />
             ))}
-            {documentsList.map((doc: DocumentResource) => {
+            {standaloneDocuments.map((doc: DocumentResource) => {
               const isSelectable =
                 doc.status === "extracted" ||
                 doc.status === "review_pending" ||
@@ -841,6 +936,11 @@ export function CourseDocumentsView({
           </div>
         )}
       </div>
+
+      <ContentGenerationGuideModal
+        isOpen={isGuideOpen}
+        onClose={handleCloseGuide}
+      />
     </div>
   );
 }

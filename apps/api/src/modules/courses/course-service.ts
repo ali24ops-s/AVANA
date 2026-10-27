@@ -9,6 +9,7 @@ import {
   asSubCourseGroupId,
   asModuleId,
   computeCoursePublicationStats,
+  computePublicationDiff,
   validateCoursePublicationEligibility,
   type Actor,
   type AuthorizationPolicy,
@@ -192,6 +193,7 @@ export class CourseService {
       targetAcademicFields: normalizeAcademicFields(targetAcademicFields),
       examDate: examAt ?? null,
       examScope: examScope ?? null,
+      status: "draft",
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
@@ -1617,8 +1619,13 @@ export class CourseService {
     // Compute stats
     const stats = computeCoursePublicationStats(chapterSnapshots);
 
+    const publishedPub = await this.coursePublicationStore.findPublishedByCourse(courseId);
+    const isUpdate = Boolean(publishedPub);
+    const baseVersion = publishedPub ? publishedPub.version : undefined;
+    const basePublicationId = publishedPub ? publishedPub.id : undefined;
+
     const now = new Date().toISOString();
-    const version = (existingPending?.version ?? 0) + 1;
+    const version = (publishedPub?.version ?? 0) + 1;
     const pubId = asCoursePublicationId(randomUUID() as unknown as import("@avana/domain").UUID);
 
     const title = input?.title?.trim() || course.name;
@@ -1634,6 +1641,10 @@ export class CourseService {
       stats,
     };
 
+    const diffSummary = isUpdate && publishedPub
+      ? computePublicationDiff(publishedPub.snapshot, snapshot)
+      : computePublicationDiff(null, snapshot);
+
     const publicationRecord: CoursePublicationRecord = {
       id: pubId,
       courseId,
@@ -1647,10 +1658,15 @@ export class CourseService {
       publishedAt: null,
       metadata: {
         stats,
-        accessType: "paid",
+        accessType: publishedPub?.metadata?.accessType ?? "paid",
         rejectionReason: null,
         reviewedAt: null,
         reviewedByUserId: null,
+        isUpdate,
+        baseVersion,
+        basePublicationId,
+        diffSummary,
+        requestType: isUpdate ? "update" : "initial",
       },
       snapshot,
       createdAt: now,
@@ -1660,10 +1676,13 @@ export class CourseService {
 
     const created = await this.coursePublicationStore.create(publicationRecord);
 
-    // Update course status to pending_review
-    course.status = "pending_review";
-    course.updatedAt = now;
-    await this.store.update(course);
+    // Invariant: If course is already published (update request), DO NOT set course.status to pending_review!
+    // The live published course MUST remain accessible to enrolled students without interruption.
+    if (!isUpdate) {
+      course.status = "pending_review";
+      course.updatedAt = now;
+      await this.store.update(course);
+    }
 
     if (this.auditService) {
       await this.auditService.emit([
@@ -1677,6 +1696,8 @@ export class CourseService {
           details: {
             publicationId: pubId,
             version,
+            isUpdate,
+            baseVersion,
             chapterCount: stats.chapterCount,
             lessonCount: stats.lessonCount,
           },
@@ -1700,14 +1721,20 @@ export class CourseService {
         course.organizationId === this.systemOrganizationId);
 
     if (isOfficialCourse) {
-      return { publication: null, isOfficial: true };
+      return { publication: null, publishedPublication: null, isOfficial: true };
     }
 
     if (!this.coursePublicationStore) {
-      return { publication: null, isOfficial: false };
+      return { publication: null, publishedPublication: null, isOfficial: false };
     }
 
     const latest = await this.coursePublicationStore.findLatestByCourse(courseId);
-    return { publication: latest ?? null, isOfficial: false };
+    const published = await this.coursePublicationStore.findPublishedByCourse(courseId);
+
+    return {
+      publication: latest ?? null,
+      publishedPublication: published ?? null,
+      isOfficial: false,
+    };
   }
 }

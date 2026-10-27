@@ -21,3 +21,4 @@ export type {
 export { RoleBasedPolicy, defaultPolicy, buildActor } from "./policy.js";
 
 export * from "./audit.js";
+export * from "./officialCoursePermissions.js";

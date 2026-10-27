@@ -11,6 +11,8 @@ import {
   normalizeAndValidateSourcePackDocuments,
   isPrimaryRole,
   canonicalizeSourceRole,
+  isOfficialCourse,
+  canManageOfficialContent,
 } from "@avana/domain";
 import type { CourseStore } from "../courses/course-store.js";
 import type { DocumentStore, DocumentRecord } from "../learning/learning-store.js";
@@ -45,23 +47,27 @@ export class SourcePackService {
     courseId: CourseId,
     organizationId: OrganizationId,
     actor: Actor,
+    action: "read" | "write" = "read",
   ): Promise<void> {
     const sysOrgId =
       this.deps.systemOrganizationId ??
       (process.env.SYSTEM_ORGANIZATION_ID as OrganizationId);
-    const course = await this.deps.courseStore.findByIdForUser(
-      courseId,
-      actor.userId,
-      sysOrgId,
-    );
+    const course = await this.deps.courseStore.findById(courseId);
     if (!course) {
       throw new DomainError("not_found", "Course not found");
     }
-    if (
-      course.organizationId !== organizationId &&
-      (!sysOrgId || course.organizationId !== sysOrgId)
-    ) {
-      throw new DomainError("forbidden", "Access denied to this course");
+    const isOfficial = isOfficialCourse(course, sysOrgId);
+    if (isOfficial) {
+      if (action === "write" && !canManageOfficialContent(actor, sysOrgId)) {
+        throw new DomainError(
+          "forbidden",
+          "مدیریت پک‌های منابع در دوره‌های رسمی آوانا مجاز نیست.",
+        );
+      }
+    } else {
+      if (course.organizationId !== organizationId) {
+        throw new DomainError("forbidden", "Access denied to this course");
+      }
     }
   }
 
@@ -100,7 +106,7 @@ export class SourcePackService {
       }>;
     },
   ): Promise<SourcePackWithDocumentsRecord> {
-    await this.assertCourseAccess(courseId, organizationId, actor);
+    await this.assertCourseAccess(courseId, organizationId, actor, "write");
 
     const title = input.title?.trim() || "پک منابع جدید";
     const normalizedDocs = normalizeAndValidateSourcePackDocuments(input.documents);
@@ -154,7 +160,7 @@ export class SourcePackService {
       }>;
     },
   ): Promise<SourcePackWithDocumentsRecord> {
-    await this.assertCourseAccess(courseId, organizationId, actor);
+    await this.assertCourseAccess(courseId, organizationId, actor, "write");
 
     const existing = await this.deps.store.findById(packId, organizationId);
     if (!existing || existing.courseId !== courseId) {
@@ -181,7 +187,7 @@ export class SourcePackService {
     courseId: CourseId,
     packId: SourcePackId,
   ): Promise<void> {
-    await this.assertCourseAccess(courseId, organizationId, actor);
+    await this.assertCourseAccess(courseId, organizationId, actor, "write");
 
     const existing = await this.deps.store.findById(packId, organizationId);
     if (!existing || existing.courseId !== courseId) {
@@ -212,7 +218,7 @@ export class SourcePackService {
       questionPatternIds?: string[] | null;
     },
   ): Promise<{ generationJobId: string; status: string }> {
-    await this.assertCourseAccess(courseId, organizationId, actor);
+    await this.assertCourseAccess(courseId, organizationId, actor, "write");
 
     const pack = await this.deps.store.findById(packId, organizationId);
     if (!pack || pack.courseId !== courseId) {
@@ -487,7 +493,7 @@ export class SourcePackService {
     packId: SourcePackId,
     types?: GeneratedContentType[],
   ) {
-    await this.assertCourseAccess(courseId, organizationId, actor);
+    await this.assertCourseAccess(courseId, organizationId, actor, "write");
 
     const pack = await this.deps.store.findById(packId, organizationId);
     if (!pack || pack.courseId !== courseId) {

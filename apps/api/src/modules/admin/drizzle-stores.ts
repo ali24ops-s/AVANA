@@ -32,6 +32,7 @@ import {
   teacherExamAttempts,
   coursePublications,
   wallets,
+  walletTransactions,
   courseReleases,
   feedbacks,
 } from "@avana/database/schema";
@@ -56,6 +57,7 @@ import {
   SUBSCRIPTION_CREDIT_BONUSES_CONFIG_KEY,
   asPromotionId,
   normalizeAcademicFields,
+  toPersianDigits,
   DomainError,
 } from "@avana/domain";
 import { PromotionService } from "../commerce/promotion-service.js";
@@ -90,6 +92,10 @@ import type {
   AdminFlashcardRecord,
   AdminExamRecord,
   AdminGenerationDetail,
+  GenerationUserCost,
+  GenerationUserCostStatus,
+  FileFinancialSummary,
+  FileOperationFinancialRecord,
   AdminCourseHierarchy,
   AdminAnalytics,
   AdminAiAnalytics,
@@ -137,6 +143,99 @@ function safeToIsoOrNull(val: unknown): string | null {
     return isNaN(d.getTime()) ? null : d.toISOString();
   }
   return null;
+}
+
+export function resolveUserCostFromTransactions(
+  jobId: string,
+  txList: Array<{
+    id: string;
+    type: string;
+    amount: number;
+    source: string;
+    referenceType: string;
+    referenceId: string;
+    idempotencyKey?: string | null;
+  }>,
+  isOwnerAdmin: boolean,
+): GenerationUserCost {
+  // 1. Filter transactions matching this jobId
+  const matching = txList.filter(
+    (tx) =>
+      (tx.referenceType === "generation_job" && tx.referenceId === jobId) ||
+      tx.idempotencyKey === `generation-debit:${jobId}` ||
+      tx.idempotencyKey === `generation-refund:${jobId}`,
+  );
+
+  // 2. Strict deduplication by transaction id
+  const seenIds = new Set<string>();
+  const uniqueTx: typeof matching = [];
+  for (const t of matching) {
+    if (!seenIds.has(t.id)) {
+      seenIds.add(t.id);
+      uniqueTx.push(t);
+    }
+  }
+
+  const debits = uniqueTx.filter(
+    (tx) => tx.type === "debit" || tx.source === "content_generation",
+  );
+  const refunds = uniqueTx.filter(
+    (tx) => tx.type === "refund" || tx.source === "generation_refund",
+  );
+
+  const chargedAmountToman = debits.reduce((acc, tx) => acc + (tx.amount || 0), 0);
+  const refundedAmountToman = refunds.reduce((acc, tx) => acc + (tx.amount || 0), 0);
+
+  if (chargedAmountToman > 0) {
+    const netPaidAmountToman = Math.max(0, chargedAmountToman - refundedAmountToman);
+    const formattedNetPaid = `${toPersianDigits(netPaidAmountToman.toLocaleString("en-US"))} تومان`;
+
+    let status: GenerationUserCostStatus;
+    let statusLabel: string;
+
+    if (netPaidAmountToman === 0 && refundedAmountToman >= chargedAmountToman) {
+      status = "refunded";
+      statusLabel = "بازپرداخت‌شده به کیف پول";
+    } else if (refundedAmountToman > 0) {
+      status = "debited";
+      statusLabel = "کسر شده از کیف پول (با بازپرداخت جزئی)";
+    } else {
+      status = "debited";
+      statusLabel = "کسر شده از کیف پول";
+    }
+
+    return {
+      isAvailable: true,
+      status,
+      statusLabel,
+      chargedAmountToman,
+      refundedAmountToman,
+      netPaidAmountToman,
+      formattedNetPaid,
+      isFree: false,
+    };
+  }
+
+  // 3. Proven free via existing admin generation context
+  if (isOwnerAdmin) {
+    return {
+      isAvailable: true,
+      status: "free",
+      statusLabel: "رایگان (تولید سیستمی / مدیر)",
+      chargedAmountToman: 0,
+      refundedAmountToman: 0,
+      netPaidAmountToman: 0,
+      formattedNetPaid: "رایگان",
+      isFree: true,
+    };
+  }
+
+  // 4. Incomplete / legacy / missing financial records
+  return {
+    isAvailable: false,
+    status: "unavailable",
+    statusLabel: "اطلاعات هزینه در دسترس نیست",
+  };
 }
 
 export class DrizzleAdminStore implements AdminStore {
@@ -362,6 +461,7 @@ export class DrizzleAdminStore implements AdminStore {
       job: generationJobs,
       documentName: documents.originalName,
       userEmail: users.email,
+      userGlobalRole: users.globalRole,
     })
     .from(generationJobs)
     .leftJoin(documents, eq(generationJobs.documentId, documents.id))
@@ -377,18 +477,64 @@ export class DrizzleAdminStore implements AdminStore {
       baseQuery.limit(pageSize).offset(offset).orderBy(desc(generationJobs.createdAt)),
     ]);
 
+    const jobIds = rows.map((r) => r.job.id);
+    let txRows: Array<{
+      id: string;
+      type: string;
+      amount: number;
+      source: string;
+      referenceType: string;
+      referenceId: string;
+      idempotencyKey: string | null;
+    }> = [];
+
+    if (jobIds.length > 0) {
+      const debitKeys = jobIds.map((id) => `generation-debit:${id}`);
+      const refundKeys = jobIds.map((id) => `generation-refund:${id}`);
+      txRows = await this.db
+        .select({
+          id: walletTransactions.id,
+          type: walletTransactions.type,
+          amount: walletTransactions.amount,
+          source: walletTransactions.source,
+          referenceType: walletTransactions.referenceType,
+          referenceId: walletTransactions.referenceId,
+          idempotencyKey: walletTransactions.idempotencyKey,
+        })
+        .from(walletTransactions)
+        .where(
+          or(
+            and(
+              eq(walletTransactions.referenceType, "generation_job"),
+              inArray(walletTransactions.referenceId, jobIds),
+            ),
+            inArray(walletTransactions.idempotencyKey, [...debitKeys, ...refundKeys]),
+          ),
+        );
+    }
+
     return {
       totalCount: totalRes[0].count,
-      jobs: rows.map((r) => ({
-        id: r.job.id,
-        type: r.job.type,
-        status: r.job.status,
-        errorMessage: r.job.errorMessage,
-        createdAt: r.job.createdAt.toISOString(),
-        completedAt: r.job.completedAt?.toISOString() ?? null,
-        documentName: r.documentName ?? undefined,
-        userEmail: r.userEmail ?? undefined,
-      })),
+      jobs: rows.map((r) => {
+        const isOwnerAdmin =
+          r.userGlobalRole === Roles.platform_admin ||
+          r.userGlobalRole === Roles.course_editor ||
+          Boolean(r.job.generationKey && r.job.generationKey.includes(":admin:"));
+
+        const userCost = resolveUserCostFromTransactions(r.job.id, txRows, isOwnerAdmin);
+
+        return {
+          id: r.job.id,
+          type: r.job.type,
+          status: r.job.status,
+          errorMessage: r.job.errorMessage,
+          createdAt: r.job.createdAt.toISOString(),
+          completedAt: r.job.completedAt?.toISOString() ?? null,
+          documentName: r.documentName ?? undefined,
+          userEmail: r.userEmail ?? undefined,
+          userCost,
+        };
+      }),
     };
   }
 
@@ -1258,6 +1404,7 @@ export class DrizzleAdminStore implements AdminStore {
       moduleId: r.lesson.moduleId,
       publicationStatus: r.lesson.publicationStatus,
       contentMarkdown: r.lesson.contentMarkdown,
+      reference: r.lesson.reference || undefined,
       createdAt: r.lesson.createdAt.toISOString(),
       flashcards: fcRows.map((fc) => ({
         id: fc.id,
@@ -1284,6 +1431,28 @@ export class DrizzleAdminStore implements AdminStore {
         contentMarkdown,
         updatedAt: new Date(),
       })
+      .where(eq(lessons.id, id));
+  }
+
+  async updateLesson(
+    id: string,
+    updates: { reference?: string | null; title?: string; contentMarkdown?: string },
+  ): Promise<void> {
+    const fieldsToSet: Record<string, any> = {
+      updatedAt: new Date(),
+    };
+    if (updates.reference !== undefined) {
+      fieldsToSet.reference = updates.reference ? updates.reference.trim() : null;
+    }
+    if (updates.title !== undefined) {
+      fieldsToSet.title = updates.title.trim();
+    }
+    if (updates.contentMarkdown !== undefined) {
+      fieldsToSet.contentMarkdown = updates.contentMarkdown;
+    }
+    await this.db
+      .update(lessons)
+      .set(fieldsToSet)
       .where(eq(lessons.id, id));
   }
 
@@ -1483,6 +1652,7 @@ export class DrizzleAdminStore implements AdminStore {
       documentMimeType: documents.mimeType,
       userEmail: users.email,
       userId: users.id,
+      userGlobalRole: users.globalRole,
       courseId: courses.id,
       courseName: courses.name,
       organizationId: organizations.id,
@@ -1502,6 +1672,209 @@ export class DrizzleAdminStore implements AdminStore {
     let durationMs: number | undefined;
     if (row.job.startedAt && row.job.completedAt) {
       durationMs = row.job.completedAt.getTime() - row.job.startedAt.getTime();
+    }
+
+    const isOwnerAdmin =
+      row.userGlobalRole === Roles.platform_admin ||
+      row.userGlobalRole === Roles.course_editor ||
+      Boolean(row.job.generationKey && row.job.generationKey.includes(":admin:"));
+
+    // 1. Fetch wallet transactions for this specific generation job
+    const jobTxRows = await this.db
+      .select({
+        id: walletTransactions.id,
+        type: walletTransactions.type,
+        amount: walletTransactions.amount,
+        source: walletTransactions.source,
+        referenceType: walletTransactions.referenceType,
+        referenceId: walletTransactions.referenceId,
+        idempotencyKey: walletTransactions.idempotencyKey,
+      })
+      .from(walletTransactions)
+      .where(
+        or(
+          and(
+            eq(walletTransactions.referenceType, "generation_job"),
+            eq(walletTransactions.referenceId, id),
+          ),
+          eq(walletTransactions.idempotencyKey, `generation-debit:${id}`),
+          eq(walletTransactions.idempotencyKey, `generation-refund:${id}`),
+        ),
+      );
+
+    const userCost = resolveUserCostFromTransactions(id, jobTxRows, isOwnerAdmin);
+
+    // 2. Fetch all operations and financial summary for this file (document)
+    let fileFinancialSummary: FileFinancialSummary | undefined;
+    if (row.documentId) {
+      const fileJobs = await this.db
+        .select({
+          id: generationJobs.id,
+          type: generationJobs.type,
+          status: generationJobs.status,
+          createdAt: generationJobs.createdAt,
+          generationKey: generationJobs.generationKey,
+        })
+        .from(generationJobs)
+        .where(
+          and(
+            eq(generationJobs.documentId, row.documentId),
+            isNull(generationJobs.deletedAt),
+          ),
+        )
+        .orderBy(desc(generationJobs.createdAt));
+
+      const fileJobIds = fileJobs.map((j) => j.id);
+
+      let allDocTx: Array<{
+        id: string;
+        type: string;
+        amount: number;
+        source: string;
+        referenceType: string;
+        referenceId: string;
+        idempotencyKey: string | null;
+      }> = [];
+
+      if (fileJobIds.length > 0) {
+        const debitKeys = fileJobIds.map((jId) => `generation-debit:${jId}`);
+        const refundKeys = fileJobIds.map((jId) => `generation-refund:${jId}`);
+        allDocTx = await this.db
+          .select({
+            id: walletTransactions.id,
+            type: walletTransactions.type,
+            amount: walletTransactions.amount,
+            source: walletTransactions.source,
+            referenceType: walletTransactions.referenceType,
+            referenceId: walletTransactions.referenceId,
+            idempotencyKey: walletTransactions.idempotencyKey,
+          })
+          .from(walletTransactions)
+          .where(
+            or(
+              and(
+                eq(walletTransactions.referenceType, "generation_job"),
+                inArray(walletTransactions.referenceId, fileJobIds),
+              ),
+              inArray(walletTransactions.idempotencyKey, [...debitKeys, ...refundKeys]),
+            ),
+          );
+      }
+
+      let hasUnavailableRecords = false;
+      let hasRefundedRecords = false;
+
+      const operations: FileOperationFinancialRecord[] = fileJobs.map((fj) => {
+        const fjAdmin =
+          isOwnerAdmin || Boolean(fj.generationKey && fj.generationKey.includes(":admin:"));
+        const fjCost = resolveUserCostFromTransactions(fj.id, allDocTx, fjAdmin);
+        if (!fjCost.isAvailable) {
+          hasUnavailableRecords = true;
+        }
+        if (fjCost.status === "refunded" || (fjCost.refundedAmountToman ?? 0) > 0) {
+          hasRefundedRecords = true;
+        }
+        return {
+          jobId: fj.id,
+          type: fj.type,
+          status: fj.status,
+          createdAt: fj.createdAt.toISOString(),
+          userCost: fjCost,
+        };
+      });
+
+      // Strict deduplication of distinct transactions across this file's operations
+      const seenTxIds = new Set<string>();
+      let totalDebitedToman = 0;
+      let totalRefundedToman = 0;
+
+      for (const tx of allDocTx) {
+        if (!seenTxIds.has(tx.id)) {
+          seenTxIds.add(tx.id);
+          if (tx.type === "debit" || tx.source === "content_generation") {
+            totalDebitedToman += tx.amount || 0;
+          } else if (tx.type === "refund" || tx.source === "generation_refund") {
+            totalRefundedToman += tx.amount || 0;
+          }
+        }
+      }
+
+      const totalNetPaidToman = Math.max(0, totalDebitedToman - totalRefundedToman);
+      const formattedTotalNetPaid = `${toPersianDigits(totalNetPaidToman.toLocaleString("en-US"))} تومان`;
+
+      fileFinancialSummary = {
+        documentId: row.documentId,
+        documentName: row.documentName || "سند نامشخص",
+        totalOperationsCount: fileJobs.length,
+        totalDebitedToman,
+        totalRefundedToman,
+        totalNetPaidToman,
+        formattedTotalNetPaid,
+        hasUnavailableRecords,
+        hasRefundedRecords,
+        isComplete: !hasUnavailableRecords,
+        operations,
+      };
+    }
+
+    // 3. Query generated contents for model and token usage if available
+    let genModel: string | undefined;
+    let inputTokens: number | undefined;
+    let outputTokens: number | undefined;
+    let totalTokens: number | undefined;
+    let payload: unknown | undefined;
+
+    if (row.documentId) {
+      const genContents = await this.db
+        .select({
+          type: generatedContents.type,
+          model: generatedContents.model,
+          tokenUsage: generatedContents.tokenUsage,
+          payload: generatedContents.payload,
+          generationKey: generatedContents.generationKey,
+        })
+        .from(generatedContents)
+        .where(
+          and(
+            eq(generatedContents.documentId, row.documentId),
+            isNull(generatedContents.deletedAt),
+          ),
+        );
+
+      const matchingGen = row.job.generationKey
+        ? genContents.filter((g) => g.generationKey === row.job.generationKey)
+        : genContents;
+
+      const candidates = matchingGen.length > 0 ? matchingGen : genContents;
+      if (candidates.length > 0) {
+        genModel = candidates.find((c) => c.model)?.model || undefined;
+        let inT = 0;
+        let outT = 0;
+        let hasTokens = false;
+        for (const c of candidates) {
+          const u = c.tokenUsage as {
+            inputTokens?: number;
+            outputTokens?: number;
+            prompt_tokens?: number;
+            completion_tokens?: number;
+          } | null;
+          if (u) {
+            const inp = u.inputTokens ?? u.prompt_tokens ?? 0;
+            const outp = u.outputTokens ?? u.completion_tokens ?? 0;
+            if (inp > 0 || outp > 0) {
+              inT += inp;
+              outT += outp;
+              hasTokens = true;
+            }
+          }
+        }
+        if (hasTokens) {
+          inputTokens = inT;
+          outputTokens = outT;
+          totalTokens = inT + outT;
+        }
+        payload = candidates[0].payload;
+      }
     }
 
     // Retrieve multi-source documents if present
@@ -1555,6 +1928,13 @@ export class DrizzleAdminStore implements AdminStore {
       course: row.courseId ? { id: row.courseId, name: row.courseName || undefined } : undefined,
       organization: row.organizationId && row.organizationName ? { id: row.organizationId, name: row.organizationName } : undefined,
       sources: sources.length > 0 ? sources : undefined,
+      model: genModel,
+      inputTokens,
+      outputTokens,
+      totalTokens,
+      payload,
+      userCost,
+      fileFinancialSummary,
     };
   }
 

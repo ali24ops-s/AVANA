@@ -24,6 +24,7 @@ import {
   DrizzlePasswordResetStore,
   DrizzleDeviceStore,
   DrizzleWelcomeGiftStore,
+  DrizzleOnboardingTourStore,
   MockEmailService,
   ResendEmailService,
   type EmailService,
@@ -769,6 +770,7 @@ export async function composeProduction(
     teacherConversationMessageStore,
     sourcePackStore,
     welcomeGiftStore: new DrizzleWelcomeGiftStore(db),
+    onboardingTourStore: new DrizzleOnboardingTourStore(db),
     db,
   };
 

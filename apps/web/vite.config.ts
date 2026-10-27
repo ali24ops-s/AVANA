@@ -34,6 +34,35 @@ function githubPagesSpaPlugin(): Plugin {
   };
 }
 
+/**
+ * Plugin to attach X-Robots-Tag: noindex, nofollow header on /admin/* HTML responses
+ * in Vite dev and preview servers.
+ */
+function adminRobotsHeaderPlugin(): Plugin {
+  const attachHeader = (
+    req: { originalUrl?: string; url?: string },
+    res: { setHeader: (name: string, value: string) => void },
+    next: () => void,
+  ) => {
+    const rawUrl = req.originalUrl || req.url || "";
+    const cleanPath = rawUrl.split(/[?#]/)[0];
+    if (cleanPath === "/admin" || cleanPath.startsWith("/admin/")) {
+      res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    }
+    next();
+  };
+
+  return {
+    name: "admin-robots-header-plugin",
+    configureServer(server) {
+      server.middlewares.use(attachHeader);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(attachHeader);
+    },
+  };
+}
+
 export default defineConfig(({ command, mode }) => {
   const isBuild = command === "build";
   const isDev = !isBuild && mode !== "production";
@@ -58,12 +87,13 @@ export default defineConfig(({ command, mode }) => {
     // viteSingleFile is only used in production build mode.
     // In dev it conflicts with the proxy and HMR.
     plugins: isDev
-      ? [react(), tailwindcss()]
+      ? [react(), tailwindcss(), adminRobotsHeaderPlugin()]
       : [
           react(),
           tailwindcss(),
           viteSingleFile({ overrideConfig: { base } }),
           githubPagesSpaPlugin(),
+          adminRobotsHeaderPlugin(),
         ],
     resolve: {
       alias: {

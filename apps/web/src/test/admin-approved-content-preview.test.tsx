@@ -313,11 +313,213 @@ describe("Admin Approved Content & Submission Preview", () => {
       expect(screen.getByText("رد درخواست")).toBeInTheDocument();
     });
 
-    // Click "تأیید و انتشار عمومی" opens modal
+    // Click "تأیید و انتشار عمومی" opens modal with explicit accessType options
     fireEvent.click(screen.getByText("تأیید و انتشار عمومی"));
     await waitFor(() => {
+      expect(screen.getByText("دوره رایگان (Free)")).toBeInTheDocument();
+      expect(screen.getByText("دوره پولی (Paid)")).toBeInTheDocument();
       expect(screen.getByText("قیمت فروش نهایی (تومان)")).toBeInTheDocument();
       expect(screen.getByText("تأیید و انتشار")).toBeInTheDocument();
     });
+
+    // Submitting paid course sends accessType: "paid" and valid price
+    fireEvent.click(screen.getByText("تأیید و انتشار"));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/admin/course-submissions/pub-sub-1/approve"),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            accessType: "paid",
+            price: 49000,
+          }),
+        }),
+      );
+    });
+  });
+
+  it("4. Course submission approval modal sends accessType: 'free' without price when Free is selected", async () => {
+    const courseId = "course-test-free";
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes(`/admin/courses/${courseId}`)) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              course: {
+                id: courseId,
+                name: "دوره مقدماتی پایتون",
+                scope: "teacher",
+                status: "pending_review",
+                counts: { modules: 1, lessons: 2, flashcards: 5, quizzes: 2 },
+                subject: "برنامه‌نویسی",
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+
+      if (url.includes("/admin/course-submissions") && init?.method === "POST") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ success: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      if (url.includes("/admin/course-submissions")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: "pub-sub-free",
+                  courseId,
+                  version: 1,
+                  title: "دوره مقدماتی پایتون",
+                  status: "pending_review",
+                  accessType: "free",
+                  creator: { id: "u-1", name: "استاد محمدی" },
+                  createdAt: new Date().toISOString(),
+                },
+              ],
+              totalCount: 1,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
+    });
+    global.fetch = fetchMock;
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={[`/admin/courses/${courseId}`]}>
+            <Routes>
+              <Route path="/admin/courses/:courseId" element={<AdminCourseHubPage />} />
+            </Routes>
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("تأیید و انتشار عمومی")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("تأیید و انتشار عمومی"));
+    await waitFor(() => {
+      expect(screen.getByText("دوره رایگان (Free)")).toBeInTheDocument();
+      expect(screen.getByText(/این دوره پس از تأیید به صورت کاملاً رایگان/)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("تأیید و انتشار"));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/admin/course-submissions/pub-sub-free/approve"),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            accessType: "free",
+          }),
+        }),
+      );
+    });
+  });
+
+  it("5. Moderation modal rejects zero or negative price for Paid access and does not auto-convert to free", async () => {
+    const courseId = "course-test-val";
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes(`/admin/courses/${courseId}`)) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              course: {
+                id: courseId,
+                name: "دوره تست اعتبارسنجی فرانت",
+                scope: "teacher",
+                status: "pending_review",
+                counts: { modules: 1, lessons: 1, flashcards: 0, quizzes: 0 },
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+
+      if (url.includes("/admin/course-submissions")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: "pub-sub-val",
+                  courseId,
+                  version: 1,
+                  title: "دوره تست اعتبارسنجی فرانت",
+                  status: "pending_review",
+                  accessType: "paid",
+                  product: { id: "p-1", priceAmount: 30000 },
+                  creator: { id: "u-1", name: "استاد محمدی" },
+                  createdAt: new Date().toISOString(),
+                },
+              ],
+              totalCount: 1,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
+    });
+    global.fetch = fetchMock;
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={[`/admin/courses/${courseId}`]}>
+            <Routes>
+              <Route path="/admin/courses/:courseId" element={<AdminCourseHubPage />} />
+            </Routes>
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("تأیید و انتشار عمومی")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("تأیید و انتشار عمومی"));
+    await waitFor(() => {
+      expect(screen.getByText("قیمت فروش نهایی (تومان)")).toBeInTheDocument();
+    });
+
+    // Clear price input (make it invalid/zero)
+    const priceInput = screen.getByRole("spinbutton");
+    fireEvent.change(priceInput, { target: { value: "0" } });
+
+    // Attempt to submit
+    fireEvent.click(screen.getByText("تأیید و انتشار"));
+
+    // Verify error message is shown and fetch was not called with approve
+    await waitFor(() => {
+      expect(
+        screen.getByText("برای دوره آموزشی پولی، قیمت معتبر به تومان الزامی است (بزرگتر از صفر)."),
+      ).toBeInTheDocument();
+    });
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/approve"),
+      expect.anything(),
+    );
   });
 });

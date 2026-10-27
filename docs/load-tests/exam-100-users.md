@@ -1,7 +1,7 @@
 # AVANA Exam System — 100 Concurrent Users Load & Stress Test Report
 
-**Run ID**: `loadtest-exam-2026-10-03T12-53-59-565Z`
-**Execution Date**: `2026-10-03T12:56:28.570Z`
+**Run ID**: `loadtest-exam-2026-10-27T20-39-47-026Z`
+**Execution Date**: `2026-10-27T20:42:43.380Z`
 **Status**: **PASSED**
 
 ---
@@ -36,13 +36,13 @@ This report delivers a factual, evidence-backed evaluation of the AVANA Exam Sys
 
 | Scenario | Users | Total Requests | RPS | Latency Avg | p50 | p95 | p99 | Errors | Error Rate |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Profile A — Realistic Exam** | 5 | 220 | 9 | 12.19ms | 11.34ms | 17.76ms | 46.53ms | 0 | 0% |
-| **Profile A — Realistic Exam** | 100 | 4400 | 162.9 | 7.03ms | 6.39ms | 11.98ms | 26ms | 0 | 0% |
-| **Profile B — Answer Burst** | 100 | 4100 | 890.7 | 3855.92ms | 3941ms | 4051.18ms | 4059.99ms | 0 | 0% |
-| **Profile C — Simultaneous Submit** | 100 | 100 | 197.1 | 307.3ms | 308.28ms | 503.86ms | 507.32ms | 0 | 0% |
-| **Profile A — Realistic Exam** | 150 | 6600 | 238.4 | 6.22ms | 4.79ms | 12.48ms | 37.03ms | 0 | 0% |
-| **Profile A — Realistic Exam** | 200 | 8800 | 328.1 | 5.9ms | 4.17ms | 13.13ms | 37.09ms | 0 | 0% |
-| **Profile A — Realistic Exam** | 300 | 13200 | 487.2 | 5.39ms | 3.43ms | 14.56ms | 40.77ms | 0 | 0% |
+| **Profile A — Realistic Exam** | 5 | 220 | 8.4 | 14.02ms | 11.57ms | 35.4ms | 58.88ms | 0 | 0% |
+| **Profile A — Realistic Exam** | 100 | 4400 | 167.4 | 8.02ms | 6.76ms | 16.85ms | 33.31ms | 0 | 0% |
+| **Profile B — Answer Burst** | 100 | 4100 | 862 | 3965.74ms | 4055.27ms | 4168.41ms | 4186.42ms | 0 | 0% |
+| **Profile C — Simultaneous Submit** | 100 | 100 | 162.2 | 386.87ms | 388.23ms | 611.91ms | 616.29ms | 0 | 0% |
+| **Profile A — Realistic Exam** | 150 | 6600 | 243 | 9.87ms | 5.27ms | 31.04ms | 106.19ms | 0 | 0% |
+| **Profile A — Realistic Exam** | 200 | 8800 | 312.2 | 7.71ms | 4.38ms | 21.08ms | 84.99ms | 0 | 0% |
+| **Profile A — Realistic Exam** | 300 | 13200 | 402.1 | 134.6ms | 51.98ms | 606.22ms | 1180.78ms | 0 | 0% |
 
 ---
 
@@ -50,11 +50,11 @@ This report delivers a factual, evidence-backed evaluation of the AVANA Exam Sys
 
 | Endpoint | Requests | Success | Errors | p50 | p90 | p95 | p99 | Max |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| `GET /v1/student/classrooms/:id/exams` | 5 | 5 | 0 | 10.01ms | 39.04ms | 39.04ms | 39.04ms | 39.04ms |
-| `POST /v1/student/exams/:id/start` | 5 | 5 | 0 | 14.68ms | 18.3ms | 18.3ms | 18.3ms | 18.3ms |
-| `PUT /v1/student/exams/:id/answers/:qid` | 200 | 200 | 0 | 11.3ms | 14.24ms | 15.86ms | 21.71ms | 24.06ms |
-| `POST /v1/student/exams/:id/submit` | 5 | 5 | 0 | 46.53ms | 48.12ms | 48.12ms | 48.12ms | 48.12ms |
-| `GET /v1/student/exams/:id/review` | 5 | 5 | 0 | 8.46ms | 10.98ms | 10.98ms | 10.98ms | 10.98ms |
+| `GET /v1/student/classrooms/:id/exams` | 5 | 5 | 0 | 20.01ms | 66.58ms | 66.58ms | 66.58ms | 66.58ms |
+| `POST /v1/student/exams/:id/start` | 5 | 5 | 0 | 39.11ms | 46.41ms | 46.41ms | 46.41ms | 46.41ms |
+| `PUT /v1/student/exams/:id/answers/:qid` | 200 | 200 | 0 | 11.42ms | 18.98ms | 26.11ms | 38.22ms | 44.82ms |
+| `POST /v1/student/exams/:id/submit` | 5 | 5 | 0 | 38.96ms | 59.3ms | 59.3ms | 59.3ms | 59.3ms |
+| `GET /v1/student/exams/:id/review` | 5 | 5 | 0 | 7.31ms | 8.94ms | 8.94ms | 8.94ms | 8.94ms |
 
 ---
 
@@ -64,10 +64,10 @@ Authentication and authorization checks execute on every single request:
 
 | Stage | Operation | Measured Duration | Description |
 | :--- | :--- | :---: | :--- |
-| **1. Session Validation** | `DrizzleSessionStore.findByTokenHash` | ~0.46ms | SHA-256 hash lookup in `sessions` table |
-| **2. Authorization** | `DrizzleClassroomMemberStore.getMembership` | ~0.46ms | Verify student active enrollment in classroom |
-| **3. Answer Upsert** | `DrizzleTeacherExamAttemptAnswerStore.upsert` | ~1.73ms | Atomic `INSERT ... ON CONFLICT DO UPDATE` |
-| **4. Submit Transaction** | `DrizzleTeacherExamAttemptStore.finalizeAttempt` | ~8.91ms | `SELECT FOR UPDATE`, grading calculation & status update |
+| **1. Session Validation** | `DrizzleSessionStore.findByTokenHash` | ~0.51ms | SHA-256 hash lookup in `sessions` table |
+| **2. Authorization** | `DrizzleClassroomMemberStore.getMembership` | ~0.51ms | Verify student active enrollment in classroom |
+| **3. Answer Upsert** | `DrizzleTeacherExamAttemptAnswerStore.upsert` | ~1.93ms | Atomic `INSERT ... ON CONFLICT DO UPDATE` |
+| **4. Submit Transaction** | `DrizzleTeacherExamAttemptStore.finalizeAttempt` | ~9.62ms | `SELECT FOR UPDATE`, grading calculation & status update |
 
 ---
 
@@ -75,10 +75,10 @@ Authentication and authorization checks execute on every single request:
 
 | Metric | Profile A (Realistic 100) | Profile B (Answer Burst) | Profile C (Submit Burst) | Stress (300 Users) |
 | :--- | :---: | :---: | :---: | :---: |
-| **Event Loop Lag (Mean)** | 20.81ms | 20.37ms | 20.01ms | N/Ams |
-| **Event Loop Lag (p95)** | 21.27ms | 22.45ms | 20.58ms | N/Ams |
-| **Node.js Heap Memory** | 59.8 MB | 523.8 MB | 85.1 MB | N/A MB |
-| **Process RSS** | 194.6 MB | 720.4 MB | 674.7 MB | N/A MB |
+| **Event Loop Lag (Mean)** | 20.84ms | 20.41ms | 20.2ms | N/Ams |
+| **Event Loop Lag (p95)** | 21.4ms | 22.33ms | 21.74ms | N/Ams |
+| **Node.js Heap Memory** | 111 MB | 698 MB | 122.8 MB | N/A MB |
+| **Process RSS** | 180.1 MB | 728.8 MB | 332 MB | N/A MB |
 | **PostgreSQL Pool Waiting** | 0 | 0 | 0 | 0 |
 | **PostgreSQL Active Connections** | 1 | 1 | 1 | 1 |
 

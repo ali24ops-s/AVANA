@@ -454,4 +454,168 @@ describe("User Course Publication Flow & Status UI", () => {
       expect(screen.getByText("ارسال دوره برای انتشار در کتابخانه")).toBeDefined();
     });
   });
+
+  it("renders update CTA button when course is published", async () => {
+    const queryClient = createTestQueryClient();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const urlStr = url.toString();
+      if (urlStr.includes(`/v1/organizations/${orgId}/courses/${courseId}/publication-status`)) {
+        return new Response(
+          JSON.stringify({
+            publication: {
+              id: "pub-1",
+              status: "published",
+              version: 1,
+              publishedAt: new Date().toISOString(),
+            },
+            publishedPublication: {
+              id: "pub-1",
+              status: "published",
+              version: 1,
+              publishedAt: new Date().toISOString(),
+            },
+            isOfficial: false,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <CoursePublicationBanner
+            organizationId={orgId}
+            courseId={courseId}
+            courseTitle="دوره هوش مصنوعی"
+            courseSubject="مهندسی کامپیوتر"
+            isOfficial={false}
+          />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("request-update-cta-button")).toBeDefined();
+      expect(screen.getByText("درخواست به‌روزرسانی دوره")).toBeDefined();
+    });
+  });
+
+  it("renders pending update badge and explanation when update is pending_review", async () => {
+    const queryClient = createTestQueryClient();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const urlStr = url.toString();
+      if (urlStr.includes(`/v1/organizations/${orgId}/courses/${courseId}/publication-status`)) {
+        return new Response(
+          JSON.stringify({
+            publication: {
+              id: "pub-2",
+              status: "pending_review",
+              version: 2,
+              isUpdate: true,
+              baseVersion: 1,
+            },
+            publishedPublication: {
+              id: "pub-1",
+              status: "published",
+              version: 1,
+            },
+            isOfficial: false,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <CoursePublicationBanner
+            organizationId={orgId}
+            courseId={courseId}
+            courseTitle="دوره هوش مصنوعی"
+            courseSubject="مهندسی کامپیوتر"
+            isOfficial={false}
+          />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/در انتظار بررسی به‌روزرسانی/)).toBeDefined();
+      expect(screen.getByText(/تا زمان تأیید، نسخه فعلی همچنان برای فراگیران بدون وقفه قابل استفاده است/)).toBeDefined();
+    });
+  });
+
+  it("renders changes requested badge, admin review notes, and retry button when status is changes_requested", async () => {
+    const queryClient = createTestQueryClient();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const urlStr = url.toString();
+      if (urlStr.includes(`/v1/organizations/${orgId}/courses/${courseId}/publication-status`)) {
+        return new Response(
+          JSON.stringify({
+            publication: {
+              id: "pub-2",
+              status: "changes_requested",
+              version: 2,
+              isUpdate: true,
+              reviewNotes: "لطفاً تمرین‌های تکمیلی فصل سوم را پیوست نمایید.",
+            },
+            publishedPublication: {
+              id: "pub-1",
+              status: "published",
+              version: 1,
+            },
+            isOfficial: false,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <CoursePublicationBanner
+            organizationId={orgId}
+            courseId={courseId}
+            courseTitle="دوره هوش مصنوعی"
+            courseSubject="مهندسی کامپیوتر"
+            isOfficial={false}
+          />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("نیازمند اصلاح محتوا")).toBeDefined();
+      expect(screen.getByText(/لطفاً تمرین‌های تکمیلی فصل سوم را پیوست نمایید/)).toBeDefined();
+      expect(screen.getByText("ارسال مجدد پس از اصلاح")).toBeDefined();
+    });
+  });
+
+  it("RequestCoursePublishModal renders update title and button label when isUpdate is true", async () => {
+    render(
+      <BrowserRouter>
+        <RequestCoursePublishModal
+          isOpen={true}
+          onClose={() => {}}
+          organizationId={orgId}
+          courseId={courseId}
+          courseTitle="دوره هوش مصنوعی"
+          courseSubject="مهندسی کامپیوتر"
+          isUpdate={true}
+        />
+      </BrowserRouter>,
+    );
+
+    expect(screen.getByText("درخواست به‌روزرسانی دوره در کتابخانه")).toBeDefined();
+    expect(screen.getByText("ثبت درخواست به‌روزرسانی")).toBeDefined();
+  });
 });

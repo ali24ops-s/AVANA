@@ -119,6 +119,11 @@ describe("Popular Avana Courses (محبوب‌ترین دوره‌ها) Integrat
     const body = JSON.parse(res.body) as {
       course: { id: string; title: string };
     };
+    const record = await courseStore.findById(body.course.id as CourseId);
+    if (record) {
+      record.status = "published";
+      await courseStore.update(record);
+    }
     return body.course;
   }
 

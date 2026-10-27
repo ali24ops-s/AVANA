@@ -57,6 +57,7 @@ import type {
 } from "../study/study-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { DbClient } from "@avana/database/client";
+import type { CourseStore } from "../courses/course-store.js";
 
 export interface ReviewRouteOptions {
   sessionService: AuthMiddlewareDeps["sessionService"];
@@ -75,6 +76,7 @@ export interface ReviewRouteOptions {
   auditService?: AuditService;
   db?: DbClient;
   systemOrganizationId?: OrganizationId;
+  courseStore?: CourseStore;
 }
 
 const UUID_RE =
@@ -100,6 +102,7 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
     auditService,
     db,
     systemOrganizationId,
+    courseStore,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
@@ -121,6 +124,7 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
     db,
     undefined,
     systemOrganizationId,
+    courseStore,
   );
 
   /** Helper to extract actor from authenticated request. */

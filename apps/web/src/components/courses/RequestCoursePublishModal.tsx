@@ -19,6 +19,8 @@ export interface RequestCoursePublishModalProps {
   courseDescription?: string | null;
   courseSubject?: string | null;
   isOfficial?: boolean;
+  isUpdate?: boolean;
+  currentVersion?: number;
   onSubmitted?: () => void;
 }
 
@@ -31,6 +33,8 @@ export function RequestCoursePublishModal({
   courseDescription,
   courseSubject,
   isOfficial = false,
+  isUpdate = false,
+  currentVersion = 1,
   onSubmitted,
 }: RequestCoursePublishModalProps) {
   if (isOfficial) {
@@ -65,6 +69,8 @@ export function RequestCoursePublishModal({
       setError(
         err instanceof Error
           ? err.message
+          : isUpdate
+          ? "خطا در ثبت درخواست به‌روزرسانی در کتابخانه"
           : "خطا در ثبت درخواست انتشار در کتابخانه",
       );
     } finally {
@@ -72,12 +78,16 @@ export function RequestCoursePublishModal({
     }
   };
 
+  const modalTitle = isUpdate
+    ? "درخواست به‌روزرسانی دوره در کتابخانه"
+    : "درخواست انتشار دوره در کتابخانه";
+
   return (
     <Dialog
       isOpen={isOpen}
       onClose={onClose}
       maxWidth="md"
-      ariaLabel="درخواست انتشار دوره در کتابخانه"
+      ariaLabel={modalTitle}
     >
       <DialogHeader
         onClose={onClose}
@@ -89,10 +99,12 @@ export function RequestCoursePublishModal({
           </div>
           <div>
             <h2 className="text-base font-bold text-[var(--color-text)]">
-              درخواست انتشار دوره در کتابخانه
+              {modalTitle}
             </h2>
             <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-              ارسال جهت بررسی و آماده‌سازی نهایی توسط تیم آوانا
+              {isUpdate
+                ? `ارسال تغییرات جدید جهت بررسی و انتشار نسخه ${currentVersion + 1}`
+                : "ارسال جهت بررسی و آماده‌سازی نهایی توسط تیم آوانا"}
             </p>
           </div>
         </div>
@@ -111,10 +123,14 @@ export function RequestCoursePublishModal({
           <div className="py-6 text-center space-y-2.5">
             <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto animate-in zoom-in-50 duration-200" />
             <h3 className="text-sm font-bold text-[var(--color-text)]">
-              درخواست انتشار با موفقیت ثبت شد!
+              {isUpdate
+                ? "درخواست به‌روزرسانی با موفقیت ثبت شد!"
+                : "درخواست انتشار با موفقیت ثبت شد!"}
             </h3>
             <p className="text-xs text-[var(--color-text-muted)] max-w-sm mx-auto">
-              دوره شما در صف بررسی تیم مدیریت محتوای آوانا قرار گرفت. وضعیت آن را در بالای همین صفحه می‌توانید مشاهده کنید.
+              {isUpdate
+                ? "تغییرات دوره در صف بررسی ادمین قرار گرفت. تا زمان تأیید، نسخه فعلی همچنان برای فراگیران بدون وقفه در دسترس است."
+                : "دوره شما در صف بررسی تیم مدیریت محتوای آوانا قرار گرفت. وضعیت آن را در بالای همین صفحه می‌توانید مشاهده کنید."}
             </p>
           </div>
         ) : (
@@ -137,7 +153,9 @@ export function RequestCoursePublishModal({
             </div>
 
             <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              با ثبت این درخواست، دوره شما توسط مدیران آوانا بررسی شده، ساختار و محتوای آن آماده‌سازی و در صورت تأیید در کتابخانه عمومی آوانا در دسترس همگان قرار خواهد گرفت.
+              {isUpdate
+                ? "با ثبت این درخواست، تغییرات و درس‌های جدید شما توسط مدیران آوانا بررسی شده و پس از تأیید، نسخه جدید در کتابخانه عمومی اعمال خواهد شد. نسخه فعلی در طول فرایند بررسی بدون تغییر باقی می‌ماند."
+                : "با ثبت این درخواست، دوره شما توسط مدیران آوانا بررسی شده، ساختار و محتوای آن آماده‌سازی و در صورت تأیید در کتابخانه عمومی آوانا در دسترس همگان قرار خواهد گرفت."}
             </p>
 
             <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[var(--color-border)]">
@@ -165,7 +183,7 @@ export function RequestCoursePublishModal({
                 ) : (
                   <>
                     <Send className="w-3.5 h-3.5 ml-1.5" />
-                    <span>ثبت درخواست انتشار</span>
+                    <span>{isUpdate ? "ثبت درخواست به‌روزرسانی" : "ثبت درخواست انتشار"}</span>
                   </>
                 )}
               </Button>

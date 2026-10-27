@@ -11,6 +11,9 @@ import {
   resolveExamUrgencyBudget,
   getExamUrgencyPriorityBoost,
   calculateExamDaysRemaining,
+  isExamUpcoming,
+  isExamPast,
+  isDateOnlyExamString,
   detectActiveLearningStreams,
   pickBalancedLessonsFromStreams,
   type PlannerCandidate,
@@ -376,6 +379,65 @@ describe("Exam Days Remaining (Timezone-Safe Date Arithmetic)", () => {
     expect(calculateExamDaysRemaining(null, ref)).toBeNull();
     expect(calculateExamDaysRemaining(undefined, ref)).toBeNull();
     expect(calculateExamDaysRemaining("invalid-date", ref)).toBeNull();
+  });
+
+  it("handles exact timestamp expiry during the same day in Asia/Tehran", () => {
+    // 2026-09-18T10:00:00Z in UTC = 13:30:00 in Asia/Tehran (+3:30)
+    const refTehran1400 = new Date("2026-09-18T10:30:00Z"); // 14:00 Tehran
+    const pastTimeExam = "2026-09-18T09:30:00Z"; // 13:00 Tehran (has passed)
+    const futureTimeExam = "2026-09-18T11:30:00Z"; // 15:00 Tehran (upcoming)
+
+    expect(calculateExamDaysRemaining(pastTimeExam, refTehran1400)).toBe(-1);
+    expect(isExamUpcoming(pastTimeExam, refTehran1400)).toBe(false);
+    expect(isExamPast(pastTimeExam, refTehran1400)).toBe(true);
+
+    expect(calculateExamDaysRemaining(futureTimeExam, refTehran1400)).toBe(0);
+    expect(isExamUpcoming(futureTimeExam, refTehran1400)).toBe(true);
+    expect(isExamPast(futureTimeExam, refTehran1400)).toBe(false);
+  });
+
+  it("keeps date-only exams valid until end of day in Asia/Tehran", () => {
+    // 2026-09-18 22:00 Tehran time (still Sep 18 in Tehran)
+    const refTehranNight = new Date("2026-09-18T18:30:00Z");
+
+    // Standard date format: YYYY-MM-DD
+    expect(isExamUpcoming("2026-09-18", refTehranNight)).toBe(true);
+    expect(isExamPast("2026-09-18", refTehranNight)).toBe(false);
+    expect(calculateExamDaysRemaining("2026-09-18", refTehranNight)).toBe(0);
+
+    // Stored date-only format: YYYY-MM-DDT00:00:00.000Z
+    expect(isExamUpcoming("2026-09-18T00:00:00.000Z", refTehranNight)).toBe(true);
+    expect(isExamPast("2026-09-18T00:00:00.000Z", refTehranNight)).toBe(false);
+    expect(calculateExamDaysRemaining("2026-09-18T00:00:00.000Z", refTehranNight)).toBe(0);
+
+    // Next day at 00:05 Tehran time -> Sep 18 is now past
+    const refTehranNextDay = new Date("2026-09-18T20:35:00Z"); // 00:05 Sep 19 in Tehran
+    expect(isExamUpcoming("2026-09-18", refTehranNextDay)).toBe(false);
+    expect(isExamPast("2026-09-18", refTehranNextDay)).toBe(true);
+    expect(calculateExamDaysRemaining("2026-09-18", refTehranNextDay)).toBe(-1);
+  });
+
+  it("handles invalid, null, and empty inputs gracefully for isExamUpcoming and isExamPast", () => {
+    expect(isExamUpcoming(null)).toBe(false);
+    expect(isExamUpcoming(undefined)).toBe(false);
+    expect(isExamUpcoming("")).toBe(false);
+    expect(isExamUpcoming("invalid-date-format")).toBe(false);
+
+    expect(isExamPast(null)).toBe(false);
+    expect(isExamPast(undefined)).toBe(false);
+    expect(isExamPast("")).toBe(false);
+    expect(isExamPast("invalid-date-format")).toBe(false);
+
+    expect(isDateOnlyExamString("2026-09-18")).toBe(true);
+    expect(isDateOnlyExamString("2026-09-18T00:00:00.000Z")).toBe(true);
+    expect(isDateOnlyExamString("2026-09-18T00:00:00Z")).toBe(true);
+    expect(isDateOnlyExamString("2026-09-18T00:00:00")).toBe(true);
+    expect(isDateOnlyExamString("2026-09-18 00:00:00")).toBe(true);
+    expect(isDateOnlyExamString("2026-09-18 00:00:00+00:00")).toBe(true);
+    expect(isDateOnlyExamString("2026-09-18T00:00:00.000000Z")).toBe(true);
+    expect(isDateOnlyExamString("2026-09-18T10:00:00.000Z")).toBe(false);
+    expect(isDateOnlyExamString("2026-09-18T00:01:00.000Z")).toBe(false);
+    expect(isDateOnlyExamString("2026-09-18T00:00:01.000Z")).toBe(false);
   });
 });
 

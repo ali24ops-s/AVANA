@@ -52,7 +52,8 @@ export function EditContentDialog({
         "",
     );
     const title = String(payload.title ?? "");
-    return { title, contentMarkdown, sessions };
+    const reference = typeof payload.reference === "string" ? payload.reference : "";
+    return { title, contentMarkdown, sessions, reference };
   }, [payload]);
 
   const initialFlashcardState: FlashcardItemData[] = useMemo(() => {
@@ -239,10 +240,12 @@ export function EditContentDialog({
             .map((s) => `## ${s.title}\n\n${s.contentMarkdown}`)
             .join("\n\n---\n\n");
 
+          const refValue = lessonData.reference?.trim() || null;
           updatedPayload = {
             ...payload,
             kind: "lesson",
             title: lessonData.title.trim(),
+            reference: refValue,
             sessions: lessonData.sessions.map((s, idx) => ({
               ...s,
               sessionIndex: idx,
@@ -253,10 +256,12 @@ export function EditContentDialog({
             content_markdown: consolidatedMarkdown,
           };
         } else {
+          const refValue = lessonData.reference?.trim() || null;
           updatedPayload = {
             ...payload,
             kind: "lesson",
             title: lessonData.title.trim(),
+            reference: refValue,
             contentMarkdown: lessonData.contentMarkdown,
             content_markdown: lessonData.contentMarkdown,
           };

@@ -129,6 +129,21 @@ describe("PR6-6: AI generation review & acceptance API", () => {
 
   function seedDocumentAndChunk(organizationId: OrganizationId): void {
     const now = new Date().toISOString();
+    courseStore.create({
+      course: {
+        id: courseId,
+        organizationId,
+        name: "Test Course",
+        subject: "Medical",
+        examDate: null,
+        isOfficial: false,
+        status: "published",
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      auditEvents: [],
+    }).catch(() => {});
     documentStore.insert({
       id: documentId,
       organizationId,

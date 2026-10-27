@@ -8,6 +8,8 @@
  * - 100% deterministic, zero AI/external dependency
  */
 
+import { getLocalDateParts, validateTimezone } from "./study-session.js";
+
 // ---------------------------------------------------------------------------
 // Task & Plan Types and Status Enums
 // ---------------------------------------------------------------------------
@@ -111,49 +113,143 @@ export const EXAM_PLANNER_CONFIG = {
 } as const;
 
 /**
+ * Checks whether an exam string represents a calendar date without a specific time of day
+ * (e.g. "2026-10-27" or "2026-10-27T00:00:00.000Z").
+ */
+export function isDateOnlyExamString(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return true;
+  if (/^\d{4}-\d{2}-\d{2}[T\s]00:00:00(?:\.0+)?(?:Z|[+-]00(?::?00)?)?$/i.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Determines whether an exam timestamp or date string represents an upcoming/active exam
+ * vs an expired/past exam.
+ *
+ * Rules:
+ * 1. Default reference timezone is "Asia/Tehran".
+ * 2. If date has an exact time (e.g. "2026-10-27T10:00:00+03:30"), it is upcoming if examTime >= refTime,
+ *    and expires immediately after that point in time.
+ * 3. If date is a calendar date without time (e.g. "2026-10-27" or "2026-10-27T00:00:00.000Z"),
+ *    it remains active throughout the entire calendar day in Asia/Tehran (until 23:59:59.999).
+ * 4. Invalid strings, null, undefined, and empty strings always return false.
+ */
+export function isExamUpcoming(
+  examDateInput: string | Date | null | undefined,
+  referenceDate: Date = new Date(),
+  timeZone: string = "Asia/Tehran",
+): boolean {
+  if (!examDateInput) return false;
+  if (typeof examDateInput === "string" && examDateInput.trim() === "") return false;
+
+  const validTz = validateTimezone(timeZone);
+  const examDate = typeof examDateInput === "string" ? new Date(examDateInput) : examDateInput;
+  if (isNaN(examDate.getTime())) return false;
+
+  const isDateOnly = isDateOnlyExamString(examDateInput);
+
+  if (isDateOnly) {
+    const examStr = typeof examDateInput === "string" ? examDateInput.trim() : "";
+    const match = examStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    let examYear: number;
+    let examMonth: number;
+    let examDay: number;
+
+    if (match) {
+      examYear = parseInt(match[1], 10);
+      examMonth = parseInt(match[2], 10);
+      examDay = parseInt(match[3], 10);
+    } else {
+      const parts = getLocalDateParts(examDate, validTz);
+      examYear = parts.year;
+      examMonth = parts.month;
+      examDay = parts.day;
+    }
+
+    const refParts = getLocalDateParts(referenceDate, validTz);
+    const examUtcDays = Date.UTC(examYear, examMonth - 1, examDay) / 86400000;
+    const refUtcDays = Date.UTC(refParts.year, refParts.month - 1, refParts.day) / 86400000;
+    const dayDiff = Math.round(examUtcDays - refUtcDays);
+
+    return dayDiff >= 0;
+  }
+
+  // Exact timestamp with time: expires as soon as referenceDate passes examDate
+  return examDate.getTime() >= referenceDate.getTime();
+}
+
+/**
+ * Determines whether an exam timestamp or date string has already passed/expired.
+ * Returns true ONLY for valid dates that are in the past.
+ * Returns false for upcoming dates, as well as null/undefined/invalid values.
+ */
+export function isExamPast(
+  examDateInput: string | Date | null | undefined,
+  referenceDate: Date = new Date(),
+  timeZone: string = "Asia/Tehran",
+): boolean {
+  if (!examDateInput) return false;
+  if (typeof examDateInput === "string" && examDateInput.trim() === "") return false;
+
+  const examDate = typeof examDateInput === "string" ? new Date(examDateInput) : examDateInput;
+  if (isNaN(examDate.getTime())) return false;
+
+  return !isExamUpcoming(examDateInput, referenceDate, timeZone);
+}
+
+/**
  * Deterministically calculates calendar days remaining until an exam date (safe across all timezones).
  *
  * Rules:
  * - Returns null for null/empty/invalid input.
- * - Negative numbers indicate past/expired exams.
- * - 0 indicates today.
+ * - Negative numbers indicate past/expired exams (-1 for expired today or yesterday, etc.).
+ * - 0 indicates today (upcoming/active).
  * - 1 indicates tomorrow, etc.
  */
 export function calculateExamDaysRemaining(
   examDateStr: string | null | undefined,
   referenceDate: Date = new Date(),
+  timeZone: string = "Asia/Tehran",
 ): number | null {
   if (!examDateStr) return null;
+  if (typeof examDateStr === "string" && examDateStr.trim() === "") return null;
 
-  const match = examDateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) {
-    const parsed = new Date(examDateStr);
-    if (isNaN(parsed.getTime())) return null;
-    const refMidnight = Date.UTC(
-      referenceDate.getFullYear(),
-      referenceDate.getMonth(),
-      referenceDate.getDate(),
-    );
-    const examMidnight = Date.UTC(
-      parsed.getFullYear(),
-      parsed.getMonth(),
-      parsed.getDate(),
-    );
-    return Math.round((examMidnight - refMidnight) / 86400000);
+  const validTz = validateTimezone(timeZone);
+  const parsed = typeof examDateStr === "string" ? new Date(examDateStr) : examDateStr;
+  if (isNaN(parsed.getTime())) return null;
+
+  const isUpcoming = isExamUpcoming(examDateStr, referenceDate, validTz);
+
+  const match = typeof examDateStr === "string" ? examDateStr.match(/^(\d{4})-(\d{2})-(\d{2})/) : null;
+  let examYear: number;
+  let examMonth: number;
+  let examDay: number;
+
+  if (match) {
+    examYear = parseInt(match[1], 10);
+    examMonth = parseInt(match[2], 10);
+    examDay = parseInt(match[3], 10);
+  } else {
+    const parts = getLocalDateParts(parsed, validTz);
+    examYear = parts.year;
+    examMonth = parts.month;
+    examDay = parts.day;
   }
 
-  const examYear = parseInt(match[1], 10);
-  const examMonth = parseInt(match[2], 10) - 1;
-  const examDay = parseInt(match[3], 10);
+  const refParts = getLocalDateParts(referenceDate, validTz);
+  const examUtcDays = Date.UTC(examYear, examMonth - 1, examDay) / 86400000;
+  const refUtcDays = Date.UTC(refParts.year, refParts.month - 1, refParts.day) / 86400000;
+  const dayDiff = Math.round(examUtcDays - refUtcDays);
 
-  const refMidnight = Date.UTC(
-    referenceDate.getFullYear(),
-    referenceDate.getMonth(),
-    referenceDate.getDate(),
-  );
-  const examMidnight = Date.UTC(examYear, examMonth, examDay);
+  if (!isUpcoming) {
+    return dayDiff === 0 ? -1 : Math.min(-1, dayDiff);
+  }
 
-  return Math.round((examMidnight - refMidnight) / 86400000);
+  return Math.max(0, dayDiff);
 }
 
 /**

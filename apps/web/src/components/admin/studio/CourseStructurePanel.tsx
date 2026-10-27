@@ -54,6 +54,41 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
     }
   }, [previewLesson]);
 
+  // Lesson reference state in preview modal
+  const [editingReference, setEditingReference] = useState("");
+  const [isSavingReference, setIsSavingReference] = useState(false);
+  const [referenceSuccess, setReferenceSuccess] = useState(false);
+
+  useEffect(() => {
+    setEditingReference(lessonDetailsQuery.data?.reference || "");
+    setReferenceSuccess(false);
+  }, [lessonDetailsQuery.data?.reference, previewLesson?.id]);
+
+  const handleSaveReference = async () => {
+    if (!previewLesson) return;
+    setIsSavingReference(true);
+    setReferenceSuccess(false);
+    try {
+      const refToSave = editingReference.trim() ? editingReference.trim() : null;
+      await adminApi.updateLesson(previewLesson.id, { reference: refToSave });
+      await queryClient.invalidateQueries({
+        queryKey: ["admin-lesson-detail", previewLesson.id, courseId],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["course-learning", courseId],
+      });
+      setReferenceSuccess(true);
+      setTimeout(() => setReferenceSuccess(false), 3000);
+    } catch (err: any) {
+      setActionMessage({
+        type: "error",
+        text: err?.message || "خطا در ذخیره رفرنس محتوا",
+      });
+    } finally {
+      setIsSavingReference(false);
+    }
+  };
+
   // Group modal & inline states
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [newGroupTitle, setNewGroupTitle] = useState("");
@@ -821,6 +856,52 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
                 <span className="px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-bold">
                   وضعیت محتوا: {previewLesson.hasContent || lessonDetailsQuery.data?.contentMarkdown ? "تکمیل شده" : "فاقد متن"}
                 </span>
+              </div>
+
+              {/* Reference Management Box */}
+              <div className="p-3.5 bg-[var(--color-surface-warm)]/50 rounded-2xl border border-[var(--color-border)] space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <label
+                    htmlFor="admin-lesson-reference-input"
+                    className="text-xs font-bold text-[var(--color-text)] flex items-center gap-1.5"
+                  >
+                    <BookOpen className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
+                    <span>رفرنس محتوا</span>
+                    <span className="text-[var(--color-text-muted)] text-[11px] font-normal">(اختیاری)</span>
+                  </label>
+                  {referenceSuccess && (
+                    <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <Check className="w-3 h-3" />
+                      <span>ذخیره شد</span>
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="admin-lesson-reference-input"
+                    type="text"
+                    value={editingReference}
+                    onChange={(e) => {
+                      setEditingReference(e.target.value);
+                      setReferenceSuccess(false);
+                    }}
+                    placeholder="نام کتاب، جزوه، منبع علمی یا مرجع استفاده‌شده..."
+                    className="flex-1 px-3 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-xs text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary-default)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveReference}
+                    disabled={isSavingReference}
+                    className="px-3.5 py-1.5 bg-[var(--color-primary-default)] hover:opacity-90 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    {isSavingReference ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5" />
+                    )}
+                    <span>ذخیره رفرنس</span>
+                  </button>
+                </div>
               </div>
 
               {/* Modal Tabs */}

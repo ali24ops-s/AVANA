@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Outlet, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { AdminSidebar } from "../admin/AdminSidebar.js";
@@ -20,6 +20,23 @@ export function AdminLayout() {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  // Redundant layout-level SEO defense: Guarantee noindex and remove stale canonicals
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    let robotsMeta = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
+    if (!robotsMeta) {
+      robotsMeta = document.createElement("meta");
+      robotsMeta.name = "robots";
+      document.head.appendChild(robotsMeta);
+    }
+    robotsMeta.content = "noindex, nofollow";
+    robotsMeta.setAttribute("data-managed-by", "avana-route-robots");
+
+    const canonicals = document.querySelectorAll('link[rel="canonical"]');
+    canonicals.forEach((c) => c.remove());
+  }, [location.pathname]);
 
   const handleToggleCollapse = useCallback(() => {
     setIsCollapsed((prev) => !prev);

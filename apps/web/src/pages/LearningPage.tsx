@@ -36,8 +36,11 @@ import {
   X,
   Lock,
   ShoppingBag,
+  Share2,
 } from "lucide-react";
 import { Button, Badge } from "@avana/ui";
+import { CourseSEO } from "../components/courses/CourseSEO.js";
+import { CourseShareModal } from "../components/courses/CourseShareModal.js";
 import { LessonInteractiveContent } from "../components/study/LessonInteractiveContent.js";
 import { FlashcardExperience } from "../components/flashcards/FlashcardExperience.js";
 import { QuizListView } from "../components/quiz/QuizListView.js";
@@ -52,6 +55,7 @@ import { createApiClient, getApiBaseUrl, generateUUID } from "../lib/api/client.
 import { createLearningApi } from "../lib/api/learning.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
 import { createReviewApi } from "../lib/api/review.js";
+import { isExamUpcoming } from "../utils/date.js";
 import {
   StudyAssistantChat,
   type QuestionMentorState,
@@ -175,11 +179,37 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
   const learningApi = createLearningApi(apiClient);
   const reviewApi = createReviewApi(apiClient);
 
-  // Review queue query for badge count (only polled if generation is permitted)
+  const isOfficial = Boolean(
+    (data?.course as { isOfficial?: boolean; is_official?: boolean } | undefined)?.isOfficial ??
+    (data?.course as { isOfficial?: boolean; is_official?: boolean } | undefined)?.is_official ??
+    false
+  );
+  const isOfficialCourseRestricted = isOfficial && !isManagerOrAdmin;
+
+  // Fallback to lessons if a user attempts to access documents or review tab on an official course without permissions
+  const effectiveActiveTab: LearningTab =
+    !isLoading && isOfficialCourseRestricted && (activeTab === "documents" || activeTab === "review")
+      ? "lessons"
+      : activeTab;
+
+  useEffect(() => {
+    if (!isLoading && isOfficialCourseRestricted && (rawTab === "documents" || rawTab === "review")) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("tab", "lessons");
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [isLoading, isOfficialCourseRestricted, rawTab, setSearchParams]);
+
+  // Review queue query for badge count (only polled if generation is permitted and course is not restricted official)
   const reviewQueueQuery = useQuery({
     queryKey: ["review-queue", organization?.id, courseId],
     queryFn: () => reviewApi.getReviewQueue(organization!.id, courseId!),
-    enabled: !!organization?.id && !!courseId && isGenerationPermitted,
+    enabled: !!organization?.id && !!courseId && isGenerationPermitted && !isOfficialCourseRestricted,
     refetchInterval: 5000,
   });
   const pendingReviewCount = reviewQueueQuery.data?.pending?.length ?? 0;
@@ -191,6 +221,8 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
   const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null);
   // Track unified syllabus drawer open state (Mobile, Tablet & Desktop)
   const [isCurriculumDrawerOpen, setIsCurriculumDrawerOpen] = useState(false);
+  // Track course share modal open state
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   // Handler for single-open chapter accordion:
   // Clicking an unopened chapter closes any previous chapter and opens the new one.
@@ -387,7 +419,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
     activityType: "lesson",
     courseId,
     lessonId: selectedLessonId,
-    enabled: activeTab === "lessons" && Boolean(selectedLessonId),
+    enabled: effectiveActiveTab === "lessons" && Boolean(selectedLessonId),
   });
 
   // Loading state
@@ -401,14 +433,25 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
 
   // Error state
   if (isError || !data || !organization) {
+    const errorMsg = (error as Error)?.message ?? "";
+    const isNotFoundOrForbidden =
+      errorMsg.includes("not_found") ||
+      errorMsg.includes("یافت نشد") ||
+      errorMsg.includes("forbidden") ||
+      errorMsg.includes("404");
+
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-8">
         <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
         <h2 className="text-lg font-bold text-[var(--color-text)]">
-          خطا در بارگذاری محتوای دوره
+          {isNotFoundOrForbidden
+            ? "دوره در دسترس نیست یا دسترسی به آن محدود است"
+            : "خطا در بارگذاری محتوای دوره"}
         </h2>
         <p className="text-xs text-[var(--color-text-muted)] mt-1 max-w-sm">
-          {(error as Error)?.message ?? "خطایی در دریافت اطلاعات رخ داد."}
+          {isNotFoundOrForbidden
+            ? "این دوره ممکن است حذف شده باشد، یا حساب کاربری شما اجازه دسترسی به آن را نداشته باشد."
+            : errorMsg || "خطایی در دریافت اطلاعات رخ داد."}
         </p>
         <div className="flex items-center gap-3 mt-5">
           <Button
@@ -586,12 +629,20 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
         <span>بازگشت به دوره‌ها</span>
       </Link>
 
+      {/* Dynamic SEO & Open Graph for current course */}
+      <CourseSEO
+        title={course.title}
+        subject={course.subject}
+        description={(course as any).description}
+      />
+
       {/* Course header with progress bar */}
       <CourseHeader
         course={course}
         progress={progress}
         access={(data as any).access}
         availablePurchaseOptions={(data as any).access?.availablePurchaseOptions}
+        onShare={() => setIsShareModalOpen(true)}
         manageLink={
           courseId && isManagerOrAdmin ? (
             <Link
@@ -603,6 +654,19 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
             </Link>
           ) : null
         }
+      />
+
+      {/* Course Share Modal */}
+      <CourseShareModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        course={{
+          id: courseId!,
+          title: course.title,
+          subject: course.subject,
+          description: (course as any).description,
+          coverImage: (course as any).cover_image,
+        }}
       />
 
       {/* Library Publication Request & Status Banner for user-owned courses */}
@@ -626,83 +690,89 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
         <TabButton
           icon={BookOpen}
           label="درس‌ها"
-          active={activeTab === "lessons"}
+          active={effectiveActiveTab === "lessons"}
           onClick={() => setTab("lessons")}
         />
         <TabButton
           icon={Zap}
           label="خلاصه مروری"
-          active={activeTab === "review_summary"}
+          active={effectiveActiveTab === "review_summary"}
           onClick={() => setTab("review_summary")}
         />
         <TabButton
           icon={Layers}
           label="فلش‌کارت‌ها"
-          active={activeTab === "flashcards"}
+          active={effectiveActiveTab === "flashcards"}
           onClick={() => setTab("flashcards")}
         />
         <TabButton
           icon={HelpCircle}
           label="آزمون‌ها"
-          active={activeTab === "quizzes"}
+          active={effectiveActiveTab === "quizzes"}
           onClick={() => setTab("quizzes")}
         />
         <TabButton
           icon={BarChart3}
           label="تحلیل و گام‌های بعدی"
-          active={activeTab === "analytics"}
+          active={effectiveActiveTab === "analytics"}
           onClick={() => setTab("analytics")}
         />
-        <TabButton
-          icon={UploadCloud}
-          label="منابع و اسناد (PDF)"
-          badge={!isGenerationPermitted ? "به‌زودی" : undefined}
-          active={activeTab === "documents"}
-          onClick={() => {
-            if (!isGenerationPermitted) {
-              setIsComingSoonOpen(true);
-              return;
+        {!isOfficialCourseRestricted && (
+          <TabButton
+            icon={UploadCloud}
+            label="منابع و اسناد (PDF)"
+            badge={!isGenerationPermitted ? "به‌زودی" : undefined}
+            active={effectiveActiveTab === "documents"}
+            onClick={() => {
+              if (!isGenerationPermitted) {
+                setIsComingSoonOpen(true);
+                return;
+              }
+              setTab("documents");
+            }}
+          />
+        )}
+        {!isOfficialCourseRestricted && (
+          <TabButton
+            icon={Sparkles}
+            label={
+              !isGenerationPermitted
+                ? "صف بررسی محتوا"
+                : pendingReviewCount > 0
+                  ? `صف بررسی محتوا (${toPersianDigits(pendingReviewCount)})`
+                  : "صف بررسی محتوا (AI)"
             }
-            setTab("documents");
-          }}
-        />
-        <TabButton
-          icon={Sparkles}
-          label={
-            !isGenerationPermitted
-              ? "صف بررسی محتوا"
-              : pendingReviewCount > 0
-                ? `صف بررسی محتوا (${toPersianDigits(pendingReviewCount)})`
-                : "صف بررسی محتوا (AI)"
-          }
-          badge={!isGenerationPermitted ? "به‌زودی" : undefined}
-          active={activeTab === "review"}
-          onClick={() => {
-            if (!isGenerationPermitted) {
-              setIsComingSoonOpen(true);
-              return;
-            }
-            setTab("review");
-          }}
-        />
+            badge={!isGenerationPermitted ? "به‌زودی" : undefined}
+            active={effectiveActiveTab === "review"}
+            onClick={() => {
+              if (!isGenerationPermitted) {
+                setIsComingSoonOpen(true);
+                return;
+              }
+              setTab("review");
+            }}
+          />
+        )}
       </div>
 
       {/* Tab Content */}
 
-      {activeTab === "review_summary" && (
+      {effectiveActiveTab === "review_summary" && (
         <CourseReviewSummaryView
           organizationId={data?.course?.organization_id || organization.id}
           courseId={courseId!}
           modules={data?.modules}
           previewDocumentId={data?.preview?.preview_document_id}
           isPreview={isCourseLocked}
+          isOfficial={isOfficial}
+          isManagerOrAdmin={isManagerOrAdmin}
           onUnlock={() => setIsCoursePaywallOpen(true)}
           onNavigateToFlashcards={() => setTab("flashcards")}
           onNavigateToQuiz={() => setTab("quizzes")}
         />
       )}
 
-      {activeTab === "flashcards" && (
+      {effectiveActiveTab === "flashcards" && (
         <div className="space-y-6">
           <div className="flex items-center justify-between bg-[var(--color-surface)] p-4 rounded-2xl border border-[var(--color-border)]">
             <span className="text-xs text-[var(--color-text-muted)]">
@@ -727,7 +797,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
         </div>
       )}
 
-      {activeTab === "quizzes" && (
+      {effectiveActiveTab === "quizzes" && (
         <QuizListView
           organizationId={data?.course?.organization_id || organization.id}
           courseId={courseId!}
@@ -737,7 +807,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
         />
       )}
 
-      {activeTab === "analytics" && (
+      {effectiveActiveTab === "analytics" && (
         <StudyAnalyticsView
           organizationId={organization.id}
           courseId={courseId!}
@@ -745,12 +815,13 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
         />
       )}
 
-      {activeTab === "documents" && (
+      {effectiveActiveTab === "documents" && !isOfficialCourseRestricted && (
         isGenerationPermitted ? (
           <CourseDocumentsView
             organizationId={organization.id}
             courseId={courseId!}
             onNavigateToReview={() => setTab("review")}
+            isActiveTab={effectiveActiveTab === "documents"}
           />
         ) : (
           <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center space-y-4 shadow-sm" dir="rtl">
@@ -790,7 +861,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
         )
       )}
 
-      {activeTab === "review" && (
+      {effectiveActiveTab === "review" && !isOfficialCourseRestricted && (
         isGenerationPermitted ? (
           <div className="space-y-6">
             <div className="bg-[var(--color-surface)] p-6 rounded-card border border-[var(--color-border)] shadow-sm space-y-1">
@@ -849,7 +920,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
         )
       )}
 
-      {activeTab === "lessons" && (
+      {effectiveActiveTab === "lessons" && (
         <div>
           <SubscriptionBanner className="mb-6" />
           {totalLessonsCount === 0 ? (
@@ -860,28 +931,34 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
                 </div>
                 <div className="space-y-1.5 max-w-md mx-auto">
                   <h3 className="text-lg font-bold text-[var(--color-text)]">
-                    هنوز محتوایی به این دوره اضافه نشده است
+                    {isOfficialCourseRestricted
+                      ? "هنوز محتوایی در این دوره منتشر نشده است"
+                      : "هنوز محتوایی به این دوره اضافه نشده است"}
                   </h3>
                   <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-                    این دوره هنوز محتوای آموزشی ندارد. برای شروع، اولین فایل PDF آموزشی خود را اضافه کنید.
+                    {isOfficialCourseRestricted
+                      ? "محتوای آموزشی این دوره به زودی منتشر خواهد شد."
+                      : "این دوره هنوز محتوای آموزشی ندارد. برای شروع، اولین فایل PDF آموزشی خود را اضافه کنید."}
                   </p>
                 </div>
-                <div className="pt-2">
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    onClick={() => {
-                      if (!isGenerationPermitted) {
-                        setIsComingSoonOpen(true);
-                        return;
-                      }
-                      setTab("documents");
-                    }}
-                    leftIcon={<UploadCloud className="w-4 h-4" />}
-                  >
-                    {!isGenerationPermitted ? "افزودن فایل PDF (به‌زودی)" : "افزودن فایل PDF"}
-                  </Button>
-                </div>
+                {!isOfficialCourseRestricted && (
+                  <div className="pt-2">
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      onClick={() => {
+                        if (!isGenerationPermitted) {
+                          setIsComingSoonOpen(true);
+                          return;
+                        }
+                        setTab("documents");
+                      }}
+                      leftIcon={<UploadCloud className="w-4 h-4" />}
+                    >
+                      {!isGenerationPermitted ? "افزودن فایل PDF (به‌زودی)" : "افزودن فایل PDF"}
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -1016,18 +1093,20 @@ function TabButton({
 // Course header with progress bar
 // ---------------------------------------------------------------------------
 
-function CourseHeader({
+export function CourseHeader({
   course,
   progress,
   access,
   availablePurchaseOptions,
   manageLink,
+  onShare,
 }: {
   course: CourseData;
   progress: CourseLearnResponse["progress"];
   access?: any;
   availablePurchaseOptions?: any[];
   manageLink?: React.ReactNode;
+  onShare?: () => void;
 }) {
   const navigate = useNavigate();
   const courseOption = availablePurchaseOptions?.find(
@@ -1035,13 +1114,15 @@ function CourseHeader({
   );
   const isCourseLocked = (course as any).locked === true || (access && access.granted === false);
 
-  const examDate = course.exam_at
-    ? new Date(course.exam_at).toLocaleDateString("fa-IR", {
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      })
-    : null;
+  const isUpcoming = isExamUpcoming(course.exam_at);
+  const examDate =
+    course.exam_at && isUpcoming
+      ? new Date(course.exam_at).toLocaleDateString("fa-IR", {
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+        })
+      : null;
 
   return (
     <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] p-5 sm:p-6 shadow-sm">
@@ -1082,12 +1163,26 @@ function CourseHeader({
               <span>آزمون: {examDate}</span>
             </div>
           )}
+
+          {onShare && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onShare}
+              leftIcon={<Share2 className="w-3.5 h-3.5 text-primary" />}
+              className="flex-shrink-0 text-xs rounded-button"
+              data-testid="share-course-header-btn"
+            >
+              اشتراک‌گذاری دوره
+            </Button>
+          )}
+
           {manageLink}
         </div>
       </div>
 
       {/* Progress bar */}
-      {progress.total_lessons > 0 && (
+      {Boolean(progress?.total_lessons && progress.total_lessons > 0) && (
         <div className="mt-4 pt-3.5 border-t border-[var(--color-border)]">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-muted)]">
@@ -1541,6 +1636,7 @@ function LessonViewer({
                 moduleTitle={moduleTitle}
                 courseTitle={courseTitle}
                 content={lesson.content_markdown}
+                reference={lesson.reference}
                 onAskAvana={handleAskAvanaSelection}
                 onExplainSimply={handleExplainSimplySelection}
               />

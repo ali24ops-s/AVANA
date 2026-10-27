@@ -165,30 +165,35 @@ export function AuthenticatedShell() {
             />
 
             {/* Desktop Navigation Links */}
-            <nav className="hidden xl:flex items-center gap-1" aria-label="منوی اصلی">
+            <nav className="hidden lg:flex items-center gap-1" aria-label="منوی اصلی">
               <HeaderNavLink to="/home" active={isHomeActive}>
                 <Home className="w-4 h-4" />
                 <span>خانه</span>
               </HeaderNavLink>
 
-              <HeaderNavLink to="/courses" active={isCoursesActive}>
+              <HeaderNavLink to="/courses" active={isCoursesActive} dataTour="nav-courses">
                 <BookOpen className="w-4 h-4" />
                 <span>دوره‌ها</span>
               </HeaderNavLink>
 
-              <HeaderNavLink to="/flashcards" active={isFlashcardsActive}>
-                <Layers className="w-4 h-4" />
-                <span>فلش‌کارت‌ها</span>
-              </HeaderNavLink>
-
-              <HeaderNavLink to="/classrooms" active={isClassroomsActive}>
+              <HeaderNavLink to="/classrooms" active={isClassroomsActive} dataTour="nav-my-classes">
                 <GraduationCap className="w-4 h-4" />
                 <span>کلاس‌های من</span>
               </HeaderNavLink>
 
-              <HeaderNavLink to="/exams" active={isExamsActive}>
+              <HeaderNavLink to="/exams" active={isExamsActive} dataTour="nav-exams">
                 <HelpCircle className="w-4 h-4" />
                 <span>آزمون‌ها</span>
+              </HeaderNavLink>
+
+              <HeaderNavLink to="/library" active={isLibraryActive} dataTour="nav-library">
+                <LibraryIcon className="w-4 h-4" />
+                <span>کتابخانه</span>
+              </HeaderNavLink>
+
+              <HeaderNavLink to="/flashcards" active={isFlashcardsActive} dataTour="nav-flashcards">
+                <Layers className="w-4 h-4" />
+                <span>فلش‌کارت‌ها</span>
               </HeaderNavLink>
 
               {FILES_ENABLED && (
@@ -197,11 +202,6 @@ export function AuthenticatedShell() {
                   <span>فایل‌ها</span>
                 </HeaderNavLink>
               )}
-
-              <HeaderNavLink to="/library" active={isLibraryActive}>
-                <LibraryIcon className="w-4 h-4" />
-                <span>کتابخانه</span>
-              </HeaderNavLink>
             </nav>
           </div>
 
@@ -431,8 +431,9 @@ export function AuthenticatedShell() {
               size="sm"
               variant="outline"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="xl:hidden shrink-0"
+              className="lg:hidden shrink-0"
               aria-label="منو"
+              data-tour="mobile-nav-toggle"
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </Button>
@@ -444,11 +445,11 @@ export function AuthenticatedShell() {
       {mobileMenuOpen && (
         <>
           <div
-            className="fixed inset-0 top-16 sm:top-20 z-40 bg-black/40 backdrop-blur-xs xl:hidden"
+            className="fixed inset-0 top-16 sm:top-20 z-40 bg-black/40 backdrop-blur-xs lg:hidden"
             onClick={() => setMobileMenuOpen(false)}
             aria-hidden="true"
           />
-          <div className="fixed inset-y-0 start-0 top-16 sm:top-20 z-40 w-[63vw] min-w-[210px] max-w-[320px] sm:w-80 bg-[var(--color-surface-warm)] border-inline-end border-[var(--color-border)] p-4 sm:p-6 xl:hidden flex flex-col gap-4 overflow-y-auto pb-28 animate-in rtl:slide-in-from-right ltr:slide-in-from-left duration-200 shadow-2xl">
+          <div className="fixed inset-y-0 start-0 top-16 sm:top-20 z-40 w-[63vw] min-w-[210px] max-w-[320px] sm:w-80 bg-[var(--color-surface-warm)] border-inline-end border-[var(--color-border)] p-4 sm:p-6 lg:hidden flex flex-col gap-4 overflow-y-auto pb-28 animate-in rtl:slide-in-from-right ltr:slide-in-from-left duration-200 shadow-2xl">
           <nav className="flex flex-col gap-2" aria-label="منوی ناوبری موبایل">
             <MobileDrawerLink
               to="/home"
@@ -600,15 +601,18 @@ export function AuthenticatedShell() {
 function HeaderNavLink({
   to,
   active,
+  dataTour,
   children,
 }: {
   to: string;
   active: boolean;
+  dataTour?: string;
   children: React.ReactNode;
 }) {
   return (
     <Link
       to={to}
+      data-tour={dataTour}
       className={`flex items-center gap-1.5 xl:gap-2 px-2.5 xl:px-3 py-1.5 xl:py-2 rounded-xl text-xs xl:text-sm font-semibold transition-all shrink-0 ${
         active
           ? "text-[#008080] bg-[#008080]/15 border border-[#008080]/30 shadow-sm"

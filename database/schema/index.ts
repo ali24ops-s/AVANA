@@ -406,6 +406,7 @@ export const lessons = pgTable(
     publicationStatus: varchar("publication_status", { length: 20 })
       .notNull()
       .default("draft"),
+    reference: text("reference"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -3714,3 +3715,36 @@ export const userWelcomeGifts = pgTable(
 
 export type UserWelcomeGift = typeof userWelcomeGifts.$inferSelect;
 export type NewUserWelcomeGift = typeof userWelcomeGifts.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Avana User Onboarding Tours System (Migration 0086)
+// ---------------------------------------------------------------------------
+
+export const userOnboardingTours = pgTable(
+  "user_onboarding_tours",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tourId: varchar("tour_id", { length: 50 }).notNull().default("dashboard_overview"),
+    status: varchar("status", { length: 30 }).notNull().default("unseen"),
+    step: integer("step").notNull().default(1),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userIdx: uniqueIndex("idx_user_onboarding_tours_user_id").on(table.userId),
+    statusIdx: index("idx_user_onboarding_tours_status").on(table.status),
+  }),
+);
+
+export type UserOnboardingTour = typeof userOnboardingTours.$inferSelect;
+export type NewUserOnboardingTour = typeof userOnboardingTours.$inferInsert;

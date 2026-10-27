@@ -91,6 +91,20 @@ const mockUserCourseConflicting: AdminCourseRecord = {
   owner: { id: "u-student-2", name: "مریم کریمی", email: "maryam@example.com" },
 };
 
+const mockPublishedUserCourse: AdminCourseRecord = {
+  id: "course-user-published",
+  name: "نکات فارماکوگنوزی کاربر (منتشر شده)",
+  subject: "داروسازی",
+  organizationId: "user-org-uuid-3",
+  isOfficial: false,
+  scope: "user",
+  status: "published",
+  createdAt: "2026-08-24T10:00:00Z",
+  counts: { modules: 2, lessons: 4, flashcards: 10, quizzes: 2 },
+  hasContent: true,
+  owner: { id: "u-student-3", name: "سارا حسینی", email: "sara@example.com" },
+};
+
 describe("Admin Courses Segregation UI Integration (/admin/courses)", () => {
   let mockListCourses: ReturnType<typeof vi.fn>;
   let mockListOfficialCourses: ReturnType<typeof vi.fn>;
@@ -104,21 +118,21 @@ describe("Admin Courses Segregation UI Integration (/admin/courses)", () => {
         return Promise.resolve({
           courses: [mockTeacherCourse],
           totalCount: 1,
-          counts: { official: 1, teacher: 1, user: 2 },
+          counts: { official: 1, teacher: 1, user: 3 },
         });
       }
       if (scope === "user") {
         return Promise.resolve({
-          courses: [mockUserCourseWithContent, mockUserCourseConflicting],
-          totalCount: 2,
-          counts: { official: 1, teacher: 1, user: 2 },
+          courses: [mockUserCourseWithContent, mockUserCourseConflicting, mockPublishedUserCourse],
+          totalCount: 3,
+          counts: { official: 1, teacher: 1, user: 3 },
         });
       }
       // default / official
       return Promise.resolve({
         courses: [mockOfficialCourse],
         totalCount: 1,
-        counts: { official: 1, teacher: 1, user: 2 },
+        counts: { official: 1, teacher: 1, user: 3 },
       });
     });
 
@@ -169,8 +183,8 @@ describe("Admin Courses Segregation UI Integration (/admin/courses)", () => {
       expect(screen.getByText("رسمی آوانا")).toBeInTheDocument();
     });
 
-    // Verify initial query without tabParam defaults backward-compatibly
-    expect(mockListCourses).toHaveBeenCalledWith(1, 20, "");
+    // Verify initial query without tabParam defaults strictly to official scope
+    expect(mockListCourses).toHaveBeenCalledWith(1, 20, "", "official");
   });
 
   it("2. Switching to 'دوره‌های اساتید' updates URL to ?tab=teacher and displays teacher & classroom metadata", async () => {
@@ -208,14 +222,15 @@ describe("Admin Courses Segregation UI Integration (/admin/courses)", () => {
       expect(screen.getByTestId("current-tab-param")).toHaveTextContent("user");
       expect(screen.getByText("خلاصه‌های بافت‌شناسی من")).toBeInTheDocument();
       expect(screen.getByText("او تی سی تراپی")).toBeInTheDocument();
+      expect(screen.getByText("نکات فارماکوگنوزی کاربر (منتشر شده)")).toBeInTheDocument();
     });
 
     // Scope badges
-    expect(screen.getAllByText("دوره شخصی کاربر").length).toBe(2);
+    expect(screen.getAllByText("دوره شخصی کاربر").length).toBe(3);
 
     // User course 1: has content
     expect(screen.getByText("علی احمدی")).toBeInTheDocument();
-    expect(screen.getByText("دارای محتوا")).toBeInTheDocument();
+    expect(screen.getAllByText("دارای محتوا").length).toBe(2);
 
     // User course 2: empty and needs review
     expect(screen.getByText("مریم کریمی")).toBeInTheDocument();
@@ -245,6 +260,57 @@ describe("Admin Courses Segregation UI Integration (/admin/courses)", () => {
       expect(screen.queryByText("فیزیولوژی پزشکی پیشرفته")).not.toBeInTheDocument();
       // The official course does NOT appear in user tab
       expect(screen.queryByText("فارماکولوژی بالینی رسمی")).not.toBeInTheDocument();
+    });
+  });
+
+  it("6. Published user course remains strictly in user scope and never appears under official courses", async () => {
+    // 1. Visit official tab (/admin/courses)
+    const OfficialWrapper = wrapperWithInitialEntries(["/admin/courses"]);
+    const { unmount } = render(<AdminCoursesPage />, { wrapper: OfficialWrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText("فارماکولوژی بالینی رسمی")).toBeInTheDocument();
+      // Published user course MUST NOT appear under official tab
+      expect(screen.queryByText("نکات فارماکوگنوزی کاربر (منتشر شده)")).not.toBeInTheDocument();
+    });
+    unmount();
+
+    // 2. Visit user tab (/admin/courses?tab=user)
+    const UserWrapper = wrapperWithInitialEntries(["/admin/courses?tab=user"]);
+    render(<AdminCoursesPage />, { wrapper: UserWrapper });
+
+    await waitFor(() => {
+      // Published user course MUST appear under user tab
+      expect(screen.getByText("نکات فارماکوگنوزی کاربر (منتشر شده)")).toBeInTheDocument();
+      // Official course MUST NOT appear under user tab
+      expect(screen.queryByText("فارماکولوژی بالینی رسمی")).not.toBeInTheDocument();
+    });
+  });
+
+  it("7. Course categorization remains stable across page refreshes and does not alternate display state", async () => {
+    // Simulate first visit to /admin/courses
+    const Wrapper1 = wrapperWithInitialEntries(["/admin/courses"]);
+    const { unmount: unmount1 } = render(<AdminCoursesPage />, { wrapper: Wrapper1 });
+
+    await waitFor(() => {
+      expect(mockListCourses).toHaveBeenCalledWith(1, 20, "", "official");
+      expect(screen.getByText("فارماکولوژی بالینی رسمی")).toBeInTheDocument();
+      expect(screen.queryByText("خلاصه‌های بافت‌شناسی من")).not.toBeInTheDocument();
+    });
+    unmount1();
+
+    // Simulate page refresh (re-rendering with same entry / empty query cache)
+    queryClient.clear();
+    mockListCourses.mockClear();
+
+    const Wrapper2 = wrapperWithInitialEntries(["/admin/courses"]);
+    render(<AdminCoursesPage />, { wrapper: Wrapper2 });
+
+    await waitFor(() => {
+      expect(mockListCourses).toHaveBeenCalledWith(1, 20, "", "official");
+      expect(screen.getByText("فارماکولوژی بالینی رسمی")).toBeInTheDocument();
+      expect(screen.queryByText("خلاصه‌های بافت‌شناسی من")).not.toBeInTheDocument();
+      expect(screen.queryByText("نکات فارماکوگنوزی کاربر (منتشر شده)")).not.toBeInTheDocument();
     });
   });
 });

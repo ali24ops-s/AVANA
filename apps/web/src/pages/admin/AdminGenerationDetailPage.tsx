@@ -5,7 +5,7 @@ import { useAdmin } from "../../hooks/useAdmin.js";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AdminStatusBadge, AdminConfirmModal } from "../../components/admin/AdminUI.js";
 import { toPersianDigits } from "@avana/domain";
-import { ArrowRight, Cpu, Clock, AlertTriangle, RefreshCw, User, Building, Book, FileText, Database, Code, Download, Loader2, Layers } from "lucide-react";
+import { ArrowRight, Cpu, Clock, AlertTriangle, RefreshCw, User, Building, Book, FileText, Database, Code, Download, Loader2, Layers, Wallet, CreditCard, RotateCcw, CheckCircle2, AlertCircle, Coins } from "lucide-react";
 
 const SOURCE_ROLE_LABELS: Record<string, { label: string; className: string }> = {
   primary_notes: {
@@ -235,6 +235,214 @@ export function AdminGenerationDetailPage() {
             )}
           </div>
         </div>
+
+        {/* User Payment for this Operation */}
+        <div className="bg-[var(--color-surface)] p-6 rounded-2xl border border-[var(--color-border)] shadow-sm space-y-4 md:col-span-2">
+          <div className="flex justify-between items-center border-b border-[var(--color-border)] pb-2">
+            <h2 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
+              <Wallet className="w-5 h-5 text-[var(--color-primary-default)]" />
+              هزینه کسرشده از کیف پول کاربر بابت این عملیات
+            </h2>
+            {job.userCost?.status && (
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                  job.userCost.status === "debited"
+                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
+                    : job.userCost.status === "refunded"
+                      ? "bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20"
+                      : job.userCost.status === "free"
+                        ? "bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/20"
+                        : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]"
+                }`}
+              >
+                {job.userCost.statusLabel}
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+            <div className="bg-[var(--color-surface-warm)]/60 p-4 rounded-xl border border-[var(--color-border)]">
+              <div className="flex items-center gap-2 text-[var(--color-text-muted)] mb-1 text-xs">
+                <CreditCard className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                مبلغ کسرشده اولیه
+              </div>
+              <div className="text-lg font-bold text-[var(--color-text)]">
+                {job.userCost?.isAvailable
+                  ? job.userCost.isFree
+                    ? "رایگان (۰ تومان)"
+                    : `${toPersianDigits((job.userCost.chargedAmountToman || 0).toLocaleString("fa-IR"))} تومان`
+                  : "اطلاعات در دسترس نیست"}
+              </div>
+            </div>
+
+            <div className="bg-[var(--color-surface-warm)]/60 p-4 rounded-xl border border-[var(--color-border)]">
+              <div className="flex items-center gap-2 text-[var(--color-text-muted)] mb-1 text-xs">
+                <RotateCcw className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                مبلغ بازپرداخت‌شده
+              </div>
+              <div className="text-lg font-bold text-[var(--color-text)]">
+                {job.userCost?.isAvailable
+                  ? (job.userCost.refundedAmountToman || 0) > 0
+                    ? `${toPersianDigits((job.userCost.refundedAmountToman || 0).toLocaleString("fa-IR"))} تومان`
+                    : "۰ تومان"
+                  : "اطلاعات در دسترس نیست"}
+              </div>
+            </div>
+
+            <div className="bg-[var(--color-surface-warm)]/60 p-4 rounded-xl border border-[var(--color-border)]">
+              <div className="flex items-center gap-2 text-[var(--color-text-muted)] mb-1 text-xs">
+                <Coins className="w-4 h-4 text-[var(--color-primary-default)]" />
+                مبلغ خالص پرداخت‌شده
+              </div>
+              <div className="text-lg font-bold text-[var(--color-primary-default)]">
+                {job.userCost?.isAvailable
+                  ? job.userCost.isFree
+                    ? "رایگان (۰ تومان)"
+                    : `${toPersianDigits((job.userCost.netPaidAmountToman || 0).toLocaleString("fa-IR"))} تومان`
+                  : "اطلاعات در دسترس نیست"}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* File Financial Summary Card */}
+        {job.fileFinancialSummary && (
+          <div className="bg-[var(--color-surface)] p-6 rounded-2xl border border-[var(--color-border)] shadow-sm space-y-5 md:col-span-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[var(--color-border)] pb-3">
+              <div>
+                <h2 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-[var(--color-primary-default)]" />
+                  مجموع هزینه و سوابق مالی فایل منبع
+                </h2>
+                <p className="text-xs text-[var(--color-text-muted)] mt-1 truncate" title={job.fileFinancialSummary.documentName}>
+                  سند: <span className="font-semibold text-[var(--color-text)]">{job.fileFinancialSummary.documentName}</span>
+                </p>
+              </div>
+
+              <div>
+                {job.fileFinancialSummary.isComplete ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    سوابق مالی کامل
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    سوابق مالی برخی عملیات ناقص است
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {!job.fileFinancialSummary.isComplete && (
+              <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>
+                  توجه: سوابق مالی یک یا چند عملیات این فایل در دسترس نیست. مبلغ خالص نمایش‌داده‌شده، حداقل مجموع به‌دست‌آمده از روی تراکنش‌های ثبت‌شده معتبر است.
+                </span>
+              </div>
+            )}
+
+            {/* Metrics */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+              <div className="bg-[var(--color-surface-warm)]/60 p-3.5 rounded-xl border border-[var(--color-border)]">
+                <div className="text-xs text-[var(--color-text-muted)] mb-1">تعداد عملیات‌های فایل</div>
+                <div className="text-base font-bold text-[var(--color-text)]">
+                  {toPersianDigits(job.fileFinancialSummary.totalOperationsCount)} عملیات
+                </div>
+              </div>
+
+              <div className="bg-[var(--color-surface-warm)]/60 p-3.5 rounded-xl border border-[var(--color-border)]">
+                <div className="text-xs text-[var(--color-text-muted)] mb-1">مجموع کسرشده</div>
+                <div className="text-base font-bold text-[var(--color-text)]">
+                  {toPersianDigits(job.fileFinancialSummary.totalDebitedToman.toLocaleString("fa-IR"))} تومان
+                </div>
+              </div>
+
+              <div className="bg-[var(--color-surface-warm)]/60 p-3.5 rounded-xl border border-[var(--color-border)]">
+                <div className="text-xs text-[var(--color-text-muted)] mb-1">مجموع بازپرداخت‌ها</div>
+                <div className="text-base font-bold text-purple-700 dark:text-purple-400">
+                  {toPersianDigits(job.fileFinancialSummary.totalRefundedToman.toLocaleString("fa-IR"))} تومان
+                </div>
+              </div>
+
+              <div className="bg-[var(--color-primary-default)]/10 p-3.5 rounded-xl border border-[var(--color-primary-default)]/20">
+                <div className="text-xs text-[var(--color-primary-default)] font-medium mb-1">مجموع نهایی پرداختی فایل</div>
+                <div className="text-base font-extrabold text-[var(--color-primary-default)]">
+                  {toPersianDigits(job.fileFinancialSummary.totalNetPaidToman.toLocaleString("fa-IR"))} تومان
+                </div>
+              </div>
+            </div>
+
+            {/* Operations Breakdown Table */}
+            {job.fileFinancialSummary.operations.length > 0 && (
+              <div className="space-y-2 pt-2">
+                <h3 className="text-xs font-bold text-[var(--color-text-muted)]">تفکیک عملیات‌های مرتبط با این فایل:</h3>
+                <div className="overflow-x-auto rounded-xl border border-[var(--color-border)]">
+                  <table className="w-full text-xs text-right">
+                    <thead className="bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
+                      <tr>
+                        <th className="p-3">عملیات</th>
+                        <th className="p-3">نوع</th>
+                        <th className="p-3">وضعیت</th>
+                        <th className="p-3">تاریخ</th>
+                        <th className="p-3">مبلغ کسرشده</th>
+                        <th className="p-3">بازپرداخت</th>
+                        <th className="p-3">پرداختی نهایی</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--color-border)] bg-[var(--color-surface)]">
+                      {job.fileFinancialSummary.operations.map((op) => {
+                        const isCurrent = op.jobId === job.id;
+                        return (
+                          <tr key={op.jobId} className={`hover:bg-[var(--color-surface-warm)]/40 transition-colors ${isCurrent ? "bg-[var(--color-surface-warm)]/60 font-semibold" : ""}`}>
+                            <td className="p-3">
+                              {isCurrent ? (
+                                <span className="text-[var(--color-primary-default)]">همین عملیات (جاری)</span>
+                              ) : (
+                                <Link to={`/admin/generation/${op.jobId}`} className="text-[var(--color-primary-default)] hover:underline font-mono text-[11px]" dir="ltr">
+                                  {op.jobId.slice(0, 8)}...
+                                </Link>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              <span className="bg-[var(--color-surface-warm)] px-2 py-0.5 rounded text-[11px] border border-[var(--color-border)]">{op.type}</span>
+                            </td>
+                            <td className="p-3">
+                              <AdminStatusBadge status={op.status} />
+                            </td>
+                            <td className="p-3 text-[var(--color-text-muted)]" dir="ltr">
+                              {toPersianDigits(new Date(op.createdAt).toLocaleDateString("fa-IR"))}
+                            </td>
+                            <td className="p-3 text-[var(--color-text)]">
+                              {op.userCost.isAvailable
+                                ? op.userCost.isFree
+                                  ? "رایگان"
+                                  : `${toPersianDigits((op.userCost.chargedAmountToman || 0).toLocaleString("fa-IR"))} تومان`
+                                : "نامشخص"}
+                            </td>
+                            <td className="p-3 text-purple-700 dark:text-purple-400">
+                              {op.userCost.isAvailable && (op.userCost.refundedAmountToman || 0) > 0
+                                ? `${toPersianDigits((op.userCost.refundedAmountToman || 0).toLocaleString("fa-IR"))} تومان`
+                                : "-"}
+                            </td>
+                            <td className="p-3 font-bold text-[var(--color-text)]">
+                              {op.userCost.isAvailable
+                                ? op.userCost.isFree
+                                  ? "رایگان"
+                                  : `${toPersianDigits((op.userCost.netPaidAmountToman || 0).toLocaleString("fa-IR"))} تومان`
+                                : "اطلاعات در دسترس نیست"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {job.sources && job.sources.length > 0 && (
           <div className="bg-[var(--color-surface)] p-6 rounded-2xl border border-[var(--color-border)] shadow-sm space-y-4 md:col-span-2">

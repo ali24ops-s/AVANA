@@ -112,6 +112,7 @@ import { StudentExamResultsPage } from "../pages/student/StudentExamResultsPage.
 // Design Preview Imports (Isolated evaluation routes)
 import { StickerSystemPreviewPage } from "../design-preview/avana-stickers/StickerSystemPreviewPage.js";
 import { WelcomeGiftPreviewPage } from "../pages/dev/WelcomeGiftPreviewPage.js";
+import { OnboardingTourPreviewPage } from "../pages/dev/OnboardingTourPreviewPage.js";
 
 const getRouterBasename = () => {
   if (typeof window !== "undefined") {
@@ -224,6 +225,14 @@ export const router = createBrowserRouter(
           {
             path: "/design-preview/welcome-gift",
             element: <WelcomeGiftPreviewPage />,
+          },
+          {
+            path: "/dev/onboarding-tour-preview",
+            element: <OnboardingTourPreviewPage />,
+          },
+          {
+            path: "/design-preview/onboarding-tour",
+            element: <OnboardingTourPreviewPage />,
           },
         ]
       : []),

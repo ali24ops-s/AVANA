@@ -914,6 +914,69 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     }
   });
 
+  app.patch<{
+    Params: { id: string };
+    Body: { reference?: string | null; title?: string; contentMarkdown?: string };
+  }>("/content/lessons/:id", async (request, reply) => {
+    try {
+      const lessonId = request.params.id;
+      const { reference, title, contentMarkdown } = request.body || {};
+      const normalizedReference =
+        reference !== undefined
+          ? (typeof reference === "string" && reference.trim().length > 0 ? reference.trim() : null)
+          : undefined;
+
+      let existing = null;
+      if (typeof opts.adminStore.getLesson === "function") {
+        existing = await opts.adminStore.getLesson(lessonId);
+        if (!existing) {
+          return reply.status(404).send({
+            code: "not_found",
+            message: "درسنامه مورد نظر یافت نشد.",
+          });
+        }
+      }
+
+      if (typeof opts.adminStore.updateLesson === "function") {
+        await opts.adminStore.updateLesson(lessonId, {
+          reference: normalizedReference,
+          title,
+          contentMarkdown,
+        });
+      } else if (typeof (opts.adminStore as any).learningStores?.lessonStore?.findById === "function") {
+        const store = (opts.adminStore as any).learningStores.lessonStore;
+        const dbLesson = await store.findById(lessonId);
+        if (!dbLesson) {
+          return reply.status(404).send({
+            code: "not_found",
+            message: "درسنامه مورد نظر یافت نشد.",
+          });
+        }
+        await store.update({
+          ...dbLesson,
+          ...(reference !== undefined ? { reference: reference && reference.trim() ? reference.trim() : null } : {}),
+          ...(title !== undefined ? { title: title.trim() } : {}),
+          ...(contentMarkdown !== undefined ? { contentMarkdown } : {}),
+          updatedAt: new Date().toISOString(),
+        });
+      } else if (typeof opts.adminStore.updateLessonContent === "function" && contentMarkdown !== undefined) {
+        await opts.adminStore.updateLessonContent(lessonId, contentMarkdown);
+      }
+
+      if (typeof opts.adminStore.getLesson === "function") {
+        const fresh = await opts.adminStore.getLesson(lessonId);
+        if (fresh) {
+          return reply.send(fresh);
+        }
+      }
+
+      return reply.send({ id: lessonId, reference: normalizedReference ?? null, title, contentMarkdown, success: true });
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to update lesson");
+      return reply.status(500).send({ code: "internal_error", message: "Failed to update lesson" });
+    }
+  });
+
   app.get("/content/flashcards", async (request, reply) => {
     try {
       const query = request.query as { page?: string; pageSize?: string; search?: string };
@@ -3836,6 +3899,12 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
           },
           accessType: pub.metadata?.accessType ?? "paid",
           rejectionReason: pub.metadata?.rejectionReason ?? null,
+          reviewNotes: (pub.metadata?.reviewNotes as string) ?? null,
+          isUpdate: Boolean(pub.metadata?.isUpdate || pub.version > 1),
+          baseVersion:
+            pub.metadata?.baseVersion ??
+            (pub.version > 1 ? pub.version - 1 : null),
+          diffSummary: pub.metadata?.diffSummary ?? null,
           reviewedAt: pub.metadata?.reviewedAt ?? null,
           pricing: {
             is_free: pub.metadata?.accessType === "free",
@@ -3912,6 +3981,20 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       }
     }
 
+    let basePublication = null;
+    const isUpdate = Boolean(pub.metadata?.isUpdate || pub.version > 1);
+    if (pub.metadata?.basePublicationId) {
+      basePublication =
+        (await opts.coursePublicationStore.findById(
+          asCoursePublicationId(pub.metadata.basePublicationId as any),
+        )) ?? null;
+    } else if (isUpdate) {
+      basePublication =
+        (await opts.coursePublicationStore.findPublishedByCourse(
+          pub.courseId,
+        )) ?? null;
+    }
+
     return reply.send({
       publication: {
         id: pub.id,
@@ -3928,6 +4011,11 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         stats: pub.snapshot.stats,
         accessType: pub.metadata.accessType ?? "paid",
         rejectionReason: pub.metadata.rejectionReason ?? null,
+        reviewNotes: (pub.metadata.reviewNotes as string) ?? null,
+        isUpdate,
+        baseVersion:
+          pub.metadata.baseVersion ?? (pub.version > 1 ? pub.version - 1 : null),
+        diffSummary: pub.metadata.diffSummary ?? null,
         reviewedAt: pub.metadata.reviewedAt ?? null,
         pricing: {
           is_free: pub.metadata.accessType === "free",
@@ -3941,6 +4029,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         updatedAt: pub.updatedAt,
       },
       snapshot: pub.snapshot,
+      basePublication,
       product: product
         ? {
             id: product.id,
@@ -3956,7 +4045,12 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   // 3. Approve Course Submission (Set accessType and price in Tomans)
   app.post<{
     Params: { id: string };
-    Body: { accessType: "free" | "paid"; price?: number };
+    Body: {
+      accessType: "free" | "paid";
+      price?: number;
+      priceTomans?: number;
+      reviewNotes?: string;
+    };
   }>("/course-submissions/:id/approve", async (request, reply) => {
     if (!opts.coursePublicationStore) {
       return reply.status(500).send({
@@ -3964,7 +4058,20 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         message: "CoursePublicationStore not configured",
       });
     }
-    const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+    const user = (
+      request as unknown as {
+        user: { userId: string; role: Role; globalRole?: Role };
+      }
+    ).user;
+    const effectiveRole = user.globalRole || user.role;
+    if (effectiveRole === "content_worker") {
+      return reply.status(403).send({
+        code: "forbidden",
+        message:
+          "کاربر با نقش محتواکار (content_worker) مجاز به تأیید دوره نیست.",
+      });
+    }
+
     const pubId = asCoursePublicationId(request.params.id as any);
     const pub = await opts.coursePublicationStore.findById(pubId);
     if (!pub) {
@@ -3972,6 +4079,23 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         code: "not_found",
         message: "درخواست انتشار دوره یافت نشد.",
       });
+    }
+
+    const isUpdate = Boolean(
+      pub.metadata?.isUpdate ||
+      (pub.metadata?.baseVersion && pub.metadata.baseVersion >= 1),
+    );
+
+    // Version conflict validation for updates
+    if (isUpdate && opts.courseStore) {
+      const liveCourse = await opts.courseStore.findById(pub.courseId);
+      const expectedBase = pub.metadata?.baseVersion ?? (pub.version - 1);
+      if (liveCourse && liveCourse.version && liveCourse.version > expectedBase) {
+        return reply.status(409).send({
+          code: "conflict",
+          message: `تضاد نسخه: نسخه زنده دوره (${liveCourse.version}) با نسخه پایه این درخواست (${expectedBase}) تطابق ندارد.`,
+        });
+      }
     }
 
     const body = request.body || ({} as any);
@@ -4053,6 +4177,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     const now = new Date().toISOString();
     const updatedMetadata = {
       ...pub.metadata,
+      ...(body.reviewNotes ? { reviewNotes: body.reviewNotes } : {}),
       accessType,
       rejectionReason: null,
       reviewedAt: now,
@@ -4072,9 +4197,53 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         if (c) {
           await opts.courseStore.update({
             ...c,
+            name: pub.title || c.name,
+            description:
+              pub.description !== undefined ? pub.description : c.description,
+            subject: pub.subject !== undefined ? pub.subject : c.subject,
+            version: pub.version,
             status: "published",
             updatedAt: now,
           });
+        }
+      } catch {
+        // Non-blocking
+      }
+    }
+
+    // Materialize/activate approved draft lessons belonging to this course
+    const effectiveLessonStore =
+      opts.lessonStore ?? (opts.adminStore as any)?.learningStores?.lessonStore;
+    const effectiveModuleStore =
+      opts.moduleStore ?? (opts.adminStore as any)?.learningStores?.moduleStore;
+
+    if (effectiveLessonStore && effectiveModuleStore) {
+      try {
+        const approvedLessonIds = new Set(
+          pub.snapshot?.chapters?.flatMap((ch: any) =>
+            ch.lessons.map((l: any) => l.id),
+          ) ?? [],
+        );
+        const courseModules = await effectiveModuleStore.listByCourse(
+          pub.courseId,
+        );
+        const moduleIds = courseModules.map((m: any) => m.id);
+        if (moduleIds.length > 0) {
+          const courseLessons =
+            await effectiveLessonStore.listByModules(moduleIds);
+          for (const l of courseLessons) {
+            if (
+              approvedLessonIds.has(l.id) &&
+              l.publicationStatus === "draft" &&
+              !l.deletedAt
+            ) {
+              await effectiveLessonStore.update({
+                ...l,
+                publicationStatus: "published",
+                updatedAt: now,
+              });
+            }
+          }
         }
       } catch {
         // Non-blocking
@@ -4091,6 +4260,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
           entityId: pub.id,
           createdAt: now,
           details: {
+            isUpdate,
             accessType,
             price: accessType === "paid" ? priceTomans : 0,
             productId: activeProductRecord?.id ?? null,
@@ -4105,8 +4275,10 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       try {
         await opts.notificationService.createForUser(pub.creatorUserId, {
           type: "course_published",
-          title: "انتشار دوره در کتابخانه",
-          message: `دوره «${pub.title}» با موفقیت بررسی و در کتابخانه عمومی آوانا منتشر شد.`,
+          title: isUpdate ? "انتشار نسخه جدید دوره" : "انتشار دوره در کتابخانه",
+          message: isUpdate
+            ? `نسخه جدید دوره «${pub.title}» (نسخه ${pub.version}) با موفقیت بررسی و در کتابخانه عمومی آوانا منتشر شد.`
+            : `دوره «${pub.title}» با موفقیت بررسی و در کتابخانه عمومی آوانا منتشر شد.`,
           actionUrl: `/courses/${pub.courseId}`,
         });
       } catch {
@@ -4137,7 +4309,20 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         message: "CoursePublicationStore not configured",
       });
     }
-    const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+    const user = (
+      request as unknown as {
+        user: { userId: string; role: Role; globalRole?: Role };
+      }
+    ).user;
+    const effectiveRole = user.globalRole || user.role;
+    if (effectiveRole === "content_worker") {
+      return reply.status(403).send({
+        code: "forbidden",
+        message:
+          "کاربر با نقش محتواکار (content_worker) مجاز به رد درخواست نیست.",
+      });
+    }
+
     const pubId = asCoursePublicationId(request.params.id as any);
     const pub = await opts.coursePublicationStore.findById(pubId);
     if (!pub) {
@@ -4147,9 +4332,14 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       });
     }
 
+    const isUpdate = Boolean(
+      pub.metadata?.isUpdate ||
+      (pub.metadata?.baseVersion && pub.metadata.baseVersion >= 1),
+    );
     const body = request.body || {};
 
-    if (opts.commerceStore) {
+    // Only deactivate product if it's the initial publication
+    if (!isUpdate && opts.commerceStore) {
       const existingProduct = await opts.commerceStore.findProductByTarget(
         "course_publication",
         pub.id,
@@ -4161,7 +4351,8 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       }
     }
 
-    const reason = ((body as any).rejectionReason ?? (body as any).reason)?.trim() || null;
+    const reason =
+      ((body as any).rejectionReason ?? (body as any).reason)?.trim() || null;
     const now = new Date().toISOString();
     const updatedMetadata = {
       ...pub.metadata,
@@ -4176,7 +4367,9 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       updatedMetadata,
     );
 
-    if (opts.courseStore) {
+    // CRITICAL INVARIANT: If the course was already published (isUpdate = true),
+    // DO NOT revert course status to draft! The live course remains published for learners.
+    if (!isUpdate && opts.courseStore) {
       try {
         const c = await opts.courseStore.findById(pub.courseId);
         if (c) {
@@ -4204,6 +4397,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
             reason: body.reason?.trim() || null,
             courseId: pub.courseId,
             version: pub.version,
+            isUpdate,
           },
         },
       ]);
@@ -4213,8 +4407,10 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       try {
         await opts.notificationService.createForUser(pub.creatorUserId, {
           type: "course_rejected",
-          title: "رد درخواست انتشار دوره",
-          message: `درخواست انتشار دوره «${pub.title}» مورد تأیید قرار نگرفت.${body.reason ? ` علت: ${body.reason.trim()}` : ""}`,
+          title: isUpdate ? "رد درخواست به‌روزرسانی دوره" : "رد درخواست انتشار دوره",
+          message: isUpdate
+            ? `درخواست به‌روزرسانی دوره «${pub.title}» (نسخه ${pub.version}) مورد تأیید قرار نگرفت.${reason ? ` علت: ${reason}` : ""}`
+            : `درخواست انتشار دوره «${pub.title}» مورد تأیید قرار نگرفت.${reason ? ` علت: ${reason}` : ""}`,
           actionUrl: `/courses/${pub.courseId}`,
         });
       } catch {
@@ -4228,6 +4424,113 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       id: updatedPub.id,
       publication: updatedPub,
       rejectionReason: reason,
+    });
+  });
+
+  // 5. Request Changes on Community Course Submission
+  app.post<{
+    Params: { id: string };
+    Body: { notes?: string; reviewNotes?: string; reason?: string };
+  }>("/course-submissions/:id/request-changes", async (request, reply) => {
+    if (!opts.coursePublicationStore) {
+      return reply.status(500).send({
+        code: "internal_error",
+        message: "CoursePublicationStore not configured",
+      });
+    }
+    const user = (
+      request as unknown as {
+        user: { userId: string; role: Role; globalRole?: Role };
+      }
+    ).user;
+    const effectiveRole = user.globalRole || user.role;
+    if (effectiveRole === "content_worker") {
+      return reply.status(403).send({
+        code: "forbidden",
+        message:
+          "کاربر با نقش محتواکار (content_worker) مجاز به درخواست اصلاح دوره نیست.",
+      });
+    }
+
+    const pubId = asCoursePublicationId(request.params.id as any);
+    const pub = await opts.coursePublicationStore.findById(pubId);
+    if (!pub) {
+      return reply.status(404).send({
+        code: "not_found",
+        message: "درخواست انتشار دوره یافت نشد.",
+      });
+    }
+
+    if (pub.status === "published") {
+      return reply.status(409).send({
+        code: "conflict",
+        message:
+          "دوره قبلاً تأیید و منتشر شده است و امکان درخواست اصلاح برای آن وجود ندارد.",
+      });
+    }
+
+    const body = request.body || {};
+    const notes =
+      ((body as any).reviewNotes ?? (body as any).notes ?? (body as any).reason)?.trim() || "";
+
+    if (!notes) {
+      return reply.status(400).send({
+        code: "bad_request",
+        message: "توضیحات و نکات اصلاحی ادمین الزامی است.",
+      });
+    }
+
+    const now = new Date().toISOString();
+    const updatedMetadata = {
+      ...pub.metadata,
+      reviewNotes: notes,
+      reviewedAt: now,
+      reviewedByUserId: user.userId,
+    };
+
+    const updatedPub = await opts.coursePublicationStore.updateStatus(
+      pub.id,
+      "changes_requested",
+      updatedMetadata,
+    );
+
+    if (opts.auditService) {
+      await opts.auditService.emit([
+        {
+          actorId: asUserId(user.userId as any),
+          organizationId: pub.organizationId,
+          action: "course_publication.changes_requested",
+          entityType: "course_publication",
+          entityId: pub.id,
+          createdAt: now,
+          details: {
+            notes,
+            courseId: pub.courseId,
+            version: pub.version,
+          },
+        },
+      ]);
+    }
+
+    if (opts.notificationService && pub.creatorUserId) {
+      try {
+        await opts.notificationService.createForUser(pub.creatorUserId, {
+          type: "course_changes_requested",
+          title: "درخواست اصلاح محتوای دوره",
+          message: `درخواست انتشار دوره «${pub.title}» نیازمند اصلاحاتی است: ${notes}`,
+          actionUrl: `/courses/${pub.courseId}`,
+        });
+      } catch {
+        // Non-blocking notification
+      }
+    }
+
+    return reply.send({
+      success: true,
+      status: updatedPub.status,
+      id: updatedPub.id,
+      publication: updatedPub,
+      reviewNotes: notes,
     });
   });
 

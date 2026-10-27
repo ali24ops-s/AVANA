@@ -38,6 +38,41 @@ export type AdminUsersList = {
   totalCount: number;
 };
 
+export type GenerationUserCostStatus = "debited" | "refunded" | "free" | "unavailable";
+
+export interface GenerationUserCost {
+  isAvailable: boolean;
+  status: GenerationUserCostStatus;
+  statusLabel: string;
+  chargedAmountToman?: number;
+  refundedAmountToman?: number;
+  netPaidAmountToman?: number;
+  formattedNetPaid?: string;
+  isFree?: boolean;
+}
+
+export interface FileOperationFinancialRecord {
+  jobId: string;
+  type: string;
+  status: string;
+  createdAt: string;
+  userCost: GenerationUserCost;
+}
+
+export interface FileFinancialSummary {
+  documentId: string;
+  documentName: string;
+  totalOperationsCount: number;
+  totalDebitedToman: number;
+  totalRefundedToman: number;
+  totalNetPaidToman: number;
+  formattedTotalNetPaid: string;
+  hasUnavailableRecords: boolean;
+  hasRefundedRecords: boolean;
+  isComplete: boolean;
+  operations: FileOperationFinancialRecord[];
+}
+
 export type AdminGenerationJobRecord = {
   id: string;
   type: string;
@@ -47,6 +82,7 @@ export type AdminGenerationJobRecord = {
   completedAt: string | null;
   documentName?: string;
   userEmail?: string;
+  userCost?: GenerationUserCost;
 };
 
 export type DataIntegrityReport = {
@@ -198,6 +234,7 @@ export interface AdminLessonRecord {
 
 export interface AdminLessonDetailRecord extends AdminLessonRecord {
   contentMarkdown: string;
+  reference?: string | null;
   moduleId?: string;
   flashcards?: Array<{
     id: string;
@@ -259,6 +296,7 @@ export interface AdminGenerationDetail extends AdminGenerationJobRecord {
   document?: { id: string; originalName: string; sizeBytes?: number; mimeType?: string };
   course?: { id: string; name?: string };
   sources?: AdminGenerationDetailSource[];
+  fileFinancialSummary?: FileFinancialSummary;
 }
 
 export interface AdminCourseHierarchyLesson {
@@ -521,6 +559,7 @@ export interface AdminStore {
   listLessons(params: { page: number; pageSize: number; search?: string }): Promise<{ lessons: AdminLessonRecord[]; totalCount: number }>;
   getLesson?(id: string): Promise<AdminLessonDetailRecord | null>;
   updateLessonContent?(id: string, contentMarkdown: string): Promise<void>;
+  updateLesson?(id: string, updates: { reference?: string | null; title?: string; contentMarkdown?: string }): Promise<void>;
   listFlashcards(params: { page: number; pageSize: number; search?: string }): Promise<{ flashcards: AdminFlashcardRecord[]; totalCount: number }>;
   listExams(params: { page: number; pageSize: number; search?: string }): Promise<{ exams: AdminExamRecord[]; totalCount: number }>;
   getCourseHierarchy(courseId: string): Promise<AdminCourseHierarchy | null>;

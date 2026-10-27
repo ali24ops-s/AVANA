@@ -83,6 +83,8 @@ import { up as up0082 } from "./migrations/0082_user_welcome_gifts.js";
 import { up as up0083 } from "./migrations/0083_nullable_promotion_redemption_order.js";
 import { up as up0084 } from "./migrations/0084_support_message_read_receipt.js";
 import { up as up0085 } from "./migrations/0085_platform_admin_multi_session.js";
+import { up as up0086 } from "./migrations/0086_user_onboarding.js";
+import { up as up0087 } from "./migrations/0087_lesson_reference.js";
 
 function localConnectionString(): string {
   const user = "avana";
@@ -265,6 +267,10 @@ async function runMigrations() {
     await up0084(db);
     console.log("Applying 0085_platform_admin_multi_session...");
     await up0085(db);
+    console.log("Applying 0086_user_onboarding...");
+    await up0086(db);
+    console.log("Applying 0087_lesson_reference...");
+    await up0087(db);
 
     console.log("All database migrations applied successfully.");
   } catch (error) {

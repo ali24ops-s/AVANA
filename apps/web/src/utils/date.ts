@@ -1,5 +1,18 @@
 import { useEffect, useState } from "react";
-import { toPersianDigits } from "@avana/domain";
+import {
+  toPersianDigits,
+  isExamUpcoming,
+  isExamPast,
+  calculateExamDaysRemaining,
+  isDateOnlyExamString,
+} from "@avana/domain";
+
+export {
+  isExamUpcoming,
+  isExamPast,
+  calculateExamDaysRemaining,
+  isDateOnlyExamString,
+};
 
 export interface PersianDateInfo {
   weekday: string;
@@ -304,6 +317,7 @@ export function formatPersianExamDate(dateInput: string | Date): string {
       return "";
     }
     return new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
+      timeZone: "Asia/Tehran",
       calendar: "persian",
       year: "numeric",
       month: "long",

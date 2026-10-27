@@ -136,7 +136,7 @@ describe("Education Workspace (/admin/courses) — Step 2 Test Matrix", () => {
     const searchInput = screen.getByPlaceholderText(/جستجوی نام یا موضوع دوره/i);
     fireEvent.change(searchInput, { target: { value: "فارماکولوژی" } });
 
-    expect(mockListCourses).toHaveBeenCalledWith(1, 20, "فارماکولوژی");
+    expect(mockListCourses).toHaveBeenCalledWith(1, 20, "فارماکولوژی", "official");
   });
 
   it("Case 3: Status filter filters course cards locally", async () => {
@@ -269,7 +269,7 @@ describe("Education Workspace (/admin/courses) — Step 2 Test Matrix", () => {
     const nextBtn = screen.getByLabelText("صفحه بعد");
     fireEvent.click(nextBtn);
 
-    expect(mockListCourses).toHaveBeenCalledWith(2, 20, "");
+    expect(mockListCourses).toHaveBeenCalledWith(2, 20, "", "official");
   });
 
   it("Case 11: Quick Metadata Editing (PATCH /v1/admin/courses/:id) still functions seamlessly", async () => {
