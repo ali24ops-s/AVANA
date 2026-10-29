@@ -7,6 +7,7 @@ import {
   contentPackUsages,
   courses,
   courseMemberships,
+  coursePublications,
   flashcards,
   generatedContents,
   lessons,
@@ -814,6 +815,17 @@ export class DrizzleContentPackStore implements ContentPackStore {
         eq(courses.status, "published"),
       ),
     );
+    accessConditions.push(
+      and(
+        eq(courses.status, "published"),
+        sql`EXISTS (
+          SELECT 1 FROM ${coursePublications} cp
+          WHERE cp.course_id = ${courses.id}
+          AND cp.status = 'published'
+          AND cp.deleted_at IS NULL
+        )`,
+      ),
+    );
     if (systemOrgId) {
       accessConditions.push(
         and(
@@ -1110,6 +1122,17 @@ export class DrizzleContentPackStore implements ContentPackStore {
       and(
         eq(courses.isOfficial, true),
         eq(courses.status, "published"),
+      ),
+    );
+    accessConditions.push(
+      and(
+        eq(courses.status, "published"),
+        sql`EXISTS (
+          SELECT 1 FROM ${coursePublications} cp
+          WHERE cp.course_id = ${courses.id}
+          AND cp.status = 'published'
+          AND cp.deleted_at IS NULL
+        )`,
       ),
     );
     if (systemOrgId) {

@@ -29,7 +29,12 @@ export class InMemoryCourseStore implements CourseStore {
         userId: UserId,
       ): Promise<unknown>;
     },
+    private publicationStore?: CoursePublicationStore,
   ) {}
+
+  setPublicationStore(publicationStore: CoursePublicationStore): void {
+    this.publicationStore = publicationStore;
+  }
 
   async create(records: {
     course: CourseRecord;
@@ -69,6 +74,15 @@ export class InMemoryCourseStore implements CourseStore {
     ) {
       return { ...course };
     }
+    if (course.isOfficial && course.status === "published") {
+      return { ...course };
+    }
+    if (course.status === "published" && this.publicationStore) {
+      const activePub = await this.publicationStore.findPublishedByCourse(courseId);
+      if (activePub && activePub.status === "published" && activePub.deletedAt === null) {
+        return { ...course };
+      }
+    }
     const userCourses = this.userCourses.get(userId);
     if (userCourses && userCourses.has(courseId)) {
       return { ...course };
@@ -84,20 +98,36 @@ export class InMemoryCourseStore implements CourseStore {
     return { ...course };
   }
 
+  private async isCoursePublicApproved(c: CourseRecord): Promise<boolean> {
+    if (c.status !== "published") return false;
+    if (c.isOfficial) return true;
+    if (this.publicationStore) {
+      const activePub = await this.publicationStore.findPublishedByCourse(c.id);
+      if (activePub && activePub.status === "published" && activePub.deletedAt === null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   async listByOrganization(
     organizationId: OrganizationId,
     _userId: UserId,
     systemOrganizationId?: OrganizationId,
   ): Promise<CourseRecord[]> {
-    return Array.from(this.courses.values())
-      .filter(
-        (c) =>
-          (c.organizationId === organizationId ||
-            (systemOrganizationId &&
-              c.organizationId === systemOrganizationId)) &&
-          c.deletedAt === null,
-      )
-      .map((c) => ({ ...c }));
+    const list: CourseRecord[] = [];
+    for (const c of this.courses.values()) {
+      if (c.deletedAt !== null) continue;
+      const isPublic = await this.isCoursePublicApproved(c);
+      const isMatch =
+        c.organizationId === organizationId ||
+        (systemOrganizationId && c.organizationId === systemOrganizationId) ||
+        isPublic;
+      if (isMatch) {
+        list.push({ ...c });
+      }
+    }
+    return list;
   }
 
   async update(course: CourseRecord): Promise<CourseRecord> {
@@ -123,16 +153,20 @@ export class InMemoryCourseStore implements CourseStore {
     systemOrganizationId?: OrganizationId,
   ): Promise<CourseRecord[]> {
     const enrolledIds = this.userCourses.get(userId) ?? new Set();
-    return Array.from(this.courses.values())
-      .filter(
-        (c) =>
-          enrolledIds.has(c.id) &&
-          c.deletedAt === null &&
-          (!organizationId ||
-            c.organizationId === organizationId ||
-            (systemOrganizationId && c.organizationId === systemOrganizationId)),
-      )
-      .map((c) => ({ ...c }));
+    const list: CourseRecord[] = [];
+    for (const c of this.courses.values()) {
+      if (!enrolledIds.has(c.id) || c.deletedAt !== null) continue;
+      const isPublic = await this.isCoursePublicApproved(c);
+      const isMatch =
+        !organizationId ||
+        c.organizationId === organizationId ||
+        (systemOrganizationId && c.organizationId === systemOrganizationId) ||
+        isPublic;
+      if (isMatch) {
+        list.push({ ...c });
+      }
+    }
+    return list;
   }
 
   async addUserCourse(

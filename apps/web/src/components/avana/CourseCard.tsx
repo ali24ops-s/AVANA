@@ -25,6 +25,8 @@ import {
   HelpCircle,
   Clock,
   Share2,
+  Plus,
+  Loader2,
 } from "lucide-react";
 import { Card, Badge, Button } from "@avana/ui";
 import {
@@ -90,6 +92,9 @@ export interface CourseCardProps {
   onDelete?: () => void;
   onSelect?: () => void;
   onShare?: () => void;
+  onAdd?: () => void;
+  isAdded?: boolean;
+  isAdding?: boolean;
 
   /** Custom styling & test attributes */
   className?: string;
@@ -315,6 +320,9 @@ export function CourseCard({
   onDelete,
   onSelect,
   onShare,
+  onAdd,
+  isAdded,
+  isAdding,
   className = "",
   dataTestId,
 }: CourseCardProps) {
@@ -563,14 +571,42 @@ export function CourseCard({
                 </Button>
               )}
             </div>
+          ) : onAdd && !isAdded ? (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <Link
+                to={targetHref}
+                onClick={onView}
+                data-testid={`view-course-btn-${id}`}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-[10px] px-3 py-2 text-xs font-bold transition-all border border-[var(--color-border)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)]"
+              >
+                <Eye className="h-3.5 w-3.5" />
+                <span>مشاهده دوره</span>
+              </Link>
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAdd();
+                }}
+                disabled={isAdding}
+                data-testid={`add-to-my-courses-btn-${id}`}
+                leftIcon={isAdding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                className="flex-1 text-xs rounded-[10px] whitespace-nowrap"
+              >
+                <span>{isAdding ? "در حال افزودن..." : "افزودن به دوره‌های من"}</span>
+              </Button>
+            </div>
           ) : (
             <Link
               to={targetHref}
               className="flex w-full items-center justify-between rounded-[10px] px-3.5 py-2 text-xs font-bold transition-all group-hover:shadow-xs bg-primary/10 text-primary hover:bg-primary hover:text-white"
             >
               <div className="flex items-center gap-1.5">
+                {isAdded && <CheckCircle2 className="h-4 w-4 text-primary group-hover:text-white" />}
                 <span>
-                  {isInProgress ? "ادامه یادگیری" : isCompleted ? "ورود به دوره" : "شروع یادگیری"}
+                  {isInProgress ? "ادامه یادگیری" : isCompleted ? "ورود به دوره" : isAdded ? "ورود به دوره" : "شروع یادگیری"}
                 </span>
               </div>
               <ChevronLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1 rtl:group-hover:-translate-x-1" />
@@ -651,10 +687,16 @@ export function CourseLibraryCardAdapter({
   course,
   onBuy,
   onView,
+  onAdd,
+  isAdded,
+  isAdding,
 }: {
   course: LibraryCourseItem;
   onBuy?: (course: LibraryCourseItem) => void;
   onView?: (course: LibraryCourseItem) => void;
+  onAdd?: (course: LibraryCourseItem) => void;
+  isAdded?: boolean;
+  isAdding?: boolean;
 }) {
   const access = course.access;
   const purchase = course.purchase;
@@ -726,6 +768,9 @@ export function CourseLibraryCardAdapter({
           : undefined
       }
       onView={onView ? () => onView(course) : undefined}
+      onAdd={onAdd ? () => onAdd(course) : undefined}
+      isAdded={isAdded}
+      isAdding={isAdding}
     />
   );
 }

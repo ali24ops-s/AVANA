@@ -97,6 +97,8 @@ export class CourseService {
       resourceType?: ResourceType;
       resourceId?: string;
       courseId?: CourseId;
+      isPublicPublication?: boolean;
+      isPublicResource?: boolean;
     },
   ): Promise<Actor> {
     const isSystemResource =
@@ -136,6 +138,8 @@ export class CourseService {
       resourceId: resource?.resourceId,
       courseId: resource?.courseId,
       isSystemResource,
+      isPublicPublication: resource?.isPublicPublication,
+      isPublicResource: resource?.isPublicResource,
     };
 
     if (!this.policy.can(fullActor, action, resourceContext)) {
@@ -241,11 +245,18 @@ export class CourseService {
 
     // Official courses are only visible in public catalog when 'published'.
     // Non-official / user courses in the caller's organization are governed by standard membership.
+    // Cross-tenant public courses must also be 'published'.
     const visibleCourses = courses.filter((c) => {
       const isOfficial =
         c.isOfficial ??
         (Boolean(this.systemOrganizationId) && c.organizationId === this.systemOrganizationId);
       if (isOfficial) {
+        return (c.status ?? "published") === "published";
+      }
+      if (
+        c.organizationId !== organizationId &&
+        (!this.systemOrganizationId || c.organizationId !== this.systemOrganizationId)
+      ) {
         return (c.status ?? "published") === "published";
       }
       return true;
@@ -421,11 +432,24 @@ export class CourseService {
       throw new DomainError("not_found", "Course not found");
     }
 
-    // Ensure the course belongs to the requesting organization or system organization (cross-tenant isolation)
+    // Load course publication if available to determine public publication status
+    const publishedPub = this.coursePublicationStore
+      ? await this.coursePublicationStore.findPublishedByCourse(courseId)
+      : undefined;
+
+    const isPublicPublication =
+      Boolean(publishedPub) &&
+      course.status === "published" &&
+      publishedPub?.status === "published";
+
+    // Ensure the course belongs to the requesting organization or system organization (cross-tenant isolation),
+    // unless it is official or an approved public publication
     if (
       course.organizationId !== organizationId &&
       (!this.systemOrganizationId ||
-        course.organizationId !== this.systemOrganizationId)
+        course.organizationId !== this.systemOrganizationId) &&
+      !course.isOfficial &&
+      !isPublicPublication
     ) {
       throw new DomainError("not_found", "Course not found");
     }
@@ -438,6 +462,12 @@ export class CourseService {
         resourceType: "course",
         resourceId: course.id,
         courseId: course.id,
+        isPublicPublication,
+        isPublicResource:
+          isPublicPublication ||
+          Boolean(course.isOfficial) ||
+          (!!this.systemOrganizationId &&
+            course.organizationId === this.systemOrganizationId),
       },
     );
 

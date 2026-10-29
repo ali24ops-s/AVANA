@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Search,
   X,
@@ -9,7 +10,6 @@ import {
   ChevronRight,
   AlertCircle,
   RefreshCw,
-  Library as LibraryIcon,
   GraduationCap,
   Layers,
   BookOpen,
@@ -19,6 +19,9 @@ import { useLibraryResources } from "../hooks/useLibrary.js";
 import { CourseLibraryCard } from "../components/library/CourseLibraryCard.js";
 import { PaywallModal } from "../components/commerce/index.js";
 import { AvaniAvatar } from "../components/brand/AvaniAvatar.js";
+import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
+import { createOrganizationApi } from "../lib/api/organizations.js";
+import { createCourseApi } from "../lib/api/courses.js";
 import {
   Button,
   Input,
@@ -111,6 +114,45 @@ export function LibraryPage() {
   const [selectedSubject, setSelectedSubject] = useState("all");
   const [selectedSort, setSelectedSort] = useState<"popular" | "newest">("popular");
   const [currentPage, setCurrentPage] = useState(1);
+
+  const queryClient = useQueryClient();
+  const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
+  const orgApi = createOrganizationApi(apiClient);
+  const courseApi = createCourseApi(apiClient);
+
+  const orgQuery = useQuery({
+    queryKey: ["organizations"],
+    queryFn: () => orgApi.listOrganizations(),
+  });
+  const organization = orgQuery.data?.items?.[0];
+
+  const myCoursesQuery = useQuery({
+    queryKey: ["my-courses", organization?.id],
+    queryFn: () => courseApi.listMyCourses(organization!.id),
+    enabled: !!organization?.id,
+  });
+
+  const enrolledCourseIds = new Set(
+    (myCoursesQuery.data?.items ?? []).map((c) => c.id),
+  );
+
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const addMutation = useMutation({
+    mutationFn: async (courseId: string) => {
+      if (!organization?.id) throw new Error("فضای یادگیری یافت نشد");
+      return courseApi.addMyCourse(organization.id, courseId);
+    },
+    onSuccess: () => {
+      setAddError(null);
+      void queryClient.invalidateQueries({ queryKey: ["my-courses"] });
+    },
+    onError: (err: unknown) => {
+      setAddError(
+        err instanceof Error ? err.message : "خطا در افزودن دوره به دوره‌های من",
+      );
+    },
+  });
 
   // Paywall Modal State for Course purchase
   const [paywallResource, setPaywallResource] = useState<{
@@ -485,6 +527,17 @@ export function LibraryPage() {
         {/* Courses Grid */}
         {!isLoading && !isError && courses.length > 0 && (
           <div className="space-y-4" data-testid="library-courses-section">
+            {addError && (
+              <div
+                data-testid="library-add-error"
+                className="rounded-[10px] bg-red-500/10 border border-red-500/20 p-3 text-xs text-red-600 dark:text-red-400 flex items-center justify-between"
+              >
+                <span>{addError}</span>
+                <Button size="sm" variant="ghost" onClick={() => setAddError(null)}>
+                  بستن
+                </Button>
+              </div>
+            )}
             <div className="flex items-center justify-between pb-1">
               <h2 className="text-h2 text-[var(--color-text)] flex items-center gap-2">
                 <GraduationCap className="w-5 h-5 text-primary" />
@@ -500,6 +553,9 @@ export function LibraryPage() {
                   key={course.id}
                   course={course}
                   onBuy={() => handleBuyCourse(course)}
+                  onAdd={organization ? () => addMutation.mutate(course.id) : undefined}
+                  isAdded={enrolledCourseIds.has(course.id)}
+                  isAdding={addMutation.isPending && addMutation.variables === course.id}
                 />
               ))}
             </div>

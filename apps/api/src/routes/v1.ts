@@ -274,8 +274,24 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
   void app.register(seoRoutes, {
     blogStore: opts.blogStore,
     courseStore: opts.courseStore,
+    coursePublicationStore: opts.coursePublicationStore,
     appUrl: opts.config?.appUrl,
   });
+
+  if (opts.coursePublicationStore) {
+    if (typeof (opts.courseStore as any)?.setPublicationStore === "function") {
+      (opts.courseStore as any).setPublicationStore(opts.coursePublicationStore);
+    }
+    if (typeof (opts.contentPackStore as any)?.setCourseStore === "function") {
+      (opts.contentPackStore as any).setCourseStore(opts.courseStore);
+    }
+    if (typeof (opts.contentPackStore as any)?.setCoursePublicationStore === "function") {
+      (opts.contentPackStore as any).setCoursePublicationStore(opts.coursePublicationStore);
+    }
+    if (typeof (opts.searchStore as any)?.setCoursePublicationStore === "function") {
+      (opts.searchStore as any).setCoursePublicationStore(opts.coursePublicationStore);
+    }
+  }
 
   const ga4Service =
     opts.ga4Service ??
@@ -421,6 +437,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       ? new EntitlementService({
           commerceStore: opts.commerceStore,
           courseStore: opts.courseStore,
+          coursePublicationStore: opts.coursePublicationStore,
           moduleStore: opts.moduleStore,
           lessonStore: opts.lessonStore,
           documentStore: opts.documentStore,
