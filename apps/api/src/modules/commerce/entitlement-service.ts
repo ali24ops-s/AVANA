@@ -27,7 +27,7 @@ import {
   asContentPackId,
 } from "@avana/domain";
 import type { CommerceStore } from "./commerce-store.js";
-import type { CourseStore } from "../courses/course-store.js";
+import type { CourseStore, CoursePublicationStore } from "../courses/course-store.js";
 import type {
   LessonStore,
   ModuleStore,
@@ -53,6 +53,7 @@ export interface UserAccessSnapshot {
 export interface EntitlementServiceDeps {
   commerceStore: CommerceStore;
   courseStore?: CourseStore;
+  coursePublicationStore?: CoursePublicationStore;
   moduleStore?: ModuleStore;
   lessonStore?: LessonStore;
   documentStore?: DocumentStore;
@@ -139,6 +140,12 @@ export class EntitlementService {
     for (const p of activeProducts) {
       if (p.targetType && p.targetId) {
         productsByTarget.set(`${p.targetType}:${p.targetId}`, p);
+        if (p.targetType === "course_publication" && (p.metadata as any)?.courseId) {
+          const courseKey = `course:${(p.metadata as any).courseId}`;
+          if (!productsByTarget.has(courseKey)) {
+            productsByTarget.set(courseKey, p);
+          }
+        }
       }
       if (p.code) {
         productsByCode.set(p.code, p);
@@ -324,9 +331,24 @@ export class EntitlementService {
 
     // 4.2 Direct Course Entitlement (or Parent Course Entitlement)
     if (effectiveCourseId) {
-      const courseEntitlement = snapshot.entitlementMap.get(
+      let courseEntitlement = snapshot.entitlementMap.get(
         `course:${effectiveCourseId}`,
       );
+      if (!courseEntitlement) {
+        for (const [key, ent] of snapshot.entitlementMap.entries()) {
+          if (key.startsWith("course_publication:") || (ent.resourceType === "course" && ent.resourceId)) {
+            const prod = snapshot.activeProducts.find(
+              (p) =>
+                (p.targetType === "course_publication" && p.targetId === ent.resourceId) ||
+                p.id === (ent as any).productId,
+            );
+            if (prod && (prod.metadata as any)?.courseId === effectiveCourseId) {
+              courseEntitlement = ent;
+              break;
+            }
+          }
+        }
+      }
       if (courseEntitlement) {
         return {
           granted: true,
@@ -431,6 +453,21 @@ export class EntitlementService {
           availablePurchaseOptions: [],
         };
       }
+
+      if (effectiveCourseId && this.deps.coursePublicationStore) {
+        const pub = await this.deps.coursePublicationStore.findPublishedByCourse(effectiveCourseId as any);
+        if (pub && pub.status === "published" && pub.deletedAt === null) {
+          const accessType = pub.metadata?.accessType;
+          if (accessType === "free" && (!courseProduct || !courseProduct.active || courseProduct.price === 0)) {
+            return {
+              granted: true,
+              reason: "free",
+              expiresAt: null,
+              availablePurchaseOptions: [],
+            };
+          }
+        }
+      }
       // Otherwise, Course is locked without subscription/course purchase
     }
 
@@ -485,6 +522,16 @@ export class EntitlementService {
             isExplicitlyFree = true;
           } else if (courseProduct.price > 0) {
             isExplicitlyPaid = true;
+          }
+        } else if (this.deps.coursePublicationStore) {
+          const pub = await this.deps.coursePublicationStore.findPublishedByCourse(effectiveCourseId as any);
+          if (pub && pub.status === "published" && pub.deletedAt === null) {
+            const accessType = pub.metadata?.accessType;
+            if (accessType === "free") {
+              isExplicitlyFree = true;
+            } else if (accessType === "paid") {
+              isExplicitlyPaid = true;
+            }
           }
         }
       }

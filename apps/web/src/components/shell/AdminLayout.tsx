@@ -5,6 +5,7 @@ import { AdminSidebar } from "../admin/AdminSidebar.js";
 import { AdminHeader } from "../admin/AdminHeader.js";
 import { LoadingState } from "../ui/index.js";
 import { isContentManagerOrAdmin } from "../../utils/generationPermissions.js";
+import { ErrorView } from "../error/index.js";
 
 const COURSE_WORKSPACES_PREFIXES = [
   "/admin/courses",
@@ -64,8 +65,27 @@ export function AdminLayout() {
   const isSupport = user?.role === "support_agent" || memberships?.some((m) => m.role === "support_agent");
 
   // 1. Overall Admin/Workspace Access Check (platform_admin, content_worker, organization_admin, course_editor, support_agent)
-  if (!user || (!isContentManagerOrAdmin(user, memberships) && !isSupport)) {
-    return <Navigate to="/home" replace />;
+  if (!user) {
+    return <Navigate to="/sign-in" replace />;
+  }
+
+  if (!isContentManagerOrAdmin(user, memberships) && !isSupport) {
+    return (
+      <ErrorView
+        type="forbidden"
+        statusCode="۴۰۳"
+        title="دسترسی به پنل مدیریت محدود است"
+        description="حساب کاربری شما مجوز لازم برای ورود به پنل مدیریت را ندارد."
+        primaryAction={{
+          label: "رفتن به صفحه اصلی",
+          href: "/home",
+        }}
+        secondaryAction={{
+          label: "مشاهده دوره‌ها",
+          href: "/courses",
+        }}
+      />
+    );
   }
 
   const isPlatformAdmin = user.role === "platform_admin";

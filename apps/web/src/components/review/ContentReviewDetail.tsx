@@ -27,6 +27,10 @@ import {
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createReviewApi } from "../../lib/api/review.js";
 import { useAdmin } from "../../hooks/useAdmin.js";
+import {
+  downloadLessonPdf,
+  downloadReviewSummaryPdf,
+} from "../../lib/api/admin.js";
 import { MarkdownRenderer, RichContent } from "../markdown/MarkdownRenderer.js";
 import type { ChemicalStructure, ChemicalReaction } from "@avana/domain";
 import { EditContentDialog } from "./EditContentDialog.js";
@@ -67,6 +71,8 @@ export function ContentReviewDetail({
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
   const adminApi = useAdmin();
   const [isDownloadingDoc, setIsDownloadingDoc] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [pdfDownloadError, setPdfDownloadError] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
@@ -202,6 +208,37 @@ export function ContentReviewDetail({
     }
   };
 
+  const handleDownloadPdf = async () => {
+    if (!content) return;
+    setIsDownloadingPdf(true);
+    setPdfDownloadError(null);
+    try {
+      if (content.type === "lesson") {
+        const withMaterialized = content as { materializedLessonId?: string };
+        const lessonId = withMaterialized.materializedLessonId || content.id;
+        const payloadObj = typeof content.payload === "object" && content.payload !== null ? (content.payload as { title?: string }) : null;
+        const lessonTitle = payloadObj?.title || lessonId;
+        await downloadLessonPdf(lessonId, {
+          courseId,
+          fallbackName: `درسنامه - ${lessonTitle}.pdf`,
+        });
+      } else if (content.type === "review_summary") {
+        const payloadObj = typeof content.payload === "object" && content.payload !== null ? (content.payload as { title?: string }) : null;
+        const summaryTitle = payloadObj?.title || content.id;
+        await downloadReviewSummaryPdf(content.id, {
+          courseId,
+          documentId: content.document_id || undefined,
+          fallbackName: `خلاصه مرور - ${summaryTitle}.pdf`,
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "خطا در دریافت فایل PDF";
+      setPdfDownloadError(msg);
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
   const hasDownloadableDoc = Boolean(
     (sourceDoc?.id && sourceDoc.id !== "__unknown__") ||
     (content.document_id && content.document_id !== "__unknown__")
@@ -224,6 +261,23 @@ export function ContentReviewDetail({
         <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 sm:gap-2">
           {/* Secondary Action buttons group */}
           <div className="flex items-center gap-1.5 flex-wrap">
+            {(content.type === "lesson" || content.type === "review_summary") && (
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                disabled={isDownloadingPdf}
+                className="flex-1 sm:flex-initial px-3 py-2 bg-teal-600/10 hover:bg-teal-600/20 text-teal-700 dark:text-teal-300 rounded-xl text-xs font-bold border border-teal-600/30 shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
+                title={content.type === "lesson" ? "دریافت فایل PDF اختصاصی درسنامه" : "دریافت فایل PDF اختصاصی خلاصه مرور"}
+              >
+                {isDownloadingPdf ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-teal-600" />
+                ) : (
+                  <Download className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                )}
+                <span>{content.type === "lesson" ? "دریافت PDF درسنامه" : "دریافت PDF خلاصه مرور"}</span>
+              </button>
+            )}
+
             {hasDownloadableDoc && (
               <button
                 type="button"
@@ -317,6 +371,17 @@ export function ContentReviewDetail({
       </div>
 
       {/* Mutation error banners */}
+      {pdfDownloadError && (
+        <div className="flex items-center justify-between gap-2 p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-700 dark:text-rose-400 text-xs font-medium">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{pdfDownloadError}</span>
+          </div>
+          <button type="button" onClick={() => setPdfDownloadError(null)} className="p-1 hover:opacity-80">
+            <XCircle className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       {acceptError && (
         <div className="flex items-center gap-2 p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-700 dark:text-rose-400 text-xs font-medium">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />

@@ -101,9 +101,15 @@ import {
 import { writeErrorEnvelope } from "../../http/errorEnvelope.js";
 import { ContentRepairService } from "./content-repair-service.js";
 import { ContentRepairAuditService } from "./content-repair-audit-service.js";
+import {
+  PdfGenerationService,
+  defaultPdfGenerationService,
+} from "./pdf-generation-service.js";
+import type { ReviewSummaryPdfData } from "./pdf-template.js";
 
 export interface AdminRouteOptions extends AuthMiddlewareDeps {
   adminStore: AdminStore;
+  pdfGenerationService?: PdfGenerationService;
   contentRepairService?: ContentRepairService;
   contentRepairAuditService?: ContentRepairAuditService;
   deviceService?: DeviceService;
@@ -150,6 +156,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   }
   const adminService = new AdminService(adminStore, walletService, commerceStore, notificationService, promotionService, referralService, studyService, ga4Service, opts.auditService);
   const { requireAuth, requireRole } = makeAuthMiddleware({ sessionService, userStore });
+  const pdfGenerationService = opts.pdfGenerationService ?? defaultPdfGenerationService;
 
 
   const contentRepairService =
@@ -250,6 +257,8 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
 
     await requireRole(Roles.platform_admin)(request, reply);
   });
+
+
 
   app.get("/dashboard", async (_request, reply) => {
     const stats = await adminService.getDashboardStats();
@@ -911,6 +920,279 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     } catch (error) {
       request.log.error({ err: error }, "Failed to get lesson details");
       return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  // =========================================================================
+  // PDF Generation Endpoints (Lessons & Review Summaries)
+  // =========================================================================
+
+  app.get<{
+    Params: { id: string };
+    Querystring: { submissionId?: string; courseId?: string };
+  }>("/content/lessons/:id/pdf", async (request, reply) => {
+    try {
+      const lessonId = request.params.id;
+      const { submissionId, courseId } = request.query;
+      const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
+
+      let lessonDetail: AdminLessonDetailRecord | null = null;
+      let snapshotPub: import("@avana/domain").CoursePublicationRecord | undefined;
+
+      // 1. Live database lookup via adminStore
+      if (typeof opts.adminStore.getLesson === "function") {
+        lessonDetail = await opts.adminStore.getLesson(lessonId);
+      }
+
+      // 2. Publication snapshot lookup for submitted courses
+      if (!lessonDetail && opts.coursePublicationStore) {
+        if (submissionId) {
+          snapshotPub = await opts.coursePublicationStore.findById(
+            asCoursePublicationId(submissionId as any),
+          );
+        } else if (courseId) {
+          snapshotPub = await opts.coursePublicationStore.findLatestByCourse(
+            asCourseId(courseId as any),
+          );
+        }
+
+        if (snapshotPub && snapshotPub.snapshot && Array.isArray(snapshotPub.snapshot.chapters)) {
+          for (const ch of snapshotPub.snapshot.chapters) {
+            const found = ch.lessons?.find((l) => l.id === lessonId);
+            if (found) {
+              lessonDetail = {
+                id: found.id,
+                title: found.title,
+                courseName: snapshotPub.snapshot.title || snapshotPub.title,
+                moduleTitle: ch.title,
+                moduleId: ch.id,
+                publicationStatus: snapshotPub.status,
+                contentMarkdown: found.contentMarkdown,
+                createdAt: snapshotPub.createdAt
+                  ? new Date(snapshotPub.createdAt).toISOString()
+                  : new Date().toISOString(),
+              };
+              break;
+            }
+          }
+        }
+      }
+
+      if (!lessonDetail) {
+        return reply.status(404).send({
+          code: "not_found",
+          message: "درس مورد نظر یافت نشد.",
+        });
+      }
+
+      if (!lessonDetail.contentMarkdown || !lessonDetail.contentMarkdown.trim()) {
+        return reply.status(400).send({
+          code: "empty_content",
+          message: "محتوای درسنامه خالی است و امکان تولید PDF وجود ندارد.",
+        });
+      }
+
+      // 3. Organization / tenant boundary check
+      const isPlatformAdmin =
+        user.globalRole === Roles.platform_admin || user.role === Roles.platform_admin;
+      if (!isPlatformAdmin && opts.organizationStore) {
+        let targetOrgId: string | undefined;
+
+        if (snapshotPub?.organizationId) {
+          targetOrgId = snapshotPub.organizationId;
+        } else if (lessonDetail.moduleId && opts.moduleStore && opts.courseStore) {
+          const mod = await opts.moduleStore.findById(parseModuleId(lessonDetail.moduleId));
+          if (mod) {
+            const course = await opts.courseStore.findById(mod.courseId);
+            if (course) {
+              targetOrgId = course.organizationId;
+            }
+          }
+        }
+
+        if (!targetOrgId) {
+          return reply.status(403).send({
+            code: "forbidden",
+            message: "دسترسی به این محتوا برای سازمان شما مجاز نیست.",
+          });
+        }
+
+        const userOrgs = await opts.organizationStore.listByUserId(asUserId(user.userId as any));
+        const userOrgIds = new Set(userOrgs.map((o) => o.id));
+        if (!userOrgIds.has(targetOrgId as any)) {
+          return reply.status(403).send({
+            code: "forbidden",
+            message: "دسترسی به این محتوا برای سازمان شما مجاز نیست.",
+          });
+        }
+      }
+
+      // 4. Generate PDF
+      const pdfBuffer = await pdfGenerationService.generateLessonPdf({
+        title: lessonDetail.title || "درسنامه بدون عنوان",
+        courseName: lessonDetail.courseName,
+        moduleTitle: lessonDetail.moduleTitle,
+        contentMarkdown: lessonDetail.contentMarkdown,
+        reference: lessonDetail.reference ?? undefined,
+        generationDate: new Date().toLocaleDateString("fa-IR"),
+      });
+
+      const safeAsciiFallback = `lesson-${lessonId.replace(/[^\w-]/g, "_")}.pdf`;
+      const encodedFilename = encodeURIComponent(`درسنامه - ${lessonDetail.title || lessonId}.pdf`);
+
+      return reply
+        .header("Content-Type", "application/pdf")
+        .header(
+          "Content-Disposition",
+          `attachment; filename="${safeAsciiFallback}"; filename*=UTF-8''${encodedFilename}`
+        )
+        .header("Content-Length", pdfBuffer.length)
+        .header("Cache-Control", "private, no-cache, no-store, must-revalidate")
+        .header("Pragma", "no-cache")
+        .send(pdfBuffer);
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to generate lesson PDF");
+      return reply.status(500).send({
+        code: "pdf_generation_failed",
+        message: "خطا در تولید فایل PDF درسنامه رخ داده است.",
+      });
+    }
+  });
+
+  app.get<{
+    Params: { id: string };
+    Querystring: { courseId?: string; documentId?: string };
+  }>("/content/review-summaries/:id/pdf", async (request, reply) => {
+    try {
+      const summaryId = request.params.id;
+      const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
+      const genStore =
+        opts.generatedContentStore ?? (opts.adminStore as any)?.generationStores?.generatedContentStore;
+
+      let summaryRecord: import("../generation/generation-store.js").GeneratedContentRecord | undefined;
+      if (genStore) {
+        if (typeof genStore.findById === "function") {
+          summaryRecord = await genStore.findById(summaryId as any);
+        }
+        if (!summaryRecord && opts.systemOrganizationId && typeof genStore.findByIdForOrganization === "function") {
+          summaryRecord = await genStore.findByIdForOrganization(
+            summaryId as any,
+            opts.systemOrganizationId as any,
+          );
+        }
+        // Fallback: summaryId might be documentId
+        if (!summaryRecord && typeof genStore.listByDocument === "function") {
+          const docDrafts = await genStore.listByDocument(
+            summaryId as any,
+            (opts.systemOrganizationId ?? "") as any,
+          );
+          summaryRecord = docDrafts.find(
+            (d: import("../generation/generation-store.js").GeneratedContentRecord) =>
+              d.type === "review_summary" && !d.deletedAt && d.status !== "rejected",
+          );
+        }
+        // Fallback: summaryId might be courseId
+        if (!summaryRecord && typeof genStore.listByCourse === "function") {
+          const courseDrafts = await genStore.listByCourse(
+            summaryId as any,
+            (opts.systemOrganizationId ?? "") as any,
+          );
+          summaryRecord = courseDrafts.find(
+            (d: import("../generation/generation-store.js").GeneratedContentRecord) =>
+              d.type === "review_summary" && !d.deletedAt && d.status !== "rejected",
+          );
+        }
+      }
+
+      if (
+        !summaryRecord ||
+        summaryRecord.type !== "review_summary" ||
+        Boolean(summaryRecord.deletedAt) ||
+        summaryRecord.status === "rejected"
+      ) {
+        return reply.status(404).send({
+          code: "not_found",
+          message: "خلاصه مرور مورد نظر یافت نشد.",
+        });
+      }
+
+      // Organization / tenant boundary check
+      const isPlatformAdmin =
+        user.globalRole === Roles.platform_admin || user.role === Roles.platform_admin;
+      if (!isPlatformAdmin && opts.organizationStore) {
+        if (!summaryRecord.organizationId) {
+          return reply.status(403).send({
+            code: "forbidden",
+            message: "دسترسی به این محتوا برای سازمان شما مجاز نیست.",
+          });
+        }
+        const userOrgs = await opts.organizationStore.listByUserId(asUserId(user.userId as any));
+        const userOrgIds = new Set(userOrgs.map((o) => o.id));
+        if (!userOrgIds.has(summaryRecord.organizationId)) {
+          return reply.status(403).send({
+            code: "forbidden",
+            message: "دسترسی به این محتوا برای سازمان شما مجاز نیست.",
+          });
+        }
+      }
+
+      const payload = summaryRecord.payload as any;
+      if (!payload || typeof payload !== "object") {
+        return reply.status(400).send({
+          code: "empty_content",
+          message: "محتوای خلاصه مرور خالی یا نامعتبر است.",
+        });
+      }
+
+      const hasOverview = Boolean(payload.overview && typeof payload.overview === "string" && payload.overview.trim());
+      const hasSections = Array.isArray(payload.sections) && payload.sections.length > 0;
+      const hasTakeaways = Array.isArray(payload.finalTakeaways) && payload.finalTakeaways.length > 0;
+
+      if (!hasOverview && !hasSections && !hasTakeaways) {
+        return reply.status(400).send({
+          code: "empty_content",
+          message: "محتوای خلاصه مرور خالی یا ناقص است.",
+        });
+      }
+
+      let courseName: string | undefined;
+      let moduleTitle: string | undefined;
+      if (summaryRecord.courseId && opts.courseStore) {
+        const c = await opts.courseStore.findById(summaryRecord.courseId);
+        if (c) courseName = c.name;
+      }
+
+      const pdfData: ReviewSummaryPdfData = {
+        title: payload.title || "خلاصه مرور جامع",
+        courseName,
+        moduleTitle,
+        estimatedReadingMinutes: payload.estimatedReadingMinutes,
+        overview: payload.overview,
+        sections: payload.sections,
+        finalTakeaways: payload.finalTakeaways,
+        generationDate: new Date().toLocaleDateString("fa-IR"),
+      };
+
+      const pdfBuffer = await pdfGenerationService.generateReviewSummaryPdf(pdfData);
+      const safeAsciiFallback = `review-summary-${summaryRecord.id.replace(/[^\w-]/g, "_")}.pdf`;
+      const encodedFilename = encodeURIComponent(`خلاصه مرور - ${pdfData.title}.pdf`);
+
+      return reply
+        .header("Content-Type", "application/pdf")
+        .header(
+          "Content-Disposition",
+          `attachment; filename="${safeAsciiFallback}"; filename*=UTF-8''${encodedFilename}`
+        )
+        .header("Content-Length", pdfBuffer.length)
+        .header("Cache-Control", "private, no-cache, no-store, must-revalidate")
+        .header("Pragma", "no-cache")
+        .send(pdfBuffer);
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to generate review summary PDF");
+      return reply.status(500).send({
+        code: "pdf_generation_failed",
+        message: "خطا در تولید فایل PDF خلاصه مرور رخ داده است.",
+      });
     }
   });
 

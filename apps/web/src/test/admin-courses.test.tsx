@@ -318,4 +318,72 @@ describe("Education Workspace (/admin/courses) — Step 2 Test Matrix", () => {
     // Total count display still reflects server pagination total
     expect(screen.getByText(/مجموع:.*(40|۴۰).*دوره/i)).toBeInTheDocument();
   });
+
+  it("Case 13: Accurately renders quizQuestions count for courses instead of quiz container count", async () => {
+    const customCourses = [
+      {
+        id: "course-50q",
+        name: "فارماکولوژی تست بزرگ",
+        subject: "پزشکی",
+        createdAt: "2026-08-23T10:00:00Z",
+        counts: { modules: 2, lessons: 5, flashcards: 10, quizzes: 1, quizQuestions: 50 },
+        scope: "official",
+        isOfficial: true,
+      },
+    ];
+    mockListCourses.mockResolvedValue({ courses: customCourses, totalCount: 1 });
+    mockListOfficialCourses.mockResolvedValue({
+      courses: [
+        {
+          id: "course-50q",
+          name: "فارماکولوژی تست بزرگ",
+          subject: "پزشکی",
+          status: "approved",
+          isOfficial: true,
+          moduleCount: 2,
+          lessonCount: 5,
+          flashcardCount: 10,
+          quizQuestionCount: 50,
+          createdAt: "2026-08-23T10:00:00Z",
+          updatedAt: "2026-08-23T10:00:00Z",
+        },
+      ],
+    });
+
+    render(<AdminCoursesPage />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText("فارماکولوژی تست بزرگ")).toBeInTheDocument();
+    });
+
+    // Verify 50 (۵۰) سؤال تستی is rendered, NOT 1 (۱)
+    expect(screen.getByText("۵۰")).toBeInTheDocument();
+    expect(screen.getByText("سؤال تستی")).toBeInTheDocument();
+  });
+
+  it("Case 14: Gracefully falls back to quizzes count if quizQuestions is undefined", async () => {
+    const legacyCourse = [
+      {
+        id: "course-legacy",
+        name: "دوره قدیمی آزمون‌دار",
+        subject: "عمومی",
+        createdAt: "2026-08-23T10:00:00Z",
+        counts: { modules: 1, lessons: 2, flashcards: 5, quizzes: 3 },
+        scope: "official",
+        isOfficial: true,
+      },
+    ];
+    mockListCourses.mockResolvedValue({ courses: legacyCourse, totalCount: 1 });
+    mockListOfficialCourses.mockResolvedValue({ courses: [] });
+
+    render(<AdminCoursesPage />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText("دوره قدیمی آزمون‌دار")).toBeInTheDocument();
+    });
+
+    // Should fall back to 3 (۳)
+    expect(screen.getByText("۳")).toBeInTheDocument();
+    expect(screen.getByText("سؤال تستی")).toBeInTheDocument();
+  });
 });

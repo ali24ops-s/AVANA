@@ -769,7 +769,8 @@ export class CommerceService {
       entitlementExpiresAt = null; // Lifetime Ownership
     } else if (product.type === "course") {
       entitlementResourceType = "course";
-      entitlementResourceId = product.targetId;
+      const actualCourseId = (product.metadata as any)?.courseId ?? product.targetId;
+      entitlementResourceId = actualCourseId;
       entitlementExpiresAt = null; // Lifetime Ownership
     } else if (product.type === "content") {
       entitlementResourceType = "content";

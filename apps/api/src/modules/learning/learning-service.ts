@@ -182,6 +182,16 @@ export class LearningService {
       !!this.systemOrganizationId &&
       organizationId === this.systemOrganizationId;
 
+    // Load course publication if available to determine public publication status and isolate snapshots
+    const publishedPub = this.coursePublicationStore
+      ? await this.coursePublicationStore.findPublishedByCourse(courseId)
+      : undefined;
+
+    const isPublicPublication =
+      Boolean(publishedPub) &&
+      course.status === "published" &&
+      publishedPub?.status === "published";
+
     // 2. Build full actor with user memberships and evaluate context-aware authorization
     const memberships = await this.organizationStore.listMembershipsByUserId(
       actor.userId,
@@ -200,6 +210,8 @@ export class LearningService {
       resourceId: course.id,
       courseId: course.id,
       isSystemResource: isSystemCourse,
+      isPublicPublication,
+      isPublicResource: isPublicPublication || isSystemCourse,
     };
 
     if (!this.policy.can(fullActor, "learning:read", resourceContext)) {
@@ -229,10 +241,6 @@ export class LearningService {
 
     // 4. Load course content: If course has an approved published publication,
     // isolate enrolled learners strictly to approved snapshot content.
-    const publishedPub = this.coursePublicationStore
-      ? await this.coursePublicationStore.findPublishedByCourse(courseId)
-      : undefined;
-
     let activeModules: any[];
     let activeLessons: LessonRecord[];
 
@@ -623,6 +631,15 @@ export class LearningService {
       !!this.systemOrganizationId &&
       organizationId === this.systemOrganizationId;
 
+    const publishedPub = this.coursePublicationStore
+      ? await this.coursePublicationStore.findPublishedByCourse(courseId)
+      : undefined;
+
+    const isPublicPublication =
+      Boolean(publishedPub) &&
+      course.status === "published" &&
+      publishedPub?.status === "published";
+
     const memberships = await this.organizationStore.listMembershipsByUserId(
       actor.userId,
     );
@@ -640,6 +657,8 @@ export class LearningService {
       resourceId: lessonId,
       courseId,
       isSystemResource: isSystemCourse,
+      isPublicPublication,
+      isPublicResource: isPublicPublication || isSystemCourse,
     };
 
     if (!this.policy.can(fullActor, "progress:write", resourceContext)) {
@@ -658,7 +677,6 @@ export class LearningService {
       courseMembership?.role === "content_worker";
 
     if (this.coursePublicationStore) {
-      const publishedPub = await this.coursePublicationStore.findPublishedByCourse(courseId);
       if (publishedPub && !isPrivilegedAdmin) {
         const snapLessonIds = new Set(
           publishedPub.snapshot?.chapters?.flatMap((ch) => ch.lessons.map((l) => l.id)) ?? [],
@@ -756,6 +774,15 @@ export class LearningService {
       !!this.systemOrganizationId &&
       organizationId === this.systemOrganizationId;
 
+    const publishedPub = this.coursePublicationStore
+      ? await this.coursePublicationStore.findPublishedByCourse(courseId)
+      : undefined;
+
+    const isPublicPublication =
+      Boolean(publishedPub) &&
+      course.status === "published" &&
+      publishedPub?.status === "published";
+
     const memberships = await this.organizationStore.listMembershipsByUserId(
       actor.userId,
     );
@@ -773,6 +800,8 @@ export class LearningService {
       resourceId: courseId,
       courseId,
       isSystemResource: isSystemCourse,
+      isPublicPublication,
+      isPublicResource: isPublicPublication || isSystemCourse,
     };
 
     if (!this.policy.can(fullActor, "progress:read", resourceContext)) {
@@ -791,10 +820,6 @@ export class LearningService {
       courseMembership?.role === "content_worker";
 
     // 4. Load lessons: if course has published publication and actor is learner, count strictly from snapshot
-    const publishedPub = this.coursePublicationStore
-      ? await this.coursePublicationStore.findPublishedByCourse(courseId)
-      : undefined;
-
     let activeLessons: Array<{ id: string }>;
     if (publishedPub && !isPrivilegedAdmin) {
       activeLessons =

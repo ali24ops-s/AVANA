@@ -18,9 +18,11 @@ import {
   Edit3,
   Trash2,
   Check,
+  Download,
 } from "lucide-react";
 import {
   getLessonDetails,
+  downloadLessonPdf,
   type AdminCourseHierarchyGroup,
   type AdminCourseHierarchyModule,
   type AdminCourseHierarchyLesson,
@@ -40,6 +42,8 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
   const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
   const [previewLesson, setPreviewLesson] = useState<AdminCourseHierarchyLesson | null>(null);
   const [activeModalTab, setActiveModalTab] = useState<"content" | "flashcards" | "quizzes">("content");
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   const lessonDetailsQuery = useQuery({
     queryKey: ["admin-lesson-detail", previewLesson?.id, courseId],
@@ -825,15 +829,61 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
                   {lessonDetailsQuery.data?.moduleTitle ? ` | فصل: ${lessonDetailsQuery.data.moduleTitle}` : ""}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setPreviewLesson(null)}
-                className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-1 rounded-lg hover:bg-[var(--color-surface-warm)] transition-colors"
-                aria-label="بستن پنجره"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!previewLesson) return;
+                    setIsDownloadingPdf(true);
+                    setPdfError(null);
+                    try {
+                      await downloadLessonPdf(previewLesson.id, {
+                        courseId,
+                        fallbackName: `درسنامه - ${previewLesson.title || previewLesson.id}.pdf`,
+                      });
+                    } catch (err: unknown) {
+                      const msg = err instanceof Error ? err.message : "خطا در دریافت فایل PDF درسنامه";
+                      setPdfError(msg);
+                    } finally {
+                      setIsDownloadingPdf(false);
+                    }
+                  }}
+                  disabled={isDownloadingPdf}
+                  className="px-3 py-1.5 rounded-xl bg-teal-600/10 hover:bg-teal-600/20 text-teal-700 dark:text-teal-300 border border-teal-600/30 font-bold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  title="دریافت فایل PDF اختصاصی آوانا"
+                >
+                  {isDownloadingPdf ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-teal-600" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                  )}
+                  <span>دریافت PDF درسنامه</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPreviewLesson(null);
+                    setPdfError(null);
+                  }}
+                  className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-1 rounded-lg hover:bg-[var(--color-surface-warm)] transition-colors"
+                  aria-label="بستن پنجره"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
+
+            {pdfError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{pdfError}</span>
+                </div>
+                <button type="button" onClick={() => setPdfError(null)} className="p-1 hover:opacity-80">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
 
             <div className="space-y-4">
               {/* Badges / Stats Bar */}

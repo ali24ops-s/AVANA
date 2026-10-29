@@ -113,6 +113,7 @@ import { StudentExamResultsPage } from "../pages/student/StudentExamResultsPage.
 import { StickerSystemPreviewPage } from "../design-preview/avana-stickers/StickerSystemPreviewPage.js";
 import { WelcomeGiftPreviewPage } from "../pages/dev/WelcomeGiftPreviewPage.js";
 import { OnboardingTourPreviewPage } from "../pages/dev/OnboardingTourPreviewPage.js";
+import { NotFoundPage, RouteErrorElement } from "../components/error/index.js";
 
 const getRouterBasename = () => {
   if (typeof window !== "undefined") {
@@ -142,6 +143,7 @@ export const router = createBrowserRouter(
   [
     {
       element: <RootTrackerLayout />,
+      errorElement: <RouteErrorElement />,
       children: [
         // Public routes
     {
@@ -389,10 +391,6 @@ export const router = createBrowserRouter(
               path: "payment/card-to-card",
               element: <CardToCardPaymentPage />,
             },
-            {
-              path: "*",
-              element: <Navigate to="/home" replace />,
-            },
           ],
         },
         // Teacher Platform Routes
@@ -626,6 +624,15 @@ export const router = createBrowserRouter(
           ],
         },
       ],
+    },
+    // Dedicated 404 and Wildcard Catch-all for non-existent paths
+    {
+      path: "/404",
+      element: <NotFoundPage />,
+    },
+    {
+      path: "*",
+      element: <NotFoundPage />,
     },
       ],
     },

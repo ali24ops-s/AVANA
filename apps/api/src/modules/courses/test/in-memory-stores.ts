@@ -29,7 +29,12 @@ export class InMemoryCourseStore implements CourseStore {
         userId: UserId,
       ): Promise<unknown>;
     },
+    private publicationStore?: CoursePublicationStore,
   ) {}
+
+  setPublicationStore(publicationStore: CoursePublicationStore): void {
+    this.publicationStore = publicationStore;
+  }
 
   async create(records: {
     course: CourseRecord;
@@ -68,6 +73,15 @@ export class InMemoryCourseStore implements CourseStore {
       course.organizationId === systemOrganizationId
     ) {
       return { ...course };
+    }
+    if (course.isOfficial && course.status === "published") {
+      return { ...course };
+    }
+    if (course.status === "published" && this.publicationStore) {
+      const activePub = await this.publicationStore.findPublishedByCourse(courseId);
+      if (activePub && activePub.status === "published" && activePub.deletedAt === null) {
+        return { ...course };
+      }
     }
     const userCourses = this.userCourses.get(userId);
     if (userCourses && userCourses.has(courseId)) {

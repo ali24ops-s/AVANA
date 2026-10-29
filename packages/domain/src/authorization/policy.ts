@@ -225,6 +225,10 @@ export type ResourceContext = {
   resourceId?: string;
   /** Whether the target resource is a platform-wide system / official resource. */
   isSystemResource?: boolean;
+  /** Whether the target resource is an approved public publication. */
+  isPublicPublication?: boolean;
+  /** Generic alias for public resources. */
+  isPublicResource?: boolean;
   /** The owner user ID of the resource, if user-owned. */
   ownerId?: UserId;
   /** Optional course context. */
@@ -646,6 +650,25 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
       const activeRole = actor.globalRole ?? actor.role;
       const permissions = this.rolePermissions.get(activeRole);
       return permissions?.has(action) ?? false;
+    }
+
+    // 2.5. Approved Public Publication Evaluation:
+    // Allows public learning/reading actions cross-tenant, while keeping mutating/admin actions tenant-isolated.
+    if (context?.isPublicPublication === true || context?.isPublicResource === true) {
+      const publicPublicationActions: ReadonlySet<AuthAction> = new Set([
+        "course:read",
+        "learning:read",
+        "progress:read",
+        "progress:write",
+        "flashcard:review",
+        "quiz:attempt",
+        "study:read",
+      ]);
+      if (publicPublicationActions.has(action)) {
+        const activeRole = actor.globalRole ?? actor.role;
+        const permissions = this.rolePermissions.get(activeRole);
+        return permissions?.has(action) ?? false;
+      }
     }
 
     // 3. Tenant-Scoped Resource Evaluation

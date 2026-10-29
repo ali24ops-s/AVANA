@@ -181,6 +181,22 @@ export function DocumentStatusCard({
     queryKey: ["document-content-status", organizationId, document.id, resolvedCourseId],
     queryFn: () => genApi.getDocumentContentStatus(organizationId, document.id, resolvedCourseId),
     enabled: Boolean(organizationId && document.id),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const isRunning = Boolean(
+        data?.active_job_id ||
+          data?.latest_job?.status === "queued" ||
+          data?.latest_job?.status === "running" ||
+          document.status === "generating" ||
+          document.status === "pending_generation" ||
+          activeJobId,
+      );
+      if (!isRunning) return false;
+      if (query.state.error) {
+        return 6000;
+      }
+      return 3000;
+    },
   });
 
   const contentStatus = contentStatusQuery.data;
@@ -200,11 +216,16 @@ export function DocumentStatusCard({
     enabled: Boolean(activeJobId && resolvedCourseId),
     refetchInterval: (query) => {
       const jobStatus = query.state.data?.job?.status;
-      if (jobStatus === "succeeded" || jobStatus === "failed" || query.state.error) {
+      if (jobStatus === "succeeded" || jobStatus === "failed") {
         return false;
+      }
+      if (query.state.error) {
+        const failureCount = query.state.errorUpdateCount ?? 1;
+        return failureCount > 5 ? 8000 : 4000;
       }
       return 2000;
     },
+    retry: 3,
   });
 
   // Sync active job ID across page reloads if backend has an ongoing generation
@@ -323,8 +344,107 @@ export function DocumentStatusCard({
         queryKey: ["active-generations"],
       });
     },
-    onError: (err: Error) => {
-      setGenerateError(err.message || "خطا در شروع تولید هوشمند محتوا");
+    onError: async (err: Error) => {
+      const apiErr = err as any;
+      const statusCode =
+        apiErr?.statusCode ||
+        apiErr?.status ||
+        apiErr?.response?.status ||
+        apiErr?.code;
+      const isDefinitiveClientError =
+        statusCode === 400 ||
+        statusCode === 401 ||
+        statusCode === 403 ||
+        statusCode === 404 ||
+        statusCode === 422 ||
+        statusCode === "bad_request" ||
+        statusCode === "unauthorized" ||
+        statusCode === "forbidden" ||
+        statusCode === "not_found";
+
+      const isConflict =
+        statusCode === 409 ||
+        statusCode === "conflict" ||
+        Boolean(err.message && err.message.includes("در حال حاضر در حال پردازش یا تولید محتوا است"));
+
+      // For clear client validation or auth errors (excluding conflict), display the real error immediately.
+      if (isDefinitiveClientError && !isConflict) {
+        setGenerateError(err.message || "خطا در شروع تولید هوشمند محتوا");
+        return;
+      }
+
+      // In case of timeout, connection loss, 409 conflict, or unknown server error,
+      // verify the authoritative state from backend before declaring failure!
+      try {
+        const [freshContentStatus, freshDocStatus] = await Promise.all([
+          genApi.getDocumentContentStatus(organizationId, document.id, resolvedCourseId).catch(() => null),
+          docsApi.getDocumentStatus(organizationId, document.id).catch(() => null),
+        ]);
+
+        const backendDocStatus = freshDocStatus?.status?.status;
+        const activeJob =
+          freshContentStatus?.active_job_id ||
+          (freshContentStatus?.latest_job &&
+            (freshContentStatus.latest_job.status === "queued" ||
+              freshContentStatus.latest_job.status === "running") &&
+            ((freshContentStatus.latest_job as any).document_id === document.id ||
+              (freshContentStatus.latest_job as any).documentId === document.id ||
+              !(freshContentStatus.latest_job as any).documentId)
+            ? (freshContentStatus.latest_job.id || (freshContentStatus.latest_job as any).job_id)
+            : null);
+
+        const isDocGenerating =
+          backendDocStatus === "generating" ||
+          backendDocStatus === "pending_generation" ||
+          Boolean(freshContentStatus?.active_job_id);
+
+        if (activeJob) {
+          // An active job is confirmed on the server for this document!
+          setGenerateError(null);
+          setDismissedCompletedJobId(null);
+          setDismissedFailedJobId(null);
+          setActiveJobId(activeJob);
+          setIsModalOpen(false);
+          void queryClient.invalidateQueries({
+            queryKey: ["document-content-status", organizationId, document.id],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["active-generations"],
+          });
+          return;
+        }
+
+        if (isDocGenerating) {
+          // The document is actively generating, but job_id is not yet in contentStatus
+          setGenerateError(null);
+          setDismissedCompletedJobId(null);
+          setDismissedFailedJobId(null);
+          setIsModalOpen(false);
+          void queryClient.invalidateQueries({
+            queryKey: ["document-status", organizationId, document.id],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["document-content-status", organizationId, document.id],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["active-generations"],
+          });
+          return;
+        }
+
+        if (isConflict) {
+          // If conflict was returned but no active generation found for this document,
+          // display the conflict error message without inventing a job.
+          setGenerateError(err.message || "این سند در حال حاضر در حال پردازش یا تولید محتوا است. لطفاً منتظر بمانید.");
+          return;
+        }
+
+        // Neither active job nor generating document found — this is a real failure to start.
+        setGenerateError(err.message || "خطا در شروع تولید هوشمند محتوا");
+      } catch {
+        // If recovery check also fails, preserve the original real error
+        setGenerateError(err.message || "خطا در شروع تولید هوشمند محتوا");
+      }
     },
   });
 
@@ -384,6 +504,7 @@ export function DocumentStatusCard({
                 (contentStatus.latest_job as any).types?.[0] ??
                 "all",
               error_message: contentStatus.latest_job.error_message ?? null,
+              progress: (contentStatus.latest_job as any).progress,
             } as any)
           : undefined)
       : undefined) ??
@@ -398,6 +519,7 @@ export function DocumentStatusCard({
             (contentStatus.latest_job as any).types?.[0] ??
             "all",
           error_message: contentStatus.latest_job.error_message ?? null,
+          progress: (contentStatus.latest_job as any).progress,
         } as any)
       : undefined);
 
@@ -407,10 +529,13 @@ export function DocumentStatusCard({
       jobQuery.data?.job !== undefined &&
       jobQuery.data.job.id === activeJobId &&
       jobQuery.data.job.status !== "succeeded" &&
-      jobQuery.data.job.status !== "failed" &&
-      !jobQuery.isError,
+      jobQuery.data.job.status !== "failed",
   );
-  const isGenerating = generateMutation.isPending || isJobRunning;
+  const isGenerating =
+    generateMutation.isPending ||
+    isJobRunning ||
+    (currentStatus === "generating" && !isAllGenerated) ||
+    currentStatus === "pending_generation";
 
   const currentProgress = job?.progress ?? contentStatus?.progress;
   const safeTotal =
@@ -436,8 +561,15 @@ export function DocumentStatusCard({
 
   const isFailedAlertVisible = Boolean(
     !isGenerating &&
+      !activeJobId &&
       job?.status === "failed" &&
       job?.id &&
+      dismissedFailedJobId !== job.id,
+  ) || Boolean(
+    !isGenerating &&
+      activeJobId &&
+      job?.id === activeJobId &&
+      job?.status === "failed" &&
       dismissedFailedJobId !== job.id,
   );
 
@@ -801,9 +933,20 @@ export function DocumentStatusCard({
         </div>
       )}
       {generateError && (
-        <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-xs">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          <span>{generateError}</span>
+        <div className="flex items-center justify-between gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-xs">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>{generateError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setGenerateError(null)}
+            className="p-1 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg text-red-700 dark:text-red-300 transition-colors shrink-0"
+            title="بستن پیام"
+            aria-label="بستن پیام"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
       {isFailedAlertVisible && (

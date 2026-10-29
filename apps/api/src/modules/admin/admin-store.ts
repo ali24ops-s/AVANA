@@ -132,6 +132,7 @@ export interface AdminCourseRecord {
     lessons: number;
     flashcards: number;
     quizzes: number;
+    quizQuestions?: number;
   };
   product?: {
     id: string;
@@ -331,6 +332,8 @@ export interface AdminCourseHierarchy {
   modules: AdminCourseHierarchyModule[];
   courseFlashcardCount?: number;
   courseQuizCount?: number;
+  courseQuizQuestionCount?: number;
+  totalQuizQuestionCount?: number;
 }
 
 export interface AdminAnalyticsPeriodStats {

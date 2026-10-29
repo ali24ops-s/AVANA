@@ -187,11 +187,13 @@ export function SourceProductionPanel({
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(
+        const rawMsg =
           errData.error?.message ||
-            errData.message ||
-            "خطا در شروع پایپ‌لاین تولید هوشمند محتوا",
-        );
+          errData.message ||
+          "خطا در شروع پایپ‌لاین تولید هوشمند محتوا";
+        const error = new Error(rawMsg) as Error & { status?: number };
+        error.status = res.status;
+        throw error;
       }
 
       return res.json();
@@ -219,7 +221,65 @@ export function SourceProductionPanel({
       });
       if (onGenerationComplete) onGenerationComplete();
     },
-    onError: (err: Error) => {
+    onError: async (err: Error & { status?: number }) => {
+      const isConflict =
+        err.status === 409 ||
+        Boolean(err.message && err.message.includes("در حال حاضر توسط پردازش فعال دیگری در حال اجراست"));
+      const isDefinitiveClientError =
+        err.status === 400 ||
+        err.status === 401 ||
+        err.status === 403 ||
+        err.status === 404;
+
+      if (isDefinitiveClientError && !isConflict) {
+        setGenerateError(formatGenerationErrorMessage(err.message));
+        return;
+      }
+
+      // Check authoritative status from course documents & course status before declaring failure
+      try {
+        const courseDocs = await docsApi.listDocuments(organizationId, {
+          courseId: course.id,
+          limit: 100,
+        }).catch(() => null);
+
+        const targetDoc = courseDocs?.items?.find(
+          (d) => d.id === selectedDocForGeneration?.doc?.id,
+        );
+
+        const isDocOrCourseGenerating =
+          course.status === "generating" ||
+          targetDoc?.status === "generating" ||
+          targetDoc?.status === "pending_generation";
+
+        if (isDocOrCourseGenerating) {
+          // Pipeline is confirmed active on server!
+          setGenerateError(null);
+          setSelectedDocForGeneration(null);
+          void queryClient.invalidateQueries({
+            queryKey: ["course-documents", organizationId, course.id],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["official-courses"],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["official-review-workspace", course.id],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["active-generations"],
+          });
+          if (onGenerationComplete) onGenerationComplete();
+          return;
+        }
+
+        if (isConflict) {
+          setGenerateError(err.message || "تولید محتوا برای این دوره هم‌اکنون توسط پردازش فعال دیگری در حال اجراست.");
+          return;
+        }
+      } catch {
+        // Fallback to error
+      }
+
       setGenerateError(formatGenerationErrorMessage(err.message));
     },
   });

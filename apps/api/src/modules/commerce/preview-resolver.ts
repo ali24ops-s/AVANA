@@ -92,7 +92,11 @@ export class PreviewResolver {
 
       // 1. Course product override: previewLessonId
       const courseProduct = products.find(
-        (p) => p.targetType === "course" && p.targetId === courseId && p.active,
+        (p) =>
+          ((p.targetType === "course" && p.targetId === courseId) ||
+            (p.targetType === "course_publication" &&
+              (p.metadata as any)?.courseId === courseId)) &&
+          p.active,
       );
       if (courseProduct && (courseProduct.metadata as any)?.previewLessonId) {
         const designated = activeLessons.find(

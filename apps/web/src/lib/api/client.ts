@@ -149,13 +149,37 @@ export function createApiClient(options: ApiClientOptions) {
     }
 
     const finalPath = buildUrlWithParams(path, params);
-    const response = await fetch(`${baseUrl}${finalPath}`, {
-      method,
-      headers,
-      credentials: "include", // Send cookies (avana_session)
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}${finalPath}`, {
+        method,
+        headers,
+        credentials: "include", // Send cookies (avana_session)
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal,
+      });
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new ApiError({
+          request_id: generateUUID(),
+          error: {
+            code: "timeout" as any,
+            message: "مهلت زمانی درخواست به پایان رسید. لطفاً دوباره تلاش کنید.",
+          },
+        });
+      }
+
+      const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+      throw new ApiError({
+        request_id: generateUUID(),
+        error: {
+          code: "service_unavailable" as any,
+          message: isOffline
+            ? "ارتباط با اینترنت برقرار نیست. لطفاً وضعیت شبکه خود را بررسی کنید."
+            : "خطا در برقراری ارتباط با سرور. لطفاً اتصال اینترنت خود را بررسی کنید.",
+        },
+      });
+    }
 
     // Handle 204 No Content
     if (response.status === 204) {

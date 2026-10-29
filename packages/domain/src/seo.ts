@@ -159,6 +159,7 @@ export function isNoindexRoute(pathname: string): boolean {
   if (isAdminPath(pathname)) return true;
   if (isAuthPath(pathname)) return true;
   const clean = pathname.split(/[?#]/)[0].trim();
+  if (clean === "/404" || clean === "/500" || clean === "/error") return true;
   if (clean === "/teacher" || clean.startsWith("/teacher/")) return true;
   if (clean.startsWith("/design-preview") || clean.startsWith("/dev")) return true;
   return false;

@@ -215,6 +215,7 @@ export function AdminCoursesPage() {
             lessons: official.lessonCount,
             flashcards: official.flashcardCount,
             quizzes: official.quizQuestionCount,
+            quizQuestions: official.quizQuestionCount,
           }
         : c.counts;
 
@@ -263,8 +264,10 @@ export function AdminCoursesPage() {
         return a.name.localeCompare(b.name, "fa");
       }
       if (sortBy === "content") {
-        const totalA = a.counts.modules + a.counts.lessons + a.counts.flashcards + a.counts.quizzes;
-        const totalB = b.counts.modules + b.counts.lessons + b.counts.flashcards + b.counts.quizzes;
+        const qCountA = a.counts.quizQuestions ?? a.counts.quizzes;
+        const qCountB = b.counts.quizQuestions ?? b.counts.quizzes;
+        const totalA = a.counts.modules + a.counts.lessons + a.counts.flashcards + qCountA;
+        const totalB = b.counts.modules + b.counts.lessons + b.counts.flashcards + qCountB;
         return totalB - totalA;
       }
       return 0;
@@ -902,7 +905,7 @@ export function AdminCoursesPage() {
 
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface-subtle)] border border-[var(--color-border)] text-[var(--color-text)]">
                       <HelpCircle className="w-3.5 h-3.5 text-amber-500" />
-                      <span className="font-bold">{toPersianDigits(course.counts.quizzes)}</span>
+                      <span className="font-bold">{toPersianDigits(course.counts.quizQuestions ?? course.counts.quizzes)}</span>
                       <span className="text-[11px] text-[var(--color-text-muted)]">سؤال تستی</span>
                     </div>
 

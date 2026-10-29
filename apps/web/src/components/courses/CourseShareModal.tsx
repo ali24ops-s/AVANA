@@ -49,11 +49,11 @@ export function CourseShareModal({
       window.location.hostname.endsWith(".local"));
   const publicBaseUrl = isLocalhost ? "https://aavana.ir" : currentOrigin;
 
-  // Use /v1/share/courses/:courseId as Nginx proxies /v1/ directly to the Fastify API
-  const sharePageUrl = `${publicBaseUrl}/v1/share/courses/${encodeURIComponent(course.id)}`;
+  // Standard canonical course URL: https://aavana.ir/courses/:id
+  const standardCourseUrl = `${publicBaseUrl}/courses/${encodeURIComponent(course.id)}`;
   const cleanTitle = cleanEducationalTitle(course.title);
 
-  const shareText = `دوره آموزشی «${cleanTitle}» در پلتفرم یادگیری آوانا\n${canonicalUrl}`;
+  const shareText = `دوره آموزشی «${cleanTitle}» در پلتفرم یادگیری آوانا\n${standardCourseUrl}`;
 
   // 1. Copy Link
   const handleCopyLink = async () => {
@@ -78,7 +78,7 @@ export function CourseShareModal({
   // 2. Share to Telegram
   const handleTelegramShare = () => {
     const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(
-      sharePageUrl,
+      standardCourseUrl,
     )}&text=${encodeURIComponent(
       `دوره آموزشی «${cleanTitle}» در آوانا:`,
     )}`;

@@ -7,6 +7,7 @@ import { router } from "./routes/index.js";
 import { QueryProvider } from "./providers/QueryProvider.js";
 import { AuthProvider } from "./providers/AuthProvider.js";
 import { initGtm, isAnalyticsEnabled } from "./lib/tracker/index.js";
+import { AppErrorBoundary } from "./components/error/index.js";
 
 // Initialize GTM container at client boot ONLY if configured and user consent is active
 if (isAnalyticsEnabled()) {
@@ -17,7 +18,9 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryProvider>
       <AuthProvider>
-        <RouterProvider router={router} />
+        <AppErrorBoundary>
+          <RouterProvider router={router} />
+        </AppErrorBoundary>
       </AuthProvider>
     </QueryProvider>
   </StrictMode>,

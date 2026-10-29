@@ -152,13 +152,24 @@ export class DrizzleCourseStore implements CourseStore {
     userId: UserId,
     systemOrganizationId?: OrganizationId,
   ): Promise<CourseRecord | undefined> {
-    const accessFilter =
-      systemOrganizationId
-        ? or(
-            eq(organizationMemberships.userId, userId),
-            eq(courses.organizationId, systemOrganizationId),
-          )
-        : eq(organizationMemberships.userId, userId);
+    const isPublicApproved = and(
+      eq(courses.status, "published"),
+      or(
+        eq(courses.isOfficial, true),
+        sql`EXISTS (SELECT 1 FROM ${coursePublications} cp WHERE cp.course_id = ${courses.id} AND cp.status = 'published' AND cp.deleted_at IS NULL)`,
+      ),
+    );
+
+    const accessConditions = [
+      eq(organizationMemberships.userId, userId),
+      isPublicApproved,
+    ];
+
+    if (systemOrganizationId) {
+      accessConditions.push(eq(courses.organizationId, systemOrganizationId));
+    }
+
+    const accessFilter = or(...accessConditions);
 
     const row = await this.db
       .select({

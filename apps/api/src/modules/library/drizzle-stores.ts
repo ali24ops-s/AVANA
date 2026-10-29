@@ -7,6 +7,7 @@ import {
   contentPackUsages,
   courses,
   courseMemberships,
+  coursePublications,
   flashcards,
   generatedContents,
   lessons,
@@ -797,13 +798,13 @@ export class DrizzleContentPackStore implements ContentPackStore {
     if (userId) {
       accessConditions.push(
         sql`EXISTS (
-          SELECT 1 FROM ${organizationMemberships} om 
-          WHERE om.organization_id = ${courses.organizationId} 
+          SELECT 1 FROM ${organizationMemberships} om
+          WHERE om.organization_id = ${courses.organizationId}
           AND om.user_id = ${userId}
         )`,
         sql`EXISTS (
-          SELECT 1 FROM ${courseMemberships} cm 
-          WHERE cm.course_id = ${courses.id} 
+          SELECT 1 FROM ${courseMemberships} cm
+          WHERE cm.course_id = ${courses.id}
           AND cm.user_id = ${userId}
         )`,
       );
@@ -812,6 +813,17 @@ export class DrizzleContentPackStore implements ContentPackStore {
       and(
         eq(courses.isOfficial, true),
         eq(courses.status, "published"),
+      ),
+    );
+    accessConditions.push(
+      and(
+        eq(courses.status, "published"),
+        sql`EXISTS (
+          SELECT 1 FROM ${coursePublications} cp
+          WHERE cp.course_id = ${courses.id}
+          AND cp.status = 'published'
+          AND cp.deleted_at IS NULL
+        )`,
       ),
     );
     if (systemOrgId) {
@@ -1095,13 +1107,13 @@ export class DrizzleContentPackStore implements ContentPackStore {
     if (userId) {
       accessConditions.push(
         sql`EXISTS (
-          SELECT 1 FROM ${organizationMemberships} om 
-          WHERE om.organization_id = ${courses.organizationId} 
+          SELECT 1 FROM ${organizationMemberships} om
+          WHERE om.organization_id = ${courses.organizationId}
           AND om.user_id = ${userId}
         )`,
         sql`EXISTS (
-          SELECT 1 FROM ${courseMemberships} cm 
-          WHERE cm.course_id = ${courses.id} 
+          SELECT 1 FROM ${courseMemberships} cm
+          WHERE cm.course_id = ${courses.id}
           AND cm.user_id = ${userId}
         )`,
       );
@@ -1110,6 +1122,17 @@ export class DrizzleContentPackStore implements ContentPackStore {
       and(
         eq(courses.isOfficial, true),
         eq(courses.status, "published"),
+      ),
+    );
+    accessConditions.push(
+      and(
+        eq(courses.status, "published"),
+        sql`EXISTS (
+          SELECT 1 FROM ${coursePublications} cp
+          WHERE cp.course_id = ${courses.id}
+          AND cp.status = 'published'
+          AND cp.deleted_at IS NULL
+        )`,
       ),
     );
     if (systemOrgId) {

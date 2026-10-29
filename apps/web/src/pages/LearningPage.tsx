@@ -39,6 +39,7 @@ import {
   Share2,
 } from "lucide-react";
 import { Button, Badge } from "@avana/ui";
+import { ErrorView, AppErrorBoundary } from "../components/error/index.js";
 import { CourseSEO } from "../components/courses/CourseSEO.js";
 import { CourseShareModal } from "../components/courses/CourseShareModal.js";
 import { LessonInteractiveContent } from "../components/study/LessonInteractiveContent.js";
@@ -434,43 +435,44 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
   // Error state
   if (isError || !data || !organization) {
     const errorMsg = (error as Error)?.message ?? "";
-    const isNotFoundOrForbidden =
+    const isNotFound =
       errorMsg.includes("not_found") ||
       errorMsg.includes("یافت نشد") ||
-      errorMsg.includes("forbidden") ||
       errorMsg.includes("404");
+    const isForbidden = errorMsg.includes("forbidden") || errorMsg.includes("403");
 
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-8">
-        <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
-        <h2 className="text-lg font-bold text-[var(--color-text)]">
-          {isNotFoundOrForbidden
-            ? "دوره در دسترس نیست یا دسترسی به آن محدود است"
-            : "خطا در بارگذاری محتوای دوره"}
-        </h2>
-        <p className="text-xs text-[var(--color-text-muted)] mt-1 max-w-sm">
-          {isNotFoundOrForbidden
-            ? "این دوره ممکن است حذف شده باشد، یا حساب کاربری شما اجازه دسترسی به آن را نداشته باشد."
-            : errorMsg || "خطایی در دریافت اطلاعات رخ داد."}
-        </p>
-        <div className="flex items-center gap-3 mt-5">
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => {
+      <div className="max-w-xl mx-auto py-12">
+        <ErrorView
+          compact={true}
+          type={isNotFound ? "404" : isForbidden ? "forbidden" : "general"}
+          statusCode={isNotFound ? "۴۰۴" : isForbidden ? "۴۰۳" : undefined}
+          title={
+            isNotFound
+              ? "دوره مورد نظر پیدا نشد"
+              : isForbidden
+                ? "دسترسی به این دوره محدود است"
+                : "خطا در بارگذاری محتوای دوره"
+          }
+          description={
+            isNotFound
+              ? "این دوره ممکن است حذف شده باشد یا آدرس وارد شده نادرست باشد."
+              : isForbidden
+                ? "حساب کاربری شما اجازه دسترسی به این دوره را ندارد."
+                : "خطایی در دریافت اطلاعات دوره رخ داد. لطفاً دوباره تلاش کنید."
+          }
+          primaryAction={{
+            label: "تلاش مجدد",
+            onClick: () => {
               void refetch();
               void orgQuery.refetch();
-            }}
-          >
-            تلاش مجدد
-          </Button>
-          <Link
-            to="/courses"
-            className="px-5 py-2.5 bg-[var(--color-surface-warm)] hover:bg-[var(--color-border)] text-[var(--color-text)] border border-[var(--color-border)] rounded-xl text-xs font-bold transition-all"
-          >
-            بازگشت به دوره‌ها
-          </Link>
-        </div>
+            },
+          }}
+          secondaryAction={{
+            label: "بازگشت به دوره‌ها",
+            href: "/courses",
+          }}
+        />
       </div>
     );
   }
@@ -756,8 +758,8 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       </div>
 
       {/* Tab Content */}
-
-      {effectiveActiveTab === "review_summary" && (
+      <AppErrorBoundary compact={true}>
+        {effectiveActiveTab === "review_summary" && (
         <CourseReviewSummaryView
           organizationId={data?.course?.organization_id || organization.id}
           courseId={courseId!}
@@ -1041,6 +1043,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
           )}
         </div>
       )}
+      </AppErrorBoundary>
       <ComingSoonGenerationModal
         isOpen={isComingSoonOpen}
         onClose={() => setIsComingSoonOpen(false)}

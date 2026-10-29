@@ -32,6 +32,7 @@ import { Button, Badge, LoadingState, Alert, Skeleton } from "../ui/index.js";
 import { FILES_ENABLED } from "../../config/features.js";
 import { NotificationDropdown } from "../notifications/NotificationDropdown.js";
 import { EditProfileModal } from "./EditProfileModal.js";
+import { AppErrorBoundary } from "../error/index.js";
 
 const ACCOUNT_HINT_KEY = "avana_account_menu_hint_seen";
 
@@ -560,7 +561,9 @@ export function AuthenticatedShell() {
 
       {/* Main Content Area (Full Width max-w-7xl Container) */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-24 md:pb-8 min-h-screen w-full relative z-10">
-        <Outlet />
+        <AppErrorBoundary>
+          <Outlet />
+        </AppErrorBoundary>
       </main>
 
       {/* Mobile Bottom Navigation */}

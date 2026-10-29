@@ -2,13 +2,13 @@
  * In-memory implementation of SearchStore for test environments.
  */
 
+import type { OrganizationId, UserId } from "@avana/domain";
 import type {
   SearchStore,
   CourseSearchItem,
   SharedContentSearchItem,
 } from "./search-store.js";
-import type { OrganizationId, UserId } from "@avana/domain";
-import type { CourseStore } from "../courses/course-store.js";
+import type { CourseStore, CoursePublicationStore } from "../courses/course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { ContentPackStore } from "../library/library-store.js";
 import type { ModuleStore, LessonStore } from "../learning/learning-store.js";
@@ -21,7 +21,12 @@ export class InMemorySearchStore implements SearchStore {
     private readonly moduleStore?: ModuleStore,
     private readonly lessonStore?: LessonStore,
     private readonly systemOrganizationId?: OrganizationId,
+    private coursePublicationStore?: CoursePublicationStore,
   ) {}
+
+  setCoursePublicationStore(pubStore: CoursePublicationStore) {
+    this.coursePublicationStore = pubStore;
+  }
 
   private inMemoryCourses: CourseSearchItem[] = [];
   private inMemoryMemberships: Array<{ userId: string; organizationId: string }> = [];
@@ -88,10 +93,19 @@ export class InMemorySearchStore implements SearchStore {
         if (!isPublished) {
           continue;
         }
+        let isPublishedPublic = false;
+        if (this.coursePublicationStore) {
+          const pub = await this.coursePublicationStore.findPublishedByCourse(c.id);
+          if (pub && pub.status === "published" && pub.deletedAt === null) {
+            isPublishedPublic = true;
+          }
+        }
+
         const hasAccess =
           userOrgIds.has(c.organizationId) ||
           c.isOfficial === true ||
-          c.organizationId === sysOrg;
+          c.organizationId === sysOrg ||
+          isPublishedPublic;
 
         if (hasAccess) {
           seenCourseIds.add(c.id);
@@ -185,11 +199,19 @@ export class InMemorySearchStore implements SearchStore {
       for (const m of allModules) {
         const c: any = courseMap.get(m.courseId);
         const sysOrg = systemOrganizationId || this.systemOrganizationId || "00000000-0000-0000-0000-000000000001";
+        let isPublishedPublic = false;
+        if (this.coursePublicationStore) {
+          const pub = await this.coursePublicationStore.findPublishedByCourse(c.id);
+          if (pub && pub.status === "published" && pub.deletedAt === null) {
+            isPublishedPublic = true;
+          }
+        }
+
         const isCourseVisible =
           c &&
           c.deletedAt === null &&
           (c.status === "published" || !c.status) &&
-          (c.isOfficial === true || c.organizationId === sysOrg);
+          (c.isOfficial === true || c.organizationId === sysOrg || isPublishedPublic);
         if (!c || !isCourseVisible || seenIds.has(m.id)) {
           continue;
         }

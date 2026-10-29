@@ -3,8 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Calendar,
-  AlertCircle,
-  Filter,
   Play,
   ArrowRight,
   Brain,
@@ -22,6 +20,8 @@ import { createDocumentsApi } from "../lib/api/documents.js";
 import { useAuth } from "../providers/AuthProvider.js";
 import { TaxonomySelector } from "../components/study/TaxonomySelector.js";
 import { UnfinishedSessionsList } from "../components/flashcards/UnfinishedSessionsList.js";
+import { ErrorView } from "../components/error/index.js";
+import { ApiError } from "../lib/api/errors.js";
 import {
   toPersianDigits,
   FLASHCARD_DEFAULT_DAILY_NEW_LIMIT,
@@ -465,25 +465,48 @@ export function FlashcardsPage() {
   }
 
   if (isError || !summary) {
+    const errorObj = summaryQuery.error || orgQuery.error;
+    const isNetwork =
+      errorObj instanceof ApiError
+        ? errorObj.isNetworkError || errorObj.isTimeout
+        : typeof navigator !== "undefined" && !navigator.onLine;
+
+    const isNotFound =
+      (errorObj instanceof ApiError && errorObj.statusCode === 404) ||
+      (!isLoading && !isError && !summary);
+
     return (
-      <Card variant="solid" className="flex flex-col items-center justify-center py-16 text-center bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] p-8 max-w-xl mx-auto my-12 dir-rtl font-sans shadow-[var(--shadow-card)]">
-        <AlertCircle className="w-12 h-12 text-[var(--color-error)] mb-4" />
-        <h2 className="text-lg font-bold text-[var(--color-text)]">
-          خطا در بارگذاری خلاصه فلش‌کارت‌ها
-        </h2>
-        <p className="text-xs text-[var(--color-text-muted)] mt-2 mb-6">
-          امکان برقراری ارتباط با سرور وجود ندارد. لطفا مجددا تلاش نمایید.
-        </p>
-        <Button
-          type="button"
-          variant="primary"
-          size="md"
-          onClick={() => void refetch()}
-          className="rounded-[10px]"
-        >
-          تلاش مجدد
-        </Button>
-      </Card>
+      <div className="flex items-center justify-center min-h-[60vh] p-4 dir-rtl font-sans">
+        <div className="w-full max-w-xl">
+          <ErrorView
+            type={isNotFound ? "404" : isNetwork ? "offline" : "500"}
+            compact={true}
+            statusCode={isNotFound ? "۴۰۴" : isNetwork ? undefined : "۵۰۰"}
+            title={
+              isNotFound
+                ? "خلاصه فلش‌کارت‌ها یافت نشد"
+                : isNetwork
+                  ? "خطا در برقراری ارتباط با سرور"
+                  : "خطا در بارگذاری خلاصه فلش‌کارت‌ها"
+            }
+            description={
+              isNotFound
+                ? "اطلاعات فلش‌کارت برای این دوره یا سازمان یافت نشد."
+                : isNetwork
+                  ? "امکان برقراری ارتباط با سرور وجود ندارد. لطفا اتصال اینترنت خود را بررسی کرده و مجدداً تلاش نمایید."
+                  : "در دریافت اطلاعات فلش‌کارت‌ها مشکلی رخ داده است. لطفا مجددا تلاش نمایید."
+            }
+            primaryAction={{
+              label: "تلاش مجدد",
+              onClick: () => void refetch(),
+            }}
+            secondaryAction={{
+              label: "بازگشت به داشبورد",
+              href: "/home",
+            }}
+          />
+        </div>
+      </div>
     );
   }
 

@@ -164,6 +164,7 @@ export interface CourseCounts {
   lessons: number;
   flashcards: number;
   quizzes: number;
+  quizQuestions?: number;
 }
 
 export interface AdminCourseRecord {
@@ -661,6 +662,156 @@ export function createAdminApi(client: {
         `/v1/admin/content/lessons/${encodeURIComponent(lessonId)}`,
         updates,
       );
+    },
+
+    async downloadLessonPdf(
+      lessonId: string,
+      options?: { submissionId?: string; courseId?: string; fallbackName?: string },
+    ): Promise<void> {
+      const queryParams = new URLSearchParams();
+      if (options?.submissionId) queryParams.set("submissionId", options.submissionId);
+      if (options?.courseId) queryParams.set("courseId", options.courseId);
+      const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
+      const url = `${getApiBaseUrl()}/v1/admin/content/lessons/${encodeURIComponent(lessonId)}/pdf${qs}`;
+
+      const requestId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      const res = await fetch(url, {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          "x-request-id": requestId,
+        },
+      });
+
+      if (!res.ok) {
+        let errorMessage = "خطا در دریافت فایل PDF درسنامه";
+        try {
+          const contentType = res.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const errorData = await res.json();
+            if (errorData?.message) {
+              errorMessage = errorData.message;
+            } else if (errorData?.error?.message) {
+              errorMessage = errorData.error.message;
+            }
+          } else if (res.status === 404) {
+            errorMessage = "درس مورد نظر جهت تولید PDF یافت نشد.";
+          } else if (res.status === 400) {
+            errorMessage = "محتوای درسنامه خالی است و امکان تولید PDF وجود ندارد.";
+          } else if (res.status === 403) {
+            errorMessage = "شما دسترسی لازم برای دانلود PDF این محتوا را ندارید.";
+          }
+        } catch {
+          // fallback
+        }
+        throw new Error(errorMessage);
+      }
+
+      let filename = options?.fallbackName || `lesson-${lessonId}.pdf`;
+      const disposition = res.headers.get("content-disposition");
+      if (disposition) {
+        const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match?.[1]) {
+          try {
+            filename = decodeURIComponent(utf8Match[1].trim());
+          } catch {
+            // fallback
+          }
+        } else {
+          const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+          if (asciiMatch?.[1]) {
+            filename = asciiMatch[1].trim();
+          }
+        }
+      }
+
+      const blob = await res.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const a = window.document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      window.document.body.appendChild(a);
+      a.click();
+      window.document.body.removeChild(a);
+      window.URL.revokeObjectURL(objectUrl);
+    },
+
+    async downloadReviewSummaryPdf(
+      summaryId: string,
+      options?: { courseId?: string; documentId?: string; fallbackName?: string },
+    ): Promise<void> {
+      const queryParams = new URLSearchParams();
+      if (options?.courseId) queryParams.set("courseId", options.courseId);
+      if (options?.documentId) queryParams.set("documentId", options.documentId);
+      const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
+      const url = `${getApiBaseUrl()}/v1/admin/content/review-summaries/${encodeURIComponent(summaryId)}/pdf${qs}`;
+
+      const requestId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      const res = await fetch(url, {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          "x-request-id": requestId,
+        },
+      });
+
+      if (!res.ok) {
+        let errorMessage = "خطا در دریافت فایل PDF خلاصه مرور";
+        try {
+          const contentType = res.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const errorData = await res.json();
+            if (errorData?.message) {
+              errorMessage = errorData.message;
+            } else if (errorData?.error?.message) {
+              errorMessage = errorData.error.message;
+            }
+          } else if (res.status === 404) {
+            errorMessage = "خلاصه مرور مورد نظر جهت تولید PDF یافت نشد.";
+          } else if (res.status === 400) {
+            errorMessage = "محتوای خلاصه مرور خالی یا ناقص است.";
+          } else if (res.status === 403) {
+            errorMessage = "شما دسترسی لازم برای دانلود PDF این محتوا را ندارید.";
+          }
+        } catch {
+          // fallback
+        }
+        throw new Error(errorMessage);
+      }
+
+      let filename = options?.fallbackName || `review-summary-${summaryId}.pdf`;
+      const disposition = res.headers.get("content-disposition");
+      if (disposition) {
+        const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match?.[1]) {
+          try {
+            filename = decodeURIComponent(utf8Match[1].trim());
+          } catch {
+            // fallback
+          }
+        } else {
+          const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+          if (asciiMatch?.[1]) {
+            filename = asciiMatch[1].trim();
+          }
+        }
+      }
+
+      const blob = await res.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const a = window.document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      window.document.body.appendChild(a);
+      a.click();
+      window.document.body.removeChild(a);
+      window.URL.revokeObjectURL(objectUrl);
     },
 
     async listCourseSubmissions(params?: {
@@ -1737,6 +1888,10 @@ export interface AdminCourseHierarchy {
   subject: string | null;
   groups?: AdminCourseHierarchyGroup[];
   modules: AdminCourseHierarchyModule[];
+  courseFlashcardCount?: number;
+  courseQuizCount?: number;
+  courseQuizQuestionCount?: number;
+  totalQuizQuestionCount?: number;
 }
 
 export interface AdminPromptRecord {
@@ -2367,6 +2522,20 @@ export async function getLessonDetails(
   return api.get<AdminLessonDetail>(`/admin/content/lessons/${encodeURIComponent(lessonId)}${qs}`);
 }
 
+export async function downloadLessonPdf(
+  lessonId: string,
+  options?: { submissionId?: string; courseId?: string; fallbackName?: string },
+): Promise<void> {
+  return createAdminApi(rawClient).downloadLessonPdf(lessonId, options);
+}
+
+export async function downloadReviewSummaryPdf(
+  summaryId: string,
+  options?: { courseId?: string; documentId?: string; fallbackName?: string },
+): Promise<void> {
+  return createAdminApi(rawClient).downloadReviewSummaryPdf(summaryId, options);
+}
+
 export async function listCourseSubmissions(params?: {
   page?: number;
   pageSize?: number;
@@ -2429,5 +2598,3 @@ export async function requestCourseSubmissionChanges(
 ): Promise<{ success: boolean; publication: AdminCourseSubmissionItem; reviewNotes: string }> {
   return api.post(`/admin/course-submissions/${encodeURIComponent(id)}/request-changes`, { notes });
 }
-
-

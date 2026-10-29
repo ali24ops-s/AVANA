@@ -6,6 +6,7 @@ import { and, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   courses,
+  coursePublications,
   organizationMemberships,
   contentPacks,
   modules,
@@ -39,10 +40,16 @@ export class DrizzleSearchStore implements SearchStore {
       .where(eq(organizationMemberships.userId, userId));
 
     const sysOrg = systemOrganizationId || "00000000-0000-0000-0000-000000000001";
+    const isPublicApproved = and(
+      eq(courses.status, "published"),
+      sql`EXISTS (SELECT 1 FROM ${coursePublications} cp WHERE cp.course_id = ${courses.id} AND cp.status = 'published' AND cp.deleted_at IS NULL)`,
+    );
+
     const orgFilter = or(
       inArray(courses.organizationId, userOrgIdsSubquery),
       eq(courses.isOfficial, true),
       eq(courses.organizationId, sysOrg),
+      isPublicApproved,
     );
 
     const rows = await this.db
@@ -122,6 +129,7 @@ export class DrizzleSearchStore implements SearchStore {
       or(
         eq(courses.isOfficial, true),
         eq(courses.organizationId, sysOrg),
+        sql`EXISTS (SELECT 1 FROM ${coursePublications} cp WHERE cp.course_id = ${courses.id} AND cp.status = 'published' AND cp.deleted_at IS NULL)`,
       ),
     );
 

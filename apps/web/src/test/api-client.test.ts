@@ -107,6 +107,44 @@ describe("API Client", () => {
       expect((thrownError as ApiError).requestId).toBe("safe-req-123");
     });
 
+    it("maps AbortError or timeout to ApiError with timeout code and isTimeout helper", async () => {
+      const abortError = new DOMException("The operation was aborted", "AbortError");
+      vi.spyOn(globalThis, "fetch").mockRejectedValue(abortError);
+
+      const client = createApiClient({ baseUrl: "" });
+      let thrownError: unknown;
+      try {
+        await client.get("/v1/courses");
+      } catch (err) {
+        thrownError = err;
+      }
+      expect(thrownError).toBeInstanceOf(ApiError);
+      const apiErr = thrownError as ApiError;
+      expect(apiErr.code).toBe("timeout");
+      expect(apiErr.isTimeout).toBe(true);
+      expect(apiErr.isNetworkError).toBe(false);
+      expect(apiErr.message).toBe("مهلت زمانی درخواست به پایان رسید. لطفاً دوباره تلاش کنید.");
+    });
+
+    it("maps fetch network disconnect or failure to ApiError with service_unavailable code and isNetworkError helper", async () => {
+      const networkError = new TypeError("Failed to fetch");
+      vi.spyOn(globalThis, "fetch").mockRejectedValue(networkError);
+
+      const client = createApiClient({ baseUrl: "" });
+      let thrownError: unknown;
+      try {
+        await client.get("/v1/courses");
+      } catch (err) {
+        thrownError = err;
+      }
+      expect(thrownError).toBeInstanceOf(ApiError);
+      const apiErr = thrownError as ApiError;
+      expect(apiErr.code).toBe("service_unavailable");
+      expect(apiErr.isNetworkError).toBe(true);
+      expect(apiErr.isTimeout).toBe(false);
+      expect(apiErr.message).toBe("خطا در برقراری ارتباط با سرور. لطفاً اتصال اینترنت خود را بررسی کنید.");
+    });
+
     it("handles 204 no content responses", async () => {
       const mockResponse = {
         ok: true,
