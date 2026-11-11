@@ -12,12 +12,63 @@ import type { FastifyRequest, FastifyReply } from "fastify";
 import type { SessionService } from "../modules/identity/session-service.js";
 import type { UserStore } from "../modules/identity/user-store.js";
 import { DomainError, type Role, resolveEffectiveRole } from "@avana/domain";
-import { attachSessionCookies } from "../modules/identity/cookie-utils.js";
+import { attachSessionCookies, attachCsrfCookie } from "../modules/identity/cookie-utils.js";
+import { validateCsrfToken } from "../modules/identity/csrf.js";
 
 export type AuthMiddlewareDeps = {
   sessionService: SessionService;
   userStore: UserStore;
+  enforceCsrf?: boolean;
+  allowedOrigins?: string[];
 };
+
+function parseOriginKey(originStr: string): string | null {
+  try {
+    const u = new URL(originStr);
+    return `${u.protocol}//${u.host}`.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+export function isValidOriginOrReferer(
+  request: FastifyRequest,
+  allowedOrigins: readonly string[],
+): { valid: boolean; reason?: string } {
+  const originHeader = request.headers["origin"] as string | undefined;
+  const refererHeader = request.headers["referer"] as string | undefined;
+
+  const allowedSet = new Set<string>();
+  for (const o of allowedOrigins) {
+    const k = parseOriginKey(o);
+    if (k) allowedSet.add(k);
+  }
+
+  // Standard platform origins
+  allowedSet.add("https://aavana.ir");
+  allowedSet.add("http://localhost:5173");
+  allowedSet.add("http://localhost:5174");
+  allowedSet.add("http://127.0.0.1:5173");
+  allowedSet.add("http://127.0.0.1:5174");
+
+  if (originHeader) {
+    const originKey = parseOriginKey(originHeader);
+    if (!originKey || !allowedSet.has(originKey)) {
+      return { valid: false, reason: `Origin ${originHeader} not allowed` };
+    }
+    return { valid: true };
+  }
+
+  if (refererHeader) {
+    const refererKey = parseOriginKey(refererHeader);
+    if (!refererKey || !allowedSet.has(refererKey)) {
+      return { valid: false, reason: `Referer ${refererHeader} not allowed` };
+    }
+    return { valid: true };
+  }
+
+  return { valid: false, reason: "Missing Origin and Referer headers" };
+}
 
 /**
  * Factory that creates a Fastify preHandler which enforces authentication.
@@ -78,6 +129,64 @@ export function makeAuthMiddleware(deps: AuthMiddlewareDeps) {
 
     if (details.renewed) {
       attachSessionCookies(reply, token, sessionService.getConfig());
+    } else if (sessionCookie) {
+      // -----------------------------------------------------------------------
+      // Existing Sessions CSRF Bootstrap / Sync
+      // If user has a valid session but missing or old-format CSRF cookie,
+      // issue a fresh bound CSRF cookie immediately without rotating session token.
+      // -----------------------------------------------------------------------
+      const csrfCookie = request.cookies?.["avana_csrf"];
+      const hasValidCsrf = csrfCookie && validateCsrfToken(csrfCookie, token);
+      if (!hasValidCsrf) {
+        attachCsrfCookie(reply, token, sessionService.getConfig());
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // CSRF & Origin Protection for Cookie-based State-Changing Requests (POST/PUT/PATCH/DELETE)
+    // -------------------------------------------------------------------------
+    const isStateChanging = ["POST", "PUT", "PATCH", "DELETE"].includes(request.method);
+    if (sessionCookie && isStateChanging) {
+      const csrfCookie = request.cookies?.["avana_csrf"];
+      const csrfHeader = (request.headers["x-csrf-token"] ??
+        request.headers["X-CSRF-Token"]) as string | undefined;
+
+      const isProd = process.env.NODE_ENV === "production";
+      const shouldEnforce =
+        isProd ||
+        Boolean(csrfCookie) ||
+        Boolean(csrfHeader) ||
+        Boolean(deps.enforceCsrf) ||
+        process.env.AVANA_CSRF_ENFORCE === "true";
+
+      if (shouldEnforce) {
+        // 1. Origin / Referer Validation
+        const originCheck = isValidOriginOrReferer(
+          request,
+          deps.allowedOrigins ?? [],
+        );
+        const hasOriginOrReferer = Boolean(request.headers["origin"] || request.headers["referer"]);
+
+        if (hasOriginOrReferer && !originCheck.valid) {
+          throw new DomainError("forbidden", `CSRF Origin blocked: ${originCheck.reason}`);
+        }
+
+        // Fail-closed when Origin/Referer is missing in Production or when strict enforcement requested
+        if (!hasOriginOrReferer && (isProd || Boolean(deps.enforceCsrf) || process.env.AVANA_CSRF_ENFORCE === "true")) {
+          throw new DomainError("forbidden", "Origin or Referer header required for state-changing requests");
+        }
+
+        // 2. CSRF Token Validation
+        if (!csrfHeader) {
+          throw new DomainError("forbidden", "CSRF token missing");
+        }
+        if (csrfCookie && csrfHeader !== csrfCookie) {
+          throw new DomainError("forbidden", "CSRF token mismatch");
+        }
+        if (!validateCsrfToken(csrfHeader, token)) {
+          throw new DomainError("forbidden", "Invalid CSRF token");
+        }
+      }
     }
 
     const user = details.user;
@@ -164,6 +273,12 @@ export function makeAuthMiddleware(deps: AuthMiddlewareDeps) {
       if (details.valid && details.user && !details.revoked) {
         if (details.renewed) {
           attachSessionCookies(reply, token, sessionService.getConfig());
+        } else if (sessionCookie) {
+          const csrfCookie = request.cookies?.["avana_csrf"];
+          const hasValidCsrf = csrfCookie && validateCsrfToken(csrfCookie, token);
+          if (!hasValidCsrf) {
+            attachCsrfCookie(reply, token, sessionService.getConfig());
+          }
         }
         const userRecord = await userStore.findById(details.user.userId);
         if (userRecord) {

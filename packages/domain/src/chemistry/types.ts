@@ -37,6 +37,20 @@ export interface ChemicalValidationResult {
   estimatedMolecularWeight?: number;
 }
 
+export interface MindMapChemicalValidationResult {
+  valid: boolean;
+  needsReview: boolean;
+  confidence: ChemicalConfidence;
+  syntaxValid: boolean;
+  graphValid: boolean;
+  formulaConsistent: boolean;
+  identityVerified: boolean;
+  errors: string[];
+  warnings: string[];
+  extractedFormula?: string;
+  estimatedMolecularWeight?: number;
+}
+
 export interface ChemicalReactionParticipant {
   smiles: string;
   name?: string;

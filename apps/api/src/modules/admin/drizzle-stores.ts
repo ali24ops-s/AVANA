@@ -36,6 +36,8 @@ import {
   courseReleases,
   feedbacks,
 } from "@avana/database/schema";
+import { DrizzleErrorStore } from "../../observability/drizzle-error-store.js";
+import type { ErrorMonitoringStore } from "../../observability/error-monitoring-store.js";
 import {
   resolveEffectiveRole,
   Roles,
@@ -240,12 +242,14 @@ export function resolveUserCostFromTransactions(
 
 export class DrizzleAdminStore implements AdminStore {
   private readonly systemOrganizationId: string;
+  private readonly errorStore: ErrorMonitoringStore;
 
   constructor(
     private readonly db: DbClient,
     private readonly options?: AdminStoreOptions,
   ) {
     this.systemOrganizationId = options?.systemOrganizationId || "b4a0b464-16db-4087-92b7-163a1e6f6776";
+    this.errorStore = options?.errorStore || new DrizzleErrorStore(db);
   }
 
   async getDashboardStats(): Promise<DashboardStats> {
@@ -671,17 +675,36 @@ export class DrizzleAdminStore implements AdminStore {
     const courseIds = courseRows.map((c) => c.id);
     const orgIds = Array.from(new Set(courseRows.map((c) => c.organizationId).filter(Boolean)));
 
-    const courseStats = new Map<string, { modules: number; lessons: number; flashcards: number; quizzes: number }>();
+    const courseStats = new Map<string, { modules: number; lessons: number; flashcards: number; quizzes: number; quizQuestions: number }>();
     for (const id of courseIds) {
-      courseStats.set(id, { modules: 0, lessons: 0, flashcards: 0, quizzes: 0 });
+      courseStats.set(id, { modules: 0, lessons: 0, flashcards: 0, quizzes: 0, quizQuestions: 0 });
     }
 
-    const [modulesCounts, lessonsCounts, flashcardsCounts, quizzesCounts, classroomRows, orgMemberRows, auditRows, productRows, publicationRows] =
+    const [modulesCounts, lessonsCounts, flashcardsCounts, quizzesCounts, quizQuestionsCounts, classroomRows, orgMemberRows, auditRows, productRows, publicationRows] =
       await Promise.all([
         this.db.select({ courseId: modules.courseId, count: count() }).from(modules).where(and(inArray(modules.courseId, courseIds), isNull(modules.deletedAt))).groupBy(modules.courseId),
         this.db.select({ courseId: modules.courseId, count: count() }).from(lessons).innerJoin(modules, eq(lessons.moduleId, modules.id)).where(and(inArray(modules.courseId, courseIds), isNull(lessons.deletedAt), isNull(modules.deletedAt))).groupBy(modules.courseId),
         this.db.select({ courseId: flashcards.courseId, count: count() }).from(flashcards).where(and(inArray(flashcards.courseId, courseIds), isNull(flashcards.deletedAt))).groupBy(flashcards.courseId),
         this.db.select({ courseId: quizzes.courseId, count: count() }).from(quizzes).where(and(inArray(quizzes.courseId, courseIds), isNull(quizzes.deletedAt))).groupBy(quizzes.courseId),
+        this.db.select({
+          courseId: quizzes.courseId,
+          count: sql<number>`count(${quizQuestions.id})::int`,
+        })
+          .from(quizzes)
+          .innerJoin(
+            quizQuestions,
+            and(
+              eq(quizQuestions.quizId, quizzes.id),
+              isNull(quizQuestions.deletedAt),
+            ),
+          )
+          .where(
+            and(
+              inArray(quizzes.courseId, courseIds),
+              isNull(quizzes.deletedAt),
+            ),
+          )
+          .groupBy(quizzes.courseId),
         this.db.select({
           id: classrooms.id,
           title: classrooms.title,
@@ -749,6 +772,12 @@ export class DrizzleAdminStore implements AdminStore {
       if (row.courseId) {
         const s = courseStats.get(row.courseId);
         if (s) s.quizzes = row.count;
+      }
+    }
+    for (const row of quizQuestionsCounts) {
+      if (row.courseId) {
+        const s = courseStats.get(row.courseId);
+        if (s) s.quizQuestions = Number(row.count) || 0;
       }
     }
 
@@ -893,7 +922,7 @@ export class DrizzleAdminStore implements AdminStore {
           }
         : ownerInfo;
 
-      const counts = courseStats.get(c.id) || { modules: 0, lessons: 0, flashcards: 0, quizzes: 0 };
+      const counts = courseStats.get(c.id) || { modules: 0, lessons: 0, flashcards: 0, quizzes: 0, quizQuestions: 0 };
       const hasContent = (counts.modules + counts.lessons) > 0;
 
       const linkedProduct = productByCourseId.get(c.id);
@@ -1253,9 +1282,16 @@ export class DrizzleAdminStore implements AdminStore {
     };
   }
 
-  async listLogs(_params: { page: number; pageSize: number; level?: string }): Promise<{ logs: AdminLogRecord[]; totalCount: number }> {
-    // If there is no DB logs table, we return empty. Admin panel shouldn't crash if logs aren't in DB.
-    return { logs: [], totalCount: 0 };
+  async listLogs(params: { page: number; pageSize: number; level?: string }): Promise<{ logs: AdminLogRecord[]; totalCount: number }> {
+    try {
+      const result = await this.errorStore.listRecentLogs(params);
+      return {
+        logs: result.logs as AdminLogRecord[],
+        totalCount: result.totalCount,
+      };
+    } catch {
+      return { logs: [], totalCount: 0 };
+    }
   }
 
   async listAuditLogs(params: { page: number; pageSize: number; search?: string; action?: string; entityType?: string; adminEmail?: string; from?: string }): Promise<{ logs: AdminAuditRecord[]; totalCount: number }> {
@@ -1602,7 +1638,7 @@ export class DrizzleAdminStore implements AdminStore {
       }
     }
 
-    const [courseGroups, courseFcCount, courseQCount] = await Promise.all([
+    const [courseGroups, courseFcCount, courseQCount, unassignedQuestionsCount, totalQuestionsCount] = await Promise.all([
       this.db.select().from(subCourseGroups)
         .where(and(eq(subCourseGroups.courseId, courseId), isNull(subCourseGroups.deletedAt)))
         .orderBy(subCourseGroups.sortOrder),
@@ -1612,6 +1648,37 @@ export class DrizzleAdminStore implements AdminStore {
       this.db.select({ count: count() })
         .from(quizzes)
         .where(and(eq(quizzes.courseId, courseId), isNull(quizzes.deletedAt))),
+      this.db.select({ count: sql<number>`count(${quizQuestions.id})::int` })
+        .from(quizzes)
+        .innerJoin(
+          quizQuestions,
+          and(
+            eq(quizQuestions.quizId, quizzes.id),
+            isNull(quizQuestions.deletedAt),
+          ),
+        )
+        .where(
+          and(
+            eq(quizzes.courseId, courseId),
+            isNull(quizzes.deletedAt),
+            isNull(quizQuestions.lessonId),
+          ),
+        ),
+      this.db.select({ count: sql<number>`count(${quizQuestions.id})::int` })
+        .from(quizzes)
+        .innerJoin(
+          quizQuestions,
+          and(
+            eq(quizQuestions.quizId, quizzes.id),
+            isNull(quizQuestions.deletedAt),
+          ),
+        )
+        .where(
+          and(
+            eq(quizzes.courseId, courseId),
+            isNull(quizzes.deletedAt),
+          ),
+        ),
     ]);
 
     return {
@@ -1620,6 +1687,8 @@ export class DrizzleAdminStore implements AdminStore {
       subject: course.subject,
       courseFlashcardCount: courseFcCount[0]?.count || 0,
       courseQuizCount: courseQCount[0]?.count || 0,
+      courseQuizQuestionCount: unassignedQuestionsCount[0]?.count || 0,
+      totalQuizQuestionCount: totalQuestionsCount[0]?.count || 0,
       groups: courseGroups.map((g) => ({
         id: g.id,
         title: g.title,

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FileText,
@@ -13,6 +13,7 @@ import {
   BookOpen,
   Layers,
   HelpCircle,
+  Clock,
   X,
 } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
@@ -25,6 +26,7 @@ import { canUserGenerateContent } from "../../utils/generationPermissions.js";
 import { ComingSoonGenerationModal } from "../generation/ComingSoonGenerationModal.js";
 import type { DocumentResource, DocumentStatus } from "@avana/contracts";
 import { formatPersianOf, toPersianDigits } from "@avana/domain";
+import { getUserFriendlyErrorMessage, type ErrorContext } from "../../lib/api/error-mapper.js";
 
 export interface DocumentStatusCardProps {
   document: DocumentResource;
@@ -49,33 +51,25 @@ const TRANSIENT_STATUSES: ReadonlySet<DocumentStatus> = new Set<DocumentStatus>(
   "generating",
 ]);
 
-function formatGenerationErrorMessage(errorMessage?: string | null): string {
+function formatGenerationErrorMessage(
+  errorMessage?: string | null,
+  context?: ErrorContext,
+): string {
   if (!errorMessage) {
     return "خطای ناشناخته در پردازش جاب. لطفاً دوباره تلاش کنید.";
   }
-  const lower = errorMessage.toLowerCase();
-  if (
-    lower.includes("quota_exhausted") ||
-    lower.includes("rate_limit_exceeded") ||
-    lower.includes("unavailable (key-") ||
-    lower.includes("resource_exhausted") ||
-    lower.includes("generaterequestsperday") ||
-    lower.includes("free_tier_requests") ||
-    lower.includes("سهمیه")
-  ) {
-    return "تولید محتوا انجام نشد. سهمیه سرویس هوش مصنوعی در حال حاضر به پایان رسیده است. لطفاً کمی بعد دوباره تلاش کنید.";
+  if (errorMessage.includes("OLD_JOB_FAILURE_REASON")) {
+    return `خطا در تولید هوشمند: ${errorMessage}`;
   }
-  if (
-    lower.includes("fetch failed") ||
-    lower.includes("network error") ||
-    lower.includes("econnrefused") ||
-    lower.includes("timed out") ||
-    lower.includes("timeout")
-  ) {
-    return "خطا در برقراری ارتباط با سرویس هوش مصنوعی. لطفاً اتصال اینترنت را بررسی و مجدداً تلاش کنید.";
-  }
-  return `خطا در تولید هوشمند: ${errorMessage}`;
+  return getUserFriendlyErrorMessage(errorMessage, { scope: "generation", ...context });
 }
+
+const CANONICAL_STAGE_ORDER: Array<"lesson" | "flashcard" | "quiz" | "review_summary"> = [
+  "lesson",
+  "flashcard",
+  "quiz",
+  "review_summary",
+];
 
 function getJobContentPersianTitle(type?: string): string {
   if (!type) return "محتوای آموزشی";
@@ -176,15 +170,55 @@ export function DocumentStatusCard({
       ? document.course_id
       : null);
 
+  const [optimisticRequestedTypes, setOptimisticRequestedTypes] = useState<Array<"lesson" | "flashcard" | "quiz" | "review_summary"> | null>(null);
+  const [isOptimisticSubmitting, setIsOptimisticSubmitting] = useState(false);
+  const [failedTypes, setFailedTypes] = useState<Array<"lesson" | "flashcard" | "quiz" | "review_summary">>([]);
+
   // Query database-backed content generation status (lesson, flashcards, exam)
   const contentStatusQuery = useQuery({
     queryKey: ["document-content-status", organizationId, document.id, resolvedCourseId],
     queryFn: () => genApi.getDocumentContentStatus(organizationId, document.id, resolvedCourseId),
     enabled: Boolean(organizationId && document.id),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const cachedJob = activeJobId
+        ? queryClient.getQueryData<{ job?: { status?: string } }>([
+            "generation-job",
+            organizationId,
+            document.id,
+            activeJobId,
+          ])
+        : null;
+      const currentJobStatus = cachedJob?.job?.status ?? data?.latest_job?.status;
+      const isJobTerminal =
+        currentJobStatus === "succeeded" ||
+        currentJobStatus === "failed" ||
+        currentJobStatus === "cancelled";
+
+      const hasActiveBackgroundJob = Boolean(
+        data?.active_job_id ||
+          data?.latest_job?.status === "queued" ||
+          data?.latest_job?.status === "running" ||
+          document.status === "generating" ||
+          document.status === "pending_generation",
+      );
+
+      const isRunning = Boolean(
+        isOptimisticSubmitting ||
+          hasActiveBackgroundJob ||
+          (activeJobId && !isJobTerminal),
+      );
+      if (!isRunning) return false;
+      if (query.state.error) {
+        return 6000;
+      }
+      return 2000;
+    },
   });
 
   const contentStatus = contentStatusQuery.data;
   const isAllGenerated = Boolean(contentStatus?.all_generated);
+  const canGenerateMore = contentStatus?.can_generate !== undefined ? contentStatus.can_generate : !isAllGenerated;
   const hasPublishableContent = Boolean(
     contentStatus?.has_publishable_content ??
       (contentStatus?.lesson?.accepted ||
@@ -193,18 +227,23 @@ export function DocumentStatusCard({
         contentStatus?.review_summary?.accepted),
   );
 
-  // Poll generation job status if active
+  // Poll generation job status if active (independent of courseId)
   const jobQuery = useQuery({
-    queryKey: ["generation-job", organizationId, resolvedCourseId, document.id, activeJobId],
-    queryFn: () => genApi.getGenerationJob(organizationId, resolvedCourseId!, document.id, activeJobId!),
-    enabled: Boolean(activeJobId && resolvedCourseId),
+    queryKey: ["generation-job", organizationId, document.id, activeJobId],
+    queryFn: () => genApi.getGenerationJob(organizationId, resolvedCourseId, document.id, activeJobId!),
+    enabled: Boolean(activeJobId && organizationId && document.id),
     refetchInterval: (query) => {
-      const jobStatus = query.state.data?.job?.status;
-      if (jobStatus === "succeeded" || jobStatus === "failed" || query.state.error) {
+      const jobStatus = query.state.data?.job?.status as string | undefined;
+      if (jobStatus === "succeeded" || jobStatus === "failed" || jobStatus === "cancelled") {
         return false;
+      }
+      if (query.state.error) {
+        const failureCount = query.state.errorUpdateCount ?? 1;
+        return failureCount > 5 ? 8000 : 4000;
       }
       return 2000;
     },
+    retry: 3,
   });
 
   // Sync active job ID across page reloads if backend has an ongoing generation
@@ -214,10 +253,44 @@ export function DocumentStatusCard({
     }
   }, [activeJobId, contentStatus?.active_job_id]);
 
-  // Automatically refresh queries when generation finishes (succeeded or failed)
+  // Track job lifecycle: handle success and failure, and clear optimistic state
   useEffect(() => {
     const jobStatus = jobQuery.data?.job?.status;
-    if (jobStatus === "succeeded" || jobStatus === "failed") {
+    if (jobStatus === "succeeded") {
+      setOptimisticRequestedTypes(null);
+      setFailedTypes([]);
+    } else if (jobStatus === "failed") {
+      setOptimisticRequestedTypes(null);
+      const requested =
+        jobQuery.data?.job?.types ||
+        (jobQuery.data?.job?.type ? [jobQuery.data.job.type] : []) ||
+        optimisticRequestedTypes ||
+        [];
+      const failed = (requested as Array<"lesson" | "flashcard" | "quiz" | "review_summary">).filter((t) => {
+        if (t === "lesson") return !contentStatus?.lesson?.generated;
+        if (t === "flashcard") return !contentStatus?.flashcards?.generated;
+        if (t === "quiz") return !contentStatus?.exam?.generated;
+        if (t === "review_summary") return !contentStatus?.review_summary?.generated;
+        return false;
+      });
+      if (failed.length > 0) {
+        setFailedTypes((prev) => Array.from(new Set([...prev, ...failed])));
+      }
+    }
+  }, [
+    jobQuery.data?.job?.status,
+    jobQuery.data?.job?.types,
+    jobQuery.data?.job?.type,
+    contentStatus?.lesson?.generated,
+    contentStatus?.flashcards?.generated,
+    contentStatus?.exam?.generated,
+    contentStatus?.review_summary?.generated,
+  ]);
+
+  // Automatically refresh queries when generation finishes (succeeded, failed, or cancelled)
+  useEffect(() => {
+    const jobStatus = jobQuery.data?.job?.status as string | undefined;
+    if (jobStatus === "succeeded" || jobStatus === "failed" || jobStatus === "cancelled") {
       if (resolvedCourseId) {
         void queryClient.invalidateQueries({
           queryKey: ["review-queue", organizationId, resolvedCourseId],
@@ -303,6 +376,7 @@ export function DocumentStatusCard({
       );
     },
     onSuccess: (res) => {
+      setIsOptimisticSubmitting(false);
       setGenerateError(null);
       setDismissedCompletedJobId(null);
       setDismissedFailedJobId(null);
@@ -323,8 +397,109 @@ export function DocumentStatusCard({
         queryKey: ["active-generations"],
       });
     },
-    onError: (err: Error) => {
-      setGenerateError(err.message || "خطا در شروع تولید هوشمند محتوا");
+    onError: async (err: Error) => {
+      setIsOptimisticSubmitting(false);
+      setOptimisticRequestedTypes(null);
+      const apiErr = err as any;
+      const statusCode =
+        apiErr?.statusCode ||
+        apiErr?.status ||
+        apiErr?.response?.status ||
+        apiErr?.code;
+      const isDefinitiveClientError =
+        statusCode === 400 ||
+        statusCode === 401 ||
+        statusCode === 403 ||
+        statusCode === 404 ||
+        statusCode === 422 ||
+        statusCode === "bad_request" ||
+        statusCode === "unauthorized" ||
+        statusCode === "forbidden" ||
+        statusCode === "not_found";
+
+      const isConflict =
+        statusCode === 409 ||
+        statusCode === "conflict" ||
+        Boolean(err.message && err.message.includes("در حال حاضر در حال پردازش یا تولید محتوا است"));
+
+      // For clear client validation or auth errors (excluding conflict), display the real error immediately.
+      if (isDefinitiveClientError && !isConflict) {
+        setGenerateError(err.message || "خطا در شروع تولید هوشمند محتوا");
+        return;
+      }
+
+      // In case of timeout, connection loss, 409 conflict, or unknown server error,
+      // verify the authoritative state from backend before declaring failure!
+      try {
+        const [freshContentStatus, freshDocStatus] = await Promise.all([
+          genApi.getDocumentContentStatus(organizationId, document.id, resolvedCourseId).catch(() => null),
+          docsApi.getDocumentStatus(organizationId, document.id).catch(() => null),
+        ]);
+
+        const backendDocStatus = freshDocStatus?.status?.status;
+        const activeJob =
+          freshContentStatus?.active_job_id ||
+          (freshContentStatus?.latest_job &&
+            (freshContentStatus.latest_job.status === "queued" ||
+              freshContentStatus.latest_job.status === "running") &&
+            ((freshContentStatus.latest_job as any).document_id === document.id ||
+              (freshContentStatus.latest_job as any).documentId === document.id ||
+              !(freshContentStatus.latest_job as any).documentId)
+            ? (freshContentStatus.latest_job.id || (freshContentStatus.latest_job as any).job_id)
+            : null);
+
+        const isDocGenerating =
+          backendDocStatus === "generating" ||
+          backendDocStatus === "pending_generation" ||
+          Boolean(freshContentStatus?.active_job_id);
+
+        if (activeJob) {
+          // An active job is confirmed on the server for this document!
+          setGenerateError(null);
+          setDismissedCompletedJobId(null);
+          setDismissedFailedJobId(null);
+          setActiveJobId(activeJob);
+          setIsModalOpen(false);
+          void queryClient.invalidateQueries({
+            queryKey: ["document-content-status", organizationId, document.id],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["active-generations"],
+          });
+          return;
+        }
+
+        if (isDocGenerating) {
+          // The document is actively generating, but job_id is not yet in contentStatus
+          setGenerateError(null);
+          setDismissedCompletedJobId(null);
+          setDismissedFailedJobId(null);
+          setIsModalOpen(false);
+          void queryClient.invalidateQueries({
+            queryKey: ["document-status", organizationId, document.id],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["document-content-status", organizationId, document.id],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["active-generations"],
+          });
+          return;
+        }
+
+        if (isConflict) {
+          // If conflict was returned but no active generation found for this document,
+          // display the conflict error message without inventing a job.
+          setGenerateError(err.message || "این سند در حال حاضر در حال پردازش یا تولید محتوا است. لطفاً منتظر بمانید.");
+          return;
+        }
+
+        // Neither active job nor generating document found — this is a real failure to start.
+        setGenerateError(err.message || "خطا در شروع تولید هوشمند محتوا");
+      } catch {
+        // If recovery check also fails, preserve the original real error
+        setGenerateError(err.message || "خطا در شروع تولید هوشمند محتوا");
+      }
     },
   });
 
@@ -346,11 +521,25 @@ export function DocumentStatusCard({
     if (selected.exam) types.push("quiz");
     if (selected.review_summary) types.push("review_summary");
 
+    setOptimisticRequestedTypes(types);
+    setIsOptimisticSubmitting(true);
     generateMutation.mutate({
       types,
       question_pattern_id: selected.questionPatternId ?? undefined,
       question_pattern_version: selected.questionPatternVersion ?? undefined,
       question_pattern_ids: selected.questionPatternIds ?? undefined,
+    });
+  };
+
+  const handleRetryStage = (type: "lesson" | "flashcard" | "quiz" | "review_summary") => {
+    setGenerateError(null);
+    setDismissedCompletedJobId(null);
+    setDismissedFailedJobId(null);
+    setFailedTypes((prev) => prev.filter((t) => t !== type));
+    setOptimisticRequestedTypes([type]);
+    setIsOptimisticSubmitting(true);
+    generateMutation.mutate({
+      types: [type],
     });
   };
 
@@ -383,7 +572,9 @@ export function DocumentStatusCard({
                 (contentStatus.latest_job as any).type ??
                 (contentStatus.latest_job as any).types?.[0] ??
                 "all",
+              types: (contentStatus.latest_job as any).types,
               error_message: contentStatus.latest_job.error_message ?? null,
+              progress: (contentStatus.latest_job as any).progress,
             } as any)
           : undefined)
       : undefined) ??
@@ -397,20 +588,163 @@ export function DocumentStatusCard({
             (contentStatus.latest_job as any).type ??
             (contentStatus.latest_job as any).types?.[0] ??
             "all",
+          types: (contentStatus.latest_job as any).types,
           error_message: contentStatus.latest_job.error_message ?? null,
+          progress: (contentStatus.latest_job as any).progress,
         } as any)
       : undefined);
 
   const job = resolvedJob;
   const isJobRunning = Boolean(
     activeJobId &&
-      jobQuery.data?.job !== undefined &&
-      jobQuery.data.job.id === activeJobId &&
-      jobQuery.data.job.status !== "succeeded" &&
-      jobQuery.data.job.status !== "failed" &&
-      !jobQuery.isError,
+      ((jobQuery.data?.job &&
+        jobQuery.data.job.id === activeJobId &&
+        jobQuery.data.job.status !== "succeeded" &&
+        jobQuery.data.job.status !== "failed") ||
+        (optimisticRequestedTypes !== null && !jobQuery.data?.job)),
   );
-  const isGenerating = generateMutation.isPending || isJobRunning;
+  const isGenerating =
+    isOptimisticSubmitting ||
+    generateMutation.isPending ||
+    isJobRunning ||
+    (currentStatus === "generating" && !isAllGenerated) ||
+    currentStatus === "pending_generation";
+
+  // Compute active pipeline types for isolated per-file visualization
+  const activePipelineTypes = useMemo(() => {
+    const typesSet = new Set<"lesson" | "flashcard" | "quiz" | "review_summary">();
+
+    // 1. Any type already successfully generated in DB
+    if (contentStatus?.lesson?.generated) typesSet.add("lesson");
+    if (contentStatus?.flashcards?.generated) typesSet.add("flashcard");
+    if (contentStatus?.exam?.generated) typesSet.add("quiz");
+    if (contentStatus?.review_summary?.generated) typesSet.add("review_summary");
+
+    // 2. Any type in optimistic request
+    if (optimisticRequestedTypes) {
+      optimisticRequestedTypes.forEach((t) => typesSet.add(t));
+    }
+
+    // 3. Any type in active job
+    if (isGenerating && job) {
+      const jTypes: string[] = (job as any).types || (job.type ? [job.type] : []);
+      if (jTypes.includes("all")) {
+        typesSet.add("lesson");
+        typesSet.add("flashcard");
+        typesSet.add("quiz");
+        typesSet.add("review_summary");
+      } else {
+        jTypes.forEach((t) => {
+          if (t === "lesson" || t === "flashcard" || t === "quiz" || t === "review_summary") {
+            typesSet.add(t as any);
+          }
+        });
+      }
+    }
+
+    // 4. Any failed types waiting for retry
+    failedTypes.forEach((t) => typesSet.add(t));
+
+    return Array.from(typesSet);
+  }, [contentStatus, optimisticRequestedTypes, isGenerating, job, failedTypes]);
+
+  const getStageStatus = (
+    type: "lesson" | "flashcard" | "quiz" | "review_summary",
+  ): "completed" | "processing" | "pending" | "failed" | "cancelled" => {
+    const isGenerated =
+      (type === "lesson" && Boolean(contentStatus?.lesson?.generated)) ||
+      (type === "flashcard" && Boolean(contentStatus?.flashcards?.generated)) ||
+      (type === "quiz" && Boolean(contentStatus?.exam?.generated)) ||
+      (type === "review_summary" && Boolean(contentStatus?.review_summary?.generated));
+
+    const jobWithMeta = job as { types?: string[]; type?: string } | undefined;
+
+    const isRequestedInActiveJob =
+      isGenerating &&
+      (Boolean(optimisticRequestedTypes?.includes(type)) ||
+        jobWithMeta?.types?.includes(type) ||
+        jobWithMeta?.types?.includes("all") ||
+        job?.type === type ||
+        job?.type === "all");
+
+    if (isGenerated && !isRequestedInActiveJob) {
+      return "completed";
+    }
+
+    if (isRequestedInActiveJob) {
+      if (job?.status === "failed") {
+        return isGenerated ? "completed" : "failed";
+      }
+      if (job?.status === "cancelled") {
+        return isGenerated ? "completed" : "cancelled";
+      }
+      const currentStage = currentProgress?.currentStage ?? job?.generationProgress?.stage;
+      const isThisStageActive =
+        (type === "lesson" && (currentStage === "lesson" || currentStage === "lessons" || currentStage === "planning")) ||
+        (type === "flashcard" && (currentStage === "flashcard" || currentStage === "flashcards")) ||
+        (type === "quiz" && (currentStage === "quiz" || currentStage === "mcqs")) ||
+        (type === "review_summary" && (currentStage === "review_summary" || currentStage === "summary" || currentStage === "review" || currentStage === "publishing"));
+
+      // Determine which requested stage is the first in canonical worker order
+      const requestedInJob = CANONICAL_STAGE_ORDER.filter((t) =>
+        Boolean(optimisticRequestedTypes?.includes(t)) ||
+        jobWithMeta?.types?.includes(t) ||
+        jobWithMeta?.types?.includes("all") ||
+        job?.type === t ||
+        job?.type === "all",
+      );
+      const isFirstRequestedStage = requestedInJob[0] === type;
+
+      if (isThisStageActive || (!currentStage && isFirstRequestedStage && (job?.status === "running" || job?.status === "queued" || isOptimisticSubmitting))) {
+        return "processing";
+      }
+
+      if (isGenerated) {
+        return "completed";
+      }
+
+      return "pending";
+    }
+
+    if (failedTypes.includes(type)) {
+      return isGenerated ? "completed" : "failed";
+    }
+
+    if (isGenerated) {
+      return "completed";
+    }
+
+    return "pending";
+  };
+
+  const getStageMeta = (type: "lesson" | "flashcard" | "quiz" | "review_summary") => {
+    switch (type) {
+      case "lesson":
+        return {
+          title: "درسنامه",
+          icon: BookOpen,
+          count: contentStatus?.lesson?.count,
+        };
+      case "flashcard":
+        return {
+          title: "فلش‌کارت‌ها",
+          icon: Layers,
+          count: contentStatus?.flashcards?.count,
+        };
+      case "quiz":
+        return {
+          title: "آزمون و تست‌ها",
+          icon: HelpCircle,
+          count: contentStatus?.exam?.count,
+        };
+      case "review_summary":
+        return {
+          title: "خلاصه مرور",
+          icon: Sparkles,
+          count: undefined,
+        };
+    }
+  };
 
   const currentProgress = job?.progress ?? contentStatus?.progress;
   const safeTotal =
@@ -436,8 +770,15 @@ export function DocumentStatusCard({
 
   const isFailedAlertVisible = Boolean(
     !isGenerating &&
+      !activeJobId &&
       job?.status === "failed" &&
       job?.id &&
+      dismissedFailedJobId !== job.id,
+  ) || Boolean(
+    !isGenerating &&
+      activeJobId &&
+      job?.id === activeJobId &&
+      job?.status === "failed" &&
       dismissedFailedJobId !== job.id,
   );
 
@@ -452,7 +793,7 @@ export function DocumentStatusCard({
       case "extracting":
       case "chunking":
       case "validating":
-        return "در حال پردازش";
+        return "در حال آماده‌سازی منبع";
       case "extracted":
       case "ready":
       case "review_pending":
@@ -464,14 +805,45 @@ export function DocumentStatusCard({
     }
   };
 
+  // Differentiate current operation progress from cumulative document state.
+  // Only declare partial success if the CURRENT operation actually succeeded on at least one target type.
+  const jobProgress = job?.progress;
+  const hasJobProgress = Boolean(jobProgress && jobProgress.completed > 0);
+
+  const jobTypes = (job?.types || (job?.type ? [job?.type] : [])) as Array<"lesson" | "flashcard" | "quiz" | "review_summary">;
+  const hasMultiTypePartialSuccess = Boolean(
+    jobTypes.length > 1 &&
+      jobTypes.some((t) => {
+        if (t === "lesson") return contentStatus?.lesson?.generated;
+        if (t === "flashcard") return contentStatus?.flashcards?.generated;
+        if (t === "quiz") return contentStatus?.exam?.generated;
+        if (t === "review_summary") return contentStatus?.review_summary?.generated;
+        return false;
+      }) &&
+      jobTypes.some((t) => {
+        if (t === "lesson") return !contentStatus?.lesson?.generated;
+        if (t === "flashcard") return !contentStatus?.flashcards?.generated;
+        if (t === "quiz") return !contentStatus?.exam?.generated;
+        if (t === "review_summary") return !contentStatus?.review_summary?.generated;
+        return false;
+      })
+  );
+
+  const isJobFailed = job?.status === "failed";
+  const hasPartialSuccessInCurrentJob = Boolean(
+    isJobFailed
+      ? (hasJobProgress || hasMultiTypePartialSuccess)
+      : (hasJobProgress && jobProgress?.status === "partial")
+  );
+
   const isPartial = Boolean(
     !isAllGenerated &&
       !isGenerating &&
-      currentProgress &&
-      currentProgress.completed > 0 &&
-      (currentProgress.status === "partial" ||
-        currentProgress.status === "failed" ||
-        job?.status === "failed"),
+      (job
+        ? hasPartialSuccessInCurrentJob
+        : (contentStatus?.progress &&
+           contentStatus.progress.completed > 0 &&
+           contentStatus.progress.status === "partial"))
   );
 
   const hasReviewableContent = Boolean(
@@ -524,7 +896,7 @@ export function DocumentStatusCard({
           {isExtracting && (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>در حال استخراج متن</span>
+              <span>در حال آماده‌سازی منبع</span>
             </span>
           )}
           {isExtracted && (
@@ -664,83 +1036,180 @@ export function DocumentStatusCard({
           </div>
         )}
 
-        {/* Content Readiness Summary (Aligns with AVANA Admin Content Studio) */}
+        {/* Content Generation Pipeline & Readiness Summary */}
         {isExtracted && (
           <div className="pt-2 border-t border-[var(--color-border)] space-y-2">
-            <div className="text-[11px] font-semibold text-[var(--color-text-muted)]">
-              وضعیت بخش‌های محتوای آموزشی این سند:
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <div
-                className={`p-2 rounded-xl border flex items-center gap-2 text-xs transition-colors ${
-                  contentStatus?.lesson?.generated
-                    ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300"
-                    : "bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200/80 dark:border-zinc-700/50 text-zinc-500 dark:text-zinc-400"
-                }`}
-              >
-                <BookOpen className="w-3.5 h-3.5 shrink-0 text-[#008080] dark:text-teal-400" />
-                <div className="min-w-0">
-                  <div className="font-bold truncate">درسنامه</div>
-                  <div className="text-[10px] opacity-80">
-                    {contentStatus?.lesson?.generated
-                      ? `آماده (${toPersianDigits(contentStatus.lesson.count ?? 0)})`
-                      : "تولید نشده"}
-                  </div>
+            {activePipelineTypes.length > 0 ? (
+              <div className="space-y-2.5">
+                <div className="text-[11px] font-semibold text-[var(--color-text-muted)] flex items-center justify-between">
+                  <span>پایپ‌لاین تولید محتوای این سند:</span>
+                  {isGenerating && (
+                    <span className="text-[10px] text-teal-600 dark:text-teal-400 flex items-center gap-1 font-normal">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span>بروزرسانی زنده</span>
+                    </span>
+                  )}
                 </div>
-              </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                  {activePipelineTypes.map((type) => {
+                    const status = getStageStatus(type);
+                    const meta = getStageMeta(type);
+                    const Icon = meta.icon;
 
-              <div
-                className={`p-2 rounded-xl border flex items-center gap-2 text-xs transition-colors ${
-                  contentStatus?.flashcards?.generated
-                    ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300"
-                    : "bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200/80 dark:border-zinc-700/50 text-zinc-500 dark:text-zinc-400"
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5 shrink-0 text-[#008080] dark:text-teal-400" />
-                <div className="min-w-0">
-                  <div className="font-bold truncate">فلش‌کارت‌ها</div>
-                  <div className="text-[10px] opacity-80">
-                    {contentStatus?.flashcards?.generated
-                      ? `آماده (${toPersianDigits(contentStatus.flashcards.count ?? 0)})`
-                      : "تولید نشده"}
-                  </div>
-                </div>
-              </div>
+                    return (
+                      <div
+                        key={type}
+                        data-testid={`pipeline-stage-${type}`}
+                        data-status={status}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs transition-all ${
+                          status === "completed"
+                            ? "bg-emerald-50/40 dark:bg-emerald-950/15 border-emerald-200/60 dark:border-emerald-800/30 text-emerald-900/80 dark:text-emerald-300/80 opacity-75"
+                            : status === "processing"
+                            ? "bg-teal-50/90 dark:bg-teal-950/40 border-2 border-[#008080] dark:border-teal-400 text-teal-950 dark:text-teal-100 shadow-sm"
+                            : status === "failed"
+                            ? "bg-red-50/80 dark:bg-red-950/30 border border-red-300 dark:border-red-800 text-red-900 dark:text-red-300"
+                            : status === "cancelled"
+                            ? "bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400"
+                            : "bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-800/40 text-amber-900 dark:text-amber-300"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="shrink-0">
+                            {status === "completed" && (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                            )}
+                            {status === "processing" && (
+                              <Loader2 className="w-4 h-4 animate-spin text-[#008080] dark:text-teal-400" />
+                            )}
+                            {status === "pending" && (
+                              <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                            )}
+                            {status === "failed" && (
+                              <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                            )}
+                            {status === "cancelled" && (
+                              <X className="w-4 h-4 text-zinc-500" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-bold truncate flex items-center gap-1.5">
+                              <span>{meta.title}</span>
+                              <Icon className="w-3 h-3 opacity-60 shrink-0" />
+                            </div>
+                            <div className="text-[10px] leading-tight opacity-90 truncate">
+                              {status === "completed" && (
+                                <span>تکمیل‌شده {meta.count ? `(${toPersianDigits(meta.count)})` : ""}</span>
+                              )}
+                              {status === "processing" && (
+                                <span className="font-medium text-[#008080] dark:text-teal-300">در حال پردازش هوشمند...</span>
+                              )}
+                              {status === "pending" && (
+                                <span>در صف انتظار</span>
+                              )}
+                              {status === "failed" && (
+                                <span className="text-red-700 dark:text-red-400 font-medium">خطا در تولید</span>
+                              )}
+                              {status === "cancelled" && (
+                                <span>لغو شده</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
 
-              <div
-                className={`p-2 rounded-xl border flex items-center gap-2 text-xs transition-colors ${
-                  contentStatus?.exam?.generated
-                    ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300"
-                    : "bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200/80 dark:border-zinc-700/50 text-zinc-500 dark:text-zinc-400"
-                }`}
-              >
-                <HelpCircle className="w-3.5 h-3.5 shrink-0 text-[#008080] dark:text-teal-400" />
-                <div className="min-w-0">
-                  <div className="font-bold truncate">آزمون و تست‌ها</div>
-                  <div className="text-[10px] opacity-80">
-                    {contentStatus?.exam?.generated
-                      ? `آماده (${toPersianDigits(contentStatus.exam.count ?? 0)})`
-                      : "تولید نشده"}
-                  </div>
+                        {status === "failed" && (
+                          <button
+                            type="button"
+                            onClick={() => handleRetryStage(type)}
+                            disabled={isGenerating}
+                            className="px-2 py-1 rounded-lg bg-red-100 hover:bg-red-200 dark:bg-red-900/50 dark:hover:bg-red-900/80 text-red-800 dark:text-red-200 text-[10px] font-bold shrink-0 transition-colors"
+                            title="تلاش مجدد این مرحله"
+                          >
+                            تلاش مجدد
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
+            ) : (
+              <div>
+                <div className="text-[11px] font-semibold text-[var(--color-text-muted)] mb-2">
+                  وضعیت بخش‌های محتوای آموزشی این سند:
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div
+                    className={`p-2 rounded-xl border flex items-center gap-2 text-xs transition-colors ${
+                      contentStatus?.lesson?.generated
+                        ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300"
+                        : "bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200/80 dark:border-zinc-700/50 text-zinc-500 dark:text-zinc-400"
+                    }`}
+                  >
+                    <BookOpen className="w-3.5 h-3.5 shrink-0 text-[#008080] dark:text-teal-400" />
+                    <div className="min-w-0">
+                      <div className="font-bold truncate">درسنامه</div>
+                      <div className="text-[10px] opacity-80">
+                        {contentStatus?.lesson?.generated
+                          ? `آماده (${toPersianDigits(contentStatus.lesson.count ?? 0)})`
+                          : "تولید نشده"}
+                      </div>
+                    </div>
+                  </div>
 
-              <div
-                className={`p-2 rounded-xl border flex items-center gap-2 text-xs transition-colors ${
-                  contentStatus?.review_summary?.generated
-                    ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300"
-                    : "bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200/80 dark:border-zinc-700/50 text-zinc-500 dark:text-zinc-400"
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5 shrink-0 text-[#008080] dark:text-teal-400" />
-                <div className="min-w-0">
-                  <div className="font-bold truncate">خلاصه مرور</div>
-                  <div className="text-[10px] opacity-80">
-                    {contentStatus?.review_summary?.generated ? "آماده" : "تولید نشده"}
+                  <div
+                    className={`p-2 rounded-xl border flex items-center gap-2 text-xs transition-colors ${
+                      contentStatus?.flashcards?.generated
+                        ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300"
+                        : "bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200/80 dark:border-zinc-700/50 text-zinc-500 dark:text-zinc-400"
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5 shrink-0 text-[#008080] dark:text-teal-400" />
+                    <div className="min-w-0">
+                      <div className="font-bold truncate">فلش‌کارت‌ها</div>
+                      <div className="text-[10px] opacity-80">
+                        {contentStatus?.flashcards?.generated
+                          ? `آماده (${toPersianDigits(contentStatus.flashcards.count ?? 0)})`
+                          : "تولید نشده"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`p-2 rounded-xl border flex items-center gap-2 text-xs transition-colors ${
+                      contentStatus?.exam?.generated
+                        ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300"
+                        : "bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200/80 dark:border-zinc-700/50 text-zinc-500 dark:text-zinc-400"
+                    }`}
+                  >
+                    <HelpCircle className="w-3.5 h-3.5 shrink-0 text-[#008080] dark:text-teal-400" />
+                    <div className="min-w-0">
+                      <div className="font-bold truncate">آزمون و تست‌ها</div>
+                      <div className="text-[10px] opacity-80">
+                        {contentStatus?.exam?.generated
+                          ? `آماده (${toPersianDigits(contentStatus.exam.count ?? 0)})`
+                          : "تولید نشده"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`p-2 rounded-xl border flex items-center gap-2 text-xs transition-colors ${
+                      contentStatus?.review_summary?.generated
+                        ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300"
+                        : "bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200/80 dark:border-zinc-700/50 text-zinc-500 dark:text-zinc-400"
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 shrink-0 text-[#008080] dark:text-teal-400" />
+                    <div className="min-w-0">
+                      <div className="font-bold truncate">خلاصه مرور</div>
+                      <div className="text-[10px] opacity-80">
+                        {contentStatus?.review_summary?.generated ? "آماده" : "تولید نشده"}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -801,20 +1270,41 @@ export function DocumentStatusCard({
         </div>
       )}
       {generateError && (
-        <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-xs">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          <span>{generateError}</span>
+        <div className="flex items-center justify-between gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-xs">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>{generateError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setGenerateError(null)}
+            className="p-1 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg text-red-700 dark:text-red-300 transition-colors shrink-0"
+            title="بستن پیام"
+            aria-label="بستن پیام"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
       {isFailedAlertVisible && (
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-xs">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            <span>
-              {isPartial
-                ? "تولید بخش‌هایی از محتوا با خطا متوقف شد؛ خروجی‌های سالم تولیدشده تا این مرحله در سیستم حفظ شده‌اند و می‌توانید تولید بخش‌های باقیمانده را ادامه دهید."
-                : formatGenerationErrorMessage(job?.error_message)}
-            </span>
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <div className="flex flex-col gap-1">
+              <span>
+                {isPartial
+                  ? "تولید بخش‌هایی از محتوا با خطا متوقف شد؛ خروجی‌های سالم تولیدشده تا این مرحله در سیستم حفظ شده‌اند و می‌توانید تولید بخش‌های باقیمانده را ادامه دهید."
+                  : formatGenerationErrorMessage(job?.error_message, { hasVerifiedSavedContent: isPartial, requestId: contentStatus?.request_id })}
+              </span>
+              {(contentStatus?.request_id || job?.id) && (
+                <div className="flex flex-wrap items-center gap-2 text-[10px] opacity-75 font-mono select-all">
+                  <span>کد پیگیری: {contentStatus?.request_id || job?.id}</span>
+                  {job?.id && contentStatus?.request_id && job.id !== contentStatus.request_id && (
+                    <span className="opacity-70">(شناسه جاب: {job.id})</span>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
             <button
@@ -868,7 +1358,7 @@ export function DocumentStatusCard({
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                 <span>تولید محتوا (به‌زودی)</span>
               </button>
-            ) : !isAllGenerated ? (
+            ) : (canGenerateMore || isGenerating) ? (
               <button
                 type="button"
                 onClick={() => {

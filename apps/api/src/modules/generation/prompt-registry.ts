@@ -2626,9 +2626,12 @@ export function buildQuizPatternGuidelinesSection(
   }
 
   const sections = patternList.map((pattern, pIdx) => {
+    const safeExamples = Array.isArray(pattern.examples)
+      ? pattern.examples.slice(0, 3)
+      : [];
     const examplesBlock =
-      pattern.examples && pattern.examples.length > 0
-        ? pattern.examples
+      safeExamples.length > 0
+        ? safeExamples
             .map((ex, idx) => {
               const choicesStr = Array.isArray(ex.choices)
                 ? ex.choices.map((c, cIdx) => `    ${cIdx + 1}. ${c}`).join("\n")
@@ -2669,6 +2672,9 @@ export function buildQuizPatternGuidelinesSection(
   return [
     ``,
     `QUESTION PATTERN — STRUCTURAL & COGNITIVE GUIDANCE (${patternList.length} Pattern${patternList.length > 1 ? "s" : ""}):`,
+    `CRITICAL BATCH-LEVEL COMPLIANCE MANDATE:`,
+    `When generating questions for this batch, EVERY SINGLE QUESTION (from Question 1 to the final question) MUST strictly and fully follow the designated pattern requirements.`,
+    `Do NOT revert to generic, single-concept recall or standard format after 1 or 2 questions. Every question without exception must embody the pattern's cognitive and structural design.`,
     ...sections,
     ``,
     `STRICT ANTI-HALLUCINATION & GROUNDING INVARIANT:`,
@@ -2723,7 +2729,7 @@ export function buildQuizGenerationUserPrompt(
     `  The correct answer MUST NOT be identifiable by formatting, length, wording richness, parenthetical content, English terminology, abbreviation, or explanatory detail alone.`,
     `  Do not make the correct option more informative, more specific, more explanatory, or more terminology-rich than the distractors. Do not add English equivalents, abbreviations, synonyms, parenthetical explanations, scientific names, or clarifying phrases exclusively to the correct option. Any such formatting or terminology must either be applied consistently across comparable options or omitted when unnecessary.`,
     `  1. Strict Length & Granularity Parity: Correct answer and distractors must be virtually identical in character length, grammatical structure, syntax, and depth. Never make the correct answer conspicuously longer or more detailed than distractors.`,
-    `  2. Absolute Prohibition of Inline Explanations: NEVER append explanations, justifications, mechanisms, qualifiers, or phrases like "به دلیل...", "زیرا...", "ناشی از...", "به منظور...", "از طریق..." inside the choice text of the correct answer. Put ALL justifications strictly into the "explanation" field.`,
+    `  2. Absolute Prohibition of Inline Explanations and Exclusive Qualifiers: NEVER append explanations, justifications, mechanisms, qualifiers, or phrases like "به دلیل...", "زیرا...", "ناشی از...", "به منظور...", "از طریق...", "بدون ایجاد...", "با اثر..." exclusively inside the choice text of the correct answer. Put ALL justifications strictly into the "explanation" field.`,
     `  3. Natural Terminology without Artificial English Padding: Do not artificially append English translations or annotations to distractors solely to pad length. If English terminology is not essential for testing the medical concept, omit it completely from all options (prefer clean, pure Persian terminology). If English terminology, Latin names, or abbreviations (e.g. receptor subtypes, standard drug names) are genuinely needed for accurate scientific identification, use them consistently across all 4 choices or omit them from all choices. NEVER attach an English equivalent only to the correct option.`,
     `  4. Uniform Parentheticals & Synonyms: NEVER use parenthetical clarifications "(...)" or synonyms ("یا ...") exclusively on the correct choice.`,
     `  5. Equal Specificity: If distractors are single entity names (e.g. single drugs), the correct answer must be a single entity name. Distractors and correct answer must operate at the exact same granularity level.`,
@@ -2799,7 +2805,7 @@ export function getQuizGenerationTemplate(): string {
     `  The correct answer MUST NOT be identifiable by formatting, length, wording richness, parenthetical content, English terminology, abbreviation, or explanatory detail alone.`,
     `  Do not make the correct option more informative, more specific, more explanatory, or more terminology-rich than the distractors. Do not add English equivalents, abbreviations, synonyms, parenthetical explanations, scientific names, or clarifying phrases exclusively to the correct option. Any such formatting or terminology must either be applied consistently across comparable options or omitted when unnecessary.`,
     `  1. Strict Length & Granularity Parity: Correct answer and distractors must be virtually identical in length, grammatical tone, and depth.`,
-    `  2. Absolute Prohibition of Inline Explanations: NEVER append explanations, justifications, mechanisms, qualifiers, or phrases like "به دلیل...", "زیرا...", "ناشی از...", "به منظور...", "از طریق..." inside the choice text of the correct answer. Put all explanations in the "explanation" field.`,
+    `  2. Absolute Prohibition of Inline Explanations and Exclusive Qualifiers: NEVER append explanations, justifications, mechanisms, qualifiers, or phrases like "به دلیل...", "زیرا...", "ناشی از...", "به منظور...", "از طریق...", "بدون ایجاد...", "با اثر..." exclusively inside the choice text of the correct answer. Put all explanations in the "explanation" field.`,
     `  3. Natural Terminology without Artificial English Padding: Do not artificially append English translations or annotations to distractors solely to pad length. If English terminology is not essential for testing the medical concept, omit it completely from all options (prefer clean, pure Persian terminology). If English terminology, Latin names, or abbreviations are genuinely needed for accurate scientific identification, use them consistently across all 4 choices or omit them from all choices. NEVER attach an English equivalent only to the correct option.`,
     `  4. Uniform Parentheticals & Synonyms: NEVER use parenthetical clarifications or synonyms exclusively on the correct choice.`,
     `  5. Equal Specificity: Correct answer and distractors must be at the exact same granularity and specificity level.`,
@@ -2971,6 +2977,33 @@ export function buildReviewSummaryUserPrompt(
       ? cleanTopic
       : `خلاصه مروری: ${cleanTopic}`;
 
+    const hasSourceChunks = Array.isArray(input.sourceChunks) && input.sourceChunks.length > 0;
+
+    const sourceChunksRoleText = hasSourceChunks
+      ? `- SOURCE CHUNKS: Ground truth for factual accuracy, numbers, dosages, contraindications, and citations.`
+      : `- SOURCE CHUNKS: (Lesson-Based Synthesis Mode) Source chunks are omitted. Synthesize the high-density review summary directly from the verified Stage 2 educational lessons and Stage 1 curriculum blueprint above without claiming access to unprovided raw source files.`;
+
+    const sourceChunksSection = hasSourceChunks
+      ? [
+          `==================================================`,
+          `SOURCE CHUNKS (FACTUAL GROUND TRUTH & CITATIONS)`,
+          `==================================================`,
+          `SOURCE CHUNKS:`,
+          sourceChunksText,
+          ``,
+          `AVAILABLE CHUNK IDs:`,
+          JSON.stringify(allChunkIds),
+        ]
+      : [
+          `==================================================`,
+          `LESSON-BASED SYNTHESIS MODE (NO RAW SOURCE CHUNKS)`,
+          `==================================================`,
+          `Ground all summary statements, mechanisms, tables, and exam points strictly on the verified Stage 2 educational lessons provided above. Leave citationChunkIds as an empty array [].`,
+        ];
+
+    const sampleCitationChunkIds = hasSourceChunks ? [exampleChunkId] : [];
+    const sampleTopLevelCitations = hasSourceChunks ? allChunkIds : [];
+
     return [
       `You are AVANA's Expert Educational AI Content Engine.`,
       `TASK: GENERATE HIGH-DENSITY REVIEW SUMMARY («خلاصه مروری») for "${cleanTopic}".`,
@@ -2980,7 +3013,7 @@ export function buildReviewSummaryUserPrompt(
       `STAGE 5 ARCHITECTURAL ROLES:`,
       `- STAGE 1 (CURRICULUM PLANNING): Defines learning structure, topics, sessions, core concepts, and high-yield facts.`,
       `- STAGE 2 (GENERATED EDUCATIONAL LESSONS): Provides pedagogical explanations, clinical distinctions, and confusion-prevention insights.`,
-      `- SOURCE CHUNKS: Ground truth for factual accuracy, numbers, dosages, contraindications, and citations.`,
+      sourceChunksRoleText,
       ``,
       `REVIEW SUMMARY CORE PRINCIPLES & REQUIREMENTS:`,
       `- PURPOSE: Rapid review summary for a student who has ALREADY studied the material and needs to reactivate core knowledge and recall high-yield facts before an exam.`,
@@ -3076,14 +3109,7 @@ export function buildReviewSummaryUserPrompt(
       `[LESSONS]`,
       lessonsText,
       ``,
-      `==================================================`,
-      `SOURCE CHUNKS (FACTUAL GROUND TRUTH & CITATIONS)`,
-      `==================================================`,
-      `SOURCE CHUNKS:`,
-      sourceChunksText,
-      ``,
-      `AVAILABLE CHUNK IDs:`,
-      JSON.stringify(allChunkIds),
+      ...sourceChunksSection,
       ``,
       `GENERATION CONSTRAINTS:`,
       `- Target Reading Minutes: ${targetMins} (min: ${minMins}, max: ${maxMins})`,
@@ -3126,7 +3152,7 @@ export function buildReviewSummaryUserPrompt(
             ],
             memorizationPoints: ["اعداد، دوزها، درصدها و موارد حفظی مهم"],
             examPoints: ["نکات پرتکرار و تست‌خیز امتحانی"],
-            citationChunkIds: [exampleChunkId],
+            citationChunkIds: sampleCitationChunkIds,
             relatedSessionIds: ["session-1"],
             relatedConceptIds: ["concept-1"],
           },
@@ -3135,7 +3161,7 @@ export function buildReviewSummaryUserPrompt(
           "جمع‌بندی راهبردی و جمع‌بندی نکات طلایی ۱",
           "جمع‌بندی طلایی ۲",
         ],
-        citationChunkIds: allChunkIds,
+        citationChunkIds: sampleTopLevelCitations,
       }),
     ]
       .filter(Boolean)

@@ -26,6 +26,7 @@ import {
   type ResourceContext,
   buildActor,
   DomainError,
+  DEFAULT_FLASHCARD_SCHEDULE,
   nextReviewInterval,
   nextDueAt,
   auditFlashcardReviewed,
@@ -84,7 +85,7 @@ import type {
   QuizRecord,
   QuizQuestionRecord,
 } from "./study-store.js";
-import type { CourseStore, CourseRecord } from "../courses/course-store.js";
+import type { CourseStore, CourseRecord, CoursePublicationStore } from "../courses/course-store.js";
 import type { ModuleStore, LessonStore, ProgressStore, SubCourseGroupStore, LessonRecord, ModuleRecord, LessonProgressRecord } from "../learning/learning-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
@@ -171,7 +172,110 @@ export class StudyService {
     private readonly flashcardStudySessionStore?: FlashcardStudySessionStore,
     private entitlementService?: EntitlementService,
     private readonly subCourseGroupStore?: SubCourseGroupStore,
+    private readonly coursePublicationStore?: CoursePublicationStore,
   ) {}
+
+  private getTopicSummaryCacheKey(organizationId: OrganizationId): string {
+    return `${organizationId}:${this.systemOrganizationId ?? ""}`;
+  }
+
+  private topicSummaryCache = new Map<
+    string,
+    {
+      timestamp: number;
+      data: {
+        catalogCourses: Array<{
+          courseId: string;
+          courseTitle: string;
+          questionCount: number;
+          easyCount: number;
+          mediumCount: number;
+          hardCount: number;
+          modules: Array<{
+            moduleId: string;
+            moduleTitle: string;
+            sortOrder?: number;
+            questionCount: number;
+            easyCount: number;
+            mediumCount: number;
+            hardCount: number;
+            lessons: Array<{
+              lessonId: string;
+              lessonTitle: string;
+              questionCount: number;
+              easyCount: number;
+              mediumCount: number;
+              hardCount: number;
+            }>;
+          }>;
+        }>;
+        legacySections: Array<{
+          id: string;
+          title: string;
+          topic: string;
+          questionCount: number;
+          easyCount: number;
+          mediumCount: number;
+          hardCount: number;
+          chapters: Array<{
+            id: string;
+            title: string;
+            topic: string;
+            questionCount: number;
+            easyCount: number;
+            mediumCount: number;
+            hardCount: number;
+          }>;
+        }>;
+        topicsFlatList: Array<{
+          topic: string;
+          title: string;
+          questionCount: number;
+          easyCount: number;
+          mediumCount: number;
+          hardCount: number;
+        }>;
+      };
+    }
+  >();
+  private flashcardCourseTotalsCache = new Map<
+    string,
+    {
+      timestamp: number;
+      data: {
+        cardCounts: Array<{
+          courseId: string;
+          lessonId: string | null;
+          documentId: string | null;
+          totalCards: number;
+        }>;
+      };
+    }
+  >();
+
+  invalidateTopicSummaryCache(organizationId?: OrganizationId): void {
+    if (organizationId) {
+      for (const key of this.topicSummaryCache.keys()) {
+        if (key === organizationId || key.startsWith(`${organizationId}:`)) {
+          this.topicSummaryCache.delete(key);
+        }
+      }
+    } else {
+      this.topicSummaryCache.clear();
+    }
+  }
+
+  invalidateFlashcardSummaryCache(organizationId?: OrganizationId): void {
+    if (organizationId) {
+      for (const key of this.flashcardCourseTotalsCache.keys()) {
+        if (key === organizationId || key.startsWith(`${organizationId}:`)) {
+          this.flashcardCourseTotalsCache.delete(key);
+        }
+      }
+    } else {
+      this.flashcardCourseTotalsCache.clear();
+    }
+  }
 
   // -------------------------------------------------------------------------
   // Authorization helpers
@@ -182,6 +286,7 @@ export class StudyService {
     actor: Actor,
     organizationId: OrganizationId,
     action: "study:read" | "flashcard:review" | "quiz:attempt",
+    courseId?: CourseId,
   ): Promise<Actor> {
     const isSystemOrg =
       !!this.systemOrganizationId &&
@@ -224,10 +329,53 @@ export class StudyService {
       memberships,
     });
 
+    let isPublicPublication = false;
+    let isPublicResource = false;
+    let isEnrolledMember = false;
+
+    if (courseId && this.courseStore) {
+      const course = await this.courseStore.findByIdForUser(
+        courseId,
+        actor.userId,
+        this.systemOrganizationId,
+      );
+      if (course) {
+        const isOfficial =
+          course.isOfficial === true ||
+          (!!this.systemOrganizationId &&
+            course.organizationId === this.systemOrganizationId);
+
+        if (
+          this.courseStore.isUserEnrolled &&
+          (course.status === "published" || course.status === "unpublished")
+        ) {
+          isEnrolledMember = await this.courseStore.isUserEnrolled(actor.userId, courseId);
+        }
+
+        if (isOfficial && course.status === "published") {
+          isPublicPublication = true;
+          isPublicResource = true;
+        } else if (this.coursePublicationStore) {
+          const pub = await this.coursePublicationStore.findPublishedByCourse(courseId);
+          if (pub && pub.status === "published" && pub.deletedAt === null) {
+            isPublicPublication = true;
+            isPublicResource = true;
+          }
+        } else if (course.status === "published") {
+          isPublicPublication = true;
+          isPublicResource = true;
+        }
+      }
+    }
+
     const resourceContext: ResourceContext = {
       organizationId,
       resourceType: "course",
+      courseId,
       isSystemResource: isSystemOrg,
+      isPublicPublication,
+      isEnrolledMember,
+      isPublicResource: isPublicResource || isEnrolledMember,
     };
 
     if (!this.policy.can(fullActor, action, resourceContext)) {
@@ -237,16 +385,16 @@ export class StudyService {
     return fullActor;
   }
 
-  private async authorizeRead(actor: Actor, organizationId: OrganizationId): Promise<void> {
-    await this.authorize(actor, organizationId, "study:read");
+  private async authorizeRead(actor: Actor, organizationId: OrganizationId, courseId?: CourseId): Promise<void> {
+    await this.authorize(actor, organizationId, "study:read", courseId);
   }
 
-  private async authorizeFlashcardReview(actor: Actor, organizationId: OrganizationId): Promise<void> {
-    await this.authorize(actor, organizationId, "flashcard:review");
+  private async authorizeFlashcardReview(actor: Actor, organizationId: OrganizationId, courseId?: CourseId): Promise<void> {
+    await this.authorize(actor, organizationId, "flashcard:review", courseId);
   }
 
-  private async authorizeQuizAttempt(actor: Actor, organizationId: OrganizationId): Promise<void> {
-    await this.authorize(actor, organizationId, "quiz:attempt");
+  private async authorizeQuizAttempt(actor: Actor, organizationId: OrganizationId, courseId?: CourseId): Promise<void> {
+    await this.authorize(actor, organizationId, "quiz:attempt", courseId);
   }
 
   public getEntitlementService(): EntitlementService | undefined {
@@ -273,9 +421,6 @@ export class StudyService {
     is_preview: true;
     preview_lesson_id?: string;
   }> {
-    await this.authorizeRead(actor, organizationId);
-    const limit = options?.limit ?? (options?.moduleId ? 15 : 5);
-
     let targetOrgId = organizationId;
     if (this.courseStore) {
       const course = await this.courseStore.findByIdForUser(
@@ -288,6 +433,9 @@ export class StudyService {
       }
       targetOrgId = (course.organizationId || (course as { organization_id?: OrganizationId }).organization_id) as OrganizationId;
     }
+
+    await this.authorizeRead(actor, targetOrgId, courseId);
+    const limit = options?.limit ?? (options?.moduleId ? 15 : 5);
 
     let selectedCards: FlashcardRecord[] = [];
     if (this.entitlementService) {
@@ -334,7 +482,20 @@ export class StudyService {
     organizationId: OrganizationId,
     courseId: CourseId,
   ): Promise<FlashcardRecord[]> {
-    await this.authorizeRead(actor, organizationId);
+    let targetOrgId = organizationId;
+    if (this.courseStore) {
+      const course = await this.courseStore.findByIdForUser(
+        courseId,
+        actor.userId,
+        this.systemOrganizationId,
+      );
+      if (!course) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      targetOrgId = (course.organizationId || (course as { organization_id?: OrganizationId }).organization_id) as OrganizationId;
+    }
+
+    await this.authorizeRead(actor, targetOrgId, courseId);
 
     if (this.entitlementService) {
       const access = await this.entitlementService.checkAccess(actor, {
@@ -343,7 +504,7 @@ export class StudyService {
         resourceId: courseId,
       });
       if (!access.granted) {
-        const preview = await this.getPreviewFlashcards(actor, organizationId, courseId);
+        const preview = await this.getPreviewFlashcards(actor, targetOrgId, courseId);
         return preview.flashcards;
       }
     }
@@ -391,24 +552,14 @@ export class StudyService {
   async submitFlashcardReview(
     actor: Actor,
     organizationId: OrganizationId,
-    input: { flashcardId: FlashcardId; rating: FlashcardRating; reactionMs?: number; isExamMode?: boolean },
+    input: {
+      flashcardId: FlashcardId;
+      rating: FlashcardRating;
+      reactionMs?: number;
+      isExamMode?: boolean;
+      courseId?: CourseId;
+    },
   ): Promise<void> {
-    await this.authorizeFlashcardReview(actor, organizationId);
-
-    if (this.entitlementService) {
-      const access = await this.entitlementService.checkAccess(actor, {
-        userId: actor.userId,
-        resourceType: "flashcard",
-        resourceId: input.flashcardId,
-      });
-      if (!access.granted) {
-        throw new DomainError(
-          "forbidden",
-          "برای ثبت مرور فلش‌کارت، فعال‌سازی اشتراک یا خرید دوره الزامی است.",
-        );
-      }
-    }
-
     const flashcard = await this.flashcardStore.findByIdForOrganization(
       input.flashcardId,
       organizationId,
@@ -418,17 +569,87 @@ export class StudyService {
       throw new DomainError("not_found", "Flashcard not found");
     }
 
+    const effectiveCourseId = (input.courseId ?? flashcard.courseId ?? undefined) as CourseId | undefined;
+    await this.authorizeFlashcardReview(actor, organizationId, effectiveCourseId);
+
+    if (this.entitlementService) {
+      const access = await this.entitlementService.checkAccess(actor, {
+        userId: actor.userId,
+        resourceType: "flashcard",
+        resourceId: input.flashcardId,
+        courseId: effectiveCourseId,
+      });
+      if (!access.granted) {
+        throw new DomainError(
+          "forbidden",
+          "برای ثبت مرور فلش‌کارت، فعال‌سازی اشتراک یا خرید دوره الزامی است.",
+        );
+      }
+    }
+
     const existingSchedule = this.userFlashcardScheduleStore
       ? await this.userFlashcardScheduleStore.getByUserAndCard(actor.userId, input.flashcardId)
       : undefined;
 
     const previousState = existingSchedule
       ? { intervalDays: existingSchedule.intervalDays, easeFactor: existingSchedule.easeFactor }
-      : { intervalDays: flashcard.intervalDays, easeFactor: flashcard.easeFactor };
+      : DEFAULT_FLASHCARD_SCHEDULE;
 
-    const nextState = nextReviewInterval(input.rating, previousState);
-    const newDueAt = nextDueAt(input.rating, previousState);
+    const isNewCard = previousState.intervalDays === 0;
     const now = new Date().toISOString();
+
+    let nextIntervalDays: number;
+    let nextEaseFactor: number;
+    let newDueAt: string;
+
+    if (isNewCard) {
+      if (input.rating === "easy") {
+        nextIntervalDays = 2;
+        nextEaseFactor = Math.min(3.0, previousState.easeFactor + 0.15);
+        newDueAt = nextDueAt("easy", previousState, new Date(now));
+      } else if (input.rating === "good") {
+        const userReviews = await this.flashcardReviewStore.listByUserAndFlashcard(actor.userId, input.flashcardId);
+        // Find last 'again' review timestamp if any
+        let lastAgainTime = 0;
+        for (const r of userReviews) {
+          if (r.rating === "again") {
+            const t = new Date(r.reviewedAt).getTime();
+            if (t > lastAgainTime) lastAgainTime = t;
+          }
+        }
+        const goodsSinceAgain = userReviews.filter((r) => {
+          if (r.rating !== "good") return false;
+          return lastAgainTime === 0 || new Date(r.reviewedAt).getTime() > lastAgainTime;
+        }).length;
+
+        if (goodsSinceAgain >= 1) {
+          // This is the 2nd Good -> graduates to 1 day!
+          nextIntervalDays = 1;
+          nextEaseFactor = previousState.easeFactor;
+          newDueAt = nextDueAt("good", previousState, new Date(now));
+        } else {
+          // 1st Good -> remains in learning step for today's second review
+          nextIntervalDays = 0;
+          nextEaseFactor = previousState.easeFactor;
+          newDueAt = now;
+        }
+      } else if (input.rating === "hard") {
+        nextIntervalDays = 0;
+        nextEaseFactor = Math.max(1.3, previousState.easeFactor - 0.15);
+        newDueAt = nextDueAt("hard", previousState, new Date(now));
+      } else {
+        // again
+        nextIntervalDays = 0;
+        nextEaseFactor = Math.max(1.3, previousState.easeFactor - 0.2);
+        newDueAt = nextDueAt("again", previousState, new Date(now));
+      }
+    } else {
+      // Review card (intervalDays >= 1)
+      const next = nextReviewInterval(input.rating, previousState);
+      nextIntervalDays = next.intervalDays;
+      nextEaseFactor = next.easeFactor;
+      newDueAt = nextDueAt(input.rating, previousState, new Date(now));
+    }
 
     // Persist review event.
     await this.flashcardReviewStore.create({
@@ -446,8 +667,8 @@ export class StudyService {
         userId: actor.userId,
         flashcardId: input.flashcardId,
         dueAt: newDueAt,
-        intervalDays: nextState.intervalDays,
-        easeFactor: nextState.easeFactor,
+        intervalDays: nextIntervalDays,
+        easeFactor: nextEaseFactor,
         lastReviewedAt: now,
         reviewCount: (existingSchedule?.reviewCount ?? 0) + 1,
       });
@@ -652,6 +873,26 @@ export class StudyService {
   ): Promise<FlashcardRecord[]> {
     await this.authorizeRead(actor, organizationId);
 
+    const maxLimit = Math.min(limit > 0 ? limit : FLASHCARD_DEFAULT_DAILY_REVIEW_LIMIT, 500);
+
+    if (this.userFlashcardScheduleStore?.getDueCardsWithFlashcards) {
+      const duePairs = await this.userFlashcardScheduleStore.getDueCardsWithFlashcards(actor.userId, {
+        courseIds,
+        documentIds,
+        limit: maxLimit,
+      });
+
+      const dueRecords = duePairs.map((p) => ({
+        ...p.flashcard,
+        dueAt: p.schedule.dueAt,
+        intervalDays: p.schedule.intervalDays,
+        easeFactor: p.schedule.easeFactor,
+      }));
+
+      const { allowedCards } = await this.filterFlashcardsByEntitlement(actor, organizationId, dueRecords);
+      return allowedCards;
+    }
+
     const [allFlashcards, userSchedules] = await Promise.all([
       this.flashcardStore.listByOrganization(organizationId, this.systemOrganizationId),
       this.userFlashcardScheduleStore
@@ -692,7 +933,6 @@ export class StudyService {
         };
       });
 
-    const maxLimit = Math.min(limit > 0 ? limit : FLASHCARD_DEFAULT_DAILY_REVIEW_LIMIT, 500);
     return mapped.slice(0, maxLimit);
   }
 
@@ -828,8 +1068,28 @@ export class StudyService {
   }> {
     await this.authorizeRead(actor, organizationId);
 
+    const flashcardsPromise =
+      courseIds && courseIds.length > 0
+        ? Promise.all(
+            courseIds.map(async (cId) => {
+              let targetOrg = organizationId;
+              if (this.courseStore) {
+                const c = await this.courseStore.findByIdForUser(
+                  cId as CourseId,
+                  actor.userId,
+                  this.systemOrganizationId,
+                );
+                if (c) {
+                  targetOrg = c.organizationId;
+                }
+              }
+              return this.flashcardStore.listByCourse(cId, targetOrg, this.systemOrganizationId);
+            }),
+          ).then((res) => res.flat())
+        : this.flashcardStore.listByOrganization(organizationId, this.systemOrganizationId);
+
     const [allFlashcards, userSchedules, userReviews] = await Promise.all([
-      this.flashcardStore.listByOrganization(organizationId, this.systemOrganizationId),
+      flashcardsPromise,
       this.userFlashcardScheduleStore
         ? this.userFlashcardScheduleStore.listByUser(actor.userId)
         : Promise.resolve([]),
@@ -1066,6 +1326,7 @@ export class StudyService {
       documentIds?: string[];
       mode?: "daily" | "exam" | "custom" | "normal";
       customMode?: "weak" | "forgotten" | "overdue" | "review_ahead" | "new" | "due" | "learned";
+      cardIds?: string[];
       limit?: number;
       aheadDays?: number;
       title?: string;
@@ -1091,7 +1352,20 @@ export class StudyService {
     }
     const resolvedDocIds = effectiveDocIds.length > 0 ? effectiveDocIds : undefined;
 
-    if (mode === "exam") {
+    if (input.cardIds && input.cardIds.length > 0) {
+      const explicitCards = this.flashcardStore.findManyByIds
+        ? await this.flashcardStore.findManyByIds(input.cardIds as FlashcardId[])
+        : (await this.flashcardStore.listByOrganization(organizationId, this.systemOrganizationId))
+            .filter((c) => input.cardIds!.includes(c.id));
+      const cardMap = new Map(explicitCards.map((c) => [c.id, c]));
+      cards = [];
+      for (const id of input.cardIds) {
+        const found = cardMap.get(id as FlashcardId);
+        if (found && !found.deletedAt) {
+          cards.push(found);
+        }
+      }
+    } else if (mode === "exam") {
       cards = await this.getExamModeFlashcards(
         actor,
         organizationId,
@@ -1261,19 +1535,24 @@ export class StudyService {
     }
 
     const sessionCards = await this.flashcardStudySessionStore.listSessionCards(sessionId);
-    const [allOrgCards, userSchedules] = await Promise.all([
-      this.flashcardStore.listByOrganization(
-        organizationId,
-        this.systemOrganizationId,
-      ),
-      this.userFlashcardScheduleStore
+    const sessionCardIds = sessionCards
+      .map((sc) => sc.flashcardId)
+      .filter((id): id is FlashcardId => Boolean(id));
+
+    const [sessionFlashcards, userSchedules] = await Promise.all([
+      this.flashcardStore.findManyByIds
+        ? this.flashcardStore.findManyByIds(sessionCardIds)
+        : this.flashcardStore.listByOrganization(organizationId, this.systemOrganizationId),
+      this.userFlashcardScheduleStore?.getByUserAndCardIds
+        ? this.userFlashcardScheduleStore.getByUserAndCardIds(actor.userId, sessionCardIds)
+        : this.userFlashcardScheduleStore
         ? this.userFlashcardScheduleStore.listByUser(actor.userId)
         : Promise.resolve([]),
     ]);
 
     const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
     const cardMap = new Map(
-      allOrgCards.map((c) => {
+      sessionFlashcards.map((c) => {
         const schedule = scheduleMap.get(c.id);
         if (!schedule) return [c.id, c];
         return [
@@ -1343,7 +1622,13 @@ export class StudyService {
     const now = new Date().toISOString();
     let completedCards = data.completedCards ?? session.completedCards;
     if (data.cardId && data.completedCards === undefined) {
-      completedCards = Math.min(session.totalCards, completedCards + 1);
+      const sessionCards = await this.flashcardStudySessionStore.listSessionCards(sessionId);
+      const uniqueReviewed = new Set(
+        sessionCards
+          .filter((sc) => sc.status === "reviewed" || sc.flashcardId === data.cardId)
+          .map((sc) => sc.flashcardId),
+      );
+      completedCards = Math.min(session.totalCards, uniqueReviewed.size);
     }
 
     const cardUpdate = data.cardId
@@ -1464,13 +1749,19 @@ export class StudyService {
   // Quizzes & Exam Configuration
   // -------------------------------------------------------------------------
 
-  /** List published quizzes for a course. */
+  /** List published quizzes for a course with pagination and question counts. */
   async listQuizzes(
     actor: Actor,
     organizationId: OrganizationId,
     courseId: CourseId,
-  ): Promise<QuizRecord[]> {
-    await this.authorizeRead(actor, organizationId);
+    options?: { limit?: number; offset?: number },
+  ): Promise<Array<QuizRecord & { questionCount?: number; question_count?: number }> & {
+    items: Array<QuizRecord & { questionCount?: number; question_count?: number }>;
+    total: number;
+    limit: number;
+    offset: number;
+    has_more: boolean;
+  }> {
     let targetOrgId = organizationId;
     if (this.courseStore) {
       const course = await this.courseStore.findByIdForUser(
@@ -1483,8 +1774,38 @@ export class StudyService {
       }
       targetOrgId = (course.organizationId || (course as { organization_id?: OrganizationId }).organization_id) as OrganizationId;
     }
-    const quizzes = await this.quizStore.listByCourse(courseId, targetOrgId);
-    return quizzes.filter((q) => q.status === "published");
+
+    await this.authorizeRead(actor, targetOrgId, courseId);
+
+    const limit = options?.limit ?? 15;
+    const offset = options?.offset ?? 0;
+
+    let items: Array<QuizRecord & { questionCount?: number; question_count?: number }> = [];
+    let total = 0;
+
+    if (this.quizStore.listByCourseWithQuestionCount) {
+      const paginated = await this.quizStore.listByCourseWithQuestionCount(courseId, targetOrgId, {
+        limit,
+        offset,
+        status: "published",
+      });
+      items = paginated.items.map((q) => ({ ...q, question_count: q.questionCount }));
+      total = paginated.total;
+    } else {
+      const allQuizzes = await this.quizStore.listByCourse(courseId, targetOrgId);
+      const published = allQuizzes.filter((q) => q.status === "published");
+      total = published.length;
+      items = published.slice(offset, offset + limit).map((q) => ({ ...q, question_count: 0 }));
+    }
+
+    const has_more = offset + items.length < total;
+    return Object.assign(items, {
+      items,
+      total,
+      limit,
+      offset,
+      has_more,
+    });
   }
 
   /**
@@ -1740,14 +2061,30 @@ export class StudyService {
       is_preview?: boolean;
     }
   > {
-    await this.authorizeRead(actor, organizationId);
-    const quiz = await this.quizStore.findByIdForOrganization(
-      quizId,
-      organizationId,
-      this.systemOrganizationId,
-    );
+    const quiz = this.quizStore.findById
+      ? await this.quizStore.findById(quizId)
+      : await this.quizStore.findByIdForOrganization(
+          quizId,
+          organizationId,
+          this.systemOrganizationId,
+        );
     if (!quiz) throw new DomainError("not_found", "Quiz not found");
     if (quiz.status !== "published") throw new DomainError("not_found", "Quiz not found");
+
+    let targetOrgId = quiz.organizationId;
+    if (this.courseStore && quiz.courseId) {
+      const course = await this.courseStore.findByIdForUser(
+        quiz.courseId,
+        actor.userId,
+        this.systemOrganizationId,
+      );
+      if (!course) {
+        throw new DomainError("not_found", "Quiz not found");
+      }
+      targetOrgId = (course.organizationId || (course as { organization_id?: OrganizationId }).organization_id) as OrganizationId;
+    }
+
+    await this.authorizeRead(actor, targetOrgId, quiz.courseId ?? undefined);
 
     let isPreview = false;
     if (this.entitlementService) {
@@ -1767,17 +2104,6 @@ export class StudyService {
       }
       if (access.reason === "free_preview") {
         isPreview = true;
-      }
-    }
-
-    if (this.courseStore && quiz.courseId) {
-      const course = await this.courseStore.findByIdForUser(
-        quiz.courseId,
-        actor.userId,
-        this.systemOrganizationId,
-      );
-      if (!course) {
-        throw new DomainError("not_found", "Quiz not found");
       }
     }
 
@@ -1824,21 +2150,9 @@ export class StudyService {
   async getExamTopicSummary(actor: Actor, organizationId: OrganizationId) {
     await this.authorizeRead(actor, organizationId);
 
-    const [coursesInfo, allQuestions, allQuizzes] = await Promise.all([
-      this.courseStore
-        ? this.courseStore.listByOrganization(organizationId, actor.userId, this.systemOrganizationId)
-        : Promise.resolve([]),
-      this.quizQuestionStore.listByFilter({
-        organizationId,
-        systemOrganizationId: this.systemOrganizationId,
-      }),
-      this.quizStore
-        ? this.quizStore.listByOrganization(organizationId, this.systemOrganizationId)
-        : Promise.resolve([]),
-    ]);
-
-    const quizMap = new Map(allQuizzes.map((q) => [q.id, q]));
-    const allProcessedQuestionIds = new Set<string>();
+    const cacheKey = this.getTopicSummaryCacheKey(organizationId);
+    const cached = this.topicSummaryCache.get(cacheKey);
+    const now = Date.now();
 
     type LessonSummary = {
       lessonId: string;
@@ -1871,8 +2185,7 @@ export class StudyService {
       modules: ModuleSummary[];
     };
 
-    const coursesResult: CourseSummary[] = [];
-    const legacySections: Array<{
+    type LegacySection = {
       id: string;
       title: string;
       topic: string;
@@ -1889,339 +2202,405 @@ export class StudyService {
         mediumCount: number;
         hardCount: number;
       }>;
-    }> = [];
+    };
 
-    const accessSnapshot = this.entitlementService
-      ? await this.entitlementService.createAccessSnapshot(actor)
-      : null;
-
-    for (const c of coursesInfo) {
-      let hasAccess = true;
-      if (this.entitlementService && accessSnapshot) {
-        const access = await this.entitlementService.checkAccess(
-          actor,
-          {
-            userId: actor.userId,
-            resourceType: "course",
-            resourceId: c.id,
-          },
-          accessSnapshot,
-        );
-        hasAccess = access.granted;
-      }
-      const courseModules = this.moduleStore
-        ? await this.moduleStore.listByCourse(c.id as CourseId)
-        : [];
-      const courseGroups = this.subCourseGroupStore
-        ? await this.subCourseGroupStore.listByCourse(c.id as CourseId)
-        : [];
-      const orderedCourseModules = orderModulesByCurriculum(courseModules, courseGroups);
-      const moduleIds = orderedCourseModules.map((m) => m.id);
-      const courseLessons = this.lessonStore
-        ? await this.lessonStore.listByModules(moduleIds)
-        : [];
-
-      // Map documentId to authoritative Module for this course
-      const docToModuleMap = new Map<string, ModuleRecord>();
-      for (const m of courseModules) {
-        if (m.documentId) {
-          docToModuleMap.set(m.documentId, m);
-        }
-      }
-
-      const lessonMap = new Map<string, LessonSummary>();
-      for (const les of courseLessons) {
-        lessonMap.set(les.id, {
-          lessonId: les.id,
-          lessonTitle: les.title,
-          questionCount: 0,
-          easyCount: 0,
-          mediumCount: 0,
-          hardCount: 0,
-        });
-      }
-
-      // Track unmapped questions (lessonId = null) per module
-      const unmappedModuleCounts = new Map<
-        string,
-        { total: number; easy: number; med: number; hard: number }
-      >();
-      for (const m of courseModules) {
-        unmappedModuleCounts.set(m.id, { total: 0, easy: 0, med: 0, hard: 0 });
-      }
-
-      for (const q of allQuestions) {
-        if (allProcessedQuestionIds.has(q.id)) continue;
-
-        // Path A: Question -> lessonId -> Lesson -> Module
-        let matchedLessonId: string | null = q.lessonId ?? null;
-        if (!matchedLessonId && q.topic) {
-          const found = courseLessons.find((l) => l.title === q.topic);
-          if (found) matchedLessonId = found.id;
-        }
-
-        if (matchedLessonId && lessonMap.has(matchedLessonId)) {
-          allProcessedQuestionIds.add(q.id);
-          const lSummary = lessonMap.get(matchedLessonId)!;
-          lSummary.questionCount += 1;
-          const diff = (q.difficulty || "medium").toLowerCase();
-          if (diff === "easy" || diff === "آسان") lSummary.easyCount += 1;
-          else if (diff === "hard" || diff === "سخت") lSummary.hardCount += 1;
-          else lSummary.mediumCount += 1;
-          continue;
-        }
-
-        // Path B: Question -> Quiz -> Document -> Authoritative Module (when lessonId is null)
-        const parentQuiz = quizMap.get(q.quizId);
-        if (parentQuiz && parentQuiz.documentId) {
-          const targetModule = docToModuleMap.get(parentQuiz.documentId);
-          if (targetModule && unmappedModuleCounts.has(targetModule.id)) {
-            allProcessedQuestionIds.add(q.id);
-            const mObj = unmappedModuleCounts.get(targetModule.id)!;
-            mObj.total += 1;
-            const diff = (q.difficulty || "medium").toLowerCase();
-            if (diff === "easy" || diff === "آسان") mObj.easy += 1;
-            else if (diff === "hard" || diff === "سخت") mObj.hard += 1;
-          }
-        }
-
-        // Path C: Questions belonging to Course c without explicit lesson/document module mapping
-        if (parentQuiz && parentQuiz.courseId === c.id) {
-          allProcessedQuestionIds.add(q.id);
-          const tName = q.topic || c.name;
-          let mObj = unmappedModuleCounts.get(`course-topic-${tName}`);
-          if (!mObj) {
-            mObj = { total: 0, easy: 0, med: 0, hard: 0 };
-            unmappedModuleCounts.set(`course-topic-${tName}`, mObj);
-          }
-          mObj.total += 1;
-          const diff = (q.difficulty || "medium").toLowerCase();
-          if (diff === "easy" || diff === "آسان") mObj.easy += 1;
-          else if (diff === "hard" || diff === "سخت") mObj.hard += 1;
-          else mObj.med += 1;
-        }
-      }
-
-      const modulesResult: ModuleSummary[] = orderedCourseModules.map((m) => {
-        const modLessons = courseLessons
-          .filter((l) => l.moduleId === m.id)
-          .map((l) => lessonMap.get(l.id)!)
-          .sort((a, b) => {
-            const lesA = courseLessons.find((l) => l.id === a.lessonId);
-            const lesB = courseLessons.find((l) => l.id === b.lessonId);
-            const orderA = lesA?.sortOrder ?? 0;
-            const orderB = lesB?.sortOrder ?? 0;
-            if (orderA !== orderB) return orderA - orderB;
-            return a.lessonTitle.localeCompare(b.lessonTitle, "fa");
-          });
-
-        const unmapped = unmappedModuleCounts.get(m.id) ?? {
-          total: 0,
-          easy: 0,
-          med: 0,
-          hard: 0,
-        };
-
-        let mQ = unmapped.total;
-        let mEasy = unmapped.easy;
-        let mMed = unmapped.med;
-        let mHard = unmapped.hard;
-
-        for (const l of modLessons) {
-          mQ += l.questionCount;
-          mEasy += l.easyCount;
-          mMed += l.mediumCount;
-          mHard += l.hardCount;
-        }
-
-        return {
-          moduleId: m.id,
-          moduleTitle: m.title,
-          sortOrder: m.sortOrder ?? 0,
-          questionCount: mQ,
-          easyCount: mEasy,
-          mediumCount: mMed,
-          hardCount: mHard,
-          lessons: modLessons,
-        };
-      });
-
-      // Add modules derived from unmapped course-level topics
-      for (const [key, val] of unmappedModuleCounts.entries()) {
-        if (key.startsWith("course-topic-") && val.total > 0) {
-          const topicName = key.replace("course-topic-", "");
-          modulesResult.push({
-            moduleId: `mod-${c.id}-${topicName}`,
-            moduleTitle: topicName,
-            sortOrder: 9999,
-            questionCount: val.total,
-            easyCount: val.easy,
-            mediumCount: val.med,
-            hardCount: val.hard,
-            lessons: [
-              {
-                lessonId: `lesson-${c.id}-${topicName}`,
-                lessonTitle: topicName,
-                questionCount: val.total,
-                easyCount: val.easy,
-                mediumCount: val.med,
-                hardCount: val.hard,
-              },
-            ],
-          });
-        }
-      }
-
-      const filteredModules: ModuleSummary[] = modulesResult.filter((m) => m.questionCount > 0);
-
-      let cQ = 0, cEasy = 0, cMed = 0, cHard = 0;
-      for (const m of filteredModules) {
-        cQ += m.questionCount;
-        cEasy += m.easyCount;
-        cMed += m.mediumCount;
-        cHard += m.hardCount;
-
-        legacySections.push({
-          id: m.moduleId,
-          title: m.moduleTitle,
-          topic: m.moduleTitle,
-          questionCount: m.questionCount,
-          easyCount: m.easyCount,
-          mediumCount: m.mediumCount,
-          hardCount: m.hardCount,
-          chapters: m.lessons.map((l) => ({
-            id: l.lessonId,
-            title: l.lessonTitle,
-            topic: l.lessonTitle,
-            questionCount: l.questionCount,
-            easyCount: l.easyCount,
-            mediumCount: l.mediumCount,
-            hardCount: l.hardCount,
-          })),
-        });
-      }
-
-      if (cQ > 0 && filteredModules.length > 0) {
-        coursesResult.push({
-          courseId: c.id,
-          courseTitle: c.name,
-          hasAccess,
-          questionCount: cQ,
-          easyCount: cEasy,
-          mediumCount: cMed,
-          hardCount: cHard,
-          modules: filteredModules,
-        });
-      }
-    }
-
-    // Fallback for questions unassigned to any course/module: group by actual topic title (never placeholder titles)
-    const unassignedQuestions = allQuestions.filter(
-      (q) => !allProcessedQuestionIds.has(q.id),
-    );
-    if (unassignedQuestions.length > 0) {
-      const topicGroupMap = new Map<
-        string,
-        { title: string; count: number; easy: number; med: number; hard: number }
-      >();
-      for (const q of unassignedQuestions) {
-        const tName = q.topic || "مباحث آموزشی";
-        if (!topicGroupMap.has(tName)) {
-          topicGroupMap.set(tName, { title: tName, count: 0, easy: 0, med: 0, hard: 0 });
-        }
-        const tObj = topicGroupMap.get(tName)!;
-        tObj.count += 1;
-        const diff = (q.difficulty || "medium").toLowerCase();
-        if (diff === "easy" || diff === "آسان") tObj.easy += 1;
-        else if (diff === "hard" || diff === "سخت") tObj.hard += 1;
-        else tObj.med += 1;
-      }
-
-      for (const [tName, tObj] of topicGroupMap.entries()) {
-        const modId = `mod-top-${tName}`;
-        const lesId = `lesson-top-${tName}`;
-        const orphanModule: ModuleSummary = {
-          moduleId: modId,
-          moduleTitle: tName,
-          questionCount: tObj.count,
-          easyCount: tObj.easy,
-          mediumCount: tObj.med,
-          hardCount: tObj.hard,
-          lessons: [
-            {
-              lessonId: lesId,
-              lessonTitle: tName,
-              questionCount: tObj.count,
-              easyCount: tObj.easy,
-              mediumCount: tObj.med,
-              hardCount: tObj.hard,
-            },
-          ],
-        };
-
-        const orphanHasAccess = !this.entitlementService
-          ? true
-          : Boolean(
-              actor.role === "platform_admin" ||
-              actor.role === "organization_admin" ||
-              accessSnapshot?.hasActiveSubscription,
-            );
-
-        coursesResult.push({
-          courseId: `course-top-${tName}`,
-          courseTitle: tName,
-          hasAccess: orphanHasAccess,
-          questionCount: tObj.count,
-          easyCount: tObj.easy,
-          mediumCount: tObj.med,
-          hardCount: tObj.hard,
-          modules: [orphanModule],
-        });
-
-        legacySections.push({
-          id: modId,
-          title: tName,
-          topic: tName,
-          questionCount: tObj.count,
-          easyCount: tObj.easy,
-          mediumCount: tObj.med,
-          hardCount: tObj.hard,
-          chapters: [
-            {
-              id: lesId,
-              title: tName,
-              topic: tName,
-              questionCount: tObj.count,
-              easyCount: tObj.easy,
-              mediumCount: tObj.med,
-              hardCount: tObj.hard,
-            },
-          ],
-        });
-      }
-    }
-
-    const topicsFlatList: Array<{
+    type TopicFlat = {
       topic: string;
       title: string;
       questionCount: number;
       easyCount: number;
       mediumCount: number;
       hardCount: number;
-    }> = [];
+    };
 
-    for (const s of legacySections) {
-      for (const ch of s.chapters) {
-        topicsFlatList.push({
-          topic: ch.topic,
-          title: ch.title,
-          questionCount: ch.questionCount,
-          easyCount: ch.easyCount,
-          mediumCount: ch.mediumCount,
-          hardCount: ch.hardCount,
+    let catalogCourses: Array<Omit<CourseSummary, "hasAccess">>;
+    let legacySections: LegacySection[];
+    let topicsFlatList: TopicFlat[];
+
+    if (cached && now - cached.timestamp < 5 * 60 * 1000) {
+      catalogCourses = cached.data.catalogCourses;
+      legacySections = cached.data.legacySections;
+      topicsFlatList = cached.data.topicsFlatList;
+    } else {
+      const [coursesInfo, questionAggregates, allQuizzes] = await Promise.all([
+        this.courseStore
+          ? this.courseStore.listByOrganization(organizationId, actor.userId, this.systemOrganizationId)
+          : Promise.resolve([]),
+        this.quizQuestionStore.countByCourseAndDifficulty
+          ? this.quizQuestionStore.countByCourseAndDifficulty(
+              organizationId,
+              this.systemOrganizationId,
+            )
+          : (async () => {
+              const raw = await this.quizQuestionStore.listByFilter({
+                organizationId,
+                systemOrganizationId: this.systemOrganizationId,
+              });
+              return raw.map((q) => ({
+                courseId: null,
+                documentId: null,
+                quizId: q.quizId,
+                lessonId: q.lessonId ?? null,
+                topic: q.topic ?? null,
+                difficulty: q.difficulty ?? null,
+                questionCount: 1,
+              }));
+            })(),
+        this.quizStore
+          ? this.quizStore.listByOrganization(organizationId, this.systemOrganizationId)
+          : Promise.resolve([]),
+      ]);
+
+      const quizMap = new Map(allQuizzes.map((q) => [q.id, q]));
+      const processedIndices = new Set<number>();
+      catalogCourses = [];
+      legacySections = [];
+
+      for (const c of coursesInfo) {
+        const courseModules = this.moduleStore
+          ? await this.moduleStore.listByCourse(c.id as CourseId)
+          : [];
+        const courseGroups = this.subCourseGroupStore
+          ? await this.subCourseGroupStore.listByCourse(c.id as CourseId)
+          : [];
+        const orderedCourseModules = orderModulesByCurriculum(courseModules, courseGroups);
+        const moduleIds = orderedCourseModules.map((m) => m.id);
+        const courseLessons = this.lessonStore
+          ? await this.lessonStore.listByModules(moduleIds)
+          : [];
+
+        // Map documentId to authoritative Module for this course
+        const docToModuleMap = new Map<string, ModuleRecord>();
+        for (const m of courseModules) {
+          if (m.documentId) {
+            docToModuleMap.set(m.documentId, m);
+          }
+        }
+
+        const lessonMap = new Map<string, LessonSummary>();
+        for (const les of courseLessons) {
+          lessonMap.set(les.id, {
+            lessonId: les.id,
+            lessonTitle: les.title,
+            questionCount: 0,
+            easyCount: 0,
+            mediumCount: 0,
+            hardCount: 0,
+          });
+        }
+
+        // Track unmapped questions (lessonId = null) per module
+        const unmappedModuleCounts = new Map<
+          string,
+          { total: number; easy: number; med: number; hard: number }
+        >();
+        for (const m of courseModules) {
+          unmappedModuleCounts.set(m.id, { total: 0, easy: 0, med: 0, hard: 0 });
+        }
+
+        for (let i = 0; i < questionAggregates.length; i++) {
+          if (processedIndices.has(i)) continue;
+          const q = questionAggregates[i];
+
+          // Path A: Question -> lessonId -> Lesson -> Module
+          let matchedLessonId: string | null = q.lessonId ?? null;
+          if (!matchedLessonId && q.topic) {
+            const found = courseLessons.find((l) => l.title === q.topic);
+            if (found) matchedLessonId = found.id;
+          }
+
+          if (matchedLessonId && lessonMap.has(matchedLessonId)) {
+            processedIndices.add(i);
+            const lSummary = lessonMap.get(matchedLessonId)!;
+            lSummary.questionCount += q.questionCount;
+            const diff = (q.difficulty || "medium").toLowerCase();
+            if (diff === "easy" || diff === "آسان") lSummary.easyCount += q.questionCount;
+            else if (diff === "hard" || diff === "سخت") lSummary.hardCount += q.questionCount;
+            else lSummary.mediumCount += q.questionCount;
+            continue;
+          }
+
+          // Path B: Question -> Quiz -> Document -> Authoritative Module (when lessonId is null)
+          const parentQuiz = quizMap.get(q.quizId);
+          const targetDocId = q.documentId || parentQuiz?.documentId;
+          if (targetDocId) {
+            const targetModule = docToModuleMap.get(targetDocId);
+            if (targetModule && unmappedModuleCounts.has(targetModule.id)) {
+              processedIndices.add(i);
+              const mObj = unmappedModuleCounts.get(targetModule.id)!;
+              mObj.total += q.questionCount;
+              const diff = (q.difficulty || "medium").toLowerCase();
+              if (diff === "easy" || diff === "آسان") mObj.easy += q.questionCount;
+              else if (diff === "hard" || diff === "سخت") mObj.hard += q.questionCount;
+              else mObj.med += q.questionCount;
+              continue;
+            }
+          }
+
+          // Path C: Questions belonging to Course c without explicit lesson/document module mapping
+          const targetCourseId = q.courseId || parentQuiz?.courseId;
+          if (targetCourseId === c.id) {
+            processedIndices.add(i);
+            const tName = q.topic || c.name;
+            let mObj = unmappedModuleCounts.get(`course-topic-${tName}`);
+            if (!mObj) {
+              mObj = { total: 0, easy: 0, med: 0, hard: 0 };
+              unmappedModuleCounts.set(`course-topic-${tName}`, mObj);
+            }
+            mObj.total += q.questionCount;
+            const diff = (q.difficulty || "medium").toLowerCase();
+            if (diff === "easy" || diff === "آسان") mObj.easy += q.questionCount;
+            else if (diff === "hard" || diff === "سخت") mObj.hard += q.questionCount;
+            else mObj.med += q.questionCount;
+          }
+        }
+
+        const modulesResult: ModuleSummary[] = orderedCourseModules.map((m) => {
+          const modLessons = courseLessons
+            .filter((l) => l.moduleId === m.id)
+            .map((l) => lessonMap.get(l.id)!)
+            .sort((a, b) => {
+              const lesA = courseLessons.find((l) => l.id === a.lessonId);
+              const lesB = courseLessons.find((l) => l.id === b.lessonId);
+              const orderA = lesA?.sortOrder ?? 0;
+              const orderB = lesB?.sortOrder ?? 0;
+              if (orderA !== orderB) return orderA - orderB;
+              return a.lessonTitle.localeCompare(b.lessonTitle, "fa");
+            });
+
+          const unmapped = unmappedModuleCounts.get(m.id) ?? {
+            total: 0,
+            easy: 0,
+            med: 0,
+            hard: 0,
+          };
+
+          let mQ = unmapped.total;
+          let mEasy = unmapped.easy;
+          let mMed = unmapped.med;
+          let mHard = unmapped.hard;
+
+          for (const l of modLessons) {
+            mQ += l.questionCount;
+            mEasy += l.easyCount;
+            mMed += l.mediumCount;
+            mHard += l.hardCount;
+          }
+
+          return {
+            moduleId: m.id,
+            moduleTitle: m.title,
+            sortOrder: m.sortOrder ?? 0,
+            questionCount: mQ,
+            easyCount: mEasy,
+            mediumCount: mMed,
+            hardCount: mHard,
+            lessons: modLessons,
+          };
         });
+
+        // Add modules derived from unmapped course-level topics
+        for (const [key, val] of unmappedModuleCounts.entries()) {
+          if (key.startsWith("course-topic-") && val.total > 0) {
+            const topicName = key.replace("course-topic-", "");
+            modulesResult.push({
+              moduleId: `mod-${c.id}-${topicName}`,
+              moduleTitle: topicName,
+              sortOrder: 9999,
+              questionCount: val.total,
+              easyCount: val.easy,
+              mediumCount: val.med,
+              hardCount: val.hard,
+              lessons: [
+                {
+                  lessonId: `lesson-${c.id}-${topicName}`,
+                  lessonTitle: topicName,
+                  questionCount: val.total,
+                  easyCount: val.easy,
+                  mediumCount: val.med,
+                  hardCount: val.hard,
+                },
+              ],
+            });
+          }
+        }
+
+        const filteredModules: ModuleSummary[] = modulesResult.filter((m) => m.questionCount > 0);
+
+        let cQ = 0, cEasy = 0, cMed = 0, cHard = 0;
+        for (const m of filteredModules) {
+          cQ += m.questionCount;
+          cEasy += m.easyCount;
+          cMed += m.mediumCount;
+          cHard += m.hardCount;
+
+          legacySections.push({
+            id: m.moduleId,
+            title: m.moduleTitle,
+            topic: m.moduleTitle,
+            questionCount: m.questionCount,
+            easyCount: m.easyCount,
+            mediumCount: m.mediumCount,
+            hardCount: m.hardCount,
+            chapters: m.lessons.map((l) => ({
+              id: l.lessonId,
+              title: l.lessonTitle,
+              topic: l.lessonTitle,
+              questionCount: l.questionCount,
+              easyCount: l.easyCount,
+              mediumCount: l.mediumCount,
+              hardCount: l.hardCount,
+            })),
+          });
+        }
+
+        if (cQ > 0 && filteredModules.length > 0) {
+          catalogCourses.push({
+            courseId: c.id,
+            courseTitle: c.name,
+            questionCount: cQ,
+            easyCount: cEasy,
+            mediumCount: cMed,
+            hardCount: cHard,
+            modules: filteredModules,
+          });
+        }
       }
+
+      // Fallback for questions unassigned to any course/module: group by actual topic title (never placeholder titles)
+      const unassignedQuestions = questionAggregates.filter(
+        (_, idx) => !processedIndices.has(idx),
+      );
+      if (unassignedQuestions.length > 0) {
+        const topicGroupMap = new Map<
+          string,
+          { title: string; count: number; easy: number; med: number; hard: number }
+        >();
+        for (const q of unassignedQuestions) {
+          const tName = q.topic || "مباحث آموزشی";
+          if (!topicGroupMap.has(tName)) {
+            topicGroupMap.set(tName, { title: tName, count: 0, easy: 0, med: 0, hard: 0 });
+          }
+          const tObj = topicGroupMap.get(tName)!;
+          tObj.count += q.questionCount;
+          const diff = (q.difficulty || "medium").toLowerCase();
+          if (diff === "easy" || diff === "آسان") tObj.easy += q.questionCount;
+          else if (diff === "hard" || diff === "سخت") tObj.hard += q.questionCount;
+          else tObj.med += q.questionCount;
+        }
+
+        for (const [tName, tObj] of topicGroupMap.entries()) {
+          const modId = `mod-top-${tName}`;
+          const lesId = `lesson-top-${tName}`;
+          const orphanModule: ModuleSummary = {
+            moduleId: modId,
+            moduleTitle: tName,
+            questionCount: tObj.count,
+            easyCount: tObj.easy,
+            mediumCount: tObj.med,
+            hardCount: tObj.hard,
+            lessons: [
+              {
+                lessonId: lesId,
+                lessonTitle: tName,
+                questionCount: tObj.count,
+                easyCount: tObj.easy,
+                mediumCount: tObj.med,
+                hardCount: tObj.hard,
+              },
+            ],
+          };
+
+          catalogCourses.push({
+            courseId: `course-top-${tName}`,
+            courseTitle: tName,
+            questionCount: tObj.count,
+            easyCount: tObj.easy,
+            mediumCount: tObj.med,
+            hardCount: tObj.hard,
+            modules: [orphanModule],
+          });
+
+          legacySections.push({
+            id: modId,
+            title: tName,
+            topic: tName,
+            questionCount: tObj.count,
+            easyCount: tObj.easy,
+            mediumCount: tObj.med,
+            hardCount: tObj.hard,
+            chapters: [
+              {
+                id: lesId,
+                title: tName,
+                topic: tName,
+                questionCount: tObj.count,
+                easyCount: tObj.easy,
+                mediumCount: tObj.med,
+                hardCount: tObj.hard,
+              },
+            ],
+          });
+        }
+      }
+
+      topicsFlatList = [];
+      for (const s of legacySections) {
+        for (const ch of s.chapters) {
+          topicsFlatList.push({
+            topic: ch.topic,
+            title: ch.title,
+            questionCount: ch.questionCount,
+            easyCount: ch.easyCount,
+            mediumCount: ch.mediumCount,
+            hardCount: ch.hardCount,
+          });
+        }
+      }
+
+      this.topicSummaryCache.set(cacheKey, {
+        timestamp: now,
+        data: {
+          catalogCourses,
+          legacySections,
+          topicsFlatList,
+        },
+      });
     }
+
+    const accessSnapshot = this.entitlementService
+      ? await this.entitlementService.createAccessSnapshot(actor)
+      : null;
+
+    const coursesResult: CourseSummary[] = await Promise.all(
+      catalogCourses.map(async (c) => {
+        let hasAccess = true;
+        if (this.entitlementService && accessSnapshot) {
+          if (c.courseId.startsWith("course-top-")) {
+            hasAccess = Boolean(
+              actor.role === "platform_admin" ||
+              actor.role === "organization_admin" ||
+              accessSnapshot?.hasActiveSubscription,
+            );
+          } else {
+            const access = await this.entitlementService.checkAccess(
+              actor,
+              {
+                userId: actor.userId,
+                resourceType: "course",
+                resourceId: c.courseId,
+              },
+              accessSnapshot,
+            );
+            hasAccess = access.granted;
+          }
+        }
+        return {
+          ...c,
+          hasAccess,
+        };
+      }),
+    );
 
     const canonicalOrder: readonly string[] = CANONICAL_COURSES;
     coursesResult.sort((a, b) => {
@@ -4102,27 +4481,16 @@ export class StudyService {
     organizationId: OrganizationId,
     input: QuizAttemptInput,
   ): Promise<QuizAttemptResult> {
-    await this.authorizeQuizAttempt(actor, organizationId);
-
-    let isPreviewAttempt = false;
-    if (this.entitlementService) {
-      const access = await this.entitlementService.checkAccess(actor, {
-        userId: actor.userId,
-        resourceType: "quiz",
-        resourceId: input.quizId,
-      });
-      if (!access.granted || access.reason === "free_preview") {
-        isPreviewAttempt = true;
-      }
-    }
-
-    const quiz = await this.quizStore.findByIdForOrganization(
-      input.quizId as QuizId,
-      organizationId,
-      this.systemOrganizationId,
-    );
+    const quiz = this.quizStore.findById
+      ? await this.quizStore.findById(input.quizId as QuizId)
+      : await this.quizStore.findByIdForOrganization(
+          input.quizId as QuizId,
+          organizationId,
+          this.systemOrganizationId,
+        );
     if (!quiz) throw new DomainError("not_found", "Quiz not found");
 
+    let targetOrgId = quiz.organizationId;
     if (this.courseStore && quiz.courseId) {
       const course = await this.courseStore.findByIdForUser(
         quiz.courseId,
@@ -4131,6 +4499,22 @@ export class StudyService {
       );
       if (!course) {
         throw new DomainError("not_found", "Quiz not found");
+      }
+      targetOrgId = (course.organizationId || (course as { organization_id?: OrganizationId }).organization_id) as OrganizationId;
+    }
+
+    await this.authorizeQuizAttempt(actor, targetOrgId, quiz.courseId ?? undefined);
+
+    let isPreviewAttempt = false;
+    if (this.entitlementService) {
+      const access = await this.entitlementService.checkAccess(actor, {
+        userId: actor.userId,
+        resourceType: "quiz",
+        resourceId: input.quizId,
+        courseId: quiz.courseId ?? undefined,
+      });
+      if (!access.granted || access.reason === "free_preview") {
+        isPreviewAttempt = true;
       }
     }
 

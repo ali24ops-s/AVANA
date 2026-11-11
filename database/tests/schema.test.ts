@@ -84,6 +84,8 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("courseId");
     expect(cols).toHaveProperty("userId");
     expect(cols).toHaveProperty("role");
+    expect(cols).toHaveProperty("examDate");
+    expect(cols).toHaveProperty("examScope");
     expect(cols).toHaveProperty("createdAt");
     expect(cols).toHaveProperty("updatedAt");
   });
@@ -140,6 +142,8 @@ describe("PR-6 database schema", () => {
 
     const courseMemCols = getTableColumns(schema.courseMemberships);
     expect(courseMemCols).not.toHaveProperty("deletedAt");
+    expect(courseMemCols).toHaveProperty("examDate");
+    expect(courseMemCols).toHaveProperty("examScope");
   });
 
   test("lessons has publication state defaulting to draft", () => {
@@ -651,4 +655,162 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("createdAt");
     expect(cols).toHaveProperty("updatedAt");
   });
+
+  test("crm_tags table is defined and has required columns", () => {
+    expect(schema.crmTags).toBeDefined();
+    const cols = getTableColumns(schema.crmTags);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("name");
+    expect(cols).toHaveProperty("color");
+    expect(cols).toHaveProperty("description");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+  });
+
+  test("crm_customer_tags table is defined and has required columns", () => {
+    expect(schema.crmCustomerTags).toBeDefined();
+    const cols = getTableColumns(schema.crmCustomerTags);
+    expect(cols).toHaveProperty("userId");
+    expect(cols).toHaveProperty("tagId");
+    expect(cols).toHaveProperty("assignedBy");
+    expect(cols).toHaveProperty("createdAt");
+  });
+
+  test("crm_customer_notes table is defined and has required columns", () => {
+    expect(schema.crmCustomerNotes).toBeDefined();
+    const cols = getTableColumns(schema.crmCustomerNotes);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("userId");
+    expect(cols).toHaveProperty("authorId");
+    expect(cols).toHaveProperty("content");
+    expect(cols).toHaveProperty("isPinned");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+  });
+
+  test("crm_segments table is defined and has required columns", () => {
+    expect(schema.crmSegments).toBeDefined();
+    const cols = getTableColumns(schema.crmSegments);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("name");
+    expect(cols).toHaveProperty("description");
+    expect(cols).toHaveProperty("isActive");
+    expect(cols).toHaveProperty("matchOperator");
+    expect(cols).toHaveProperty("filterRules");
+    expect(cols).toHaveProperty("createdBy");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+  });
+
+  // -----------------------------------------------------------------------
+  // Presentation Assistant Core (Phase 1)
+  // -----------------------------------------------------------------------
+  test("presentation_projects table is defined and has required columns", () => {
+    expect(schema.presentationProjects).toBeDefined();
+    const cols = getTableColumns(schema.presentationProjects);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("organizationId");
+    expect(cols).toHaveProperty("ownerUserId");
+    expect(cols).toHaveProperty("title");
+    expect(cols).toHaveProperty("pptxDocumentId");
+    expect(cols).toHaveProperty("targetDurationMinutes");
+    expect(cols).toHaveProperty("academicLevel");
+    expect(cols).toHaveProperty("tone");
+    expect(cols).toHaveProperty("elaborationDepth");
+    expect(cols).toHaveProperty("status");
+    expect(cols).toHaveProperty("currentStage");
+    expect(cols).toHaveProperty("totalSlides");
+    expect(cols).toHaveProperty("overallIntroduction");
+    expect(cols).toHaveProperty("overallConclusion");
+    expect(cols).toHaveProperty("totalEstimatedSeconds");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+    expect(cols).toHaveProperty("deletedAt");
+  });
+
+  test("presentation_slides table is defined and has required columns", () => {
+    expect(schema.presentationSlides).toBeDefined();
+    const cols = getTableColumns(schema.presentationSlides);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("projectId");
+    expect(cols).toHaveProperty("slideIndex");
+    expect(cols).toHaveProperty("title");
+    expect(cols).toHaveProperty("rawText");
+    expect(cols).toHaveProperty("extractedTables");
+    expect(cols).toHaveProperty("speakerNotes");
+    expect(cols).toHaveProperty("hasVisuals");
+    expect(cols).toHaveProperty("visualSummary");
+    expect(cols).toHaveProperty("mediaStorageKeys");
+    expect(cols).toHaveProperty("extractionMetadata");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+  });
+
+  test("presentation_references table is defined and has required columns", () => {
+    expect(schema.presentationReferences).toBeDefined();
+    const cols = getTableColumns(schema.presentationReferences);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("projectId");
+    expect(cols).toHaveProperty("documentId");
+    expect(cols).toHaveProperty("type");
+    expect(cols).toHaveProperty("title");
+    expect(cols).toHaveProperty("sourceIdentifier");
+    expect(cols).toHaveProperty("accessStatus");
+    expect(cols).toHaveProperty("bibliographicMetadata");
+    expect(cols).toHaveProperty("extractedContent");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+  });
+
+  test("crm_campaigns table is defined and has required columns", () => {
+    expect(schema.crmCampaigns).toBeDefined();
+    const cols = getTableColumns(schema.crmCampaigns);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("name");
+    expect(cols).toHaveProperty("description");
+    expect(cols).toHaveProperty("targetSegmentId");
+    expect(cols).toHaveProperty("channel");
+    expect(cols).toHaveProperty("status");
+    expect(cols).toHaveProperty("messageContent");
+    expect(cols).toHaveProperty("scheduledAt");
+    expect(cols).toHaveProperty("createdBy");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+  });
+
+  test("crm_campaign_executions table is defined and has required columns", () => {
+    expect(schema.crmCampaignExecutions).toBeDefined();
+    const cols = getTableColumns(schema.crmCampaignExecutions);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("campaignId");
+    expect(cols).toHaveProperty("jobId");
+    expect(cols).toHaveProperty("status");
+    expect(cols).toHaveProperty("totalRecipients");
+    expect(cols).toHaveProperty("processedRecipients");
+    expect(cols).toHaveProperty("successfulRecipients");
+    expect(cols).toHaveProperty("failedRecipients");
+    expect(cols).toHaveProperty("startedAt");
+    expect(cols).toHaveProperty("completedAt");
+    expect(cols).toHaveProperty("triggeredBy");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+  });
+
+  test("crm_campaign_recipients table is defined and has required columns", () => {
+    expect(schema.crmCampaignRecipients).toBeDefined();
+    const cols = getTableColumns(schema.crmCampaignRecipients);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("campaignId");
+    expect(cols).toHaveProperty("executionId");
+    expect(cols).toHaveProperty("userId");
+    expect(cols).toHaveProperty("channel");
+    expect(cols).toHaveProperty("status");
+    expect(cols).toHaveProperty("attempts");
+    expect(cols).toHaveProperty("lastAttemptAt");
+    expect(cols).toHaveProperty("errorCode");
+    expect(cols).toHaveProperty("errorMessage");
+    expect(cols).toHaveProperty("sentAt");
+    expect(cols).toHaveProperty("createdAt");
+  });
 });
+

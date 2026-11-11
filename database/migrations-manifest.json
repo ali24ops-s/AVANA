@@ -1,0 +1,781 @@
+{
+  "build_timestamp": "2026-11-11T11:32:13.554Z",
+  "migrations": [
+    {
+      "id": "0001_init",
+      "sequence": 1,
+      "source_file": "0001_init.ts",
+      "dist_file": "0001_init.js",
+      "source_sha256": "b12d3b2f26793372282f688418d14f55ea7201ce2095e6e764e166a73e0faa08",
+      "dist_sha256": "0a66fe11c2e47367c6ce4707e4b0698744bfa1cbd35e6f29d90dfa779838fa3e"
+    },
+    {
+      "id": "0002_auth",
+      "sequence": 2,
+      "source_file": "0002_auth.ts",
+      "dist_file": "0002_auth.js",
+      "source_sha256": "19c8350c1d0be0cca116a49842ec1d887941e2515922d013a4caffd0700ee220",
+      "dist_sha256": "3afa0a6297b8c6c5e53eafe900e36115770bf892771e3c644c3f34a82c431c72"
+    },
+    {
+      "id": "0003_learning_core",
+      "sequence": 3,
+      "source_file": "0003_learning_core.ts",
+      "dist_file": "0003_learning_core.js",
+      "source_sha256": "68ca6e63464dbb23570d1aac848f16267bc8d1096103362e367f3cc790d2132a",
+      "dist_sha256": "ff0dd084232806684ccd1760d61429aae9edc2a6807c9b149f8852823b8a0fa5"
+    },
+    {
+      "id": "0004_lesson_publication",
+      "sequence": 4,
+      "source_file": "0004_lesson_publication.ts",
+      "dist_file": "0004_lesson_publication.js",
+      "source_sha256": "df9eaadddb2bd11b4e0a69f061a328bb3e16a978f045557bec27f52c1e581d8b",
+      "dist_sha256": "0f10d45c7372385f830381cb57c8bbf234b0da5ff0cb8cbf210789944e9cef00"
+    },
+    {
+      "id": "0005_ai_learning_engine",
+      "sequence": 5,
+      "source_file": "0005_ai_learning_engine.ts",
+      "dist_file": "0005_ai_learning_engine.js",
+      "source_sha256": "b7d2b69320399bb96da0e0f59b5fd237d4103050011cff404aa073e6e49c5783",
+      "dist_sha256": "44f351d91bf1dcd4a4f3b453b07ccabd795a4bd4d3a52a752bc3cdea884d94de"
+    },
+    {
+      "id": "0006_generation_idempotency",
+      "sequence": 6,
+      "source_file": "0006_generation_idempotency.ts",
+      "dist_file": "0006_generation_idempotency.js",
+      "source_sha256": "395d05a9961251974363bfe31568c951add69f9365d4f3c315be2880f3eff6bd",
+      "dist_sha256": "845f96475aa2ddf0627f07a8a7ff07e9d3180d045aa7866a081f704630558db2"
+    },
+    {
+      "id": "0007_generation_jobs",
+      "sequence": 7,
+      "source_file": "0007_generation_jobs.ts",
+      "dist_file": "0007_generation_jobs.js",
+      "source_sha256": "86f2fde027589ea01bf0dd38892933b398b7eeb60d3a9dc34b7ae7b615846659",
+      "dist_sha256": "294889dcf24a071414201dd731b6328711c968f56f5d9f2ded2e33b954784387"
+    },
+    {
+      "id": "0008_content_review",
+      "sequence": 8,
+      "source_file": "0008_content_review.ts",
+      "dist_file": "0008_content_review.js",
+      "source_sha256": "17d226be5c0e454b1e6bc2877284414294d285a4c9117315f21cd3add50cf62d",
+      "dist_sha256": "06089bf6feec23a5baefe97efdfc9a478b46bca471d41d8f4645571e12730821"
+    },
+    {
+      "id": "0009_study_consumption",
+      "sequence": 9,
+      "source_file": "0009_study_consumption.ts",
+      "dist_file": "0009_study_consumption.js",
+      "source_sha256": "b3a313221c449a327fcf0520efd5e37d1ae1ded7beb03f1fbf953f64dcd8cd23",
+      "dist_sha256": "cbde3b0328be2133603c4e395db6fee20ce76fc6a3550a6a6b72b2fefa3cce4d"
+    },
+    {
+      "id": "0010_user_flashcard_schedules",
+      "sequence": 10,
+      "source_file": "0010_user_flashcard_schedules.ts",
+      "dist_file": "0010_user_flashcard_schedules.js",
+      "source_sha256": "cb88c34b4437adc939dff9f6c3fc0962cf46c9744aa53b1613e42419486efcd3",
+      "dist_sha256": "2e74abcc4640f9e72338c2868a1085fa68d3b286b55a923d8f6e7e6b8e09ef43"
+    },
+    {
+      "id": "0011_exams_configuration",
+      "sequence": 11,
+      "source_file": "0011_exams_configuration.ts",
+      "dist_file": "0011_exams_configuration.js",
+      "source_sha256": "76a039b836949e33f7e2c1264f820a1ddcb3d834663b3af4e7ca6a2bc957b0f2",
+      "dist_sha256": "0965da05ade165c441699d2b57be425f84a9508bbc27275c6d02346c17102db6"
+    },
+    {
+      "id": "0012_taxonomy_lesson_relations",
+      "sequence": 12,
+      "source_file": "0012_taxonomy_lesson_relations.ts",
+      "dist_file": "0012_taxonomy_lesson_relations.js",
+      "source_sha256": "4b2589263eda061413559c0e286892ffb8034cd4a781d759546420aa762e49e6",
+      "dist_sha256": "22ac965444568ed1d46d9114172d9320cf5494079438c735fee04eafc9d7f160"
+    },
+    {
+      "id": "0013_document_module_invariant",
+      "sequence": 13,
+      "source_file": "0013_document_module_invariant.ts",
+      "dist_file": "0013_document_module_invariant.js",
+      "source_sha256": "684fd75b37669716d29f4b5a4a41c836d0e310471e494e223fb9f5f24c6c5c86",
+      "dist_sha256": "6ef3497ba0bd4d817b52aeb020f9408190558141158d74fe6f6f23cbd6a24823"
+    },
+    {
+      "id": "0014_email_verification",
+      "sequence": 14,
+      "source_file": "0014_email_verification.ts",
+      "dist_file": "0014_email_verification.js",
+      "source_sha256": "995829bfab7cfd203a79f4dcbd795680401e66079e3ed6156774468a6774891d",
+      "dist_sha256": "13d23ea3b58450e11ca4a63470b22085041c3104359ead9f20044e2cd8f9f09d"
+    },
+    {
+      "id": "0015_study_conversations",
+      "sequence": 15,
+      "source_file": "0015_study_conversations.ts",
+      "dist_file": "0015_study_conversations.js",
+      "source_sha256": "effc359b00a7c31b19cdf2c10d5cbca54d005b656afde90f4a9805e5f3566f3b",
+      "dist_sha256": "2703efa186e852b314e14d10004a3a41677779364b9f2ccb5cd97840f4ed7aba"
+    },
+    {
+      "id": "0016_study_sessions",
+      "sequence": 16,
+      "source_file": "0016_study_sessions.ts",
+      "dist_file": "0016_study_sessions.js",
+      "source_sha256": "24650df8563e209a2d9c1014f9f3769abd33e61e4b167442ca1404beb8261ec3",
+      "dist_sha256": "ce9dbe571416d11ad3e0ff01ef3e232a54e7745945f45adaf0e788174456037d"
+    },
+    {
+      "id": "0017_flashcard_study_sessions",
+      "sequence": 17,
+      "source_file": "0017_flashcard_study_sessions.ts",
+      "dist_file": "0017_flashcard_study_sessions.js",
+      "source_sha256": "f649ada1708d745b1f8a9bd3456f2411b48b00d730d5c280918b5ba62432391b",
+      "dist_sha256": "91920616b945efff1a75250c1a43cbecff1712657774da85ee44b1114a5e2d47"
+    },
+    {
+      "id": "0018_flashcard_session_reaction_ms",
+      "sequence": 18,
+      "source_file": "0018_flashcard_session_reaction_ms.ts",
+      "dist_file": "0018_flashcard_session_reaction_ms.js",
+      "source_sha256": "1ddab2951fa45fd6a89d8c8bb7387afd14960244dcd51469afdb27fea3c19325",
+      "dist_sha256": "421906278f217ad7f21caeb5979f844acd6481557b90632b9e9fed64e805ecd7"
+    },
+    {
+      "id": "0019_user_global_role",
+      "sequence": 19,
+      "source_file": "0019_user_global_role.ts",
+      "dist_file": "0019_user_global_role.js",
+      "source_sha256": "2c4831aca567019477b9008092255919be2cd7765a91aebb0f7b2b594c3032d1",
+      "dist_sha256": "6b0bf770d7a86724fe70d677926dc053d6433198434abfc49984b032dabb9bb7"
+    },
+    {
+      "id": "0020_document_quality",
+      "sequence": 20,
+      "source_file": "0020_document_quality.ts",
+      "dist_file": "0020_document_quality.js",
+      "source_sha256": "8bc7e9d1acb8cdce1f51b3c85ab2296226905b00b3516d6e508d30ea7bc94ce0",
+      "dist_sha256": "0ccdd27586999b53b922398e334080e01303efa1eec7b3bdb237229cb85a1640"
+    },
+    {
+      "id": "0021_content_packs",
+      "sequence": 21,
+      "source_file": "0021_content_packs.ts",
+      "dist_file": "0021_content_packs.js",
+      "source_sha256": "b4904002feaa157cf82a188e7fdd94ef9f7e49dc47299787f0fc5761ee29cd45",
+      "dist_sha256": "7befb627472b153d50f87397a9ea7d6fa382077522f2a367c5b4575d5e555410"
+    },
+    {
+      "id": "0022_decouple_document_content",
+      "sequence": 22,
+      "source_file": "0022_decouple_document_content.ts",
+      "dist_file": "0022_decouple_document_content.js",
+      "source_sha256": "244f2d297cf3beea7c44f6b29e31ae0933da4d0a514a3a716125158b6f4e4cc0",
+      "dist_sha256": "72b4ae5d0ab8ab6ff58f456386de23cfc2867e3b86e42f5fbcf98fdc44bf1998"
+    },
+    {
+      "id": "0023_monetization_and_entitlements",
+      "sequence": 23,
+      "source_file": "0023_monetization_and_entitlements.ts",
+      "dist_file": "0023_monetization_and_entitlements.js",
+      "source_sha256": "c57f42ceb0e937e952564c3288fb40c47ec5929295d5f8640f1b7ef7129c11f2",
+      "dist_sha256": "4cc13a751b990bd1a7d120b7f8bfaf3080b00e9e8fb3896921766237ac1813a0"
+    },
+    {
+      "id": "0024_official_courses_and_products",
+      "sequence": 24,
+      "source_file": "0024_official_courses_and_products.ts",
+      "dist_file": "0024_official_courses_and_products.js",
+      "source_sha256": "6eb7d948825e2e488526a1ed97a67f19e0276cd19f2051bf832d1ec30d4f36f6",
+      "dist_sha256": "15fb0f9f953db5eb81b30b23b902d0df74ac730514027ec9fc8754472bf1c5e4"
+    },
+    {
+      "id": "0025_content_pack_review_workflow",
+      "sequence": 25,
+      "source_file": "0025_content_pack_review_workflow.ts",
+      "dist_file": "0025_content_pack_review_workflow.js",
+      "source_sha256": "b4cf5845c3a36c86f70ea50bdfa086535f1ae94955364f0a497715579ae1c1bb",
+      "dist_sha256": "955513bc0f0d8eb7a38ad9d3f344cd655a9b13865e5582be05ea46b1a7eeb724"
+    },
+    {
+      "id": "0026_migrate_legacy_content_packs_to_pending_review",
+      "sequence": 26,
+      "source_file": "0026_migrate_legacy_content_packs_to_pending_review.ts",
+      "dist_file": "0026_migrate_legacy_content_packs_to_pending_review.js",
+      "source_sha256": "613318b7ab3686e19f5c63ff2be0e68031ece6c462c01353caeec3b952602549",
+      "dist_sha256": "245350acb43d5327fdc8cd842e27b98e964c7a05334db9a8f879f1ce18a65a07"
+    },
+    {
+      "id": "0027_blog_system",
+      "sequence": 27,
+      "source_file": "0027_blog_system.ts",
+      "dist_file": "0027_blog_system.js",
+      "source_sha256": "f9d32491ea675c328fcbc0d5ff645fc3e48d57a54fd9973d44a385ad05dd0523",
+      "dist_sha256": "20ac7c9766b34ff63c7f2d482ca3adf3bb1e8e6dc4b9034a1dc8548be8a54d52"
+    },
+    {
+      "id": "0028_card_to_card_payments",
+      "sequence": 28,
+      "source_file": "0028_card_to_card_payments.ts",
+      "dist_file": "0028_card_to_card_payments.js",
+      "source_sha256": "dc72cb08ea4dd89980c1b3f55d120cb6c8052f769a60929008d6856a3c2219af",
+      "dist_sha256": "c5ee9123961805c99e99e6961cd8b108123a67ab2d64f94253b77dcd42608b42"
+    },
+    {
+      "id": "0029_device_and_single_session_security",
+      "sequence": 29,
+      "source_file": "0029_device_and_single_session_security.ts",
+      "dist_file": "0029_device_and_single_session_security.js",
+      "source_sha256": "b50709dc6ec8f3f683b5a3905ff44aaf57cc2fb6e732b79a03d9d32b54618735",
+      "dist_sha256": "b693fd73ec83a11e6e3ce977fc56a7acd9020f48d10209c3f48a1bcee6912d6e"
+    },
+    {
+      "id": "0030_content_export_import",
+      "sequence": 30,
+      "source_file": "0030_content_export_import.ts",
+      "dist_file": "0030_content_export_import.js",
+      "source_sha256": "278d92475a914c02a41e11235c03dc39587aa4503298bbeedaf4fbce6586dad6",
+      "dist_sha256": "d099356d8c64986926a99556b7d1176bc943e5c7f943e4e81f2fdd3f69faf4c8"
+    },
+    {
+      "id": "0031_widen_generation_keys",
+      "sequence": 31,
+      "source_file": "0031_widen_generation_keys.ts",
+      "dist_file": "0031_widen_generation_keys.js",
+      "source_sha256": "cce2a7f9302f795da5bcd791c063860988d882cfcd2a00050eb2cdc9ead192ce",
+      "dist_sha256": "328ed4704e5725a16d338b16fc1e244db3103fd5b5fe1ef108f6b4b69a50f967"
+    },
+    {
+      "id": "0032_resumable_generation_chunks",
+      "sequence": 32,
+      "source_file": "0032_resumable_generation_chunks.ts",
+      "dist_file": "0032_resumable_generation_chunks.js",
+      "source_sha256": "a89cadd3ae725ae6c7c2adbd5a9014ca0b492ccc8c89055b6e60e688cb74d06c",
+      "dist_sha256": "d7e3660c110e9bc0e07d450556dcbdbb00c4b72d18e26e05248908bd24a377e3"
+    },
+    {
+      "id": "0033_widen_quiz_attempts_topic",
+      "sequence": 33,
+      "source_file": "0033_widen_quiz_attempts_topic.ts",
+      "dist_file": "0033_widen_quiz_attempts_topic.js",
+      "source_sha256": "fc34379ea890cd99c3dbefeadcb8bde423cdccc99759d46d7d17e567a78bcdae",
+      "dist_sha256": "297785e3f8b91161c960491751a1106515c32470afdb18b43c8c43ccda486e23"
+    },
+    {
+      "id": "0034_generation_lease_infrastructure",
+      "sequence": 34,
+      "source_file": "0034_generation_lease_infrastructure.ts",
+      "dist_file": "0034_generation_lease_infrastructure.js",
+      "source_sha256": "5c77e9071d0f870266c525937f19daa089abfdcbae04f7136becfd86a6744b19",
+      "dist_sha256": "6e8e5ce46333d8759fbe3642f5900e1552769b18b5469d4ab3ffb406004dc569"
+    },
+    {
+      "id": "0035_content_pricing_and_entitlements",
+      "sequence": 35,
+      "source_file": "0035_content_pricing_and_entitlements.ts",
+      "dist_file": "0035_content_pricing_and_entitlements.js",
+      "source_sha256": "74399bc8321c0bb959942c72e6bf2ec351425a68b94ca426f86c2ddc1e728e3f",
+      "dist_sha256": "692e63986ca4a9393dace0fa22d6035627606a54ea40758c7b01542753d8a52b"
+    },
+    {
+      "id": "0036_backfill_content_products",
+      "sequence": 36,
+      "source_file": "0036_backfill_content_products.ts",
+      "dist_file": "0036_backfill_content_products.js",
+      "source_sha256": "155c8bef255fe5296993180a37ab9674c264e0cdb0ad7eb545997c1b73c1acf2",
+      "dist_sha256": "6f60ee9de8ab8696f4027501f3fded595129a6a00335512e9c4a50c332eb38db"
+    },
+    {
+      "id": "0037_backfill_canonical_content_pricing",
+      "sequence": 37,
+      "source_file": "0037_backfill_canonical_content_pricing.ts",
+      "dist_file": "0037_backfill_canonical_content_pricing.js",
+      "source_sha256": "bdf9ee451bedf3fdf41eda512478c5c78c6ff24c31330b6468317c83f6cb1f8c",
+      "dist_sha256": "4a463a447e810cdaafe213618b42db9a04d94d37d12581765026af0c62b855df"
+    },
+    {
+      "id": "0038_document_generation_progress",
+      "sequence": 38,
+      "source_file": "0038_document_generation_progress.ts",
+      "dist_file": "0038_document_generation_progress.js",
+      "source_sha256": "ed8a63dba8f3d909b5b0bc7d6910300347235cac2321c694c0db26cf8a95b0f8",
+      "dist_sha256": "18061c6cad078adba68e746f160cd0f8ba4ce6394ebe8ced167ce906ded7fcb6"
+    },
+    {
+      "id": "0039_phone_verification",
+      "sequence": 39,
+      "source_file": "0039_phone_verification.ts",
+      "dist_file": "0039_phone_verification.js",
+      "source_sha256": "4907676cc359beb518dff6c7ac701eddb05b75c6604dc29440cd23a1b5f45aff",
+      "dist_sha256": "7f411447ae51a404d77798a5e812c954528afbacc232efe70633ba2b308c462c"
+    },
+    {
+      "id": "0040_quiz_attempts_snapshot_and_metrics",
+      "sequence": 40,
+      "source_file": "0040_quiz_attempts_snapshot_and_metrics.ts",
+      "dist_file": "0040_quiz_attempts_snapshot_and_metrics.js",
+      "source_sha256": "abb79ccd932f4349e964c2d3ba6b05605e972af72065163c32c0c856be3aa5a5",
+      "dist_sha256": "2a67156299d568bd0d15b3ee101f623de19387184dd6c53552309fea7d800c99"
+    },
+    {
+      "id": "0041_module_preview_lesson_id",
+      "sequence": 41,
+      "source_file": "0041_module_preview_lesson_id.ts",
+      "dist_file": "0041_module_preview_lesson_id.js",
+      "source_sha256": "971f77543dcf802cacb31b1477b654fa7bdf2dab659be0c30888713342ef614b",
+      "dist_sha256": "3655405401be15622b75d20139e6aafe863a97bf5dd2afd6a369e77b9e594979"
+    },
+    {
+      "id": "0042_special_exam_entitlements",
+      "sequence": 42,
+      "source_file": "0042_special_exam_entitlements.ts",
+      "dist_file": "0042_special_exam_entitlements.js",
+      "source_sha256": "c77e6a1a5707e20ac63b9a90a813e68e07527afa938b3ba6ea8452de6583d9ef",
+      "dist_sha256": "a4d80c080c33729a5f0ff322278ab5a2a4eb7f162ea6cea7ca6086b6af58118c"
+    },
+    {
+      "id": "0043_notifications",
+      "sequence": 43,
+      "source_file": "0043_notifications.ts",
+      "dist_file": "0043_notifications.js",
+      "source_sha256": "e1d53f4d2e758bd7b66948a68ec5c0bdbe72d3d143810652082e7bba4cebb878",
+      "dist_sha256": "eeccece68825005c7b393ea9ed31f87db5e88051322760954db3c548d19f6948"
+    },
+    {
+      "id": "0044_lesson_annotations_and_reports",
+      "sequence": 44,
+      "source_file": "0044_lesson_annotations_and_reports.ts",
+      "dist_file": "0044_lesson_annotations_and_reports.js",
+      "source_sha256": "ff965a60a6fc1a122d3af24620c9c4f80f336e0591c377e5cd0f80ad636e3036",
+      "dist_sha256": "b91454db7b90d1b2abbbe099d9c560526eb737721f2ba6a72ab8fe965c70ae57"
+    },
+    {
+      "id": "0045_sub_course_groups_and_module_ordering",
+      "sequence": 45,
+      "source_file": "0045_sub_course_groups_and_module_ordering.ts",
+      "dist_file": "0045_sub_course_groups_and_module_ordering.js",
+      "source_sha256": "17ec4fb923c574aa4563b6b4cafd8bf09ac4152ae75805026721d075d95ea04a",
+      "dist_sha256": "66e6ff785b0e5633e59b4e6cfb5a82a4e338212cecab01b8e011c5b6aeb97228"
+    },
+    {
+      "id": "0046_system_configurations",
+      "sequence": 46,
+      "source_file": "0046_system_configurations.ts",
+      "dist_file": "0046_system_configurations.js",
+      "source_sha256": "4317ef63477a057923a4c0e31fdea204ae62fab1e6694ad031936401a228405e",
+      "dist_sha256": "92caff0f4a795efe84546b546ead61e713ee096bd1a3fe7ac38f385d7c15bcc6"
+    },
+    {
+      "id": "0047_wallet_system",
+      "sequence": 47,
+      "source_file": "0047_wallet_system.ts",
+      "dist_file": "0047_wallet_system.js",
+      "source_sha256": "dee1a5a665d2c2b86e0cf8269fd0ca30ece7d581181bc54f1ed77ee560c0b288",
+      "dist_sha256": "e8c9b4e5e1a36bcda60a4db25ad7596e550010629903818e159d9e78ee06732a"
+    },
+    {
+      "id": "0048_subscription_credit_bonuses_config",
+      "sequence": 48,
+      "source_file": "0048_subscription_credit_bonuses_config.ts",
+      "dist_file": "0048_subscription_credit_bonuses_config.js",
+      "source_sha256": "dff785b50133e3448fca9b94ba4bbc1d99aa766d6c976f6d0928190991d8b6a1",
+      "dist_sha256": "ea91069c25e418217381c15dc8533001ff4ea8ce8bf27f0cb7072d8beebe83bb"
+    },
+    {
+      "id": "0049_wallet_topup_product",
+      "sequence": 49,
+      "source_file": "0049_wallet_topup_product.ts",
+      "dist_file": "0049_wallet_topup_product.js",
+      "source_sha256": "f285d2f8a8ae537b64914b441f0910c641d3f6be9e84e890e76ace2178aff2bb",
+      "dist_sha256": "09f9efff7446a8f7901f4cf85f4e48f71565fb316f7814e1ad688eed58fbad81"
+    },
+    {
+      "id": "0050_course_publications",
+      "sequence": 50,
+      "source_file": "0050_course_publications.ts",
+      "dist_file": "0050_course_publications.js",
+      "source_sha256": "cb663d50d123815754e0104ae841d6f1d2958f3fa99045ed7a05223394961f16",
+      "dist_sha256": "39a645261934d918d96360b757d110afc58d474e4bb5774be255d8801346613b"
+    },
+    {
+      "id": "0051_promotions_and_coupons",
+      "sequence": 51,
+      "source_file": "0051_promotions_and_coupons.ts",
+      "dist_file": "0051_promotions_and_coupons.js",
+      "source_sha256": "b9eedf7ea51781d71be8414fb768efeb60c1e35cda850ef582a5496818f01545",
+      "dist_sha256": "fb511b2b6f0c4e324461fdd75dbaa34872374be6c5be2aa5987d37d2cd06013d"
+    },
+    {
+      "id": "0052_referral_system",
+      "sequence": 52,
+      "source_file": "0052_referral_system.ts",
+      "dist_file": "0052_referral_system.js",
+      "source_sha256": "b947ceeefa3555c33e7f6f9f3a560fa7582b30967d2b05f8bea6eb26f6bae4f0",
+      "dist_sha256": "b2fa44e21abf011b5ef7e58fb01cdb0cc9601f92840a663dc84ca9e35062f3f5"
+    },
+    {
+      "id": "0053_daily_study_planner",
+      "sequence": 53,
+      "source_file": "0053_daily_study_planner.ts",
+      "dist_file": "0053_daily_study_planner.js",
+      "source_sha256": "6872398d43337fbce9ffc10534fc01ad550e147b805a58a4bb53bb8e1a7ebef9",
+      "dist_sha256": "6e8f44f72203aca32d0537b8c5c4c820aed943a97825320a65b1796f3566355b"
+    },
+    {
+      "id": "0054_course_exam_scope",
+      "sequence": 54,
+      "source_file": "0054_course_exam_scope.ts",
+      "dist_file": "0054_course_exam_scope.js",
+      "source_sha256": "1d34e2e792bf39700d99a441abbee637bfc6d05efe8c973d513a1404e4a502c1",
+      "dist_sha256": "d3f12257db0ae1529b4fd35ac9aaec85f3a4e6acfdfcf76d9f15bdc4a0a34f6e"
+    },
+    {
+      "id": "0055_support_and_feedback",
+      "sequence": 55,
+      "source_file": "0055_support_and_feedback.ts",
+      "dist_file": "0055_support_and_feedback.js",
+      "source_sha256": "f592661ec4b2e8c3bedc9e9d2503539e172053905419dae004c2c877514b917e",
+      "dist_sha256": "520a0c27f04b109b1f244c50d5d42d149a392b6c60184834adec55c92f21438f"
+    },
+    {
+      "id": "0056_course_drafts_and_releases",
+      "sequence": 56,
+      "source_file": "0056_course_drafts_and_releases.ts",
+      "dist_file": "0056_course_drafts_and_releases.js",
+      "source_sha256": "8019c0cdfbb149bb749790a5061fb4598bb705f5d33cabc79b5cdcdfee295c79",
+      "dist_sha256": "cbbdf3fc2efe451aaa48f0dfcdf41e248ac0f9b0db819f046d26992fb8c49e88"
+    },
+    {
+      "id": "0057_teacher_platform_core",
+      "sequence": 57,
+      "source_file": "0057_teacher_platform_core.ts",
+      "dist_file": "0057_teacher_platform_core.js",
+      "source_sha256": "8c235fa777ba075ee5c6ae21650e75cb9a36a54428373278c7317b786ebe1059",
+      "dist_sha256": "046292054643cec0035346720ccd0897ee4049e64eae9df3d6210faeeb94b0f1"
+    },
+    {
+      "id": "0058_password_reset_tokens",
+      "sequence": 58,
+      "source_file": "0058_password_reset_tokens.ts",
+      "dist_file": "0058_password_reset_tokens.js",
+      "source_sha256": "6fb335cf843bfd38d7e7ac902f9e23c266e365bdcb4fce51f54c043b5314d6f2",
+      "dist_sha256": "e3eeb8524a47af3dd004ea0558abb4ff50ae10a85d1d2636b73b664fc83a097b"
+    },
+    {
+      "id": "0059_allow_back_navigation",
+      "sequence": 59,
+      "source_file": "0059_allow_back_navigation.ts",
+      "dist_file": "0059_allow_back_navigation.js",
+      "source_sha256": "7dfa62545dd727d99f866fafa88e369f973b164da2c4e0593b8c386009709d05",
+      "dist_sha256": "fb2008fe39309de82ddf6a942d0a5df1783efc5523ac3edfa0e5620526b71fc8"
+    },
+    {
+      "id": "0060_per_question_time_seconds",
+      "sequence": 60,
+      "source_file": "0060_per_question_time_seconds.ts",
+      "dist_file": "0060_per_question_time_seconds.js",
+      "source_sha256": "a4dfc9a4cf4e01bec90c0bbfd3f08d6b31a673c223b1f7c368ec547ea6768fc2",
+      "dist_sha256": "82b349a62e8dca828a6bf9c48b523486de1cfae767db97de89312845fccda8dc"
+    },
+    {
+      "id": "0061_descriptive_exam_questions",
+      "sequence": 61,
+      "source_file": "0061_descriptive_exam_questions.ts",
+      "dist_file": "0061_descriptive_exam_questions.js",
+      "source_sha256": "597e2baed016b84b81ffe32198b20d37d8d3fcf24c53232d49caac39e681c426",
+      "dist_sha256": "a6ccbe6b4b1190a79c7eaecfbff6b4b4d76792166dc59ba8e30e4be56c34c3a2"
+    },
+    {
+      "id": "0062_optional_exam_duration_and_passing_score",
+      "sequence": 62,
+      "source_file": "0062_optional_exam_duration_and_passing_score.ts",
+      "dist_file": "0062_optional_exam_duration_and_passing_score.js",
+      "source_sha256": "dc9ef52ed9f223de62850ba3d3ac7cafc4e84aca6976d17d4e70ef9db1f0ce33",
+      "dist_sha256": "a2dfc075772ba89b08ed45a6876ca6d23dfbffee51780e93e7354b66505a7bd3"
+    },
+    {
+      "id": "0063_classroom_assignments",
+      "sequence": 63,
+      "source_file": "0063_classroom_assignments.ts",
+      "dist_file": "0063_classroom_assignments.js",
+      "source_sha256": "cca7547812213b730aa020beb2d44c976ea6d4b2d6002e0fc2e6da368a82df79",
+      "dist_sha256": "7144dbd724f1495f7c54652ddc5bf42b8ddbe92d5a00053a896ea8ecabf1dc55"
+    },
+    {
+      "id": "0064_teacher_approval_status",
+      "sequence": 64,
+      "source_file": "0064_teacher_approval_status.ts",
+      "dist_file": "0064_teacher_approval_status.js",
+      "source_sha256": "485f33cb9210b1a14969ba08bacb2de817f2606e9728151dd89e5c7e549cf7b5",
+      "dist_sha256": "d133e03fe0f1345a676e7c7d972367e96a0a82dac7ee8d86b1d95091aa722d9b"
+    },
+    {
+      "id": "0065_user_major_and_course_academic_fields",
+      "sequence": 65,
+      "source_file": "0065_user_major_and_course_academic_fields.ts",
+      "dist_file": "0065_user_major_and_course_academic_fields.js",
+      "source_sha256": "5216864145785a8a2777b4c7031a9e1144458b00d3b3547c55c46cd87e832e3f",
+      "dist_sha256": "8528a083bfcec8e9571d1b0e1c5512b96b0e30720b00145b673307691cb9e1c8"
+    },
+    {
+      "id": "0066_descriptive_answer_integrity",
+      "sequence": 66,
+      "source_file": "0066_descriptive_answer_integrity.ts",
+      "dist_file": "0066_descriptive_answer_integrity.js",
+      "source_sha256": "04ab296b718404c5f3b2d51591126604faaf37e3051bf7f822e3d96e4da878be",
+      "dist_sha256": "3185b1fdaca95a901be3abd87f27dd6966b0ae223e57deb4553d74b2cba2f903"
+    },
+    {
+      "id": "0067_assignment_submission_attachments",
+      "sequence": 67,
+      "source_file": "0067_assignment_submission_attachments.ts",
+      "dist_file": "0067_assignment_submission_attachments.js",
+      "source_sha256": "da51a516990e83b29476983f0cd0dfe133a866e5fb7797693e955e0f0f275128",
+      "dist_sha256": "c6d309ea22b4a084a4c77b731a01764d77a50fc128d2b943260d159d1c5b28bc"
+    },
+    {
+      "id": "0068_teacher_academic_profile",
+      "sequence": 68,
+      "source_file": "0068_teacher_academic_profile.ts",
+      "dist_file": "0068_teacher_academic_profile.js",
+      "source_sha256": "bb3789757a5dcb39e8d7b75d2401db557c379db9c675b8764b66cac75ed9634d",
+      "dist_sha256": "d0db0d9482a8c98bdb008f8fc547f63058193d14f745e7a0cc5986b1850b0aff"
+    },
+    {
+      "id": "0069_classroom_educational_contents",
+      "sequence": 69,
+      "source_file": "0069_classroom_educational_contents.ts",
+      "dist_file": "0069_classroom_educational_contents.js",
+      "source_sha256": "3d6a21c6038af0ee25d6a27e85231fcdf0d1293ea26f6c13ffb822fe4901a9d5",
+      "dist_sha256": "81cfdbd1222d9049a79746ebe7cd0c6e2a5bd0b073ad082a9bcac0adc4be3f5b"
+    },
+    {
+      "id": "0070_teacher_student_messaging",
+      "sequence": 70,
+      "source_file": "0070_teacher_student_messaging.ts",
+      "dist_file": "0070_teacher_student_messaging.js",
+      "source_sha256": "5fd077662fb58a7883573b347c7b679f57266397f1f12d65edb7ac980b0b450c",
+      "dist_sha256": "14e0042ff6422f83ffd7caceddcf9370cea20397e871204821f912825b7373e8"
+    },
+    {
+      "id": "0071_repair_legacy_registration_org_admins",
+      "sequence": 71,
+      "source_file": "0071_repair_legacy_registration_org_admins.ts",
+      "dist_file": "0071_repair_legacy_registration_org_admins.js",
+      "source_sha256": "44d7e7a006af5e2a884e08c4f54ad6ddcb54de845268b1d4ae292ecf98ba7189",
+      "dist_sha256": "b6635a5907d0582fcfa394b1b817b0a4b8d0bf907c8618d806e9b99a7eb01dc1"
+    },
+    {
+      "id": "0072_teacher_exam_attempt_integrity",
+      "sequence": 72,
+      "source_file": "0072_teacher_exam_attempt_integrity.ts",
+      "dist_file": "0072_teacher_exam_attempt_integrity.js",
+      "source_sha256": "ceac71a7ce9aad071f58118ebcf356b989ab2f08738b0e46204795860f030eb7",
+      "dist_sha256": "bdab2f959138a015e4f4f31532acfb2161325dc7ee51e99104da5ba9adaf061f"
+    },
+    {
+      "id": "0075_question_patterns",
+      "sequence": 75,
+      "source_file": "0075_question_patterns.ts",
+      "dist_file": "0075_question_patterns.js",
+      "source_sha256": "09f9ae8c682a3bf7fa513d95d30bb05557b1a63552925ab4c5f99c62be5d29b1",
+      "dist_sha256": "16c6b01710c1c4fe3f66e2fc47f60f0058e3c68be08d97624cd54b2e8839fbe3"
+    },
+    {
+      "id": "0077_question_pattern_skills_and_cognitive_levels",
+      "sequence": 77,
+      "source_file": "0077_question_pattern_skills_and_cognitive_levels.ts",
+      "dist_file": "0077_question_pattern_skills_and_cognitive_levels.js",
+      "source_sha256": "d67bd22a605c75b69f24dc21cb1b19e0407c0373b60b19969cecfcbd186ffb91",
+      "dist_sha256": "d70fa7e823071cf9e9e2db8641f186496390f5116c86d0c96751d4a6c1422b4e"
+    },
+    {
+      "id": "0078_telegram_outbox",
+      "sequence": 78,
+      "source_file": "0078_telegram_outbox.ts",
+      "dist_file": "0078_telegram_outbox.js",
+      "source_sha256": "3dd40722630a78554e41ea43de24fb66c7fe834d4efed5a86368b4b3421556a7",
+      "dist_sha256": "8be5839feede810707100709b9216a0a41441dfafb1735aafde9858b33680171"
+    },
+    {
+      "id": "0079_telegram_outbox_lease_index",
+      "sequence": 79,
+      "source_file": "0079_telegram_outbox_lease_index.ts",
+      "dist_file": "0079_telegram_outbox_lease_index.js",
+      "source_sha256": "65f0b4aad4ef26bfe638afac6ae3a34fb4bb1850b0d40e8bdbcd59ad8aaf5889",
+      "dist_sha256": "30e7c8fad73bb5ce24f0f1ec20216027f3d0bf87a726b4da56d20ea76e2b479f"
+    },
+    {
+      "id": "0080_source_packs_and_generation_sources",
+      "sequence": 80,
+      "source_file": "0080_source_packs_and_generation_sources.ts",
+      "dist_file": "0080_source_packs_and_generation_sources.js",
+      "source_sha256": "7f6781044885c411e9923647451bf9a4c9fa3229bc895563f42915c3ac1db835",
+      "dist_sha256": "e92d3b821cd6b167e5b9ceb190c9642780833800c95ab1593e13db9cfb4bacf7"
+    },
+    {
+      "id": "0081_question_pattern_categories_and_defaults",
+      "sequence": 81,
+      "source_file": "0081_question_pattern_categories_and_defaults.ts",
+      "dist_file": "0081_question_pattern_categories_and_defaults.js",
+      "source_sha256": "c238e99fe35ad14eaea600fcc485409decc1a27f4174bce35930c6fc725d343d",
+      "dist_sha256": "8a5c2547ebceb90ccd388115b88e9753f62d53943da820605a9b18aa8d9fb113"
+    },
+    {
+      "id": "0082_user_welcome_gifts",
+      "sequence": 82,
+      "source_file": "0082_user_welcome_gifts.ts",
+      "dist_file": "0082_user_welcome_gifts.js",
+      "source_sha256": "856205c52e44dde03530ff5684803d903b031b42fa25646a2f1bd76992616fbe",
+      "dist_sha256": "aaa16e64197b92eba012950a6101b6a12257ff36fe9d49f8013b144d99e94f10"
+    },
+    {
+      "id": "0083_nullable_promotion_redemption_order",
+      "sequence": 83,
+      "source_file": "0083_nullable_promotion_redemption_order.ts",
+      "dist_file": "0083_nullable_promotion_redemption_order.js",
+      "source_sha256": "410a57039be0de87c3a23f7d5c37f7089bd39cd694bd3d9383b996bcbc983db4",
+      "dist_sha256": "ae5815e4b411e04fa37c9ab88bb3f2b70ba222f5cbf342627337e6f03ce0db3f"
+    },
+    {
+      "id": "0084_support_message_read_receipt",
+      "sequence": 84,
+      "source_file": "0084_support_message_read_receipt.ts",
+      "dist_file": "0084_support_message_read_receipt.js",
+      "source_sha256": "c82b95ab50e11c33970f0a9abbafd6394f2020f8e03c65d3a06c3ce3516f1814",
+      "dist_sha256": "c90221ab8cb0820b9b79042ba31f9bb3ba5e3fa34c9de5bda493828572674297"
+    },
+    {
+      "id": "0085_platform_admin_multi_session",
+      "sequence": 85,
+      "source_file": "0085_platform_admin_multi_session.ts",
+      "dist_file": "0085_platform_admin_multi_session.js",
+      "source_sha256": "3e9c7ee0a5b097a7e1177f8e0d9be27064074f1a720125cd742debb458bf1e3a",
+      "dist_sha256": "c9c44b68ea73d9f5f163561a9b1b34b6cec5a9f9de2c13c8c429c343d1542c63"
+    },
+    {
+      "id": "0086_user_onboarding",
+      "sequence": 86,
+      "source_file": "0086_user_onboarding.ts",
+      "dist_file": "0086_user_onboarding.js",
+      "source_sha256": "b9c892fb8bf87ef64b46798204db2bd8e4a6f69ec906f8c982e0931179fcd6b3",
+      "dist_sha256": "9624b817525268ac06988a04535aaa56e09e05d16809f9f4ef8c5b22f8497e37"
+    },
+    {
+      "id": "0087_lesson_reference",
+      "sequence": 87,
+      "source_file": "0087_lesson_reference.ts",
+      "dist_file": "0087_lesson_reference.js",
+      "source_sha256": "3b8699c217a7e09d3dfc1fc419a6a7b08c042723d232b7375fcbbebd8e84570f",
+      "dist_sha256": "fda08d856799f3ecfe70715b4a2766333dd96c4db096d254d0223ee0de0b53ed"
+    },
+    {
+      "id": "0088_crm_core",
+      "sequence": 88,
+      "source_file": "0088_crm_core.ts",
+      "dist_file": "0088_crm_core.js",
+      "source_sha256": "5560d019ddee4be320755966305114c58bcb5493a3f6726f54be1d2fb9f2ce1b",
+      "dist_sha256": "00bacf7cc012bec9e0d9410211aeb80c9bd98f090df47c293c59fa7c7e32a06c"
+    },
+    {
+      "id": "0089_crm_segments",
+      "sequence": 89,
+      "source_file": "0089_crm_segments.ts",
+      "dist_file": "0089_crm_segments.js",
+      "source_sha256": "798b29a0bf95afa0b2dd7f7e2cd1fbe144976b37c0cc0893337e63cd8d267582",
+      "dist_sha256": "bd020c7280f3674cb499e4e921c07d7df8e784d91ec82ba72d7e5a00816ed311"
+    },
+    {
+      "id": "0090_course_membership_exam_schedules",
+      "sequence": 90,
+      "source_file": "0090_course_membership_exam_schedules.ts",
+      "dist_file": "0090_course_membership_exam_schedules.js",
+      "source_sha256": "3347571038d48de9855cf1e251313e0737d8cd6ba25ac3476f724ed625e6c7ca",
+      "dist_sha256": "ab4670da324ff43a53208088a01af53f4077686878f6668cb5f3968bb466eeec"
+    },
+    {
+      "id": "0091_backfill_personal_course_exam_schedules",
+      "sequence": 91,
+      "source_file": "0091_backfill_personal_course_exam_schedules.ts",
+      "dist_file": "0091_backfill_personal_course_exam_schedules.js",
+      "source_sha256": "2c054fd288880e60c033afd007c2b918d0cec94e13c00bded31e9f4f8bd2ab4e",
+      "dist_sha256": "78357a8e9ec66ac6dc5707b594de79db0e7f1ba16833bb445defc0ee6a912fe3"
+    },
+    {
+      "id": "0092_update_question_pattern_instructions_and_examples",
+      "sequence": 92,
+      "source_file": "0092_update_question_pattern_instructions_and_examples.ts",
+      "dist_file": "0092_update_question_pattern_instructions_and_examples.js",
+      "source_sha256": "a0b1125665ef64d4395c374122ea67efa6da828b7f589d3f0e1c6314304b5e6b",
+      "dist_sha256": "989a281b43f9ae16f60e1a6fe5dfd8df749cbb8ea086cabb239f20202c901dda"
+    },
+    {
+      "id": "0093_update_patterns_3_6_8_11_v3",
+      "sequence": 93,
+      "source_file": "0093_update_patterns_3_6_8_11_v3.ts",
+      "dist_file": "0093_update_patterns_3_6_8_11_v3.js",
+      "source_sha256": "0d8cace7c23c16c7e5174dbb5f3fe6ee0cb57abd8e58339982d54d88356220b0",
+      "dist_sha256": "2d23449aebc2bdc7390e5525dd074faabc03e890203e1f9bd15cc08d39ab6ac3"
+    },
+    {
+      "id": "0094_course_publications_unique_version",
+      "sequence": 94,
+      "source_file": "0094_course_publications_unique_version.ts",
+      "dist_file": "0094_course_publications_unique_version.js",
+      "source_sha256": "b4e0f4235748fb518bd13c4ce587356b4324cca34c67cc11f2f9de0bcfe35e20",
+      "dist_sha256": "98c08916a7f2d35fb5fc9a5a1dc374a9fb8d1588645929c90d8c9c9c2c31da9f"
+    },
+    {
+      "id": "0095_presentation_assistant_core",
+      "sequence": 95,
+      "source_file": "0095_presentation_assistant_core.ts",
+      "dist_file": "0095_presentation_assistant_core.js",
+      "source_sha256": "e73951aba3dd554815ae15c9160b6368b6ab90184157ba1115a9db60cc60fe7c",
+      "dist_sha256": "ea80776e306e8acb40e00e75de3325f1c720d70e4711aac71891cf1d2b9a15d5"
+    },
+    {
+      "id": "0096_user_personal_contents",
+      "sequence": 96,
+      "source_file": "0096_user_personal_contents.ts",
+      "dist_file": "0096_user_personal_contents.js",
+      "source_sha256": "46c235ec76afcd51c80c1b9f6acac63858d4a62de7a3ea88efa57d0aa49306c4",
+      "dist_sha256": "f2031997446dc0ad1436aa93fe1da427409c3f35338afb5ac9d7156db7f3e207"
+    },
+    {
+      "id": "0097_mind_map_personal_content_type",
+      "sequence": 97,
+      "source_file": "0097_mind_map_personal_content_type.ts",
+      "dist_file": "0097_mind_map_personal_content_type.js",
+      "source_sha256": "b704208b1ac8440f19a239edaef239baf051a3cf2d1ba7276ae2017d1f535ce5",
+      "dist_sha256": "70d8d1e4a71ce9b2c3325e68448aab5431a4db4b8532c05f13c6a2343e70a977"
+    },
+    {
+      "id": "0098_error_monitoring_core",
+      "sequence": 98,
+      "source_file": "0098_error_monitoring_core.ts",
+      "dist_file": "0098_error_monitoring_core.js",
+      "source_sha256": "85a0a4af0cbb74a54b52ed3b1d67bbdaeee1bf4bc68d974c5cfe00b07963ed09",
+      "dist_sha256": "3f6073f8b83b03c59be3eacb668607820c2781211cad98dca49796e1554eeeff"
+    },
+    {
+      "id": "0099_crm_campaigns",
+      "sequence": 99,
+      "source_file": "0099_crm_campaigns.ts",
+      "dist_file": "0099_crm_campaigns.js",
+      "source_sha256": "b9a98b7b7d9194991906b298ce196bb7067b60e751faa26e2c7b750379fe638c",
+      "dist_sha256": "f4982c6097cb4c09fa67aeb8c6131f6f322a1fd5a15da608b9931d1a3cc10ad6"
+    },
+    {
+      "id": "0100_crm_campaign_dispatch",
+      "sequence": 100,
+      "source_file": "0100_crm_campaign_dispatch.ts",
+      "dist_file": "0100_crm_campaign_dispatch.js",
+      "source_sha256": "5afa38f26063b74c3406f0feb329282e6dd952968ab635ecc8123c1dbfdcd009",
+      "dist_sha256": "7dc0e18c8a7317fdb881e6d4a03dfbe72e7d5b06da48b8b338d9ad4a811b7ca4"
+    }
+  ]
+}

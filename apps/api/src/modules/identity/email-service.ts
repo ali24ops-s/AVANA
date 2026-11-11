@@ -1,6 +1,14 @@
+export interface SendTicketReplyEmailInput {
+  email: string;
+  ticketId: string;
+  ticketTitle: string;
+  appUrl?: string;
+}
+
 export interface EmailService {
   sendVerificationCode(email: string, code: string): Promise<void>;
   sendPasswordResetEmail(email: string, resetUrl: string): Promise<void>;
+  sendTicketReplyEmail?(input: SendTicketReplyEmailInput): Promise<void>;
 }
 
 export class MockEmailService implements EmailService {
@@ -8,6 +16,13 @@ export class MockEmailService implements EmailService {
   public sentPasswordResetEmails: Array<{
     email: string;
     resetUrl: string;
+    sentAt: Date;
+  }> = [];
+  public sentTicketReplyEmails: Array<{
+    email: string;
+    ticketId: string;
+    ticketTitle: string;
+    appUrl?: string;
     sentAt: Date;
   }> = [];
 
@@ -23,6 +38,16 @@ export class MockEmailService implements EmailService {
     this.sentPasswordResetEmails.push({
       email: email.trim().toLowerCase(),
       resetUrl,
+      sentAt: new Date(),
+    });
+  }
+
+  async sendTicketReplyEmail(input: SendTicketReplyEmailInput): Promise<void> {
+    this.sentTicketReplyEmails.push({
+      email: input.email.trim().toLowerCase(),
+      ticketId: input.ticketId,
+      ticketTitle: input.ticketTitle,
+      appUrl: input.appUrl,
       sentAt: new Date(),
     });
   }
@@ -62,6 +87,8 @@ import {
   renderVerificationEmailText,
   renderPasswordResetHtml,
   renderPasswordResetText,
+  renderTicketReplyEmailHtml,
+  renderTicketReplyEmailText,
 } from "./email-templates.js";
 
 export {
@@ -69,6 +96,8 @@ export {
   renderVerificationEmailText,
   renderPasswordResetHtml,
   renderPasswordResetText,
+  renderTicketReplyEmailHtml,
+  renderTicketReplyEmailText,
 } from "./email-templates.js";
 export { emailTokens } from "./email-tokens.js";
 export {
@@ -79,6 +108,8 @@ export {
   escapeHtml,
   sanitizeUrl,
   resolvePublicAppUrl,
+  resolveEmailLogoUrl,
+  isValidEmailHttpsUrl,
 } from "./email-layout.js";
 
 // Backward-compatible alias functions for any direct legacy imports
@@ -147,6 +178,36 @@ export class ResendEmailService implements EmailService {
     const subject = "بازیابی رمز عبور آوانا";
     const html = renderPasswordResetHtml(resetUrl, this.appUrl);
     const text = renderPasswordResetText(resetUrl);
+
+    const response = await this.fetchImpl("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: this.fromEmail,
+        to: [to],
+        subject,
+        html,
+        text,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "Unknown error");
+      throw new Error(
+        `Resend API email delivery failed (${response.status}): ${errorBody}`,
+      );
+    }
+  }
+
+  async sendTicketReplyEmail(input: SendTicketReplyEmailInput): Promise<void> {
+    const to = input.email.trim().toLowerCase();
+    const subject = "پاسخ جدید تیم پشتیبانی آوانا";
+    const appUrl = input.appUrl ?? this.appUrl;
+    const html = renderTicketReplyEmailHtml(input.ticketId, input.ticketTitle, appUrl);
+    const text = renderTicketReplyEmailText(input.ticketId, input.ticketTitle, appUrl);
 
     const response = await this.fetchImpl("https://api.resend.com/emails", {
       method: "POST",

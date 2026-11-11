@@ -51,8 +51,8 @@ export async function startApiWithDb(
   options?: ComposeProductionOptions,
 ): Promise<ReturnType<typeof createApp>> {
   const config = loadApiConfig();
-  const { v1Options, adminAlertService, close } = await composeProduction(config, options);
-  const app = createApp({ config, adminAlertService });
+  const { v1Options, adminAlertService, errorMonitoringService, close } = await composeProduction(config, options);
+  const app = createApp({ config, adminAlertService, errorMonitoringService });
   void app.register(v1Routes, v1Options);
 
   // Graceful shutdown — close DB pool, worker, and queue on server stop

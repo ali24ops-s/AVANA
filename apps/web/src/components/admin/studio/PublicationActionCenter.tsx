@@ -24,6 +24,7 @@ import {
   type ConsistencyValidationReport,
   type CourseRelease,
 } from "../../../lib/api/admin.js";
+import { useAdmin } from "../../../hooks/useAdmin.js";
 import { toPersianDigits, calculateCoursePricingBreakdown } from "@avana/domain";
 
 export interface PublicationActionCenterProps {
@@ -36,6 +37,7 @@ export function PublicationActionCenter({
   onSuccess,
 }: PublicationActionCenterProps) {
   const queryClient = useQueryClient();
+  const adminApi = useAdmin();
 
   const [priceInput, setPriceInput] = useState<number>(
     course.product?.price || 499000,
@@ -56,6 +58,7 @@ export function PublicationActionCenter({
     null,
   );
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isPublishConfirmOpen, setIsPublishConfirmOpen] = useState(false);
   const [previewHierarchy, setPreviewHierarchy] = useState<any | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
@@ -119,18 +122,7 @@ export function PublicationActionCenter({
     mutationFn: async () => {
       setApproveError(null);
       setApproveSuccessMsg(null);
-      const res = await fetch(
-        `/v1/admin/content-studio/courses/${course.id}/approve`,
-        {
-          method: "POST",
-          credentials: "include",
-        },
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || "خطا در تایید رسمی دوره");
-      }
-      return res.json();
+      return adminApi.officialContentStudio.approveOfficialCourse(course.id);
     },
     onSuccess: (data) => {
       setApproveSuccessMsg(
@@ -157,20 +149,9 @@ export function PublicationActionCenter({
   const pricingMutation = useMutation({
     mutationFn: async () => {
       setPricingError(null);
-      const res = await fetch(
-        `/v1/admin/content-studio/courses/${course.id}/pricing`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ price: priceInput }),
-        },
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || "خطا در ثبت قیمت محصول");
-      }
-      return res.json();
+      return adminApi.officialContentStudio.setOfficialCoursePricing(course.id, {
+        price: priceInput,
+      });
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["official-courses"] });
@@ -189,18 +170,7 @@ export function PublicationActionCenter({
     mutationFn: async () => {
       setPublishError(null);
       setPublishSuccessMsg(null);
-      const res = await fetch(
-        `/v1/admin/content-studio/courses/${course.id}/publish`,
-        {
-          method: "POST",
-          credentials: "include",
-        },
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || "خطا در انتشار عمومی دوره");
-      }
-      return res.json();
+      return adminApi.officialContentStudio.publishOfficialCourse(course.id);
     },
     onSuccess: () => {
       setPublishSuccessMsg(
@@ -222,18 +192,7 @@ export function PublicationActionCenter({
     mutationFn: async () => {
       setPublishError(null);
       setPublishSuccessMsg(null);
-      const res = await fetch(
-        `/v1/admin/content-studio/courses/${course.id}/unpublish`,
-        {
-          method: "POST",
-          credentials: "include",
-        },
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || "خطا در لغو انتشار دوره");
-      }
-      return res.json();
+      return adminApi.officialContentStudio.unpublishOfficialCourse(course.id);
     },
     onSuccess: () => {
       setPublishSuccessMsg(
@@ -253,18 +212,7 @@ export function PublicationActionCenter({
   // 4. Archive Course Mutation
   const archiveMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(
-        `/v1/admin/content-studio/courses/${course.id}/archive`,
-        {
-          method: "POST",
-          credentials: "include",
-        },
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || "خطا در بایگانی دوره");
-      }
-      return res.json();
+      return adminApi.officialContentStudio.archiveOfficialCourse(course.id);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["official-courses"] });
@@ -291,7 +239,6 @@ export function PublicationActionCenter({
     },
   });
 
-  const activeDraftSession = draftsQuery.data?.session;
   const draftChanges = draftsQuery.data?.changes ?? [];
   const releases = releasesQuery.data?.releases ?? [];
 
@@ -308,10 +255,14 @@ export function PublicationActionCenter({
       setDraftSuccessMsg(
         `تغییرات با موفقیت و به صورت اتمیک منتشر شد و نسخه جدید v${toPersianDigits(data.release.versionNumber)} ایجاد گردید.`,
       );
+      setIsPublishConfirmOpen(false);
       void queryClient.invalidateQueries({ queryKey: ["official-courses"] });
       void queryClient.invalidateQueries({ queryKey: ["course-drafts", course.id] });
       void queryClient.invalidateQueries({ queryKey: ["course-releases", course.id] });
       void queryClient.invalidateQueries({ queryKey: ["course-hierarchy", course.id] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-lesson-detail"] });
+      void queryClient.invalidateQueries({ queryKey: ["course-learning", course.id] });
+      void queryClient.invalidateQueries({ queryKey: ["course-publications"] });
       if (onSuccess) onSuccess();
     },
     onError: (err: Error) => {
@@ -356,6 +307,9 @@ export function PublicationActionCenter({
       void queryClient.invalidateQueries({ queryKey: ["official-courses"] });
       void queryClient.invalidateQueries({ queryKey: ["course-releases", course.id] });
       void queryClient.invalidateQueries({ queryKey: ["course-hierarchy", course.id] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-lesson-detail"] });
+      void queryClient.invalidateQueries({ queryKey: ["course-learning", course.id] });
+      void queryClient.invalidateQueries({ queryKey: ["course-publications"] });
       if (onSuccess) onSuccess();
     },
     onError: (err: Error) => {
@@ -480,8 +434,8 @@ export function PublicationActionCenter({
                       key={change.id}
                       className="p-2.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-between text-xs"
                     >
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
                           change.action === "create"
                             ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                             : change.action === "delete"
@@ -490,13 +444,18 @@ export function PublicationActionCenter({
                         }`}>
                           {change.action === "create" ? "ایجاد" : change.action === "delete" ? "حذف" : change.action === "reorder" ? "تغییر ترتیب" : "ویرایش"}
                         </span>
-                        <span className="font-semibold text-[var(--color-text)]">
-                          {change.entityType === "module" ? "سرفصل" : change.entityType === "lesson" ? "درسنامه" : change.entityType === "flashcard" ? "فلش‌کارت" : change.entityType === "quiz" ? "آزمون" : "سؤال"}
+                        <span className="font-semibold text-[var(--color-text)] shrink-0">
+                          {change.entityType === "module" ? "سرفصل" : change.entityType === "lesson" ? "جلسه" : change.entityType === "flashcard" ? "فلش‌کارت" : change.entityType === "quiz" ? "آزمون" : "سؤال"}
                         </span>
-                        <span className="font-mono text-[10px] text-[var(--color-text-muted)] truncate max-w-[120px]">
-                          {change.entityId}
-                        </span>
+                        {(change.payload?.after?.title || change.payload?.before?.title) && (
+                          <span className="text-xs text-[var(--color-text)] font-medium truncate">
+                            «{change.payload?.after?.title || change.payload?.before?.title}»
+                          </span>
+                        )}
                       </div>
+                      <span className="font-mono text-[10px] text-[var(--color-text-muted)] truncate max-w-[100px] shrink-0">
+                        {change.entityId}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -515,21 +474,12 @@ export function PublicationActionCenter({
 
                 <button
                   type="button"
-                  onClick={() => publishDraftMutation.mutate()}
+                  onClick={() => setIsPublishConfirmOpen(true)}
                   disabled={publishDraftMutation.isPending}
                   className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
                 >
-                  {publishDraftMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>در حال انتشار اتمیک...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      <span>انتشار تغییرات و ایجاد نسخه v{toPersianDigits((course.version ?? 1) + 1)}</span>
-                    </>
-                  )}
+                  <Send className="w-4 h-4" />
+                  <span>انتشار تغییرات و ایجاد نسخه v{toPersianDigits((course.version ?? 1) + 1)}</span>
                 </button>
               </div>
             </div>
@@ -539,6 +489,97 @@ export function PublicationActionCenter({
               <span>
                 دوره در حال حاضر در نسخه پایدار v{toPersianDigits(course.version ?? 1)} در حال ارائه به دانشجویان است و تغییر معلقی وجود ندارد.
               </span>
+            </div>
+          )}
+
+          {/* Publish Confirmation Modal */}
+          {isPublishConfirmOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+              <div className="w-full max-w-lg bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-6 shadow-2xl space-y-4">
+                <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
+                  <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold text-base">
+                    <Send className="w-5 h-5" />
+                    <span>تأیید نهایی انتشار نسخه جدید دوره</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsPublishConfirmOpen(false)}
+                    className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-1 rounded-lg hover:bg-[var(--color-surface-warm)] transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="p-3.5 bg-[var(--color-surface-warm)] rounded-xl border border-[var(--color-border)] space-y-2 text-xs">
+                  <div className="flex items-center justify-between font-bold text-[var(--color-text)]">
+                    <span>به‌روزرسانی نسخه دوره:</span>
+                    <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 font-mono">
+                      v{toPersianDigits(course.version ?? 1)} ➔ v{toPersianDigits((course.version ?? 1) + 1)}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[var(--color-text-muted)] leading-relaxed">
+                    این عملیات به صورت کاملاً اتمیک انجام شده و همزمان با اعمال تغییرات در بانک اطلاعاتی، نسخه محتوایی کاربران فعال (Snapshot) بلافاصله همگام‌سازی می‌گردد. پیشرفت، سابقه مطالعه، فلش‌کارت‌ها و آزمون‌های تمام دانشجویان حفظ خواهد شد.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <h5 className="text-xs font-bold text-[var(--color-text)]">
+                    خلاصه جلسات و موارد تغییریافته ({toPersianDigits(draftChanges.length)} مورد):
+                  </h5>
+                  <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
+                    {draftChanges.map((change: any) => (
+                      <div
+                        key={change.id}
+                        className="p-2 rounded-lg bg-[var(--color-surface-warm)]/60 border border-[var(--color-border)] flex items-center justify-between text-xs"
+                      >
+                        <span className="font-semibold text-[var(--color-text)] truncate">
+                          {change.entityType === "lesson" ? "جلسه: " : change.entityType === "module" ? "فصل: " : ""}
+                          {change.payload?.after?.title || change.payload?.before?.title || change.entityId}
+                        </span>
+                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold shrink-0">
+                          {change.action === "update" ? "اصلاح محتوا" : change.action === "create" ? "جلسه جدید" : "حذف"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {draftError && (
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-600 dark:text-rose-400 font-bold flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{draftError}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[var(--color-border)]">
+                  <button
+                    type="button"
+                    onClick={() => setIsPublishConfirmOpen(false)}
+                    disabled={publishDraftMutation.isPending}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-[var(--color-text-muted)] hover:bg-[var(--color-surface-warm)] transition-colors"
+                  >
+                    انصراف
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => publishDraftMutation.mutate()}
+                    disabled={publishDraftMutation.isPending}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
+                  >
+                    {publishDraftMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>در حال انتشار اتمیک نسخه جدید...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>تأیید و انتشار قطعی نسخه جدید</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>

@@ -628,5 +628,55 @@ describe("RoleBasedPolicy", () => {
         policy.can(actorWithEmptyMemberships, "course:read", { organizationId: orgA }),
       ).toBe(false);
     });
+
+    it("14. Public publication allows cross-tenant student to read and learn but not mutate", () => {
+      const studentActor = buildActor({
+        userId: mockUserId,
+        role: "student",
+        memberships: [{ organizationId: "some-other-org", role: "student" }],
+      });
+
+      const publicContext = {
+        organizationId: orgA,
+        isPublicPublication: true,
+      };
+
+      // Read & learning actions are allowed
+      expect(policy.can(studentActor, "course:read", publicContext)).toBe(true);
+      expect(policy.can(studentActor, "learning:read", publicContext)).toBe(true);
+      expect(policy.can(studentActor, "progress:read", publicContext)).toBe(true);
+      expect(policy.can(studentActor, "progress:write", publicContext)).toBe(true);
+      expect(policy.can(studentActor, "flashcard:review", publicContext)).toBe(true);
+
+      // Mutating actions remain strictly denied cross-tenant
+      expect(policy.can(studentActor, "course:update", publicContext)).toBe(false);
+      expect(policy.can(studentActor, "course:delete", publicContext)).toBe(false);
+      expect(policy.can(studentActor, "content:write", publicContext)).toBe(false);
+      expect(policy.can(studentActor, "content:publish", publicContext)).toBe(false);
+    });
+
+    it("15. Distinguishes public publication from isSystemResource", () => {
+      const orgEditorInOtherOrg = buildActor({
+        userId: mockUserId,
+        role: "course_editor",
+        memberships: [{ organizationId: "some-other-org", role: "course_editor" }],
+      });
+
+      // On a public publication of orgA, editor from other org CANNOT update course in orgA
+      expect(
+        policy.can(orgEditorInOtherOrg, "course:update", {
+          organizationId: orgA,
+          isPublicPublication: true,
+        }),
+      ).toBe(false);
+
+      // But can read/learn
+      expect(
+        policy.can(orgEditorInOtherOrg, "learning:read", {
+          organizationId: orgA,
+          isPublicPublication: true,
+        }),
+      ).toBe(true);
+    });
   });
 });

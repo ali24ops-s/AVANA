@@ -1,18 +1,15 @@
-import { randomUUID } from "node:crypto";
 import {
   type Actor,
   type AuthAction,
   type AuthorizationPolicy,
   type CourseId,
   type DocumentId,
-  type GeneratedContentId,
   type GeneratedContentType,
   type GenerationProgress,
   type DocumentGenerationProgressResource,
   type LessonPayload,
   type FlashcardPayload,
   type QuizPayload,
-  type QuizId,
   type OrganizationId,
   type ResourceContext,
   buildActor,
@@ -20,10 +17,10 @@ import {
   defaultPolicy,
   normalizeRequestedContentTypes,
 } from "@avana/domain";
-import type { DocumentRecord, DocumentStore, ModuleStore, LessonStore } from "../../learning/learning-store.js";
+import type { DocumentRecord, DocumentStore, ModuleStore, LessonStore, ModuleRecord } from "../../learning/learning-store.js";
 import type { GeneratedContentStore } from "../generation-store.js";
 import type { GenerationProgressService } from "../generation-progress-service.js";
-import type { FlashcardStore, QuizStore, QuizQuestionStore } from "../../study/study-store.js";
+import type { FlashcardStore, QuizStore, QuizQuestionStore, FlashcardRecord, QuizRecord } from "../../study/study-store.js";
 import type { OrganizationStore } from "../../organizations/organization-store.js";
 import type { GenerationJobStore, GenerationJobRecord } from "../generation-jobs-store.js";
 import type { GenerationQueryService } from "./generation-query-service.js";
@@ -38,6 +35,8 @@ export type DocumentContentStatusResource = {
     id: string;
     status: string;
     type: string;
+    types?: GeneratedContentType[];
+    is_completed?: boolean;
     error_message?: string | null;
     started_at?: string | null;
     created_at: string;
@@ -51,6 +50,7 @@ export type DocumentContentStatusResource = {
   generationProgress?: DocumentGenerationProgressResource;
   can_generate: boolean;
   all_generated: boolean;
+  job_completed?: boolean;
   has_publishable_content?: boolean;
 };
 
@@ -162,10 +162,13 @@ export class GenerationContentStatusService {
     const doc = await this.requireDocument(organizationId, documentId);
 
     // 1. Resolve all generated content records for this document
-    const docContents = await this.generatedContentStore.listByDocument(
+    const allDocContents = await this.generatedContentStore.listByDocument(
       documentId,
       organizationId,
     );
+    const docContents = courseId
+      ? allDocContents.filter((c) => !c.courseId || c.courseId === courseId)
+      : allDocContents;
     const docContentIds = new Set(docContents.map((c) => c.id));
 
     const activeDrafts = docContents.filter(
@@ -177,7 +180,15 @@ export class GenerationContentStatusService {
     // 2. Calculate Lesson Status from DB & Drafts
     let lessonCount = 0;
     if (this.moduleStore && this.lessonStore) {
-      const moduleRecord = await this.moduleStore.findByDocument(documentId);
+      let moduleRecord: ModuleRecord | undefined;
+      if (courseId) {
+        const courseModules = await this.moduleStore.listByCourse(courseId);
+        moduleRecord = courseModules.find(
+          (m) => m.documentId === documentId && m.deletedAt === null,
+        );
+      } else {
+        moduleRecord = await this.moduleStore.findByDocument(documentId);
+      }
       if (moduleRecord) {
         const lessons = await this.lessonStore.listByModule(moduleRecord.id);
         lessonCount = lessons.filter((l) => l.deletedAt === null).length;
@@ -199,11 +210,14 @@ export class GenerationContentStatusService {
     // 3. Calculate Flashcards Status from DB & Drafts
     let flashcardCount = 0;
     if (this.flashcardStore) {
-      const allCards = await this.flashcardStore.listByOrganization(organizationId);
+      const allCards = courseId
+        ? await this.flashcardStore.listByCourse(courseId, organizationId)
+        : await this.flashcardStore.listByOrganization(organizationId);
       flashcardCount = allCards.filter(
-        (f) =>
+        (f: FlashcardRecord) =>
           (f.documentId === documentId || (f.generatedContentId && docContentIds.has(f.generatedContentId))) &&
-          f.deletedAt === null,
+          f.deletedAt === null &&
+          (!courseId || !f.courseId || f.courseId === courseId),
       ).length;
     }
 
@@ -226,24 +240,20 @@ export class GenerationContentStatusService {
     let quizCount = 0;
     let quizQuestionCount = 0;
     if (this.quizStore) {
-      type ExtendedQuizRecord = {
-        id: string;
-        deletedAt: string | null;
-        documentId?: DocumentId | null;
-        generatedContentId?: GeneratedContentId | null;
-      };
-      const allQuizzes = (await this.quizStore.listByOrganization(organizationId)) as unknown as ExtendedQuizRecord[];
+      const allQuizzes = courseId
+        ? await this.quizStore.listByCourse(courseId, organizationId)
+        : await this.quizStore.listByOrganization(organizationId);
       const docQuizzes = allQuizzes.filter(
-        (q) =>
+        (q: QuizRecord) =>
           (q.documentId === documentId ||
             (q.generatedContentId && docContentIds.has(q.generatedContentId))) &&
-          q.deletedAt === null,
+          q.deletedAt === null &&
+          (!courseId || !q.courseId || q.courseId === courseId),
       );
       quizCount = docQuizzes.length;
       if (this.quizQuestionStore) {
         for (const q of docQuizzes) {
-          type ExtendedQuestion = { id: string; deletedAt?: string | null };
-          const questions = (await this.quizQuestionStore.listByQuiz(q.id as QuizId)) as unknown as ExtendedQuestion[];
+          const questions = await this.quizQuestionStore.listByQuiz(q.id);
           quizQuestionCount += questions.filter(
             (qq) => qq.deletedAt === null || qq.deletedAt === undefined,
           ).length;
@@ -302,7 +312,9 @@ export class GenerationContentStatusService {
         documentId,
         organizationId,
       );
-      const activeJobs = jobs.filter((j) => j.deletedAt === null);
+      const activeJobs = jobs.filter(
+        (j) => j.deletedAt === null && (!courseId || !j.courseId || j.courseId === courseId),
+      );
       if (activeJobs.length > 0) {
         activeJobs.sort(
           (a, b) =>
@@ -335,19 +347,50 @@ export class GenerationContentStatusService {
     const isDocActivelyRunning =
       doc.status === "generating" && Boolean(progress && progress.status === "running");
 
-    const allGenerated =
-      !hasAnyRegenerating &&
-      !isDocActivelyRunning &&
+    const isJobActive = Boolean(
+      activeJobId ||
+      latestJob?.status === "queued" ||
+      latestJob?.status === "running" ||
+      isDocActivelyRunning ||
+      hasAnyRegenerating,
+    );
+
+    const isTypeGenerated = (t: GeneratedContentType): boolean => {
+      if (t === "lesson") return lessonGenerated;
+      if (t === "flashcard") return flashcardsGenerated;
+      if (t === "quiz") return examGenerated;
+      if (t === "review_summary") return reviewSummaryGenerated;
+      return false;
+    };
+
+    const requestedTypesGenerated =
+      requestedTypes && requestedTypes.length > 0
+        ? requestedTypes.every((t) => isTypeGenerated(t))
+        : (lessonGenerated && flashcardsGenerated && examGenerated && reviewSummaryGenerated);
+
+    const jobCompleted = Boolean(
+      latestJob &&
+      latestJob.status === "succeeded" &&
+      !isJobActive &&
+      requestedTypesGenerated,
+    );
+
+    const allCoreGenerated =
       lessonGenerated &&
       flashcardsGenerated &&
       examGenerated &&
       reviewSummaryGenerated;
 
+    // all_generated strictly evaluates whether all core types for this document are generated.
+    // If only a subset (e.g. flashcards) was generated, all_generated remains false so user can generate other types.
+    const allGenerated = !isJobActive && allCoreGenerated;
+
     const canGenerate =
-      !allGenerated &&
+      !allCoreGenerated &&
       generatableDocStatuses.has(doc.status) &&
       !isDocActivelyRunning &&
-      !hasAnyRegenerating;
+      !hasAnyRegenerating &&
+      !isJobActive;
 
     // Compute accepted status for publish eligibility (publishableAcceptedContentCount >= 1)
     const activeAcceptedContents = docContents.filter(
@@ -378,7 +421,7 @@ export class GenerationContentStatusService {
     );
 
     return {
-      request_id: randomUUID(),
+      request_id: latestJob?.id ?? activeJobId ?? documentId,
       document_id: documentId,
       course_id: (courseId || doc.courseId || null) as CourseId | null,
       requested_types: requestedTypes,
@@ -388,12 +431,15 @@ export class GenerationContentStatusService {
             id: latestJob.id,
             status: latestJob.status,
             type: latestJob.type,
+            types: requestedTypes,
             error_message: latestJob.errorMessage,
             started_at: latestJob.startedAt,
             created_at: latestJob.createdAt,
             completed_at: latestJob.completedAt,
+            is_completed: jobCompleted,
           }
         : null,
+      job_completed: jobCompleted,
       lesson: {
         generated: lessonGenerated,
         count: totalLessonCount,

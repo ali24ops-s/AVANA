@@ -22,6 +22,7 @@ import { createGenerationWorker } from "./modules/generation/generation-processo
 import { WalletService } from "./modules/wallet/wallet-service.js";
 import { defaultPolicy, type OrganizationId } from "@avana/domain";
 import type { V1RouteOptions } from "./routes/v1.js";
+import type { ErrorMonitoringService } from "./observability/index.js";
 
 async function main(): Promise<void> {
   const config = loadApiConfig();
@@ -37,6 +38,7 @@ async function main(): Promise<void> {
   let v1Options: V1RouteOptions;
   let close: () => Promise<void>;
   let composedWorker: ReturnType<typeof createGenerationWorker> | undefined;
+  let errorMonitoringService: ErrorMonitoringService | undefined;
 
   try {
     const prod = await composeProduction(config);
@@ -45,6 +47,7 @@ async function main(): Promise<void> {
     v1Options = prod.v1Options;
     close = prod.close;
     composedWorker = prod.worker;
+    errorMonitoringService = prod.errorMonitoringService;
     process.stdout.write("[dev] Connected to PostgreSQL stores.\n");
   } catch (err) {
     if (process.env.USE_IN_MEMORY_DEV === "true") {
@@ -54,6 +57,7 @@ async function main(): Promise<void> {
       const local = await composeLocalDev(config);
       v1Options = local.v1Options;
       close = async () => {};
+      errorMonitoringService = local.errorMonitoringService;
     } else {
       process.stderr.write(
         `[dev] FATAL: Failed to connect to PostgreSQL stores: ${String(err)}\n` +
@@ -63,7 +67,7 @@ async function main(): Promise<void> {
     }
   }
 
-  const app = createApp({ config });
+  const app = createApp({ config, errorMonitoringService });
 
   app.addHook("onRequest", async (req) => {
     process.stdout.write(`[API REQ] ${req.method} ${req.url}\n`);

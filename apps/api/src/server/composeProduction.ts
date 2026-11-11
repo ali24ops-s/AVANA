@@ -99,7 +99,16 @@ import { TelegramOpsBot } from "../observability/telegram-ops-bot.js";
 import { DrizzleTelegramOutboxStore } from "../observability/telegram-outbox-store.js";
 import { TelegramOutboxDispatcher } from "../observability/telegram-outbox-dispatcher.js";
 import { checkWorkerHealth } from "../observability/worker-health-probe.js";
+import { DrizzleErrorStore } from "../observability/drizzle-error-store.js";
+import { ErrorMonitoringService } from "../observability/error-monitoring-service.js";
+import type { ErrorMonitoringStore } from "../observability/error-monitoring-store.js";
 import { DrizzleAdminStore } from "../modules/admin/drizzle-stores.js";
+import { DrizzleCrmStore } from "../modules/admin/crm/crm-store.js";
+import {
+  DrizzlePersonalSummaryStore,
+  PersonalSummaryService,
+  MindMapService,
+} from "../modules/study/index.js";
 import { AdminService } from "../modules/admin/admin-service.js";
 import {
   DrizzleContentPackStore,
@@ -126,6 +135,10 @@ import {
 import {
   DrizzleSupportStore,
   SupportService,
+  BullMqSupportNotificationQueue,
+  createSupportNotificationWorker,
+  reconcilePendingSupportNotifications,
+  type SupportNotificationQueue,
 } from "../modules/support/index.js";
 import { LocalStorageProvider } from "../modules/storage/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
@@ -145,6 +158,8 @@ export interface ProductionDependencies {
   telegramOutboxStore?: DrizzleTelegramOutboxStore;
   telegramOutboxDispatcher?: TelegramOutboxDispatcher;
   worker?: Worker;
+  errorStore?: ErrorMonitoringStore;
+  errorMonitoringService?: ErrorMonitoringService;
   close: () => Promise<void>;
 }
 
@@ -440,9 +455,17 @@ export async function composeProduction(
   const annotationStore = new DrizzleLessonAnnotationStore(db);
   const reportStore = new DrizzleContentReportStore(db);
   
+  // Error Monitoring & Observability Core (Phase 1)
+  const errorStore = new DrizzleErrorStore(db);
+  const errorMonitoringService = new ErrorMonitoringService({
+    store: errorStore,
+    environment: config.nodeEnv,
+  });
+
   // Admin Store
   const adminStore = new DrizzleAdminStore(db, {
     systemOrganizationId: config.systemOrganizationId,
+    errorStore,
   });
   const questionPatternStore = new DrizzleQuestionPatternStore(db);
 
@@ -641,12 +664,71 @@ export async function composeProduction(
     auditService,
   );
 
+  let supportNotificationQueue: SupportNotificationQueue | undefined;
+  let supportNotificationWorker: Worker | undefined;
+  if (config.redis?.url) {
+    try {
+      supportNotificationQueue = new BullMqSupportNotificationQueue({
+        connection: { url: config.redis.url },
+      });
+      supportNotificationWorker = createSupportNotificationWorker(
+        { url: config.redis.url },
+        "support_notifications",
+        {
+          emailService,
+          notificationStore,
+          userStore,
+          appUrl: config.appUrl,
+          logger: (msg) => {
+            if (process.env.NODE_ENV !== "test") {
+              process.stdout.write(`${msg}\n`);
+            }
+          },
+        },
+      );
+    } catch (err: unknown) {
+      process.stderr.write(
+        `[composeProduction] Warning initializing support notification queue: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+  }
+
   const supportStore = new DrizzleSupportStore(db);
   const supportService = new SupportService(
     supportStore,
     notificationService,
     auditService,
+    supportNotificationQueue,
+    userStore,
   );
+
+  let supportReconcileInterval: NodeJS.Timeout | undefined;
+  if (supportNotificationQueue) {
+    void reconcilePendingSupportNotifications(
+      notificationStore,
+      supportNotificationQueue,
+      supportStore,
+      (msg) => {
+        if (process.env.NODE_ENV !== "test") {
+          process.stdout.write(`${msg}\n`);
+        }
+      },
+    );
+
+    supportReconcileInterval = setInterval(() => {
+      void reconcilePendingSupportNotifications(
+        notificationStore,
+        supportNotificationQueue!,
+        supportStore,
+        (msg) => {
+          if (process.env.NODE_ENV !== "test") {
+            process.stdout.write(`${msg}\n`);
+          }
+        },
+      );
+    }, 60_000);
+    supportReconcileInterval.unref?.();
+  }
 
   // AVANA Ops Bot: Inbound polling commands (/status, /queues, /errors, /payments, /tickets) + Callback actions
   const telegramOpsBot = new TelegramOpsBot({
@@ -701,6 +783,30 @@ export async function composeProduction(
   const teacherConversationStore = new DrizzleTeacherConversationStore(db);
   const teacherConversationMessageStore = new DrizzleTeacherConversationMessageStore(db);
   const sourcePackStore = new DrizzleSourcePackStore(db);
+  const personalSummaryStore = new DrizzlePersonalSummaryStore(db);
+  const personalSummaryService = new PersonalSummaryService(
+    personalSummaryStore,
+    walletService,
+    userGateway,
+    moduleStore,
+    lessonStore,
+    courseStore,
+    organizationStore,
+    defaultPolicy,
+    config.systemOrganizationId as OrganizationId,
+  );
+  const mindMapService = new MindMapService(
+    personalSummaryStore,
+    userGateway,
+    moduleStore,
+    lessonStore,
+    courseStore,
+    documentChunkStore,
+    documentStore,
+    organizationStore,
+    defaultPolicy,
+    config.systemOrganizationId as OrganizationId,
+  );
 
   const v1Options: V1RouteOptions = {
     config,
@@ -771,6 +877,12 @@ export async function composeProduction(
     sourcePackStore,
     welcomeGiftStore: new DrizzleWelcomeGiftStore(db),
     onboardingTourStore: new DrizzleOnboardingTourStore(db),
+    errorStore,
+    errorMonitoringService,
+    crmStore: new DrizzleCrmStore(db),
+    personalSummaryStore,
+    personalSummaryService,
+    mindMapService,
     db,
   };
 
@@ -920,6 +1032,22 @@ export async function composeProduction(
   }
 
   const enhancedClose = async () => {
+    // Gracefully flush in-flight error monitoring captures before closing resources
+    try {
+      await errorMonitoringService.drain(4000);
+    } catch {
+      // Swallowed during graceful shutdown
+    }
+
+    if (supportReconcileInterval) {
+      clearInterval(supportReconcileInterval);
+    }
+    if (supportNotificationWorker) {
+      await supportNotificationWorker.close();
+    }
+    if (supportNotificationQueue?.close) {
+      await supportNotificationQueue.close();
+    }
     if (worker) {
       await worker.close();
     }
@@ -946,6 +1074,8 @@ export async function composeProduction(
     telegramOutboxStore,
     telegramOutboxDispatcher,
     worker,
+    errorStore,
+    errorMonitoringService,
     close: enhancedClose,
   };
 }

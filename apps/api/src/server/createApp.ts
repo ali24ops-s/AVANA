@@ -3,18 +3,24 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import multipart from "@fastify/multipart";
 import type pino from "pino";
 import type { ApiConfig } from "../config.js";
-import { requestIdPlugin } from "../http/requestId.js";
+import { sanitizeRequestId, requestIdPlugin } from "../http/requestId.js";
 import { writeErrorEnvelope } from "../http/errorEnvelope.js";
 import { DomainError, isAdminPath } from "@avana/domain";
 import { createLogger } from "../observability/logger.js";
 import { observabilityPlugin } from "../observability/plugin.js";
 import { securityPlugin } from "../http/security.js";
 import type { AdminAlertService } from "../observability/admin-alert-service.js";
+import {
+  CAPTURE_IN_PROGRESS_SYMBOL,
+  isCapturedError,
+  type ErrorMonitoringService,
+} from "../observability/index.js";
 
 export type CreateAppOptions = {
   config: ApiConfig;
   logger?: pino.Logger;
   adminAlertService?: AdminAlertService;
+  errorMonitoringService?: ErrorMonitoringService;
 };
 
 /**
@@ -45,6 +51,8 @@ function mapDomainCodeToStatus(code: string): number {
       return 429;
     case "unprocessable":
       return 422;
+    case "timeout":
+      return 408;
     case "service_unavailable":
       return 503;
     case "internal_error":
@@ -70,6 +78,7 @@ export function createApp({
   config,
   logger: providedLogger,
   adminAlertService,
+  errorMonitoringService,
 }: CreateAppOptions): FastifyInstance {
   const logger = providedLogger ?? createLogger(config);
 
@@ -81,7 +90,12 @@ export function createApp({
   const app = fastify({
     ...fastifyLogger,
     disableRequestLogging: true,
-    trustProxy: true,
+    trustProxy:
+      config.nodeEnv === "production"
+        ? (process.env.AVANA_TRUST_PROXY
+            ? process.env.AVANA_TRUST_PROXY.split(",").map((p) => p.trim())
+            : ["127.0.0.1", "::1"])
+        : true,
     // fastify v5 expects bodyLimit to be an integer bytes number.
     bodyLimit: Number(config.http.jsonBodyLimit),
   }) as unknown as FastifyInstance;
@@ -89,17 +103,19 @@ export function createApp({
   // `fastify` v5 has server generic defaults that can differ depending on Node typings.
   // Casting here keeps createApp's public surface stable without affecting runtime.
 
-  // Decorate request context with config.
-  // IMPORTANT: preserve requestId that may already be assigned by requestIdPlugin.
+  // Decorate request context with config and ensure requestId is populated.
   app.addHook("onRequest", async (request) => {
     const reqAny = request as unknown as {
       context?: Partial<{ requestId: string; config: ApiConfig }>;
     };
 
     reqAny.context = reqAny.context ?? {};
-
-    // Do not touch reqAny.context.requestId; only set config.
     reqAny.context.config = config;
+
+    if (!reqAny.context.requestId) {
+      const raw = request.headers["x-request-id"];
+      reqAny.context.requestId = sanitizeRequestId(raw || request.id);
+    }
   });
 
   void app.register(requestIdPlugin);
@@ -112,8 +128,18 @@ export function createApp({
   // Register global security middleware (Helmet, CORS, rate-limit)
   void app.register(securityPlugin, { config });
 
-  // SEO & Crawler protection: attach X-Robots-Tag: noindex, nofollow to admin paths
+  // Propagate x-request-id on all responses and attach SEO protection
   app.addHook("onSend", async (request, reply) => {
+    const reqAny = request as unknown as {
+      context?: { requestId?: string };
+    };
+    const requestId =
+      reqAny.context?.requestId ||
+      sanitizeRequestId(request.headers["x-request-id"] || request.id);
+    if (!reply.hasHeader("x-request-id")) {
+      void reply.header("x-request-id", requestId);
+    }
+
     const rawUrl = request.raw.url || request.url;
     if (isAdminPath(rawUrl)) {
       void reply.header("X-Robots-Tag", "noindex, nofollow");
@@ -143,6 +169,54 @@ export function createApp({
           ? customErr.code || customErr.error?.code
           : undefined;
 
+      const fastifyStatus = (err as { statusCode?: number }).statusCode;
+      const calculatedStatus = isDomainError(err)
+        ? mapDomainCodeToStatus(err.code)
+        : rawCode === "too_many_requests" || rawCode === "rate_limit_exceeded"
+          ? 429
+          : fastifyStatus || 500;
+
+      // Non-blocking, isolated error capture via ErrorMonitoringService
+      // Request-scoped & error-scoped anti-loop guard using Symbols
+      const rawReq = (request.raw || {}) as unknown as Record<symbol, unknown>;
+      if (
+        errorMonitoringService &&
+        !rawReq[CAPTURE_IN_PROGRESS_SYMBOL] &&
+        !isCapturedError(err) &&
+        errorMonitoringService.shouldCapture(err, calculatedStatus)
+      ) {
+        rawReq[CAPTURE_IN_PROGRESS_SYMBOL] = true;
+        const reqAny = request as unknown as {
+          context?: { requestId?: string };
+          user?: { userId?: string; organizationId?: string };
+        };
+        const requestId =
+          reqAny.context?.requestId ||
+          sanitizeRequestId(request.headers["x-request-id"] || request.id);
+        const rawPath = request.raw.url || request.url;
+        const sanitizedUrl = rawPath.split("?")[0];
+        const isDomain = isDomainError(err);
+        const severity = calculatedStatus >= 500 ? "error" : "warning";
+
+        errorMonitoringService.captureError({
+          error: err,
+          source: "backend",
+          severity,
+          feature: "api",
+          errorCode: isDomain ? err.code : rawCode,
+          endpoint: `${request.method} ${request.routeOptions?.url || sanitizedUrl}`,
+          httpMethod: request.method,
+          httpStatus: calculatedStatus,
+          requestId,
+          userId: reqAny.user?.userId,
+          organizationId: reqAny.user?.organizationId,
+          context: {
+            url: sanitizedUrl,
+            method: request.method,
+          },
+        });
+      }
+
       if (rawCode === "too_many_requests" || rawCode === "rate_limit_exceeded") {
         const message =
           customErr.message ||
@@ -165,7 +239,6 @@ export function createApp({
         return;
       }
 
-      const fastifyStatus = (err as { statusCode?: number }).statusCode;
       if (fastifyStatus && fastifyStatus >= 400 && fastifyStatus < 500) {
         const errCode = fastifyStatus === 429 ? "too_many_requests" : "bad_request";
         writeErrorEnvelope(

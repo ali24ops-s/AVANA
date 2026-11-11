@@ -1,6 +1,8 @@
 import { useState, useRef } from "react";
 import {
   Dialog,
+  DialogHeader,
+  DialogContent,
   DialogFooter,
   Button,
   Input,
@@ -126,12 +128,20 @@ export function FeedbackFormModal({
     <Dialog
       isOpen={isOpen}
       onClose={handleClose}
-      title="ارسال پیشنهاد و بازخورد"
-      description="انتقاد، پیشنهاد یا ایده جدیدی برای بهبود آوانا دارید؟ با ما در میان بگذارید."
       maxWidth="lg"
+      isCompound={true}
+      ariaLabel="ارسال پیشنهاد و بازخورد"
     >
-      <div className="p-1">
+      <DialogHeader onClose={handleClose}>
+        <h3 className="text-base sm:text-lg font-bold text-[var(--color-text)]">
+          ارسال پیشنهاد و بازخورد
+        </h3>
+        <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+          انتقاد، پیشنهاد یا ایده جدیدی برای بهبود آوانا دارید؟ با ما در میان بگذارید.
+        </p>
+      </DialogHeader>
 
+      <DialogContent className="p-4 sm:p-6 text-start">
         {successMessage ? (
           <div className="py-8 flex flex-col items-center justify-center text-center gap-3">
             <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
@@ -142,7 +152,7 @@ export function FeedbackFormModal({
             </p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4 py-2">
+          <form id="feedback-form" onSubmit={handleSubmit} className="space-y-4">
             {errorMessage && (
               <Alert variant="error" title="خطا در ثبت بازخورد">
                 {errorMessage}
@@ -248,27 +258,30 @@ export function FeedbackFormModal({
                 </Button>
               )}
             </div>
-
-            <DialogFooter className="gap-2 sm:gap-0 pt-2">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={handleClose}
-                disabled={createFeedbackMutation.isPending || uploading}
-              >
-                انصراف
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                isLoading={createFeedbackMutation.isPending || uploading}
-              >
-                ثبت و ارسال بازخورد
-              </Button>
-            </DialogFooter>
           </form>
         )}
-      </div>
+      </DialogContent>
+
+      {!successMessage && (
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={handleClose}
+            disabled={createFeedbackMutation.isPending || uploading}
+          >
+            انصراف
+          </Button>
+          <Button
+            type="submit"
+            form="feedback-form"
+            variant="primary"
+            isLoading={createFeedbackMutation.isPending || uploading}
+          >
+            ثبت و ارسال بازخورد
+          </Button>
+        </DialogFooter>
+      )}
     </Dialog>
   );
 }

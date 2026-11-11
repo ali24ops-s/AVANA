@@ -132,6 +132,7 @@ export interface AdminCourseRecord {
     lessons: number;
     flashcards: number;
     quizzes: number;
+    quizQuestions?: number;
   };
   product?: {
     id: string;
@@ -193,6 +194,7 @@ export interface AdminSystemHealth {
 export interface AdminStoreOptions {
   redisUrl?: string;
   systemOrganizationId?: string;
+  errorStore?: import("../../observability/error-monitoring-store.js").ErrorMonitoringStore;
   gateway?: {
     checkHealth?: () => Promise<{
       status: string;
@@ -331,6 +333,8 @@ export interface AdminCourseHierarchy {
   modules: AdminCourseHierarchyModule[];
   courseFlashcardCount?: number;
   courseQuizCount?: number;
+  courseQuizQuestionCount?: number;
+  totalQuizQuestionCount?: number;
 }
 
 export interface AdminAnalyticsPeriodStats {

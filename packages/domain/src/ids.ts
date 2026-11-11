@@ -733,3 +733,173 @@ export function parseSourcePackDocumentId(
   }
   return value as SourcePackDocumentId;
 }
+
+export type CrmTagId = Brand<UUID, "crmTagId">;
+
+export function asCrmTagId(id: UUID): CrmTagId {
+  return id as CrmTagId;
+}
+
+export function isCrmTagId(value: string): value is CrmTagId {
+  return isUUID(value);
+}
+
+export function parseCrmTagId(
+  value: string,
+  fieldName = "crmTagId",
+): CrmTagId {
+  if (!isCrmTagId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as CrmTagId;
+}
+
+export type CrmCustomerNoteId = Brand<UUID, "crmCustomerNoteId">;
+
+export function asCrmCustomerNoteId(id: UUID): CrmCustomerNoteId {
+  return id as CrmCustomerNoteId;
+}
+
+export function isCrmCustomerNoteId(value: string): value is CrmCustomerNoteId {
+  return isUUID(value);
+}
+
+export function parseCrmCustomerNoteId(
+  value: string,
+  fieldName = "crmCustomerNoteId",
+): CrmCustomerNoteId {
+  if (!isCrmCustomerNoteId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as CrmCustomerNoteId;
+}
+
+export type CrmSegmentId = Brand<UUID, "crmSegmentId">;
+
+export function asCrmSegmentId(id: UUID): CrmSegmentId {
+  return id as CrmSegmentId;
+}
+
+export function isCrmSegmentId(value: string): value is CrmSegmentId {
+  return isUUID(value);
+}
+
+export function parseCrmSegmentId(
+  value: string,
+  fieldName = "crmSegmentId",
+): CrmSegmentId {
+  if (!isCrmSegmentId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as CrmSegmentId;
+}
+
+export type CrmCampaignId = Brand<UUID, "crmCampaignId">;
+
+export function asCrmCampaignId(id: UUID): CrmCampaignId {
+  return id as CrmCampaignId;
+}
+
+export function isCrmCampaignId(value: string): value is CrmCampaignId {
+  return isUUID(value);
+}
+
+export function parseCrmCampaignId(
+  value: string,
+  fieldName = "crmCampaignId",
+): CrmCampaignId {
+  if (!isCrmCampaignId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as CrmCampaignId;
+}
+
+export type CrmCampaignExecutionId = Brand<UUID, "crmCampaignExecutionId">;
+
+export function asCrmCampaignExecutionId(id: UUID): CrmCampaignExecutionId {
+  return id as CrmCampaignExecutionId;
+}
+
+export function isCrmCampaignExecutionId(value: string): value is CrmCampaignExecutionId {
+  return isUUID(value);
+}
+
+export type CrmCampaignRecipientId = Brand<UUID, "crmCampaignRecipientId">;
+
+export function asCrmCampaignRecipientId(id: UUID): CrmCampaignRecipientId {
+  return id as CrmCampaignRecipientId;
+}
+
+export function isCrmCampaignRecipientId(value: string): value is CrmCampaignRecipientId {
+  return isUUID(value);
+}
+
+// ---------------------------------------------------------------------------
+// Presentation Assistant ID Types
+// ---------------------------------------------------------------------------
+
+export type PresentationProjectId = Brand<UUID, "presentationProjectId">;
+
+export function asPresentationProjectId(id: UUID): PresentationProjectId {
+  return id as PresentationProjectId;
+}
+
+export function isPresentationProjectId(
+  value: string,
+): value is PresentationProjectId {
+  return isUUID(value);
+}
+
+export function parsePresentationProjectId(
+  value: string,
+  fieldName = "presentationProjectId",
+): PresentationProjectId {
+  if (!isPresentationProjectId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as PresentationProjectId;
+}
+
+export type PresentationSlideId = Brand<UUID, "presentationSlideId">;
+
+export function asPresentationSlideId(id: UUID): PresentationSlideId {
+  return id as PresentationSlideId;
+}
+
+export function isPresentationSlideId(
+  value: string,
+): value is PresentationSlideId {
+  return isUUID(value);
+}
+
+export function parsePresentationSlideId(
+  value: string,
+  fieldName = "presentationSlideId",
+): PresentationSlideId {
+  if (!isPresentationSlideId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as PresentationSlideId;
+}
+
+export type PresentationReferenceId = Brand<UUID, "presentationReferenceId">;
+
+export function asPresentationReferenceId(id: UUID): PresentationReferenceId {
+  return id as PresentationReferenceId;
+}
+
+export function isPresentationReferenceId(
+  value: string,
+): value is PresentationReferenceId {
+  return isUUID(value);
+}
+
+export function parsePresentationReferenceId(
+  value: string,
+  fieldName = "presentationReferenceId",
+): PresentationReferenceId {
+  if (!isPresentationReferenceId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as PresentationReferenceId;
+}

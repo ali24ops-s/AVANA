@@ -19,6 +19,7 @@ import {
   Home,
 } from "lucide-react";
 import { useVerifyPayment } from "../hooks/useCommerce.js";
+import { getUserFriendlyErrorMessage } from "../lib/api/error-mapper.js";
 
 export const CheckoutCallbackPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -136,10 +137,38 @@ export const CheckoutCallbackPage: React.FC = () => {
                 تراکنش پرداخت انجام نشد
               </h2>
               <p className="text-xs text-[#9AAEB0] max-w-sm mx-auto leading-relaxed">
-                {verifyMutation.data?.error_message ||
-                  "پرداخت توسط شما لغو شد یا درگاه بانکی با خطا مواجه گردید. در صورت کسر وجه، مبلغ ظرف حداکثر ۷۲ ساعت توسط بانک بازگردانده می‌شود."}
+                {getUserFriendlyErrorMessage(
+                  verifyMutation.data?.error_message || verifyMutation.error,
+                  {
+                    scope: "payment",
+                    fallbackMessage:
+                      "پرداخت توسط شما لغو شد یا درگاه بانکی با خطا مواجه گردید. در صورت کسر وجه از حساب، مغایرت بانکی معمولاً توسط بانک تسویه و بازگردانده می‌شود؛ در غیر این صورت با ارائه شناسه ارجاع یا شماره سفارش با پشتیبانی تماس بگیرید.",
+                  },
+                )}
               </p>
             </div>
+
+            {/* Tracking reference box for user support */}
+            {(authority || verifyMutation.data?.order_id) && (
+              <div className="p-4 rounded-[12px] bg-[#192A2D] border border-[#1e3235] space-y-2 text-xs text-right">
+                {authority && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[#9AAEB0]">شناسه ارجاع درگاه:</span>
+                    <span className="font-mono text-rose-300 font-bold text-[11px] select-all">
+                      {authority}
+                    </span>
+                  </div>
+                )}
+                {verifyMutation.data?.order_id && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[#9AAEB0]">شناسه سفارش:</span>
+                    <span className="font-mono text-[#c8d8da] text-[11px] select-all">
+                      {verifyMutation.data.order_id}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
               <Link

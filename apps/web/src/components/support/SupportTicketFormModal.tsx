@@ -1,6 +1,8 @@
 import { useState, useRef } from "react";
 import {
   Dialog,
+  DialogHeader,
+  DialogContent,
   DialogFooter,
   Button,
   Input,
@@ -129,12 +131,20 @@ export function SupportTicketFormModal({
     <Dialog
       isOpen={isOpen}
       onClose={handleClose}
-      title="ثبت درخواست پشتیبانی جدید"
-      description="مشکلی در دوره‌ها، حساب کاربری یا پرداخت دارید؟ کارشناسان ما پاسخگوی شما خواهند بود."
       maxWidth="lg"
+      isCompound={true}
+      ariaLabel="ثبت درخواست پشتیبانی جدید"
     >
-      <div className="p-1">
+      <DialogHeader onClose={handleClose}>
+        <h3 className="text-base sm:text-lg font-bold text-[var(--color-text)]">
+          ثبت درخواست پشتیبانی جدید
+        </h3>
+        <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+          مشکلی در دوره‌ها، حساب کاربری یا پرداخت دارید؟ کارشناسان ما پاسخگوی شما خواهند بود.
+        </p>
+      </DialogHeader>
 
+      <DialogContent className="p-4 sm:p-6 text-start">
         {successMessage ? (
           <div className="py-8 flex flex-col items-center justify-center text-center gap-3">
             <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
@@ -145,7 +155,7 @@ export function SupportTicketFormModal({
             </p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4 py-2">
+          <form id="ticket-form" onSubmit={handleSubmit} className="space-y-4">
             {errorMessage && (
               <Alert variant="error" title="خطا در ثبت تیکت">
                 {errorMessage}
@@ -251,27 +261,30 @@ export function SupportTicketFormModal({
                 </Button>
               )}
             </div>
-
-            <DialogFooter className="gap-2 sm:gap-0 pt-2">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={handleClose}
-                disabled={createTicketMutation.isPending || uploading}
-              >
-                انصراف
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                isLoading={createTicketMutation.isPending || uploading}
-              >
-                ایجاد تیکت پشتیبانی
-              </Button>
-            </DialogFooter>
           </form>
         )}
-      </div>
+      </DialogContent>
+
+      {!successMessage && (
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={handleClose}
+            disabled={createTicketMutation.isPending || uploading}
+          >
+            انصراف
+          </Button>
+          <Button
+            type="submit"
+            form="ticket-form"
+            variant="primary"
+            isLoading={createTicketMutation.isPending || uploading}
+          >
+            ایجاد تیکت پشتیبانی
+          </Button>
+        </DialogFooter>
+      )}
     </Dialog>
   );
 }

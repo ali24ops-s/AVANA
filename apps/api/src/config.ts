@@ -354,7 +354,13 @@ function parseCookieDomain(
   const v = env.AVANA_COOKIE_DOMAIN;
   if (v !== undefined) {
     const trimmed = v.trim();
-    return trimmed !== "" ? trimmed : undefined;
+    if (trimmed !== "") {
+      return trimmed.startsWith(".") ? trimmed.replace(/^\.+/, "") : trimmed;
+    }
+    return undefined;
+  }
+  if (fallback) {
+    return fallback.startsWith(".") ? fallback.replace(/^\.+/, "") : fallback;
   }
   return fallback;
 }
@@ -478,16 +484,25 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
 
   const isProd = nodeEnv === "production";
   const cookieSecure = parseCookieSecure(env, isProd);
-  const cookieDomain = parseCookieDomain(env, isProd ? ".aavana.ir" : undefined);
-  const corsOrigins = getOptionalString(
+  const cookieDomain = parseCookieDomain(env, isProd ? "aavana.ir" : undefined);
+  const defaultCorsOrigins = isProd
+    ? "https://aavana.ir,https://www.aavana.ir"
+    : "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174";
+
+  const rawCorsOrigins = getOptionalString(
     env,
     "AVANA_CORS_ORIGIN",
-    isProd
-      ? "https://aavana.ir"
-      : "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174",
+    defaultCorsOrigins,
   )
     .split(",")
-    .map((origin) => origin.trim());
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  // Wildcard '*' is disallowed when credentials: true
+  const corsOrigins = rawCorsOrigins.filter((origin) => origin !== "*");
+  if (corsOrigins.length === 0) {
+    corsOrigins.push(isProd ? "https://aavana.ir" : "http://localhost:5173");
+  }
 
   // Canonical Public Frontend Application URL (strictly decoupled from CORS)
   const defaultAppUrl = isProd ? "https://aavana.ir" : "http://localhost:5173";

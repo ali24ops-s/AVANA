@@ -18,6 +18,7 @@ import { AvaniAvatar } from "../brand/AvaniAvatar.js";
 import { createApiClient, getApiBaseUrl, generateUUID } from "../../lib/api/client.js";
 import { createAiAssistantApi } from "../../lib/api/ai.js";
 import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
+import { getUserFriendlyErrorMessage } from "../../lib/api/error-mapper.js";
 
 export interface ExamQuestionContext {
   questionId: string;
@@ -77,6 +78,7 @@ export interface StudyAssistantChatProps {
   className?: string;
   compact?: boolean;
   initialPrompt?: string;
+  hideHeader?: boolean;
   pendingAction?: AssistantPendingAction | null;
   pendingActions?: AssistantPendingAction[];
   onActionHandled?: (actionId: string) => void;
@@ -234,6 +236,7 @@ export function StudyAssistantChat({
   className = "",
   compact = false,
   initialPrompt,
+  hideHeader = false,
   pendingAction,
   pendingActions,
   onActionHandled,
@@ -377,12 +380,7 @@ export function StudyAssistantChat({
       );
     } catch (err: unknown) {
       if (activeRequestIdRef.current !== requestId) return;
-      const displayError =
-        err instanceof Error
-          ? err.message
-          : typeof err === "object" && err !== null && "message" in err
-            ? String((err as { message: unknown }).message)
-            : "متأسفانه در دریافت پاسخ خطایی رخ داد. لطفاً دوباره تلاش کنید.";
+      const displayError = getUserFriendlyErrorMessage(err, { scope: "chat" });
 
       if (isMountedRef.current) {
         setError(displayError);
@@ -559,12 +557,7 @@ export function StudyAssistantChat({
       );
     } catch (err: unknown) {
       if (activeRequestIdRef.current !== requestId) return;
-      const displayError =
-        err instanceof Error
-          ? err.message
-          : typeof err === "object" && err !== null && "message" in err
-            ? String((err as { message: unknown }).message)
-            : "متأسفانه در دریافت پاسخ خطایی رخ داد. لطفاً دوباره تلاش کنید.";
+      const displayError = getUserFriendlyErrorMessage(err, { scope: "chat" });
 
       if (isMountedRef.current) {
         setError(displayError);
@@ -686,74 +679,76 @@ export function StudyAssistantChat({
       dir="rtl"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)] shrink-0">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-button bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0 shadow-xs">
-            <Sparkles className="w-4 h-4" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              {contextType === "exam_analysis" ? (
-                <h2 className="text-h3 text-[var(--color-text)] truncate">
-                  تحلیل سوال با منتور هوشمند
-                </h2>
-              ) : contextType === "exam_question" ? (
-                <h2 className="text-h3 text-[var(--color-text)] truncate">
-                  تحلیل هوشمند آوانا
-                </h2>
+      {!hideHeader && (
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)] shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-button bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0 shadow-xs">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                {contextType === "exam_analysis" ? (
+                  <h2 className="text-h3 text-[var(--color-text)] truncate">
+                    تحلیل سوال با منتور هوشمند
+                  </h2>
+                ) : contextType === "exam_question" ? (
+                  <h2 className="text-h3 text-[var(--color-text)] truncate">
+                    تحلیل هوشمند آوانا
+                  </h2>
+                ) : (
+                  <h3 className="text-xs sm:text-sm font-extrabold text-[var(--color-text)] truncate">
+                    از آوانا بپرس
+                  </h3>
+                )}
+                {(contextType === "exam_question" || contextType === "exam_analysis") && (
+                  <Badge variant="primary" size="sm" className="font-bold shrink-0">
+                    منتور هوشمند
+                  </Badge>
+                )}
+              </div>
+              {contextType === "exam_question" || contextType === "exam_analysis" ? null : contextType === "lesson" && lessonTitle ? (
+                <p className="text-[11px] text-primary truncate font-medium flex items-center gap-1 mt-0.5">
+                  <BookOpen className="w-3 h-3 shrink-0" />
+                  <span>درس: {lessonTitle}{moduleTitle ? ` (${moduleTitle})` : ""}</span>
+                </p>
+              ) : contextType === "lesson" && courseTitle ? (
+                <p className="text-[11px] text-primary truncate mt-0.5 font-medium">
+                  دوره: {courseTitle}
+                </p>
               ) : (
-                <h3 className="text-xs sm:text-sm font-extrabold text-[var(--color-text)] truncate">
-                  از آوانا بپرس
-                </h3>
-              )}
-              {(contextType === "exam_question" || contextType === "exam_analysis") && (
-                <Badge variant="primary" size="sm" className="font-bold shrink-0">
-                  منتور هوشمند
-                </Badge>
+                <p className="text-[11px] text-[var(--color-text-muted)] truncate mt-0.5">
+                  دستیار هوشمند و راهنمای یادگیری آوانا
+                </p>
               )}
             </div>
-            {contextType === "exam_question" || contextType === "exam_analysis" ? null : contextType === "lesson" && lessonTitle ? (
-              <p className="text-[11px] text-primary truncate font-medium flex items-center gap-1 mt-0.5">
-                <BookOpen className="w-3 h-3 shrink-0" />
-                <span>درس: {lessonTitle}{moduleTitle ? ` (${moduleTitle})` : ""}</span>
-              </p>
-            ) : contextType === "lesson" && courseTitle ? (
-              <p className="text-[11px] text-primary truncate mt-0.5 font-medium">
-                دوره: {courseTitle}
-              </p>
-            ) : (
-              <p className="text-[11px] text-[var(--color-text-muted)] truncate mt-0.5">
-                دستیار هوشمند و راهنمای یادگیری آوانا
-              </p>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            {messages.length > 0 && (
+              <button
+                type="button"
+                onClick={handleNewConversation}
+                title="مکالمه جدید"
+                aria-label="مکالمه جدید"
+                className="p-1.5 rounded-button text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+            )}
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                title="بستن"
+                aria-label="بستن دستیار"
+                className="p-1.5 rounded-button text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <X className="w-4 h-4" />
+              </button>
             )}
           </div>
         </div>
-
-        <div className="flex items-center gap-1 shrink-0">
-          {messages.length > 0 && (
-            <button
-              type="button"
-              onClick={handleNewConversation}
-              title="مکالمه جدید"
-              aria-label="مکالمه جدید"
-              className="p-1.5 rounded-button text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-          )}
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              title="بستن"
-              aria-label="بستن دستیار"
-              className="p-1.5 rounded-button text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-      </div>
+      )}
 
       {/* Exam Question Conceptual Header */}
       {(contextType === "exam_question" || contextType === "exam_analysis") && (

@@ -103,6 +103,7 @@ export type GenerationJobResource = {
   document_id: string;
   course_id: string;
   type: string;
+  types?: string[];
   status: "queued" | "running" | "succeeded" | "failed";
   attempts: number;
   error_code: string | null;
@@ -213,17 +214,20 @@ export function createGenerationApi(client: ApiClient) {
 
     /**
      * GET /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/generate/jobs/:jobId
+     * GET /v1/organizations/:organizationId/documents/:documentId/generate/jobs/:jobId
      * Polls status of a generation job.
      */
     getGenerationJob(
       organizationId: string,
-      courseId: string,
+      courseId: string | null | undefined,
       documentId: string,
       jobId: string,
     ): Promise<GenerationJobResponse> {
-      return client.get<GenerationJobResponse>(
-        `/v1/organizations/${organizationId}/courses/${courseId}/documents/${documentId}/generate/jobs/${jobId}`,
-      );
+      const url =
+        courseId && courseId.trim().length > 0
+          ? `/v1/organizations/${organizationId}/courses/${courseId.trim()}/documents/${documentId}/generate/jobs/${jobId}`
+          : `/v1/organizations/${organizationId}/documents/${documentId}/generate/jobs/${jobId}`;
+      return client.get<GenerationJobResponse>(url);
     },
 
     /**

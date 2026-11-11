@@ -53,6 +53,77 @@ export interface EmailLayoutProps {
   previewText?: string;
   content: string;
   appUrl?: string;
+  logoUrl?: string;
+}
+
+/**
+ * Strictly validates that a URL string is an absolute, safe HTTPS URL for email assets.
+ * Validates via standard JavaScript `new URL()` API.
+ * Rejects:
+ * - Non-HTTPS protocols (http, ftp, javascript, data, etc.)
+ * - Relative or protocol-relative paths
+ * - URLs with embedded credentials (username/password)
+ * - HTML injection or control characters (quotes, angle brackets, newlines, spaces)
+ */
+export function isValidEmailHttpsUrl(urlCandidate?: string | null): boolean {
+  if (!urlCandidate || typeof urlCandidate !== "string") {
+    return false;
+  }
+
+  // Reject immediate control/injection characters: quotes, angle brackets, newlines, spaces, backticks, backslashes
+  if (/[\s"'<>\r\n`\\]/.test(urlCandidate)) {
+    return false;
+  }
+
+  const trimmed = urlCandidate.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "https:") {
+      return false;
+    }
+    // Reject embedded credentials (RFC 3986 userinfo)
+    if (parsed.username || parsed.password) {
+      return false;
+    }
+    // Must have a valid non-empty hostname
+    if (!parsed.hostname || parsed.hostname.length === 0) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolves and validates the public, high-availability HTTPS URL for the AVANA brand logo.
+ * Strict security rules:
+ * - If a customLogoUrl is provided, it must pass isValidEmailHttpsUrl; otherwise falls back to canonical URL.
+ * - If AVANA_EMAIL_LOGO_URL is configured in environment, it must pass isValidEmailHttpsUrl; otherwise falls back to canonical URL.
+ * - Always falls back to the official pinned immutable CDN logo URL.
+ * - Logo URL is always sanitized and escaped before embedding into HTML.
+ */
+export function resolveEmailLogoUrl(_appUrl?: string, customLogoUrl?: string): string {
+  if (customLogoUrl !== undefined && customLogoUrl !== null && customLogoUrl.trim() !== "") {
+    if (isValidEmailHttpsUrl(customLogoUrl)) {
+      return escapeHtml(customLogoUrl.trim());
+    }
+    return emailTokens.assets.canonicalLogoUrl;
+  }
+
+  const envLogoUrl = process.env.AVANA_EMAIL_LOGO_URL;
+  if (envLogoUrl && envLogoUrl.trim() !== "") {
+    if (isValidEmailHttpsUrl(envLogoUrl)) {
+      return escapeHtml(envLogoUrl.trim());
+    }
+    return emailTokens.assets.canonicalLogoUrl;
+  }
+
+  return emailTokens.assets.canonicalLogoUrl;
 }
 
 /**
@@ -63,9 +134,9 @@ export function renderEmailLayout({
   previewText,
   content,
   appUrl,
+  logoUrl: customLogoUrl,
 }: EmailLayoutProps): string {
-  const resolvedAppUrl = resolvePublicAppUrl(appUrl);
-  const logoUrl = `${resolvedAppUrl}/brand/avana-logo.png`;
+  const logoUrl = resolveEmailLogoUrl(appUrl, customLogoUrl);
   const escapedTitle = escapeHtml(title);
   const escapedPreview = previewText ? escapeHtml(previewText) : "";
 

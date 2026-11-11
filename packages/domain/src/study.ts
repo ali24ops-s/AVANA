@@ -42,27 +42,35 @@ export function isFlashcardRating(value: string): value is FlashcardRating {
 }
 
 /**
- * Minimum number of evaluations required for a 'hard' flashcard to graduate (complete) in a session.
+ * Minimum number of evaluations required for a 'hard' flashcard to graduate (complete) in a session when interval is 0.
  */
 export const REQUIRED_HARD_EVALUATIONS_FOR_GRADUATION = 4;
 
 /**
- * Minimum number of evaluations required for a 'good' flashcard to graduate (complete) in a session.
+ * Minimum number of 'good' evaluations required for a NEW flashcard (intervalDays === 0) to graduate (complete) in a session.
  */
 export const REQUIRED_GOOD_EVALUATIONS_FOR_GRADUATION = 2;
 
 /**
  * Check whether a flashcard has graduated (reached "completed" / "پایان‌یافته" status) in a study session
- * based on its review evaluation history in that session.
+ * based on its review evaluation history in that session and its initial SRS scheduling state.
  *
- * Authoritative Rules:
- *  - 'again': Never completed; always returns to the review queue.
- *  - 'hard': Requires at least 4 evaluations in the session cycle before graduating.
- *  - 'good': First evaluation does NOT complete (requires at least 2 evaluations to graduate on good).
- *  - 'easy': Graduates immediately (1st evaluation).
+ * Rules:
+ *  - 'again': Never completed; always returns to the review queue for same-day repetition.
+ *  - Review card (initial intervalDays >= 1):
+ *      - 'good': Graduates immediately on the 1st evaluation today.
+ *      - 'easy': Graduates immediately on the 1st evaluation today.
+ *      - 'hard': If resulting SRS interval is >= 1 day, graduates immediately today.
+ *      - 'again': Returns to review queue today.
+ *  - New card (initial intervalDays === 0):
+ *      - 'good': Requires 2 'good' evaluations to graduate (1st good leaves card in learning for second review; 2nd good graduates).
+ *      - 'easy': Graduates immediately on 1st evaluation (2-day interval).
+ *      - 'again': Returns to review queue today.
+ *      - 'hard': Requires 4 evaluations in learning step before graduating.
  */
 export function isFlashcardGraduatedInSession(
   ratings: readonly FlashcardRating[],
+  cardState: FlashcardScheduleState = DEFAULT_FLASHCARD_SCHEDULE,
 ): boolean {
   if (!ratings || ratings.length === 0) {
     return false;
@@ -73,16 +81,33 @@ export function isFlashcardGraduatedInSession(
     return false;
   }
 
-  if (latestRating === "easy") {
+  const isNewCard = cardState.intervalDays === 0;
+
+  if (isNewCard) {
+    if (latestRating === "easy") {
+      return true;
+    }
+    if (latestRating === "good") {
+      const lastAgainIdx = ratings.lastIndexOf("again");
+      const relevantRatings = lastAgainIdx >= 0 ? ratings.slice(lastAgainIdx + 1) : ratings;
+      const goodCount = relevantRatings.filter((r) => r === "good").length;
+      return goodCount >= REQUIRED_GOOD_EVALUATIONS_FOR_GRADUATION;
+    }
+    if (latestRating === "hard") {
+      const lastAgainIdx = ratings.lastIndexOf("again");
+      const relevantRatings = lastAgainIdx >= 0 ? ratings.slice(lastAgainIdx + 1) : ratings;
+      return relevantRatings.length >= REQUIRED_HARD_EVALUATIONS_FOR_GRADUATION;
+    }
+    return false;
+  }
+
+  // Review card (intervalDays >= 1):
+  if (latestRating === "good" || latestRating === "easy") {
     return true;
   }
-
-  if (latestRating === "good") {
-    return ratings.length >= REQUIRED_GOOD_EVALUATIONS_FOR_GRADUATION;
-  }
-
   if (latestRating === "hard") {
-    return ratings.length >= REQUIRED_HARD_EVALUATIONS_FOR_GRADUATION;
+    const next = nextReviewInterval(latestRating, cardState);
+    return next.intervalDays >= 1;
   }
 
   return false;

@@ -783,51 +783,79 @@ export class DrizzleDocumentStore implements DocumentStore {
   }
 
   async create(document: DocumentRecord): Promise<DocumentRecord> {
-    const existing = await this.db
-      .select()
-      .from(documents)
-      .where(
-        and(
-          eq(documents.organizationId, document.organizationId),
-          eq(documents.sha256, document.sha256),
-        ),
-      )
-      .limit(1)
-      .then((rows) => rows[0]);
+    const existing = document.sha256
+      ? await this.db
+          .select()
+          .from(documents)
+          .where(
+            and(
+              eq(documents.organizationId, document.organizationId),
+              eq(documents.sha256, document.sha256),
+            ),
+          )
+          .limit(1)
+          .then((rows) => rows[0])
+      : undefined;
 
-    if (existing && existing.deletedAt) {
-      await this.db
-        .delete(documents)
-        .where(eq(documents.id, existing.id));
+    if (existing) {
+      if (existing.deletedAt) {
+        await this.db
+          .delete(documents)
+          .where(eq(documents.id, existing.id));
+      } else {
+        return toDocumentRecord(existing);
+      }
     }
 
-    const [row] = await this.db
-      .insert(documents)
-      .values({
-        id: document.id,
-        organizationId: document.organizationId,
-        courseId: document.courseId,
-        ownerUserId: document.ownerUserId,
-        originalName: document.originalName,
-        mimeType: document.mimeType,
-        sizeBytes: document.sizeBytes,
-        sha256: document.sha256,
-        storageKey: document.storageKey,
-        pageCount: document.pageCount,
-        status: document.status,
-        errorCode: document.errorCode,
-        retryCount: document.retryCount,
-        qualityScore: document.qualityScore,
-        qualityLevel: document.qualityLevel,
-        qualityReport: document.qualityReport,
-        qualityAnalyzedAt: document.qualityAnalyzedAt ? new Date(document.qualityAnalyzedAt) : null,
-        createdAt: new Date(document.createdAt),
-        updatedAt: new Date(document.updatedAt),
-        deletedAt: null,
-      })
-      .returning();
+    try {
+      const [row] = await this.db
+        .insert(documents)
+        .values({
+          id: document.id,
+          organizationId: document.organizationId,
+          courseId: document.courseId,
+          ownerUserId: document.ownerUserId,
+          originalName: document.originalName,
+          mimeType: document.mimeType,
+          sizeBytes: document.sizeBytes,
+          sha256: document.sha256,
+          storageKey: document.storageKey,
+          pageCount: document.pageCount,
+          status: document.status,
+          errorCode: document.errorCode,
+          retryCount: document.retryCount,
+          qualityScore: document.qualityScore,
+          qualityLevel: document.qualityLevel,
+          qualityReport: document.qualityReport,
+          qualityAnalyzedAt: document.qualityAnalyzedAt ? new Date(document.qualityAnalyzedAt) : null,
+          createdAt: new Date(document.createdAt),
+          updatedAt: new Date(document.updatedAt),
+          deletedAt: null,
+        })
+        .onConflictDoNothing({ target: [documents.organizationId, documents.sha256] })
+        .returning();
 
-    return toDocumentRecord(row);
+      if (!row) {
+        const existingActive = await this.findByOrganizationAndSha256(
+          document.organizationId,
+          document.sha256,
+        );
+        if (existingActive) {
+          return existingActive;
+        }
+      }
+
+      return toDocumentRecord(row);
+    } catch (err: unknown) {
+      const existingActive = await this.findByOrganizationAndSha256(
+        document.organizationId,
+        document.sha256,
+      );
+      if (existingActive) {
+        return existingActive;
+      }
+      throw err;
+    }
   }
 
   async update(document: DocumentRecord): Promise<DocumentRecord> {

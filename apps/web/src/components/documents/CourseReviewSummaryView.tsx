@@ -1,12 +1,37 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Zap, FileText, Loader2, AlertCircle, Lock, ListOrdered, X } from "lucide-react";
+import {
+  Zap,
+  FileText,
+  Loader2,
+  AlertCircle,
+  AlertTriangle,
+  Lock,
+  ListOrdered,
+  X,
+  Bookmark,
+  FolderTree,
+  Sparkles,
+} from "lucide-react";
 import { Card, Button, Badge } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createDocumentsApi } from "../../lib/api/documents.js";
+import { createGenerationApi } from "../../lib/api/generation.js";
 import { ReviewSummaryViewer } from "./ReviewSummaryViewer.js";
-import { cleanEducationalTitle, toPersianDigits } from "@avana/domain";
+import { PersonalSummaryConfirmationModal } from "./PersonalSummaryConfirmationModal.js";
+import { MindMapCanvas } from "../mindmap/MindMapCanvas.js";
+import { usePersonalSummary } from "../../hooks/usePersonalSummary.js";
+import { useMindMap } from "../../hooks/useMindMap.js";
+import {
+  type ReviewSummaryPayload,
+  cleanEducationalTitle,
+  toPersianDigits,
+  formatTomanPrice,
+} from "@avana/domain";
+import { resolveChapterDocument } from "../../utils/chapterResolver.js";
+
+export type SummaryTab = "official" | "personal" | "mindmap";
 
 export interface CourseReviewSummaryViewProps {
   organizationId: string;
@@ -19,6 +44,10 @@ export interface CourseReviewSummaryViewProps {
   onNavigateToFlashcards?: () => void;
   onNavigateToQuiz?: () => void;
   onUnlock?: () => void;
+  selectedChapterId?: string | null;
+  onSelectChapter?: (chapterId: string) => void;
+  activeSummaryTab?: SummaryTab;
+  onSelectSummaryTab?: (tab: SummaryTab) => void;
 }
 
 export function stripChapterPrefix(title: string): string {
@@ -42,11 +71,30 @@ export function CourseReviewSummaryView({
   onNavigateToFlashcards,
   onNavigateToQuiz,
   onUnlock,
+  selectedChapterId,
+  onSelectChapter,
+  activeSummaryTab,
+  onSelectSummaryTab,
 }: CourseReviewSummaryViewProps) {
-  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const [uncontrolledDocId, setUncontrolledDocId] = useState<string | null>(null);
+  const currentChapterId = selectedChapterId !== undefined ? selectedChapterId : uncontrolledDocId;
+
+  const [uncontrolledTab, setUncontrolledTab] = useState<SummaryTab>("official");
+  const effectiveTab = activeSummaryTab !== undefined ? activeSummaryTab : uncontrolledTab;
+
+  const handleTabChange = (newTab: SummaryTab) => {
+    if (onSelectSummaryTab) {
+      onSelectSummaryTab(newTab);
+    } else {
+      setUncontrolledTab(newTab);
+    }
+  };
+
   const [isCurriculumDrawerOpen, setIsCurriculumDrawerOpen] = useState(false);
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const docsApi = createDocumentsApi(apiClient);
+  const genApi = createGenerationApi(apiClient);
 
   // Close curriculum drawer on Escape key (matching lessons behavior in LearningPage)
   useEffect(() => {
@@ -96,7 +144,7 @@ export function CourseReviewSummaryView({
         }))
       : (docsQuery.data ?? []).map((d) => ({
           id: d.id,
-          title: cleanEducationalTitle(d.original_name, "سرفصل آموزشی"),
+          title: cleanEducationalTitle((d as any).original_name || (d as any).title, "سرفصل آموزشی"),
         }));
 
   // Canonical source of truth for free preview chapter
@@ -105,11 +153,80 @@ export function CourseReviewSummaryView({
     (modulesWithDocs.length > 0 ? modulesWithDocs[0].document_id : documents[0]?.id) ||
     null;
 
-  const activeDocument =
-    documents.find((d) => d.id === selectedDocId) ??
-    documents.find((d) => d.id === canonicalPreviewDocId) ??
-    documents[0] ??
-    null;
+  const isDocsLoading = modulesWithDocs.length === 0 && docsQuery.isLoading;
+
+  const { activeDocument, activeModule, canonicalChapterId } = resolveChapterDocument({
+    chapterId: currentChapterId,
+    modules,
+    documents,
+    canonicalPreviewDocId,
+    isDocumentsLoading: isDocsLoading,
+  });
+
+  const activeModuleId = activeModule?.id ?? activeDocument?.id ?? null;
+
+  const handleChapterClick = (doc: { id: string; title: string }) => {
+    const matchingModule = (modules || []).find(
+      (m) => m.document_id === doc.id || m.id === doc.id,
+    );
+    const newCanonicalId = matchingModule?.id ?? doc.id;
+    if (onSelectChapter) {
+      onSelectChapter(newCanonicalId);
+    } else {
+      setUncontrolledDocId(doc.id);
+    }
+    setIsCurriculumDrawerOpen(false);
+  };
+
+  // Official review summary query (shared cache key with ReviewSummaryViewer)
+  const officialSummaryQuery = useQuery({
+    queryKey: ["review-summary", organizationId, activeDocument?.id, courseId],
+    queryFn: () => (activeDocument ? genApi.getReviewSummary(organizationId, activeDocument.id, courseId) : null),
+    enabled: Boolean(organizationId && activeDocument?.id),
+    staleTime: 30_000,
+  });
+
+  const officialPayload = officialSummaryQuery.data?.content?.payload as ReviewSummaryPayload | undefined;
+  const hasOfficialSummary = Boolean(
+    officialPayload && Array.isArray(officialPayload.sections) && officialPayload.sections.length > 0,
+  );
+
+  // Personal Summary Hook
+  const {
+    personalSummary,
+    hasPersonalSummary,
+    currentAnnotations,
+    costToman,
+    isLoading: isPersonalLoading,
+    isGenerating: isGeneratingPersonal,
+    generateMutation: personalGenerateMutation,
+  } = usePersonalSummary(activeModuleId, courseId);
+
+  const formattedCost = `${toPersianDigits((costToman || 3000).toLocaleString("en-US").replace(",", "٬"))} تومان`;
+
+  // Mind Map Hook
+  const mindMapHook = useMindMap(activeModuleId, courseId);
+  const {
+    hasMindMap,
+    payload: mindMapPayload,
+    isGenerating: isGeneratingMindMap,
+    generateMindMap,
+    generateMutation: mindMapGenerateMutation,
+  } = mindMapHook;
+
+  // Reset mind map mutation state on chapter change to prevent state leakage
+  useEffect(() => {
+    mindMapGenerateMutation.reset();
+  }, [activeModuleId]);
+
+  // Auto-switch tab if the active one has no data but another one does
+  useEffect(() => {
+    if (!hasOfficialSummary && hasPersonalSummary && effectiveTab === "official") {
+      handleTabChange("personal");
+    } else if (!hasOfficialSummary && !hasPersonalSummary && hasMindMap && effectiveTab === "official") {
+      handleTabChange("mindmap");
+    }
+  }, [hasOfficialSummary, hasPersonalSummary, hasMindMap, effectiveTab]);
 
   if (modulesWithDocs.length === 0 && docsQuery.isLoading) {
     return (
@@ -165,10 +282,7 @@ export function CourseReviewSummaryView({
         <button
           key={doc.id}
           type="button"
-          onClick={() => {
-            setSelectedDocId(doc.id);
-            setIsCurriculumDrawerOpen(false);
-          }}
+          onClick={() => handleChapterClick(doc)}
           aria-current={isSelected ? "true" : undefined}
           title={doc.title}
           className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-right rounded-xl text-xs transition-all cursor-pointer select-none ${
@@ -315,7 +429,19 @@ export function CourseReviewSummaryView({
                 <Button
                   variant="outline"
                   size="md"
-                  onClick={() => setSelectedDocId(canonicalPreviewDocId)}
+                  onClick={() => {
+                    const matchingModule = (modules || []).find(
+                      (m) =>
+                        m.document_id === canonicalPreviewDocId ||
+                        m.id === canonicalPreviewDocId,
+                    );
+                    const previewId = matchingModule?.id ?? canonicalPreviewDocId;
+                    if (onSelectChapter) {
+                      onSelectChapter(previewId);
+                    } else {
+                      setUncontrolledDocId(canonicalPreviewDocId);
+                    }
+                  }}
                   leftIcon={<Zap className="w-4 h-4 text-[var(--color-primary)]" />}
                 >
                   <span>مشاهده فصل اول (پیش‌نمایش رایگان)</span>
@@ -324,18 +450,417 @@ export function CourseReviewSummaryView({
             </div>
           </Card>
         ) : activeDocument ? (
-          <ReviewSummaryViewer
-            key={activeDocument.id}
-            organizationId={organizationId}
-            documentId={activeDocument.id}
-            courseId={courseId}
-            documentTitle={activeDocument.title}
-            onNavigateToFlashcards={onNavigateToFlashcards}
-            onNavigateToQuiz={onNavigateToQuiz}
-            onUnlock={onUnlock}
-          />
+          <div className="space-y-4">
+            {/* The 3 Tabs Navigation Bar */}
+            <div
+              role="tablist"
+              aria-label="نوع خلاصه"
+              className="flex items-center gap-2 border-b border-[var(--color-border)] pb-2 overflow-x-auto"
+            >
+              <button
+                type="button"
+                role="tab"
+                id="tab-official"
+                aria-controls="tabpanel-official"
+                aria-selected={effectiveTab === "official"}
+                onClick={() => handleTabChange("official")}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  effectiveTab === "official"
+                    ? "bg-primary text-white shadow-xs"
+                    : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>خلاصه رسمی آوانا</span>
+              </button>
+
+              <button
+                type="button"
+                role="tab"
+                id="tab-personal"
+                aria-controls="tabpanel-personal"
+                aria-selected={effectiveTab === "personal"}
+                onClick={() => handleTabChange("personal")}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  effectiveTab === "personal"
+                    ? "bg-primary text-white shadow-xs"
+                    : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
+                }`}
+              >
+                <Bookmark className="w-3.5 h-3.5" />
+                <span>خلاصه شخصی من</span>
+                {currentAnnotations.total_count > 0 && (
+                  <span
+                    className={`inline-flex items-center justify-center min-w-[18px] h-4.5 px-1 rounded-md text-[10px] font-bold ${
+                      effectiveTab === "personal"
+                        ? "bg-white/25 text-white"
+                        : "bg-primary/10 text-primary"
+                    }`}
+                  >
+                    {toPersianDigits(currentAnnotations.total_count)}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                role="tab"
+                id="tab-mindmap"
+                aria-controls="tabpanel-mindmap"
+                aria-selected={effectiveTab === "mindmap"}
+                onClick={() => handleTabChange("mindmap")}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  effectiveTab === "mindmap"
+                    ? "bg-primary text-white shadow-xs"
+                    : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
+                }`}
+              >
+                <FolderTree className="w-3.5 h-3.5" />
+                <span>نقشه مفهومی</span>
+              </button>
+            </div>
+
+            {/* TAB 1: Official Summary */}
+            {effectiveTab === "official" && (
+              <div id="tabpanel-official" role="tabpanel" aria-labelledby="tab-official" className="space-y-4">
+                {officialSummaryQuery.isLoading ? (
+                  <Card className="flex flex-col items-center justify-center p-12 text-center space-y-4 font-sans" dir="rtl">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                    <span className="text-xs text-[var(--color-text-muted)]">در حال بارگذاری خلاصه رسمی...</span>
+                  </Card>
+                ) : officialSummaryQuery.isError ? (
+                  <Card className="flex flex-col items-center justify-center p-10 text-center space-y-4 font-sans" dir="rtl">
+                    <AlertTriangle className="w-8 h-8 text-[var(--color-error)]" />
+                    <p className="text-xs text-[var(--color-error)]">خطا در دریافت خلاصه مروری رسمی</p>
+                    <Button variant="outline" size="sm" onClick={() => officialSummaryQuery.refetch()}>
+                      تلاش مجدد
+                    </Button>
+                  </Card>
+                ) : hasOfficialSummary ? (
+                  <div className="space-y-6">
+                    <ReviewSummaryViewer
+                      key={`official-${activeDocument.id}`}
+                      organizationId={organizationId}
+                      documentId={activeDocument.id}
+                      courseId={courseId}
+                      documentTitle={activeDocument.title}
+                      onNavigateToFlashcards={onNavigateToFlashcards}
+                      onNavigateToQuiz={onNavigateToQuiz}
+                      onUnlock={onUnlock}
+                    />
+
+                    {/* Personal CTA banner when user has annotations and hasn't made personal summary */}
+                    {!hasPersonalSummary && currentAnnotations.total_count > 0 && (
+                      <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-teal-500/10 via-teal-500/5 to-transparent border border-teal-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-right">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-primary shrink-0" />
+                            <h4 className="font-bold text-sm sm:text-base text-[var(--color-text)]">
+                              تولید خلاصه شخصی اختصاصی شما
+                            </h4>
+                            <Badge variant="primary" size="sm">
+                              {formattedCost}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+                            بر اساس {toPersianDigits(currentAnnotations.highlights_count)} هایلایت و {toPersianDigits(currentAnnotations.notes_count)} یادداشت ثبت‌شده شما در این فصل.
+                          </p>
+                        </div>
+                        <Button
+                          variant="primary"
+                          size="md"
+                          onClick={() => setIsConfirmModalOpen(true)}
+                          leftIcon={<Sparkles className="w-4 h-4" />}
+                          className="shrink-0"
+                        >
+                          ساخت خلاصه شخصی من
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* Official summary does not exist yet */
+                  currentAnnotations.total_count > 0 ? (
+                    <Card className="p-8 sm:p-12 text-center space-y-5 font-sans" dir="rtl">
+                      <div className="w-16 h-16 rounded-button bg-primary/10 text-primary flex items-center justify-center mx-auto shadow-xs">
+                        <Sparkles className="w-8 h-8" />
+                      </div>
+                      <div className="space-y-2 max-w-lg mx-auto">
+                        <h3 className="text-lg font-black text-[var(--color-text)]">
+                          تولید خلاصه شخصی بر اساس هایلایت‌ها و یادداشت‌های شما
+                        </h3>
+                        <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+                          شما {toPersianDigits(currentAnnotations.highlights_count)} هایلایت و {toPersianDigits(currentAnnotations.notes_count)} یادداشت در این فصل دارید.
+                        </p>
+                        <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                          (خلاصه رسمی آوانا برای این فصل هنوز منتشر نشده است)
+                        </p>
+                      </div>
+                      <Button
+                        variant="primary"
+                        size="md"
+                        onClick={() => setIsConfirmModalOpen(true)}
+                        leftIcon={<Sparkles className="w-4 h-4" />}
+                      >
+                        ساخت خلاصه شخصی من ({formattedCost})
+                      </Button>
+                    </Card>
+                  ) : (
+                    <Card className="p-8 sm:p-12 text-center space-y-5 font-sans" dir="rtl">
+                      <div className="w-16 h-16 rounded-button bg-[var(--color-primary-soft)] text-[var(--color-primary)] flex items-center justify-center mx-auto shadow-xs">
+                        <Zap className="w-8 h-8" />
+                      </div>
+                      <div className="space-y-2 max-w-lg mx-auto">
+                        <h3 className="text-lg font-black text-[var(--color-text)]">
+                          خلاصه مروری هنوز برای این فصل ایجاد نشده است
+                        </h3>
+                        <p className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed">
+                          خلاصه رسمی آوانا به زودی پس از انتشار در دسترس قرار خواهد گرفت. شما همچنین می‌توانید از نقشه مفهومی هوشمند استفاده کنید.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                        <Button
+                          variant="outline"
+                          size="md"
+                          onClick={() => {
+                            handleTabChange("mindmap");
+                            if (!hasMindMap) {
+                              void generateMindMap();
+                            }
+                          }}
+                          leftIcon={<FolderTree className="w-4 h-4 text-primary" />}
+                        >
+                          ساخت نقشه مفهومی با هوش مصنوعی
+                        </Button>
+                      </div>
+                    </Card>
+                  )
+                )}
+              </div>
+            )}
+
+            {/* TAB 2: Personal Summary */}
+            {effectiveTab === "personal" && (
+              <div id="tabpanel-personal" role="tabpanel" aria-labelledby="tab-personal" className="space-y-4">
+                {isPersonalLoading ? (
+                  <Card className="flex flex-col items-center justify-center p-12 text-center space-y-4 font-sans" dir="rtl">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                    <span className="text-xs text-[var(--color-text-muted)]">در حال بررسی خلاصه شخصی...</span>
+                  </Card>
+                ) : isGeneratingPersonal && !personalSummary ? (
+                  <Card className="flex flex-col items-center justify-center p-12 text-center space-y-4 font-sans" dir="rtl">
+                    <div className="w-16 h-16 rounded-button bg-primary/10 text-primary flex items-center justify-center relative shadow-xs">
+                      <Sparkles className="w-8 h-8 animate-pulse" />
+                    </div>
+                    <div className="space-y-2 max-w-md">
+                      <h3 className="text-lg font-black text-[var(--color-text)]">
+                        در حال تولید خلاصه شخصی بر اساس هایلایت‌ها و یادداشت‌های شما
+                      </h3>
+                      <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+                        موتور هوش مصنوعی آوانا در حال ترکیب و ساختاربندی نکات اختصاصی شماست...
+                      </p>
+                    </div>
+                  </Card>
+                ) : hasPersonalSummary && personalSummary ? (
+                  <div className="space-y-4">
+                    {!hasOfficialSummary && (
+                      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-900 dark:text-amber-300 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>خلاصه رسمی آوانا برای این فصل هنوز آماده نشده است</span>
+                      </div>
+                    )}
+                    <ReviewSummaryViewer
+                      key={`personal-${activeDocument.id}-${personalSummary.version}`}
+                      organizationId={organizationId}
+                      documentId={activeDocument.id}
+                      courseId={courseId}
+                      documentTitle={activeDocument.title}
+                      isPersonalSummary={true}
+                      personalPayload={personalSummary.payload as ReviewSummaryPayload}
+                      personalSummaryVersion={personalSummary.version}
+                      highlightsCount={personalSummary.highlightsCount}
+                      notesCount={personalSummary.notesCount}
+                      hasNewAnnotations={currentAnnotations.has_new_annotations}
+                      onRegeneratePersonal={() => setIsConfirmModalOpen(true)}
+                      isRegeneratingPersonal={isGeneratingPersonal}
+                      onNavigateToFlashcards={onNavigateToFlashcards}
+                      onNavigateToQuiz={onNavigateToQuiz}
+                      onUnlock={onUnlock}
+                    />
+                  </div>
+                ) : (
+                  /* Personal summary not generated yet */
+                  currentAnnotations.total_count > 0 ? (
+                    <Card className="p-8 sm:p-12 text-center space-y-5 font-sans" dir="rtl">
+                      <div className="w-16 h-16 rounded-button bg-primary/10 text-primary flex items-center justify-center mx-auto shadow-xs">
+                        <Sparkles className="w-8 h-8" />
+                      </div>
+                      <div className="space-y-2 max-w-lg mx-auto">
+                        <h3 className="text-lg font-black text-[var(--color-text)]">
+                          تولید خلاصه شخصی بر اساس هایلایت‌ها و یادداشت‌های شما
+                        </h3>
+                        <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+                          شما {toPersianDigits(currentAnnotations.highlights_count)} هایلایت و {toPersianDigits(currentAnnotations.notes_count)} یادداشت در این فصل دارید.
+                        </p>
+                        {!hasOfficialSummary && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                            (خلاصه رسمی آوانا برای این فصل هنوز منتشر نشده است)
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        variant="primary"
+                        size="md"
+                        onClick={() => setIsConfirmModalOpen(true)}
+                        leftIcon={<Sparkles className="w-4 h-4" />}
+                      >
+                        ساخت خلاصه شخصی من ({formattedCost})
+                      </Button>
+                    </Card>
+                  ) : (
+                    <Card className="p-8 sm:p-12 text-center space-y-5 font-sans" dir="rtl">
+                      <div className="w-16 h-16 rounded-button bg-primary/10 text-primary flex items-center justify-center mx-auto shadow-xs">
+                        <Bookmark className="w-8 h-8" />
+                      </div>
+                      <div className="space-y-2 max-w-lg mx-auto">
+                        <h3 className="text-lg font-black text-[var(--color-text)]">
+                          هنوز هایلایت یا یادداشتی برای این فصل ثبت نکرده‌اید
+                        </h3>
+                        <p className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed">
+                          برای تولید خلاصه شخصی اختصاصی، کافی است هنگام مطالعه درسنامه، نکات مهم را هایلایت کنید یا یادداشت شخصی بنویسید. هوش مصنوعی آوانا خلاصه مرور جامع را اختصاصاً برای شما تولید خواهد کرد.
+                        </p>
+                      </div>
+                    </Card>
+                  )
+                )}
+              </div>
+            )}
+
+            {/* TAB 3: Mind Map */}
+            {effectiveTab === "mindmap" && (
+              <div id="tabpanel-mindmap" role="tabpanel" aria-labelledby="tab-mindmap" className="space-y-4">
+                {mindMapHook.isLoading ? (
+                  <Card className="flex flex-col items-center justify-center p-12 text-center space-y-4 font-sans" dir="rtl">
+                    <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
+                    <span className="text-xs text-[var(--color-text-muted)]">در حال بارگذاری نقشه مفهومی...</span>
+                  </Card>
+                ) : isGeneratingMindMap && !mindMapPayload ? (
+                  <Card className="flex flex-col items-center justify-center p-12 text-center space-y-4 font-sans" dir="rtl">
+                    <div className="w-16 h-16 rounded-button bg-teal-500/10 text-teal-600 flex items-center justify-center relative shadow-xs">
+                      <FolderTree className="w-8 h-8 animate-pulse" />
+                    </div>
+                    <div className="space-y-2 max-w-md">
+                      <h3 className="text-lg font-black text-[var(--color-text)]">
+                        در حال تولید نقشه مفهومی هوشمند با هوش مصنوعی
+                      </h3>
+                      <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+                        استخراج درخت مفاهیم، روابط سلسله‌مراتبی و نکات کلیدی توسط مدل هوش مصنوعی در حال انجام است...
+                      </p>
+                    </div>
+                  </Card>
+                ) : hasMindMap && mindMapPayload ? (
+                  <div className="w-full h-[650px] sm:h-[750px] rounded-2xl overflow-hidden border border-[var(--color-border)] shadow-xs bg-[var(--color-surface)]">
+                    <MindMapCanvas
+                      key={`mindmap-${activeModuleId}-${activeDocument.id}`}
+                      mindMapHook={mindMapHook}
+                      chapterTitle={activeDocument.title}
+                    />
+                  </div>
+                ) : (
+                  /* Mind map not generated yet */
+                  <Card className="p-8 sm:p-14 text-center space-y-5 font-sans shadow-xs" dir="rtl">
+                    <div className="w-16 h-16 rounded-button bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center mx-auto shadow-xs">
+                      <FolderTree className="w-8 h-8" />
+                    </div>
+                    <div className="space-y-2 max-w-lg mx-auto">
+                      <div className="flex items-center justify-center gap-2">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-900 dark:bg-teal-950 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
+                          رایگان (۰ تومان)
+                        </span>
+                      </div>
+                      <h3 className="text-lg sm:text-xl font-black text-[var(--color-text)]">
+                        نقشه مفهومی هوشمند (Interactive AI Mind Map)
+                      </h3>
+                      <p className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed">
+                        نقشه مفهومی ساختار درختی و ارتباطات مفاهیم این فصل را به شکل بصری و تعاملی ترسیم می‌کند تا تثبیت مباحث در حافظه سریع‌تر انجام شود.
+                      </p>
+                    </div>
+                    {mindMapGenerateMutation.isError && (
+                      <div
+                        data-testid="mind-map-generate-error"
+                        className="p-4 max-w-lg mx-auto rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-400 text-xs sm:text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-right"
+                        dir="rtl"
+                      >
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
+                          <span>
+                            {mindMapGenerateMutation.error instanceof Error
+                              ? mindMapGenerateMutation.error.message
+                              : "خطا در برقراری ارتباط با هوش مصنوعی آوانا. لطفاً دوباره تلاش کنید."}
+                          </span>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs shrink-0 self-start sm:self-auto border-rose-300 dark:border-rose-800 hover:bg-rose-500/10"
+                          onClick={() => {
+                            void generateMindMap().catch(() => {});
+                          }}
+                          disabled={isGeneratingMindMap}
+                        >
+                          تلاش مجدد
+                        </Button>
+                      </div>
+                    )}
+                    <div className="pt-2">
+                      <Button
+                        variant="primary"
+                        size="md"
+                        onClick={() => {
+                          void generateMindMap().catch(() => {});
+                        }}
+                        disabled={isGeneratingMindMap}
+                        leftIcon={
+                          isGeneratingMindMap ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-4 h-4" />
+                          )
+                        }
+                      >
+                        {isGeneratingMindMap ? "در حال تولید نقشه مفهومی..." : "ساخت نقشه مفهومی با هوش مصنوعی"}
+                      </Button>
+                    </div>
+                  </Card>
+                )}
+              </div>
+            )}
+          </div>
         ) : null}
       </main>
+
+      {/* Transparent Payment & Confirmation Modal for Personal Summary */}
+      {activeDocument && (
+        <PersonalSummaryConfirmationModal
+          isOpen={isConfirmModalOpen}
+          onClose={() => setIsConfirmModalOpen(false)}
+          onConfirm={async () => {
+            try {
+              await personalGenerateMutation.mutateAsync();
+              setIsConfirmModalOpen(false);
+              handleTabChange("personal");
+            } catch {
+              // Mutation error handled in modal
+            }
+          }}
+          isGenerating={isGeneratingPersonal}
+          chapterTitle={activeDocument.title}
+          highlightsCount={currentAnnotations.highlights_count}
+          notesCount={currentAnnotations.notes_count}
+          costToman={costToman}
+          errorMessage={personalGenerateMutation.error?.message}
+        />
+      )}
     </div>
   );
 }

@@ -193,13 +193,29 @@ export class DrizzleCommerceStore implements CommerceStore {
     targetType: string,
     targetId: string,
   ): Promise<ProductRecord | null> {
+    const targetFilter =
+      targetType === "course"
+        ? or(
+            and(
+              eq(products.targetType, "course"),
+              eq(products.targetId, targetId),
+            ),
+            and(
+              eq(products.targetType, "course_publication"),
+              sql`(${products.metadata}->>'courseId' = ${targetId})`,
+            ),
+          )
+        : and(
+            eq(products.targetType, targetType),
+            eq(products.targetId, targetId),
+          );
+
     const rows = await this.db
       .select()
       .from(products)
       .where(
         and(
-          eq(products.targetType, targetType),
-          eq(products.targetId, targetId),
+          targetFilter,
           eq(products.active, true),
           isNull(products.deletedAt),
         ),
@@ -212,13 +228,29 @@ export class DrizzleCommerceStore implements CommerceStore {
     targetType: string,
     targetId: string,
   ): Promise<ProductRecord | null> {
+    const targetFilter =
+      targetType === "course"
+        ? or(
+            and(
+              eq(products.targetType, "course"),
+              eq(products.targetId, targetId),
+            ),
+            and(
+              eq(products.targetType, "course_publication"),
+              sql`(${products.metadata}->>'courseId' = ${targetId})`,
+            ),
+          )
+        : and(
+            eq(products.targetType, targetType),
+            eq(products.targetId, targetId),
+          );
+
     const rows = await this.db
       .select()
       .from(products)
       .where(
         and(
-          eq(products.targetType, targetType),
-          eq(products.targetId, targetId),
+          targetFilter,
           isNull(products.deletedAt),
         ),
       )
@@ -1381,8 +1413,10 @@ export class InMemoryCommerceStore implements CommerceStore {
   ): Promise<ProductRecord | null> {
     const p = this.products.find(
       (x) =>
-        x.targetType === targetType &&
-        x.targetId === targetId &&
+        ((x.targetType === targetType && x.targetId === targetId) ||
+          (targetType === "course" &&
+            x.targetType === "course_publication" &&
+            (x.metadata as any)?.courseId === targetId)) &&
         ((x as any).active ?? (x as any).isActive ?? true) &&
         x.deletedAt === null,
     );
@@ -1395,8 +1429,10 @@ export class InMemoryCommerceStore implements CommerceStore {
   ): Promise<ProductRecord | null> {
     const p = this.products.find(
       (x) =>
-        x.targetType === targetType &&
-        x.targetId === targetId &&
+        ((x.targetType === targetType && x.targetId === targetId) ||
+          (targetType === "course" &&
+            x.targetType === "course_publication" &&
+            (x.metadata as any)?.courseId === targetId)) &&
         x.deletedAt === null,
     );
     return p ? { ...p } : null;

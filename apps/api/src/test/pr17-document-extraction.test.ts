@@ -20,6 +20,7 @@ import {
   InMemorySessionStore,
   InMemoryUserStore,
 } from "../modules/identity/test/in-memory-stores.js";
+import { generateBoundCsrfToken } from "../modules/identity/csrf.js";
 import { InMemoryOrganizationStore } from "../modules/organizations/test/in-memory-stores.js";
 import { InMemoryCourseStore } from "../modules/courses/test/in-memory-stores.js";
 import {
@@ -486,4 +487,103 @@ describe("PR6-3: Document extraction API", () => {
       await app.close();
     });
   });
+
+  describe("CSRF protection on multipart document upload", () => {
+    it("rejects document upload with 403 when avana_csrf cookie is present but x-csrf-token header is missing", async () => {
+      const app = await buildApp();
+      const { token } = await signIn(app, "csrf-victim@example.com");
+      const organizationId = await createOrg(app, token, "CSRF Org");
+      const csrfToken = generateBoundCsrfToken(token);
+
+      const multipart = buildMultipartBody({
+        filename: "test.pdf",
+        contentType: "application/pdf",
+        data: validPdf(),
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${organizationId}/documents`,
+        cookies: {
+          avana_session: token,
+          avana_csrf: csrfToken,
+        },
+        headers: {
+          "content-type": multipart.contentType,
+          origin: "http://localhost:5173",
+        },
+        payload: multipart.body,
+      });
+
+      expect(res.statusCode).toBe(403);
+      const body = JSON.parse(res.body);
+      expect(body.error?.message || body.message).toContain("CSRF");
+      await app.close();
+    });
+
+    it("rejects document upload with 403 when x-csrf-token header has an invalid token", async () => {
+      const app = await buildApp();
+      const { token } = await signIn(app, "csrf-tamper@example.com");
+      const organizationId = await createOrg(app, token, "CSRF Org");
+      const csrfToken = generateBoundCsrfToken(token);
+
+      const multipart = buildMultipartBody({
+        filename: "test.pdf",
+        contentType: "application/pdf",
+        data: validPdf(),
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${organizationId}/documents`,
+        cookies: {
+          avana_session: token,
+          avana_csrf: csrfToken,
+        },
+        headers: {
+          "content-type": multipart.contentType,
+          "x-csrf-token": "bad-token-value",
+          origin: "http://localhost:5173",
+        },
+        payload: multipart.body,
+      });
+
+      expect(res.statusCode).toBe(403);
+      await app.close();
+    });
+
+    it("successfully accepts document upload with 201 when valid bound x-csrf-token header is provided", async () => {
+      const app = await buildApp();
+      const { token } = await signIn(app, "csrf-success@example.com");
+      const organizationId = await createOrg(app, token, "CSRF Org");
+      const csrfToken = generateBoundCsrfToken(token);
+
+      const multipart = buildMultipartBody({
+        filename: "test.pdf",
+        contentType: "application/pdf",
+        data: validPdf(),
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${organizationId}/documents`,
+        cookies: {
+          avana_session: token,
+          avana_csrf: csrfToken,
+        },
+        headers: {
+          "content-type": multipart.contentType,
+          "x-csrf-token": csrfToken,
+          origin: "http://localhost:5173",
+        },
+        payload: multipart.body,
+      });
+
+      expect(res.statusCode).toBe(201);
+      const body = JSON.parse(res.body);
+      expect(body.document.id).toBeDefined();
+      await app.close();
+    });
+  });
 });
+

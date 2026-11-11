@@ -10,6 +10,9 @@ import {
   isFilenameOrPlaceholderDescription,
   cleanEducationalDescription,
   cleanQuizChapterTitle,
+  buildPdfFilename,
+  extractSessionNumberFromTitle,
+  resolveChapterSessionNumbers,
 } from "../title-invariants.js";
 
 describe("AVANA Content Title Invariants", () => {
@@ -276,4 +279,122 @@ describe("AVANA Content Title Invariants", () => {
       expect(cleanQuizChapterTitle(null)).toBe("");
     });
   });
+
+  describe("buildPdfFilename", () => {
+    it("prevents duplicate 'فصل' prefix when title already contains it", () => {
+      expect(buildPdfFilename("chapter", "فصل اول")).toBe("فصل اول.pdf");
+      expect(buildPdfFilename("chapter", "فصل ۱: فیزیولوژی سلول")).toBe("فصل ۱ - فیزیولوژی سلول.pdf");
+      expect(buildPdfFilename("chapter", "فصل اول - فیزیولوژی")).toBe("فصل اول - فیزیولوژی.pdf");
+      expect(buildPdfFilename("chapter", "فصل - کلیات فارماکولوژی")).toBe("فصل - کلیات فارماکولوژی.pdf");
+    });
+
+    it("deduplicates repeated chapter segments like 'فصل اول - فصل اول'", () => {
+      expect(buildPdfFilename("chapter", "فصل اول - فصل اول")).toBe("فصل اول.pdf");
+      expect(buildPdfFilename("chapter", "فصل دوم - فصل دوم")).toBe("فصل دوم.pdf");
+      expect(buildPdfFilename("chapter", "فصل ۱ - فصل ۱")).toBe("فصل ۱.pdf");
+    });
+
+    it("adds standard prefix when title does NOT start with chapter prefix", () => {
+      expect(buildPdfFilename("chapter", "فیزیولوژی کلیه")).toBe("فصل - فیزیولوژی کلیه.pdf");
+      expect(buildPdfFilename("chapter", "آناتومی قلب و عروق")).toBe("فصل - آناتومی قلب و عروق.pdf");
+    });
+
+    it("correctly formats lesson filenames", () => {
+      expect(buildPdfFilename("lesson", "درسنامه فیزیولوژی غشا")).toBe("درسنامه فیزیولوژی غشا.pdf");
+      expect(buildPdfFilename("lesson", "فیزیولوژی غشا")).toBe("درسنامه - فیزیولوژی غشا.pdf");
+      expect(buildPdfFilename("lesson", "درسنامه - درسنامه فیزیولوژی")).toBe("درسنامه فیزیولوژی.pdf");
+    });
+
+    it("correctly formats review summary filenames", () => {
+      expect(buildPdfFilename("review_summary", "خلاصه مرور مبحث دیابت")).toBe("خلاصه مرور مبحث دیابت.pdf");
+      expect(buildPdfFilename("review_summary", "مبحث دیابت")).toBe("خلاصه مرور - مبحث دیابت.pdf");
+    });
+
+    it("handles fallback and invalid characters safely", () => {
+      expect(buildPdfFilename("chapter", null, "mod-123")).toBe("chapter-mod-123.pdf");
+      expect(buildPdfFilename("lesson", "", "les-456")).toBe("lesson-les-456.pdf");
+      expect(buildPdfFilename("chapter", "فصل / اول: تست *?")).toBe("فصل - اول - تست.pdf");
+    });
+  });
+
+  describe("extractSessionNumberFromTitle", () => {
+    it("extracts numbers from Persian ordinals", () => {
+      expect(extractSessionNumberFromTitle("جلسه اول: مقدمات")).toBe(1);
+      expect(extractSessionNumberFromTitle("جلسه دوم: فیزیولوژی غشا")).toBe(2);
+      expect(extractSessionNumberFromTitle("جلسه سوم")).toBe(3);
+      expect(extractSessionNumberFromTitle("جلسه دهم")).toBe(10);
+      expect(extractSessionNumberFromTitle("درس اول")).toBe(1);
+      expect(extractSessionNumberFromTitle("قسمت دوم")).toBe(2);
+    });
+
+    it("extracts numbers from Persian digits", () => {
+      expect(extractSessionNumberFromTitle("جلسه ۱: پتانسیل عمل")).toBe(1);
+      expect(extractSessionNumberFromTitle("جلسه ۲")).toBe(2);
+      expect(extractSessionNumberFromTitle("جلسه ۱۲")).toBe(12);
+    });
+
+    it("extracts numbers from English digits", () => {
+      expect(extractSessionNumberFromTitle("جلسه 1: مقدمه")).toBe(1);
+      expect(extractSessionNumberFromTitle("جلسه 2")).toBe(2);
+    });
+
+    it("returns null when no session number is present", () => {
+      expect(extractSessionNumberFromTitle("فارماکولوژی غشا")).toBeNull();
+      expect(extractSessionNumberFromTitle("مقدمه بر بیوشیمی")).toBeNull();
+      expect(extractSessionNumberFromTitle(null)).toBeNull();
+      expect(extractSessionNumberFromTitle("")).toBeNull();
+    });
+  });
+
+  describe("resolveChapterSessionNumbers", () => {
+    it("resolves 0-based sortOrder to 1-based sequential numbers (Defect 2 root cause)", () => {
+      const sessions = [
+        { id: "s-0", title: "ماده زمینه‌ای", sortOrder: 0 },
+        { id: "s-1", title: "سلول‌های بافت همبند", sortOrder: 1 },
+        { id: "s-2", title: "الیاف کلاژن", sortOrder: 2 },
+      ];
+      // Under the old bug: session 0 became 1, session 1 became 1! Both were 1!
+      // Under the fix: [1, 2, 3]
+      const numbers = resolveChapterSessionNumbers(sessions);
+      expect(numbers).toEqual([1, 2, 3]);
+    });
+
+    it("extracts valid session numbers from ordinals when consistent", () => {
+      const sessions = [
+        { id: "s-1", title: "جلسه اول: مقدمه", sortOrder: 0 },
+        { id: "s-2", title: "جلسه دوم: ادامه", sortOrder: 1 },
+      ];
+      const numbers = resolveChapterSessionNumbers(sessions);
+      expect(numbers).toEqual([1, 2]);
+    });
+
+    it("falls back to sequential order if titles contain duplicate session numbers", () => {
+      const sessions = [
+        { id: "s-1", title: "جلسه ۱: مقدمه", sortOrder: 0 },
+        { id: "s-2", title: "جلسه ۱: بخش دوم", sortOrder: 1 },
+      ];
+      const numbers = resolveChapterSessionNumbers(sessions);
+      expect(numbers).toEqual([1, 2]);
+    });
+
+    it("falls back to sequential order if titles contain disordered or non-monotonic numbers", () => {
+      const sessions = [
+        { id: "s-1", title: "جلسه ۳: مقدمه", sortOrder: 0 },
+        { id: "s-2", title: "جلسه ۱: بخش دوم", sortOrder: 1 },
+      ];
+      const numbers = resolveChapterSessionNumbers(sessions);
+      expect(numbers).toEqual([1, 2]);
+    });
+
+    it("restarts numbering at 1 independently for each chapter regardless of global sortOrder", () => {
+      // Chapter 2 sessions where global DB sortOrder might be 15, 16, 17
+      const chapter2Sessions = [
+        { id: "s-10", title: "فارماکودینامیک", sortOrder: 15 },
+        { id: "s-11", title: "فارماکوکینتیک", sortOrder: 16 },
+      ];
+      const numbers = resolveChapterSessionNumbers(chapter2Sessions);
+      expect(numbers).toEqual([1, 2]);
+    });
+  });
 });
+

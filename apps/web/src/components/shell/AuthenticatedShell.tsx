@@ -26,12 +26,16 @@ import {
   getUserChipSubscriptionInfo,
 } from "../commerce/userCommerceUtils.js";
 import { isUserAdmin } from "../../utils/adminPermissions.js";
-import { getHeaderManagementActions } from "../../utils/headerNavigation.js";
+import {
+  getHeaderManagementActions,
+  getHeaderNavItems,
+} from "../../utils/headerNavigation.js";
 import { GlobalGenerationIndicator } from "../generation/GlobalGenerationIndicator.js";
 import { Button, Badge, LoadingState, Alert, Skeleton } from "../ui/index.js";
 import { FILES_ENABLED } from "../../config/features.js";
 import { NotificationDropdown } from "../notifications/NotificationDropdown.js";
 import { EditProfileModal } from "./EditProfileModal.js";
+import { AppErrorBoundary } from "../error/index.js";
 
 const ACCOUNT_HINT_KEY = "avana_account_menu_hint_seen";
 
@@ -39,6 +43,7 @@ export function AuthenticatedShell() {
   const { user, memberships, isLoading, error, signOut } = useAuth();
   const isAdmin = isUserAdmin(user, memberships);
   const headerManagementActions = getHeaderManagementActions(user, memberships);
+  const headerNavItems = getHeaderNavItems(FILES_ENABLED);
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -166,42 +171,20 @@ export function AuthenticatedShell() {
 
             {/* Desktop Navigation Links */}
             <nav className="hidden lg:flex items-center gap-1" aria-label="منوی اصلی">
-              <HeaderNavLink to="/home" active={isHomeActive}>
-                <Home className="w-4 h-4" />
-                <span>خانه</span>
-              </HeaderNavLink>
-
-              <HeaderNavLink to="/courses" active={isCoursesActive} dataTour="nav-courses">
-                <BookOpen className="w-4 h-4" />
-                <span>دوره‌ها</span>
-              </HeaderNavLink>
-
-              <HeaderNavLink to="/classrooms" active={isClassroomsActive} dataTour="nav-my-classes">
-                <GraduationCap className="w-4 h-4" />
-                <span>کلاس‌های من</span>
-              </HeaderNavLink>
-
-              <HeaderNavLink to="/exams" active={isExamsActive} dataTour="nav-exams">
-                <HelpCircle className="w-4 h-4" />
-                <span>آزمون‌ها</span>
-              </HeaderNavLink>
-
-              <HeaderNavLink to="/library" active={isLibraryActive} dataTour="nav-library">
-                <LibraryIcon className="w-4 h-4" />
-                <span>کتابخانه</span>
-              </HeaderNavLink>
-
-              <HeaderNavLink to="/flashcards" active={isFlashcardsActive} dataTour="nav-flashcards">
-                <Layers className="w-4 h-4" />
-                <span>فلش‌کارت‌ها</span>
-              </HeaderNavLink>
-
-              {FILES_ENABLED && (
-                <HeaderNavLink to="/files" active={isFilesActive}>
-                  <FolderOpen className="w-4 h-4" />
-                  <span>فایل‌ها</span>
-                </HeaderNavLink>
-              )}
+              {headerNavItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <HeaderNavLink
+                    key={item.id}
+                    to={item.to}
+                    active={item.isActive(location.pathname)}
+                    dataTour={item.dataTour}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{item.label}</span>
+                  </HeaderNavLink>
+                );
+              })}
             </nav>
           </div>
 
@@ -451,70 +434,22 @@ export function AuthenticatedShell() {
           />
           <div className="fixed inset-y-0 start-0 top-16 sm:top-20 z-40 w-[63vw] min-w-[210px] max-w-[320px] sm:w-80 bg-[var(--color-surface-warm)] border-inline-end border-[var(--color-border)] p-4 sm:p-6 lg:hidden flex flex-col gap-4 overflow-y-auto pb-28 animate-in rtl:slide-in-from-right ltr:slide-in-from-left duration-200 shadow-2xl">
           <nav className="flex flex-col gap-2" aria-label="منوی ناوبری موبایل">
-            <MobileDrawerLink
-              to="/home"
-              active={isHomeActive}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <Home className="w-5 h-5" />
-              <span>صفحه اصلی</span>
-            </MobileDrawerLink>
-
-            <MobileDrawerLink
-              to="/courses"
-              active={isCoursesActive}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <BookOpen className="w-5 h-5" />
-              <span>دوره‌ها</span>
-            </MobileDrawerLink>
-
-            <MobileDrawerLink
-              to="/flashcards"
-              active={isFlashcardsActive}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <Layers className="w-5 h-5" />
-              <span>فلش‌کارت‌ها</span>
-            </MobileDrawerLink>
-
-            <MobileDrawerLink
-              to="/classrooms"
-              active={isClassroomsActive}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <GraduationCap className="w-5 h-5 text-[#008080]" />
-              <span>کلاس‌های من</span>
-            </MobileDrawerLink>
-
-            <MobileDrawerLink
-              to="/exams"
-              active={isExamsActive}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <HelpCircle className="w-5 h-5" />
-              <span>آزمون‌ها</span>
-            </MobileDrawerLink>
-
-            {FILES_ENABLED && (
-              <MobileDrawerLink
-                to="/files"
-                active={isFilesActive}
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <FolderOpen className="w-5 h-5" />
-                <span>فایل‌ها</span>
-              </MobileDrawerLink>
-            )}
-
-            <MobileDrawerLink
-              to="/library"
-              active={isLibraryActive}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <LibraryIcon className="w-5 h-5" />
-              <span>کتابخانه</span>
-            </MobileDrawerLink>
+            {headerNavItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <MobileDrawerLink
+                  key={item.id}
+                  to={item.to}
+                  active={item.isActive(location.pathname)}
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <Icon
+                    className={`w-5 h-5 ${item.iconDrawerClassName ?? ""}`}
+                  />
+                  <span>{item.label}</span>
+                </MobileDrawerLink>
+              );
+            })}
 
             {headerManagementActions.map((action) => {
               const ActionIcon = action.icon;
@@ -560,7 +495,9 @@ export function AuthenticatedShell() {
 
       {/* Main Content Area (Full Width max-w-7xl Container) */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-24 md:pb-8 min-h-screen w-full relative z-10">
-        <Outlet />
+        <AppErrorBoundary>
+          <Outlet />
+        </AppErrorBoundary>
       </main>
 
       {/* Mobile Bottom Navigation */}

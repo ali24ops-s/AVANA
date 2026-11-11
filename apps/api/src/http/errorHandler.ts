@@ -24,6 +24,9 @@ function mapDomainCodeToStatus(code: DomainError["code"]): number {
       return 409;
     case "timeout":
       return 408;
+    case "rate_limit_exceeded":
+    case "too_many_requests":
+      return 429;
     case "unprocessable":
       return 422;
     case "service_unavailable":
@@ -61,6 +64,14 @@ export const errorHandlerPlugin: FastifyPluginAsync = async (app) => {
         statusCode,
         err.details,
       );
+      return;
+    }
+
+    const anyErr = err as Record<string, unknown>;
+    // Fastify request validation errors (Ajv / Schema)
+    if (anyErr?.validation || anyErr?.statusCode === 400) {
+      const msg = typeof anyErr?.message === "string" ? anyErr.message : "Bad Request";
+      writeErrorEnvelope(reply, request, "bad_request", msg, 400);
       return;
     }
 

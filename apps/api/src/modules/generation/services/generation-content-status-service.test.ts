@@ -339,4 +339,33 @@ describe("GenerationContentStatusService (Unit Tests)", () => {
     expect(status.all_generated).toBe(false);
     expect(status.can_generate).toBe(false);
   });
+
+  it("keeps all_generated=false and can_generate=true when a completed job only requested flashcards", async () => {
+    // Fresh service where only flashcards exist
+    const docWithOnlyFlashcards = new GenerationContentStatusService(
+      mockDocStore,
+      contentStore,
+      progressService,
+      queryService,
+      undefined,
+      undefined, // no module
+      undefined, // no lesson
+      mockFlashcardStore, // only flashcards
+      undefined, // no quiz
+      undefined, // no quiz questions
+    );
+
+    const status = await docWithOnlyFlashcards.getDocumentContentStatus(actor, orgId, docId);
+    expect(status.flashcards.generated).toBe(true);
+    expect(status.flashcards.count).toBe(3);
+    expect(status.lesson.generated).toBe(false);
+    expect(status.exam.generated).toBe(false);
+    expect(status.review_summary.generated).toBe(false);
+
+    // all_generated must remain false because lesson, exam, and review_summary are still not generated!
+    expect(status.all_generated).toBe(false);
+    // User must be able to generate the remaining items
+    expect(status.can_generate).toBe(true);
+  });
 });
+

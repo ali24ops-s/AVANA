@@ -13,7 +13,7 @@
  * - User confirmation & instant subscription activation
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import {
   CreditCard,
@@ -22,7 +22,6 @@ import {
   Zap,
   ShieldCheck,
   AlertCircle,
-  PartyPopper,
   Loader2,
   ArrowRight,
   Calendar,
@@ -49,6 +48,7 @@ import {
   resolveSubscriptionPlanType,
   resolveGiftCreditAmount,
   toPersianDigits,
+  normalizePersianDigits,
 } from "@avana/domain";
 import {
   useCommerceProducts,
@@ -59,6 +59,7 @@ import {
   useValidateCoupon,
 } from "../hooks/useCommerce.js";
 import { useAuth } from "../providers/AuthProvider.js";
+import { getUserFriendlyErrorMessage } from "../lib/api/error-mapper.js";
 import {
   convertTomanToIrr,
   getClientAnalyticsPayload,
@@ -121,7 +122,10 @@ export function CardToCardPaymentPage() {
       const res = await uploadReceiptMutation.mutateAsync(file);
       setReceiptUrl(res.receipt_url);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "خطا در آپلود تصویر فیش واریزی.";
+      const msg = getUserFriendlyErrorMessage(err, {
+        scope: "payment",
+        fallback: "خطا در آپلود تصویر فیش واریزی.",
+      });
       setReceiptUploadError(msg);
     }
   };
@@ -208,7 +212,10 @@ export function CardToCardPaymentPage() {
         setAppliedCoupon(null);
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "خطا در اعتبارسنجی کد تخفیف";
+      const msg = getUserFriendlyErrorMessage(err, {
+        scope: "payment",
+        fallback: "خطا در اعتبارسنجی کد تخفیف",
+      });
       setCouponError(msg);
       setAppliedCoupon(null);
     }
@@ -293,9 +300,27 @@ export function CardToCardPaymentPage() {
 
   const handleCopyCard = (cardNum: string) => {
     const cleanNum = cardNum.replace(/-/g, "").replace(/\s/g, "");
-    navigator.clipboard.writeText(cleanNum);
-    setCopiedCard(true);
-    setTimeout(() => setCopiedCard(false), 2500);
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        navigator.clipboard.writeText(cleanNum);
+      } else if (typeof document !== "undefined") {
+        const textArea = document.createElement("textarea");
+        textArea.value = cleanNum;
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+      setCopiedCard(true);
+      setTimeout(() => setCopiedCard(false), 2500);
+    } catch {
+      // Fallback in environments without clipboard access
+      setCopiedCard(true);
+      setTimeout(() => setCopiedCard(false), 2500);
+    }
   };
 
   const formatCardNumberWithSpaces = (cardNum: string) => {
@@ -347,12 +372,11 @@ export function CardToCardPaymentPage() {
             setPayerName(res.data.payerName);
           }
         },
-        onError: (err: { envelope?: { error?: { message?: string } }; response?: { data?: { message?: string } }; message?: string }) => {
-          const msg =
-            err.envelope?.error?.message ||
-            err.response?.data?.message ||
-            err.message ||
-            "خطا در استخراج خودکار اطلاعات. لطفاً فرم را بررسی یا دستی تکمیل کنید.";
+        onError: (err: unknown) => {
+          const msg = getUserFriendlyErrorMessage(err, {
+            scope: "payment",
+            fallback: "خطا در استخراج خودکار اطلاعات. لطفاً فرم را بررسی یا دستی تکمیل کنید.",
+          });
           setExtractError(msg);
           // Fallback to manual entry view
           setHasExtracted(true);
@@ -385,25 +409,25 @@ export function CardToCardPaymentPage() {
       return;
     }
 
-    const trimmedTrack = trackingNumber.trim();
+    const trimmedTrack = normalizePersianDigits(trackingNumber).trim();
     if (!trimmedTrack || trimmedTrack.length < 3) {
       setFormError("لطفاً شماره پیگیری یا شماره ارجاع بانکی را به درستی وارد کنید.");
       return;
     }
 
-    const trimmedLast4 = sourceCardLast4.trim();
+    const trimmedLast4 = normalizePersianDigits(sourceCardLast4).replace(/\D/g, "").slice(0, 4);
     if (!/^\d{4}$/.test(trimmedLast4)) {
       setFormError("۴ رقم آخر کارت مبدأ باید دقیقاً ۴ رقم عددی باشد.");
       return;
     }
 
-    const trimmedDate = paymentDate.trim();
+    const trimmedDate = normalizePersianDigits(paymentDate).trim();
     if (!trimmedDate) {
       setFormError("لطفاً تاریخ واریز را وارد کنید.");
       return;
     }
 
-    const trimmedTime = paymentTime.trim();
+    const trimmedTime = normalizePersianDigits(paymentTime).trim();
     if (!trimmedTime) {
       setFormError("لطفاً زمان تقریبی واریز را وارد کنید.");
       return;
@@ -469,12 +493,11 @@ export function CardToCardPaymentPage() {
             });
           }
         },
-        onError: (err: { envelope?: { error?: { message?: string } }; response?: { data?: { message?: string } }; message?: string }) => {
-          const msg =
-            err.envelope?.error?.message ||
-            err.response?.data?.message ||
-            err.message ||
-            "خطا در ثبت پرداخت کارت‌به‌کارت. لطفاً اطلاعات واریز را مجدداً بررسی کنید.";
+        onError: (err: unknown) => {
+          const msg = getUserFriendlyErrorMessage(err, {
+            scope: "payment",
+            fallback: "خطا در ثبت پرداخت کارت‌به‌کارت. لطفاً اطلاعات واریز را مجدداً بررسی کنید.",
+          });
           setFormError(msg);
         },
       },
@@ -921,7 +944,9 @@ export function CardToCardPaymentPage() {
                         type="text"
                         required
                         value={trackingNumber}
-                        onChange={(e) => setTrackingNumber(e.target.value)}
+                        onChange={(e) => {
+                          setTrackingNumber(normalizePersianDigits(e.target.value));
+                        }}
                         placeholder="مثال: ۱۲۳۴۵۶۷۸۹"
                         className={`w-full px-4 py-3 rounded-2xl border bg-[var(--color-surface)] text-[var(--color-text)] text-xs sm:text-sm focus:outline-none focus:border-primary font-mono transition-colors ${
                           !trackingNumber ? "border-amber-500 bg-amber-50/50 dark:bg-amber-950/20" : "border-[var(--color-border)]"
@@ -946,9 +971,10 @@ export function CardToCardPaymentPage() {
                         required
                         maxLength={4}
                         value={sourceCardLast4}
-                        onChange={(e) =>
-                          setSourceCardLast4(e.target.value.replace(/\D/g, "").slice(0, 4))
-                        }
+                        onChange={(e) => {
+                          const normalized = normalizePersianDigits(e.target.value);
+                          setSourceCardLast4(normalized.replace(/\D/g, "").slice(0, 4));
+                        }}
                         placeholder="مثال: ۵۶۷۸"
                         className={`w-full px-4 py-3 rounded-2xl border bg-[var(--color-surface)] text-[var(--color-text)] text-xs sm:text-sm focus:outline-none focus:border-primary font-mono tracking-widest text-center transition-colors ${
                           !sourceCardLast4 ? "border-amber-500 bg-amber-50/50 dark:bg-amber-950/20" : "border-[var(--color-border)]"
@@ -968,7 +994,7 @@ export function CardToCardPaymentPage() {
                         type="text"
                         required
                         value={paymentDate}
-                        onChange={(e) => setPaymentDate(e.target.value)}
+                        onChange={(e) => setPaymentDate(normalizePersianDigits(e.target.value))}
                         placeholder="مثال: ۱۴۰۴/۱۲/۱۵"
                         className="w-full px-4 py-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-xs sm:text-sm focus:outline-none focus:border-primary transition-colors"
                       />
@@ -984,7 +1010,7 @@ export function CardToCardPaymentPage() {
                         type="text"
                         required
                         value={paymentTime}
-                        onChange={(e) => setPaymentTime(e.target.value)}
+                        onChange={(e) => setPaymentTime(normalizePersianDigits(e.target.value))}
                         placeholder="مثال: ۱۴:۳۰"
                         className="w-full px-4 py-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-xs sm:text-sm focus:outline-none focus:border-primary font-mono text-center transition-colors"
                       />

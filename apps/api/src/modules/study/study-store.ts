@@ -87,6 +87,7 @@ export type QuizRecord = {
   courseId: CourseId;
   moduleId?: string | null;
   documentId: DocumentId | null;
+  generatedContentId?: GeneratedContentId | null;
   title: string;
   topic?: string | null;
   difficulty?: string | null;
@@ -155,6 +156,13 @@ export interface FlashcardStore {
     organizationId: OrganizationId,
     systemOrganizationId?: OrganizationId,
   ): Promise<FlashcardRecord[]>;
+
+  findManyByIds?(ids: FlashcardId[]): Promise<FlashcardRecord[]>;
+
+  getCardCountsByCourseLesson?(
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
+  ): Promise<Array<{ courseId: string; lessonId: string | null; documentId: string | null; totalCards: number }>>;
 
   create(record: FlashcardRecord): Promise<FlashcardRecord>;
 
@@ -226,6 +234,28 @@ export interface UserFlashcardScheduleStore {
   upsertSchedule(
     record: Omit<UserFlashcardScheduleRecord, "id" | "createdAt" | "updatedAt">,
   ): Promise<UserFlashcardScheduleRecord>;
+
+  getByUserAndCardIds?(
+    userId: UserId,
+    flashcardIds: FlashcardId[],
+  ): Promise<UserFlashcardScheduleRecord[]>;
+
+  getDueCardsWithFlashcards?(
+    userId: UserId,
+    options?: { courseIds?: string[]; documentIds?: string[]; limit?: number },
+  ): Promise<Array<{ flashcard: FlashcardRecord; schedule: UserFlashcardScheduleRecord }>>;
+
+  getUserScheduleAggregates?(
+    userId: UserId,
+  ): Promise<Array<{
+    courseId: string;
+    lessonId: string | null;
+    documentId: string | null;
+    dueCards: number;
+    overdueCards: number;
+    learningCards: number;
+    reviewedCards: number;
+  }>>;
 }
 
 export interface QuizStore {
@@ -241,6 +271,12 @@ export interface QuizStore {
     courseId: CourseId,
     organizationId?: OrganizationId,
   ): Promise<QuizRecord[]>;
+
+  listByCourseWithQuestionCount?(
+    courseId: CourseId,
+    organizationId?: OrganizationId,
+    options?: { limit?: number; offset?: number; status?: string },
+  ): Promise<{ items: Array<QuizRecord & { questionCount: number }>; total: number }>;
 
   listByOrganization(
     organizationId: OrganizationId,
@@ -283,6 +319,18 @@ export interface QuizQuestionStore {
   countByTopicAndDifficulty(
     organizationId?: OrganizationId,
   ): Promise<Array<{ topic: string; difficulty: string; questionCount: number }>>;
+  countByCourseAndDifficulty?(
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
+  ): Promise<Array<{
+    quizId: string;
+    courseId: string;
+    documentId: string | null;
+    lessonId: string | null;
+    topic: string | null;
+    difficulty: string | null;
+    questionCount: number;
+  }>>;
   createMany(records: QuizQuestionRecord[]): Promise<QuizQuestionRecord[]>;
   delete?(id: QuizQuestionId): Promise<void>;
   deleteByQuiz?(quizId: QuizId): Promise<void>;

@@ -110,6 +110,9 @@ export class InMemorySourcePackStore implements SourcePackStore {
     if (input.title !== undefined) {
       pack.title = input.title;
     }
+    if (input.status !== undefined) {
+      pack.status = input.status;
+    }
     pack.updatedAt = now;
 
     if (input.documents !== undefined) {

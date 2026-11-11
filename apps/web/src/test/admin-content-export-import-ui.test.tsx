@@ -167,4 +167,56 @@ describe("Admin Content Export & Import UI Suite", () => {
       expect(screen.getByText("۵۱")).toBeInTheDocument(); // created count
     });
   });
+
+  it("4. ContentExportModal auto-selects course when opened with exactly 1 course (Hub page scenario)", async () => {
+    const { ContentExportModal } = await import("../components/admin/content/ContentExportModal.js");
+
+    render(
+      <ContentExportModal
+        isOpen={true}
+        onClose={vi.fn()}
+        courses={[{ id: "single-course-uuid", name: "دوره اختصاصی ریاضی" }]}
+      />
+    );
+
+    // Modal title visible
+    expect(screen.getByText("خروجی محتوا (Export Package)")).toBeInTheDocument();
+
+    // Trigger export
+    const exportSubmitBtn = screen.getByRole("button", { name: /دریافت خروجی/i });
+    fireEvent.click(exportSubmitBtn);
+
+    await waitFor(() => {
+      expect(adminApi.downloadContentExport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          courseId: "single-course-uuid",
+        })
+      );
+    });
+  });
+
+  it("5. ContentExportModal displays backend error message when export fails", async () => {
+    const { ContentExportModal } = await import("../components/admin/content/ContentExportModal.js");
+    vi.mocked(adminApi.downloadContentExport).mockRejectedValueOnce(
+      new Error("دسترسی به محتوای این سازمان برای حساب کاربری شما مجاز نیست.")
+    );
+
+    render(
+      <ContentExportModal
+        isOpen={true}
+        onClose={vi.fn()}
+        courses={[{ id: "c1", name: "دوره فیزیک" }]}
+      />
+    );
+
+    const exportSubmitBtn = screen.getByRole("button", { name: /دریافت خروجی/i });
+    fireEvent.click(exportSubmitBtn);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("دسترسی به محتوای این سازمان برای حساب کاربری شما مجاز نیست.")
+      ).toBeInTheDocument();
+    });
+  });
 });
+

@@ -648,4 +648,186 @@ describe("Pricing & Card-to-Card UX Refactor Suite", () => {
     // Benefits list item
     expect(screen.getByText("۴۰٬۰۰۰ تومان اعتبار هدیه کیف پول (ویژه اولین خرید اشتراک)")).toBeDefined();
   });
+
+  it("20. Accepts manual entry of Persian digits (۱۲۳۴) in source card last 4 and normalizes to ASCII", () => {
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    const manualBtn = screen.getByText("ورود دستی اطلاعات");
+    fireEvent.click(manualBtn);
+
+    const trackingInput = screen.getByPlaceholderText("مثال: ۱۲۳۴۵۶۷۸۹");
+    fireEvent.change(trackingInput, { target: { value: "TRK-100" } });
+
+    const last4Input = screen.getByPlaceholderText("مثال: ۵۶۷۸");
+    // User types Persian digits: ۵۶۷۸
+    fireEvent.change(last4Input, { target: { value: "۵۶۷۸" } });
+    expect(last4Input).toHaveValue("5678");
+
+    const submitBtn = screen.getByText("تأیید اطلاعات و فعال‌سازی فوری");
+    fireEvent.click(submitBtn);
+
+    expect(mockC2cMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source_card_last4: "5678",
+        tracking_number: "TRK-100",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("21. Accepts Pasting Persian digits from bank SMS into source card last 4", () => {
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    const manualBtn = screen.getByText("ورود دستی اطلاعات");
+    fireEvent.click(manualBtn);
+
+    const last4Input = screen.getByPlaceholderText("مثال: ۵۶۷۸");
+    // Paste Persian numerals with surrounding text/dash: - ۹۸۷۶
+    fireEvent.change(last4Input, { target: { value: "۹۸۷۶" } });
+    expect(last4Input).toHaveValue("9876");
+  });
+
+  it("22. Accepts Pasting Arabic digits (١٢٣٤) into source card last 4 and normalizes", () => {
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    const manualBtn = screen.getByText("ورود دستی اطلاعات");
+    fireEvent.click(manualBtn);
+
+    const last4Input = screen.getByPlaceholderText("مثال: ۵۶۷۸");
+    // Arabic digits: ١٢٣٤
+    fireEvent.change(last4Input, { target: { value: "١٢٣٤" } });
+    expect(last4Input).toHaveValue("1234");
+  });
+
+  it("23. Accepts English digits (1234) in source card last 4", () => {
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    const manualBtn = screen.getByText("ورود دستی اطلاعات");
+    fireEvent.click(manualBtn);
+
+    const last4Input = screen.getByPlaceholderText("مثال: ۵۶۷۸");
+    fireEvent.change(last4Input, { target: { value: "4321" } });
+    expect(last4Input).toHaveValue("4321");
+  });
+
+  it("24. Accepts tracking number with Persian, Arabic, and English digits and normalizes to ASCII", () => {
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    const manualBtn = screen.getByText("ورود دستی اطلاعات");
+    fireEvent.click(manualBtn);
+
+    const trackingInput = screen.getByPlaceholderText("مثال: ۱۲۳۴۵۶۷۸۹");
+    // Persian tracking number: ۱۲۳۴۵۶۷۸۹
+    fireEvent.change(trackingInput, { target: { value: "۱۲۳۴۵۶۷۸۹" } });
+    expect(trackingInput).toHaveValue("123456789");
+
+    // Arabic tracking number: ٩٨٧٦٥٤٣٢١
+    fireEvent.change(trackingInput, { target: { value: "٩٨٧٦٥٤٣٢١" } });
+    expect(trackingInput).toHaveValue("987654321");
+
+    // Mixed alphanumeric with dashes: TRK-۱۲۳-abc
+    fireEvent.change(trackingInput, { target: { value: "TRK-۱۲۳-abc" } });
+    expect(trackingInput).toHaveValue("TRK-123-abc");
+  });
+
+  it("25. Rejects incomplete card number or non-numeric characters with validation error", () => {
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    const manualBtn = screen.getByText("ورود دستی اطلاعات");
+    fireEvent.click(manualBtn);
+
+    const trackingInput = screen.getByPlaceholderText("مثال: ۱۲۳۴۵۶۷۸۹");
+    fireEvent.change(trackingInput, { target: { value: "TRK-VALID" } });
+
+    const last4Input = screen.getByPlaceholderText("مثال: ۵۶۷۸");
+    // User enters non-numeric mixed with 2 digits: "۱۲ab" -> normalized to "12" (incomplete 2 digits)
+    fireEvent.change(last4Input, { target: { value: "۱۲ab" } });
+    expect(last4Input).toHaveValue("12");
+
+    const submitBtn = screen.getByText("تأیید اطلاعات و فعال‌سازی فوری");
+    fireEvent.click(submitBtn);
+
+    expect(mockC2cMutate).not.toHaveBeenCalled();
+    expect(screen.getByText("۴ رقم آخر کارت مبدأ باید دقیقاً ۴ رقم عددی باشد.")).toBeDefined();
+  });
+
+  it("26. Successfully completes checkout without a discount code using full product price", () => {
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    const manualBtn = screen.getByText("ورود دستی اطلاعات");
+    fireEvent.click(manualBtn);
+
+    const trackingInput = screen.getByPlaceholderText("مثال: ۱۲۳۴۵۶۷۸۹");
+    fireEvent.change(trackingInput, { target: { value: "TRK-NO-COUPON" } });
+
+    const last4Input = screen.getByPlaceholderText("مثال: ۵۶۷۸");
+    fireEvent.change(last4Input, { target: { value: "7788" } });
+
+    const submitBtn = screen.getByText("تأیید اطلاعات و فعال‌سازی فوری");
+    fireEvent.click(submitBtn);
+
+    expect(mockC2cMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        product_id: "prod-sub-monthly",
+        amount: 99000,
+        coupon_code: undefined,
+        tracking_number: "TRK-NO-COUPON",
+        source_card_last4: "7788",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("27. Displays error alert on API error and allows user to correct and re-submit", () => {
+    mockC2cMutate.mockImplementationOnce((_data, callbacks) => {
+      callbacks.onError({
+        response: { data: { message: "شماره پیگیری نامعتبر است یا تکراری می‌باشد." } },
+      });
+    });
+
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    const manualBtn = screen.getByText("ورود دستی اطلاعات");
+    fireEvent.click(manualBtn);
+
+    const trackingInput = screen.getByPlaceholderText("مثال: ۱۲۳۴۵۶۷۸۹");
+    fireEvent.change(trackingInput, { target: { value: "TRK-FAIL" } });
+
+    const last4Input = screen.getByPlaceholderText("مثال: ۵۶۷۸");
+    fireEvent.change(last4Input, { target: { value: "1122" } });
+
+    const submitBtn = screen.getByText("تأیید اطلاعات و فعال‌سازی فوری");
+    fireEvent.click(submitBtn);
+
+    // Shows API error
+    expect(screen.getByText("شماره پیگیری نامعتبر است یا تکراری می‌باشد.")).toBeDefined();
+
+    // User corrects tracking number and re-submits
+    fireEvent.change(trackingInput, { target: { value: "TRK-SUCCESS" } });
+    fireEvent.click(submitBtn);
+
+    expect(mockC2cMutate).toHaveBeenCalledTimes(2);
+    expect(mockC2cMutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        tracking_number: "TRK-SUCCESS",
+        source_card_last4: "1122",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("28. Submit button is disabled while submission is pending to prevent duplicate submission", () => {
+    vi.mocked(useCommerceHooks.useSubmitCardToCardPayment).mockReturnValue({
+      mutate: mockC2cMutate,
+      isPending: true,
+    } as any);
+
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    const manualBtn = screen.getByText("ورود دستی اطلاعات");
+    fireEvent.click(manualBtn);
+
+    const submitBtn = screen.getByRole("button", { name: /در حال اعتبارسنجی و فعال‌سازی آنی/ });
+    expect(submitBtn).toBeDisabled();
+  });
 });

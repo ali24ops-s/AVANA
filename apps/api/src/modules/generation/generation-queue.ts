@@ -41,6 +41,7 @@ export type GenerationContext = "admin" | "public";
  */
 export type GenerationJobPayload = {
   jobId?: GenerationJobId;
+  requestId?: string;
   actorUserId: Actor["userId"];
   actorRole: Actor["role"];
   organizationId: OrganizationId;

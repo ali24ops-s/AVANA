@@ -222,6 +222,7 @@ export function AdminCourseHubPage() {
               lessons: found.lessonCount ?? 0,
               flashcards: found.flashcardCount ?? 0,
               quizzes: found.quizQuestionCount ?? 0,
+              quizQuestions: found.quizQuestionCount ?? 0,
             },
             product: found.product ?? null,
           });
@@ -313,7 +314,7 @@ export function AdminCourseHubPage() {
       moduleCount: course.counts.modules,
       lessonCount: course.counts.lessons,
       flashcardCount: course.counts.flashcards,
-      quizQuestionCount: course.counts.quizzes,
+      quizQuestionCount: course.counts.quizQuestions ?? course.counts.quizzes,
       product: course.product
         ? {
             id: course.product.id,
@@ -439,7 +440,11 @@ export function AdminCourseHubPage() {
 
   if (!course) return null;
 
-  const organizationId = course.organizationId || "";
+  const organizationId =
+    course.organizationId ||
+    (course.scope === "official" || course.isOfficial
+      ? "b4a0b464-16db-4087-92b7-163a1e6f6776"
+      : "");
   const backTab = course.scope === "teacher" ? "teacher" : course.scope === "user" ? "user" : "official";
 
   return (
@@ -595,7 +600,7 @@ export function AdminCourseHubPage() {
 
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs">
               <HelpCircle className="w-3.5 h-3.5 text-amber-500" />
-              <span className="font-bold">{course.counts.quizzes}</span>
+              <span className="font-bold">{course.counts.quizQuestions ?? course.counts.quizzes}</span>
               <span className="text-[11px] opacity-80">سؤال تستی</span>
             </div>
 
@@ -793,7 +798,7 @@ export function AdminCourseHubPage() {
             }`}
           >
             <Sparkles className="w-4 h-4" />
-            <span>۲. منابع و تولید خودکار</span>
+            <span>۲. منابع و کارگاه تولید</span>
           </button>
 
           <button

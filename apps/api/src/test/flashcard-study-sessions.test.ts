@@ -419,10 +419,20 @@ describe("Flashcard Study Sessions (Resume & Persistence)", () => {
     expect(reviews[0].flashcardId).toBe(systemCard.id);
     expect(reviews[0].rating).toBe("good");
 
-    // Verify user schedule was created with updated interval
-    const schedule = await userFlashcardScheduleStore.getByUserAndCard(studentUserId, systemCard.id);
-    expect(schedule).toBeDefined();
-    expect(schedule?.intervalDays).toBe(1);
+    // Verify user schedule was created: 1st Good on new card keeps learning interval (0)
+    const schedule1 = await userFlashcardScheduleStore.getByUserAndCard(studentUserId, systemCard.id);
+    expect(schedule1).toBeDefined();
+    expect(schedule1?.intervalDays).toBe(0);
+
+    // 2nd Good on new card graduates it to interval 1
+    await service.submitFlashcardReview(student, organizationId, {
+      flashcardId: systemCard.id,
+      rating: "good",
+      reactionMs: 1200,
+    });
+    const schedule2 = await userFlashcardScheduleStore.getByUserAndCard(studentUserId, systemCard.id);
+    expect(schedule2).toBeDefined();
+    expect(schedule2?.intervalDays).toBe(1);
   });
 
   it("Test B: fails review for flashcard belonging to an unauthorized third-party organization", async () => {

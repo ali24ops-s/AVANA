@@ -10,7 +10,7 @@
  *  - Today's study plan & content recommendations
  */
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useQuery, useQueries, useQueryClient } from "@tanstack/react-query";
@@ -40,11 +40,10 @@ import { createLearningApi } from "../lib/api/learning.js";
 import { createStudyApi } from "../lib/api/study.js";
 import { createWelcomeGiftApi } from "../lib/api/welcome-gift.js";
 import { toPersianDigits, formatPersianOf, getWeeklyStudyComparison } from "@avana/domain";
-import { Button } from "@avana/ui";
+import { Button, AvanaSelect } from "@avana/ui";
 import { useAuth } from "../providers/AuthProvider.js";
 import {
   useCurrentPersianDate,
-  calculateDaysRemaining,
   formatPersianExamDate,
   isExamUpcoming,
   calculateExamDaysRemaining,
@@ -207,13 +206,15 @@ export function HomePage() {
       throw new Error("شناسه سازمان یادگیری یافت نشد.");
     }
 
-    await courseApi.updateCourse(targetOrgId, examToDelete.id, {
-      exam_at: null,
-      exam_scope: null,
-    });
+    try {
+      await courseApi.deleteExam(targetOrgId, examToDelete.id);
+    } catch {
+      await courseApi.deleteExamSchedule(targetOrgId, examToDelete.id);
+    }
 
     await queryClient.invalidateQueries({ queryKey: ["my-courses"] });
     await queryClient.invalidateQueries({ queryKey: ["all-courses"] });
+    await queryClient.invalidateQueries({ queryKey: ["courses"] });
     await queryClient.invalidateQueries({ queryKey: ["course"] });
     await queryClient.invalidateQueries({ queryKey: ["course-learning"] });
     await queryClient.invalidateQueries({ queryKey: ["course-learn"] });
@@ -252,7 +253,9 @@ export function HomePage() {
 
   const courses = (coursesQuery.data?.items as CourseResource[] | undefined) ?? [];
   const allOrgCourses = (allCoursesQuery.data?.items as CourseResource[] | undefined) ?? [];
-  const availableCourses = allOrgCourses.length > 0 ? allOrgCourses.filter((c) => !c.archived) : courses.filter((c) => !c.archived);
+  const availableCourses = useMemo(() => {
+    return allOrgCourses.length > 0 ? allOrgCourses.filter((c) => !c.archived) : courses.filter((c) => !c.archived);
+  }, [allOrgCourses, courses]);
 
   // Upcoming exams: filtered strictly to active/upcoming exams and sorted by nearest date ascending
   const upcomingExams = courses
@@ -263,9 +266,10 @@ export function HomePage() {
     }))
     .filter((item) => item.daysRemaining >= 0)
     .sort((a, b) => {
-      const dateA = new Date(a.course.exam_at!).getTime();
-      const dateB = new Date(b.course.exam_at!).getTime();
-      return dateA - dateB;
+      if (a.daysRemaining !== b.daysRemaining) {
+        return a.daysRemaining - b.daysRemaining;
+      }
+      return a.course.title.localeCompare(b.course.title, "fa-IR");
     });
 
   // Filter out archived courses and sort by recency (created_at/updated_at descending)
@@ -446,24 +450,11 @@ export function HomePage() {
             data-tour="upcoming-exams"
             className="bg-[var(--color-surface)] p-6 rounded-card border border-[var(--color-border)] shadow-xs space-y-4"
           >
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
-                <GraduationCap className="w-5 h-5 text-primary" />
-                <span>امتحانات پیش رو</span>
+            <div className="flex items-center gap-2">
+              <GraduationCap className="w-5 h-5 text-primary" />
+              <h3 className="text-base font-bold text-[var(--color-text)]">
+                امتحانات پیش رو
               </h3>
-              <Button
-                type="button"
-                onClick={() => {
-                  setExamModalMode("create");
-                  setSelectedCourseIdForExam(undefined);
-                  setIsAddExamOpen(true);
-                }}
-                variant="secondary"
-                size="sm"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>افزودن امتحان</span>
-              </Button>
             </div>
 
             {coursesQuery.isLoading ? (
@@ -565,22 +556,27 @@ export function HomePage() {
                 <p className="text-[11px] text-[var(--color-text-muted)] mt-1 max-w-[240px] leading-relaxed">
                   با ثبت تاریخ آزمون‌ها، زمان‌بندی و مطالعه خود را مدیریت کنید.
                 </p>
-                <Button
-                  type="button"
-                  onClick={() => {
-                    setExamModalMode("create");
-                    setSelectedCourseIdForExam(undefined);
-                    setIsAddExamOpen(true);
-                  }}
-                  variant="primary"
-                  size="sm"
-                  className="mt-3.5"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>افزودن امتحان</span>
-                </Button>
               </div>
             )}
+
+            <Button
+              type="button"
+              onClick={() => {
+                setExamModalMode("create");
+                setSelectedCourseIdForExam(undefined);
+                setIsAddExamOpen(true);
+              }}
+              variant={upcomingExams.length > 0 ? "outline" : "primary"}
+              size="sm"
+              className={
+                upcomingExams.length > 0
+                  ? "w-full border-dashed hover:border-primary/40 text-[var(--color-text-muted)] hover:text-primary transition-colors flex items-center justify-center gap-1.5"
+                  : "w-full flex items-center justify-center gap-1.5"
+              }
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>افزودن امتحان</span>
+            </Button>
           </section>
         </div>
       </div>
@@ -602,6 +598,7 @@ export function HomePage() {
         }}
         organizationId={organization?.id}
         courses={availableCourses}
+        userCourses={courses}
         initialCourseId={selectedCourseIdForExam}
         onDeleteExam={(course) => setExamToDelete(course)}
       />
@@ -639,6 +636,7 @@ interface AddExamModalProps {
   onClose: () => void;
   organizationId?: string;
   courses: CourseResource[];
+  userCourses?: CourseResource[];
   initialCourseId?: string;
   onDeleteExam?: (course: CourseResource) => void;
 }
@@ -649,10 +647,13 @@ function AddExamModal({
   onClose,
   organizationId,
   courses,
+  userCourses,
   initialCourseId,
   onDeleteExam,
 }: AddExamModalProps) {
   const queryClient = useQueryClient();
+  const [examTargetType, setExamTargetType] = useState<"existing" | "new">("existing");
+  const [newCourseTitle, setNewCourseTitle] = useState("");
   const [selectedCourseId, setSelectedCourseId] = useState(initialCourseId || "");
   const [examDate, setExamDate] = useState("");
   const [selectedModuleIds, setSelectedModuleIds] = useState<string[]>([]);
@@ -660,35 +661,65 @@ function AddExamModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch course structure (modules & lessons) when modal is open and course is selected
+  // Fetch course structure (modules & lessons) when modal is open and existing course is selected
   const learningApi = createLearningApi(createApiClient({ baseUrl: getApiBaseUrl() }));
   const courseLearnQuery = useQuery({
     queryKey: ["course-learn", selectedCourseId],
     queryFn: () => learningApi.getCourseLearning(selectedCourseId),
-    enabled: isOpen && !!selectedCourseId,
+    enabled: isOpen && !!selectedCourseId && examTargetType === "existing",
   });
 
   const availableModules = courseLearnQuery.data?.modules ?? [];
 
+  const userCoursesMap = useMemo(() => {
+    return new Map((userCourses ?? courses).map((c) => [c.id, c]));
+  }, [userCourses, courses]);
+
+  const prevIsOpenRef = useRef(false);
+  const prevCourseIdRef = useRef<string | undefined>(undefined);
+  const prevModeRef = useRef<"create" | "edit">(mode);
+
   // Sync state when modal opens, mode changes, or initialCourseId changes
   useEffect(() => {
-    if (isOpen) {
+    const justOpened = isOpen && !prevIsOpenRef.current;
+    const courseChanged = initialCourseId !== prevCourseIdRef.current;
+    const modeChanged = mode !== prevModeRef.current;
+
+    prevIsOpenRef.current = isOpen;
+    prevCourseIdRef.current = initialCourseId;
+    prevModeRef.current = mode;
+
+    if (!isOpen) {
+      // Clear all state when modal closes so no stale inputs persist
+      setExamTargetType("existing");
+      setNewCourseTitle("");
+      setSelectedCourseId("");
+      setExamDate("");
+      setSelectedModuleIds([]);
+      setIsScopeExpanded(false);
+      setIsSubmitting(false);
+      setError(null);
+      return;
+    }
+
+    if (justOpened || courseChanged || modeChanged) {
       setIsScopeExpanded(false);
       setError(null);
       setIsSubmitting(false);
 
       if (mode === "edit") {
+        setExamTargetType("existing");
+        setNewCourseTitle("");
         const courseId = initialCourseId || "";
         setSelectedCourseId(courseId);
-        const found = courses.find((c) => c.id === courseId);
+        const found = userCoursesMap.get(courseId) || courses.find((c) => c.id === courseId);
         if (found?.exam_at) {
           try {
-            const match = found.exam_at.match(/^(\d{4})-(\d{2})-(\d{2})/);
-            if (match) {
-              setExamDate(`${match[1]}-${match[2]}-${match[3]}`);
-            } else {
-              const d = new Date(found.exam_at);
+            const d = new Date(found.exam_at);
+            if (!isNaN(d.getTime())) {
               setExamDate(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran" }).format(d));
+            } else {
+              setExamDate("");
             }
           } catch {
             setExamDate("");
@@ -704,36 +735,27 @@ function AddExamModal({
         }
       } else {
         // Mode is "create":
-        // Respect initialCourseId if specifically provided, otherwise start blank.
-        // Form fields (date and modules) always start completely empty in create mode.
+        setExamTargetType("existing");
+        setNewCourseTitle("");
         setSelectedCourseId(initialCourseId || "");
         setExamDate("");
         setSelectedModuleIds([]);
       }
-    } else {
-      // Clear all state when modal closes so no stale inputs persist
-      setSelectedCourseId("");
-      setExamDate("");
-      setSelectedModuleIds([]);
-      setIsScopeExpanded(false);
-      setIsSubmitting(false);
-      setError(null);
     }
-  }, [isOpen, initialCourseId, courses, mode]);
+  }, [isOpen, initialCourseId, courses, userCoursesMap, mode]);
 
   // When course selection changes in dropdown
   const handleCourseChange = (newCourseId: string) => {
     setSelectedCourseId(newCourseId);
     if (mode === "edit") {
-      const found = courses.find((c) => c.id === newCourseId);
+      const found = userCoursesMap.get(newCourseId) || courses.find((c) => c.id === newCourseId);
       if (found?.exam_at) {
         try {
-          const match = found.exam_at.match(/^(\d{4})-(\d{2})-(\d{2})/);
-          if (match) {
-            setExamDate(`${match[1]}-${match[2]}-${match[3]}`);
-          } else {
-            const d = new Date(found.exam_at);
+          const d = new Date(found.exam_at);
+          if (!isNaN(d.getTime())) {
             setExamDate(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran" }).format(d));
+          } else {
+            setExamDate("");
           }
         } catch {
           setExamDate("");
@@ -772,19 +794,29 @@ function AddExamModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCourseId) {
-      setError("لطفاً یک درس را انتخاب کنید.");
-      return;
+
+    if (examTargetType === "new") {
+      if (!newCourseTitle.trim()) {
+        setError("لطفاً نام درس جدید را وارد کنید.");
+        return;
+      }
+    } else {
+      if (!selectedCourseId) {
+        setError("لطفاً یک درس را انتخاب کنید.");
+        return;
+      }
     }
+
     if (!examDate) {
-      setError("لطفاً تاریخ امتحان را مشخص کنید.");
+      setError("لطفاً تاریخ برگزاری امتحان را مشخص کنید.");
       return;
     }
 
     const selectedCourse = courses.find((c) => c.id === selectedCourseId);
     const targetOrgId =
-      (selectedCourse as { organization_id?: string } | undefined)
-        ?.organization_id || organizationId;
+      (selectedCourse as { organization_id?: string } | undefined)?.organization_id ||
+      organizationId ||
+      (courses[0] as { organization_id?: string } | undefined)?.organization_id;
 
     if (!targetOrgId) {
       setError("شناسه سازمان یادگیری یافت نشد.");
@@ -798,25 +830,34 @@ function AddExamModal({
       const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
       const courseApi = createCourseApi(apiClient);
 
-      const isoDate = new Date(`${examDate}T00:00:00.000Z`).toISOString();
+      const cleanDate = examDate.split("T")[0];
+      const isoDate = new Date(`${cleanDate}T00:00:00.000Z`).toISOString();
 
-      await courseApi.updateCourse(targetOrgId, selectedCourseId, {
-        exam_at: isoDate,
-        exam_scope:
-          selectedModuleIds.length > 0
-            ? { moduleIds: selectedModuleIds }
-            : null,
-      });
+      if (examTargetType === "new") {
+        await courseApi.registerExam(targetOrgId, {
+          title: newCourseTitle.trim(),
+          exam_at: isoDate,
+          exam_scope: null,
+        });
+      } else {
+        await courseApi.registerExam(targetOrgId, {
+          course_id: selectedCourseId,
+          exam_at: isoDate,
+          exam_scope:
+            selectedModuleIds.length > 0 ? { moduleIds: selectedModuleIds } : null,
+        });
 
-      // Ensure course is in user's enrolled courses list if not already
-      try {
-        await courseApi.addMyCourse(targetOrgId, selectedCourseId);
-      } catch {
-        // Ignore if already added
+        // Ensure course is in user's enrolled courses list if not already
+        try {
+          await courseApi.addMyCourse(targetOrgId, selectedCourseId);
+        } catch {
+          // Ignore if already added
+        }
       }
 
       await queryClient.invalidateQueries({ queryKey: ["my-courses"] });
       await queryClient.invalidateQueries({ queryKey: ["all-courses"] });
+      await queryClient.invalidateQueries({ queryKey: ["courses"] });
       await queryClient.invalidateQueries({ queryKey: ["course"] });
       await queryClient.invalidateQueries({ queryKey: ["course-learning"] });
       await queryClient.invalidateQueries({ queryKey: ["course-learn"] });
@@ -833,6 +874,11 @@ function AddExamModal({
   };
 
   const selectedCourse = courses.find((c) => c.id === selectedCourseId);
+  const selectedEnrolledCourse = userCoursesMap.get(selectedCourseId);
+  const isSubmitDisabled =
+    isSubmitting ||
+    !examDate ||
+    (examTargetType === "new" ? !newCourseTitle.trim() : !selectedCourseId);
 
   return (
     <div
@@ -870,49 +916,136 @@ function AddExamModal({
             </div>
           )}
 
-          {/* Select Course */}
-          <div className="space-y-1.5">
-            <label
-              htmlFor="exam-course-select"
-              className="block text-xs font-semibold text-[var(--color-text)]"
-            >
-              انتخاب درس / دوره
-            </label>
-            {courses.length > 0 ? (
-              <select
-                id="exam-course-select"
-                value={selectedCourseId}
-                onChange={(e) => handleCourseChange(e.target.value)}
-                disabled={mode === "edit"}
-                className={`w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-input px-3.5 py-2.5 text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors ${mode === "edit" ? "opacity-75 cursor-not-allowed" : "cursor-pointer"}`}
-                required
+          {/* Mode Segment Switch (Only in create mode) */}
+          {mode === "create" && (
+            <div className="flex p-1 bg-[var(--color-surface-warm)] rounded-card border border-[var(--color-border)] gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setExamTargetType("existing");
+                  setError(null);
+                }}
+                className={`flex-1 py-1.5 px-3 rounded-button text-xs font-semibold transition-all cursor-pointer ${
+                  examTargetType === "existing"
+                    ? "bg-[var(--color-surface)] text-primary shadow-xs"
+                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                }`}
               >
-                <option value="">-- یک درس را انتخاب کنید --</option>
-                {courses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.title} {isExamUpcoming(c.exam_at) ? " (دارای امتحان فعال)" : ""}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <p className="text-xs text-[var(--color-text-muted)] p-3 bg-[var(--color-surface-warm)] rounded-card border border-[var(--color-border)]">
-                دوره‌ای برای انتخاب موجود نیست.
-              </p>
-            )}
-          </div>
-
-          {mode === "create" && selectedCourse?.exam_at && isExamUpcoming(selectedCourse.exam_at) && (
-            <div className="p-3 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text-muted)] flex items-center gap-2">
-              <Info className="w-4 h-4 text-primary shrink-0" />
-              <span>
-                این درس در حال حاضر دارای امتحان پیش‌رو در تاریخ{" "}
-                <strong className="text-[var(--color-text)]">
-                  {formatPersianExamDate(selectedCourse.exam_at)}
-                </strong>{" "}
-                است. با ثبت تاریخ جدید، زمان‌بندی امتحان این دوره به‌روزرسانی خواهد شد.
-              </span>
+                انتخاب دوره موجود
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setExamTargetType("new");
+                  setError(null);
+                }}
+                className={`flex-1 py-1.5 px-3 rounded-button text-xs font-semibold transition-all cursor-pointer ${
+                  examTargetType === "new"
+                    ? "bg-[var(--color-surface)] text-primary shadow-xs"
+                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                }`}
+              >
+                + افزودن درس جدید
+              </button>
             </div>
           )}
+
+          {/* Target Course Selector / Creator */}
+          {examTargetType === "new" ? (
+            <div className="space-y-1.5">
+              <label
+                htmlFor="new-course-title-input"
+                className="block text-xs font-semibold text-[var(--color-text)]"
+              >
+                نام درس جدید
+              </label>
+              <input
+                id="new-course-title-input"
+                type="text"
+                value={newCourseTitle}
+                onChange={(e) => setNewCourseTitle(e.target.value)}
+                placeholder="مثال: ریاضی عمومی ۲، فیزیک الکتریسیته و ..."
+                className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-input px-3.5 py-2.5 text-xs md:text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)]/60 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                required
+                autoFocus
+              />
+              <p className="text-[11px] text-[var(--color-text-muted)] leading-relaxed">
+                یک دوره شخصی با این نام در بخش «دوره‌های من» ایجاد خواهد شد و امتحان به آن متصل می‌شود.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1.5" dir="rtl">
+              {courses.length > 0 ? (
+                <>
+                  <label
+                    htmlFor="exam-course-select"
+                    className="block text-xs font-semibold text-[var(--color-text)] text-right"
+                  >
+                    انتخاب درس / دوره
+                  </label>
+                  <AvanaSelect
+                    dataTestId="exam-course-select-ui"
+                    value={selectedCourseId}
+                    onChange={(val) =>
+                      handleCourseChange(typeof val === "string" ? val : val[0] || "")
+                    }
+                    disabled={mode === "edit"}
+                    options={courses.map((c) => {
+                      const enrolled = userCoursesMap.get(c.id);
+                      return {
+                        value: c.id,
+                        label: `${c.title}${isExamUpcoming(enrolled?.exam_at) ? " (دارای امتحان فعال)" : ""}`,
+                      };
+                    })}
+                    placeholder="-- یک درس را انتخاب کنید --"
+                    isSearchable={courses.length > 5}
+                  />
+                  <select
+                    id="exam-course-select"
+                    data-testid="exam-course-select"
+                    value={selectedCourseId}
+                    onChange={(e) => handleCourseChange(e.target.value)}
+                    disabled={mode === "edit"}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    className="sr-only opacity-0 absolute pointer-events-none w-0 h-0"
+                  >
+                    <option value="">-- یک درس را انتخاب کنید --</option>
+                    {courses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-[var(--color-text)] text-right">
+                    انتخاب درس / دوره
+                  </label>
+                  <p className="text-xs text-[var(--color-text-muted)] p-3 bg-[var(--color-surface-warm)] rounded-card border border-[var(--color-border)] text-right">
+                    دوره‌ای برای انتخاب موجود نیست.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {examTargetType === "existing" &&
+            mode === "create" &&
+            selectedEnrolledCourse?.exam_at &&
+            isExamUpcoming(selectedEnrolledCourse.exam_at) && (
+              <div className="p-3 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text-muted)] flex items-center gap-2">
+                <Info className="w-4 h-4 text-primary shrink-0" />
+                <span>
+                  این درس در حال حاضر دارای امتحان پیش‌رو در تاریخ{" "}
+                  <strong className="text-[var(--color-text)]">
+                    {formatPersianExamDate(selectedEnrolledCourse.exam_at)}
+                  </strong>{" "}
+                  است. با ثبت تاریخ جدید، زمان‌بندی امتحان این دوره به‌روزرسانی خواهد شد.
+                </span>
+              </div>
+            )}
 
           {/* Persian Exam Date Picker */}
           <div className="space-y-1.5">
@@ -926,124 +1059,126 @@ function AddExamModal({
             />
           </div>
 
-          {/* Exam Scope (Modules Selection) */}
-          <div className="pt-2 border-t border-[var(--color-border)]">
-            <button
-              type="button"
-              onClick={() => setIsScopeExpanded((prev) => !prev)}
-              aria-expanded={isScopeExpanded}
-              aria-controls="exam-scope-panel"
-              className="w-full flex items-center justify-between p-2.5 rounded-card bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-hover,var(--color-border)/20)] border border-[var(--color-border)] transition-colors text-right cursor-pointer group"
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-xs font-semibold text-[var(--color-text)] group-hover:text-primary transition-colors">
-                  مباحث و سرفصل‌های امتحان (اختیاری)
-                </span>
-                {selectedModuleIds.length > 0 && (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-bold shrink-0">
-                    {toPersianDigits(selectedModuleIds.length)} مورد انتخاب شده
+          {/* Exam Scope (Modules Selection - only for existing courses) */}
+          {examTargetType === "existing" && (
+            <div className="pt-2 border-t border-[var(--color-border)]">
+              <button
+                type="button"
+                onClick={() => setIsScopeExpanded((prev) => !prev)}
+                aria-expanded={isScopeExpanded}
+                aria-controls="exam-scope-panel"
+                className="w-full flex items-center justify-between p-2.5 rounded-card bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-hover,var(--color-border)/20)] border border-[var(--color-border)] transition-colors text-right cursor-pointer group"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs font-semibold text-[var(--color-text)] group-hover:text-primary transition-colors">
+                    مباحث و سرفصل‌های امتحان (اختیاری)
                   </span>
-                )}
-              </div>
-              <ChevronDown
-                className={`w-4 h-4 text-[var(--color-text-muted)] group-hover:text-[var(--color-text)] transition-transform duration-200 shrink-0 ${
-                  isScopeExpanded ? "rotate-180" : ""
-                }`}
-              />
-            </button>
-
-            <AnimatePresence initial={false}>
-              {isScopeExpanded && (
-                <motion.div
-                  id="exam-scope-panel"
-                  key="exam-scope-content"
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2, ease: "easeInOut" }}
-                  className="overflow-hidden space-y-2 pt-2.5"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-[11px] text-[var(--color-text-muted)] leading-relaxed">
-                      سرفصل‌هایی که در این امتحان مورد آزمون قرار می‌گیرند را مشخص کنید تا در برنامه‌ریزی روزانه اولویت فوریتی دریافت کنند.
-                    </p>
-                    {availableModules.length > 0 && (
-                      <div className="flex items-center gap-2 shrink-0 mr-2">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedModuleIds(availableModules.map((m) => m.id))}
-                          className="text-[11px] text-primary hover:underline font-medium cursor-pointer"
-                        >
-                          انتخاب همه
-                        </button>
-                        <span className="text-[var(--color-border)] text-xs">|</span>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedModuleIds([])}
-                          className="text-[11px] text-[var(--color-text-muted)] hover:underline font-medium cursor-pointer"
-                        >
-                          حذف همه
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {courseLearnQuery.isLoading ? (
-                    <div className="p-4 flex items-center justify-center bg-[var(--color-surface-warm)] rounded-card border border-[var(--color-border)]">
-                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                      <span className="text-xs text-[var(--color-text-muted)] mr-2">
-                        در حال بارگذاری سرفصل‌های دوره...
-                      </span>
-                    </div>
-                  ) : availableModules.length > 0 ? (
-                    <div className="max-h-48 overflow-y-auto space-y-1.5 p-2 bg-[var(--color-surface-warm)] rounded-card border border-[var(--color-border)]">
-                      {availableModules.map((m) => {
-                        const isSelected = selectedModuleIds.includes(m.id);
-                        const lessonCount = m.lessons?.length ?? 0;
-                        return (
-                          <label
-                            key={m.id}
-                            className={`flex items-center justify-between p-2 rounded-button border text-xs cursor-pointer transition-colors ${
-                              isSelected
-                                ? "bg-[var(--color-surface)] border-primary/40 text-[var(--color-text)] shadow-xs"
-                                : "bg-[var(--color-surface)] border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:border-[var(--color-border)]"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedModuleIds((prev) => [...prev, m.id]);
-                                  } else {
-                                    setSelectedModuleIds((prev) =>
-                                      prev.filter((id) => id !== m.id),
-                                    );
-                                  }
-                                }}
-                                className="rounded border-[var(--color-border)] text-primary focus:ring-primary h-4 w-4"
-                              />
-                              <span className="font-medium truncate">{m.title}</span>
-                            </div>
-                            <span className="text-[10px] text-[var(--color-text-muted)] shrink-0 mr-2">
-                              {toPersianDigits(lessonCount)} درس
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-[var(--color-text-muted)] p-2.5 bg-[var(--color-surface-warm)] rounded-card border border-[var(--color-border)]">
-                      {selectedCourseId
-                        ? "سرفصلی برای این دوره ثبت نشده است."
-                        : "ابتدا دوره مورد نظر را انتخاب کنید."}
-                    </p>
+                  {selectedModuleIds.length > 0 && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-bold shrink-0">
+                      {toPersianDigits(selectedModuleIds.length)} مورد انتخاب شده
+                    </span>
                   )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+                </div>
+                <ChevronDown
+                  className={`w-4 h-4 text-[var(--color-text-muted)] group-hover:text-[var(--color-text)] transition-transform duration-200 shrink-0 ${
+                    isScopeExpanded ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              <AnimatePresence initial={false}>
+                {isScopeExpanded && (
+                  <motion.div
+                    id="exam-scope-panel"
+                    key="exam-scope-content"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                    className="overflow-hidden space-y-2 pt-2.5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] text-[var(--color-text-muted)] leading-relaxed">
+                        سرفصل‌هایی که در این امتحان مورد آزمون قرار می‌گیرند را مشخص کنید تا در برنامه‌ریزی روزانه اولویت فوریتی دریافت کنند.
+                      </p>
+                      {availableModules.length > 0 && (
+                        <div className="flex items-center gap-2 shrink-0 mr-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedModuleIds(availableModules.map((m) => m.id))}
+                            className="text-[11px] text-primary hover:underline font-medium cursor-pointer"
+                          >
+                            انتخاب همه
+                          </button>
+                          <span className="text-[var(--color-border)] text-xs">|</span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedModuleIds([])}
+                            className="text-[11px] text-[var(--color-text-muted)] hover:underline font-medium cursor-pointer"
+                          >
+                            حذف همه
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {courseLearnQuery.isLoading ? (
+                      <div className="p-4 flex items-center justify-center bg-[var(--color-surface-warm)] rounded-card border border-[var(--color-border)]">
+                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                        <span className="text-xs text-[var(--color-text-muted)] mr-2">
+                          در حال بارگذاری سرفصل‌های دوره...
+                        </span>
+                      </div>
+                    ) : availableModules.length > 0 ? (
+                      <div className="max-h-48 overflow-y-auto space-y-1.5 p-2 bg-[var(--color-surface-warm)] rounded-card border border-[var(--color-border)]">
+                        {availableModules.map((m) => {
+                          const isSelected = selectedModuleIds.includes(m.id);
+                          const lessonCount = m.lessons?.length ?? 0;
+                          return (
+                            <label
+                              key={m.id}
+                              className={`flex items-center justify-between p-2 rounded-button border text-xs cursor-pointer transition-colors ${
+                                isSelected
+                                  ? "bg-[var(--color-surface)] border-primary/40 text-[var(--color-text)] shadow-xs"
+                                  : "bg-[var(--color-surface)] border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:border-[var(--color-border)]"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedModuleIds((prev) => [...prev, m.id]);
+                                    } else {
+                                      setSelectedModuleIds((prev) =>
+                                        prev.filter((id) => id !== m.id),
+                                      );
+                                    }
+                                  }}
+                                  className="rounded border-[var(--color-border)] text-primary focus:ring-primary h-4 w-4"
+                                />
+                                <span className="font-medium truncate">{m.title}</span>
+                              </div>
+                              <span className="text-[10px] text-[var(--color-text-muted)] shrink-0 mr-2">
+                                {toPersianDigits(lessonCount)} درس
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-[var(--color-text-muted)] p-2.5 bg-[var(--color-surface-warm)] rounded-card border border-[var(--color-border)]">
+                        {selectedCourseId
+                          ? "سرفصلی برای این دوره ثبت نشده است."
+                          : "ابتدا دوره مورد نظر را انتخاب کنید."}
+                      </p>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
 
           {/* Footer Actions */}
           <div className="pt-3 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 border-t border-[var(--color-border)]">
@@ -1077,7 +1212,7 @@ function AddExamModal({
               </Button>
               <Button
                 type="submit"
-                disabled={isSubmitting || courses.length === 0}
+                disabled={isSubmitDisabled}
                 isLoading={isSubmitting}
                 variant="primary"
                 size="sm"
@@ -1328,6 +1463,9 @@ function PopularCourseCard({ course }: { course: CourseResource }) {
       coverImage={rawCourse.cover_image || rawCourse.thumbnail_url}
       href={`/courses/${course.id}`}
       variant="compact"
+      isOfficial={course.isOfficial ?? course.is_official}
+      isUserPublished={course.isUserPublished ?? course.is_user_published ?? (course.isOfficial === false || course.is_official === false)}
+      publisherName={course.publisherName ?? course.publisher_name ?? null}
     />
   );
 }

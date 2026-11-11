@@ -18,16 +18,19 @@ import {
   Edit3,
   Trash2,
   Check,
+  Download,
 } from "lucide-react";
 import {
   getLessonDetails,
+  downloadLessonPdf,
+  downloadChapterPdf,
   type AdminCourseHierarchyGroup,
   type AdminCourseHierarchyModule,
   type AdminCourseHierarchyLesson,
 } from "../../../lib/api/admin.js";
 import { MarkdownRenderer } from "../../markdown/MarkdownRenderer.js";
 import { useAdmin } from "../../../hooks/useAdmin.js";
-import { toPersianDigits } from "@avana/domain";
+import { toPersianDigits, buildPdfFilename } from "@avana/domain";
 
 export interface CourseStructurePanelProps {
   courseId: string;
@@ -40,6 +43,26 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
   const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
   const [previewLesson, setPreviewLesson] = useState<AdminCourseHierarchyLesson | null>(null);
   const [activeModalTab, setActiveModalTab] = useState<"content" | "flashcards" | "quizzes">("content");
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [downloadingChapterId, setDownloadingChapterId] = useState<string | null>(null);
+  const [chapterPdfError, setChapterPdfError] = useState<{ moduleId: string; message: string } | null>(null);
+
+  async function handleDownloadChapterPdf(mod: AdminCourseHierarchyModule) {
+    setDownloadingChapterId(mod.id);
+    setChapterPdfError(null);
+    try {
+      await downloadChapterPdf(mod.id, {
+        courseId,
+        fallbackName: buildPdfFilename("chapter", mod.title, mod.id),
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "خطا در دریافت فایل PDF فصل";
+      setChapterPdfError({ moduleId: mod.id, message: msg });
+    } finally {
+      setDownloadingChapterId(null);
+    }
+  }
 
   const lessonDetailsQuery = useQuery({
     queryKey: ["admin-lesson-detail", previewLesson?.id, courseId],
@@ -79,13 +102,94 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
       });
       setReferenceSuccess(true);
       setTimeout(() => setReferenceSuccess(false), 3000);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setActionMessage({
         type: "error",
-        text: err?.message || "خطا در ذخیره رفرنس محتوا",
+        text: err instanceof Error ? err.message : "خطا در ذخیره رفرنس محتوا",
       });
     } finally {
       setIsSavingReference(false);
+    }
+  };
+
+  // Course drafts query to detect pending changes and badges
+  const draftsQuery = useQuery({
+    queryKey: ["course-drafts", courseId],
+    queryFn: () => adminApi.getCourseDrafts(courseId),
+    staleTime: 5000,
+  });
+
+  const draftChangedLessonIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of draftsQuery.data?.changes || []) {
+      if (c.entityType === "lesson") {
+        set.add(c.entityId);
+      }
+    }
+    return set;
+  }, [draftsQuery.data?.changes]);
+
+  // Lesson editing in preview modal
+  const [isEditingContent, setIsEditingContent] = useState(false);
+  const [editingTitle, setEditingTitle] = useState("");
+  const [editingContentMarkdown, setEditingContentMarkdown] = useState("");
+  const [isSavingContent, setIsSavingContent] = useState(false);
+  const [saveContentError, setSaveContentError] = useState<string | null>(null);
+  const [saveContentSuccess, setSaveContentSuccess] = useState<string | null>(null);
+  const [editPreviewTab, setEditPreviewTab] = useState<"edit" | "preview">("edit");
+
+  useEffect(() => {
+    if (previewLesson) {
+      setEditingTitle(lessonDetailsQuery.data?.title || previewLesson.title || "");
+      setEditingContentMarkdown(lessonDetailsQuery.data?.contentMarkdown || "");
+      setIsEditingContent(false);
+      setSaveContentError(null);
+      setSaveContentSuccess(null);
+      setEditPreviewTab("edit");
+    }
+  }, [previewLesson, lessonDetailsQuery.data?.title, lessonDetailsQuery.data?.contentMarkdown]);
+
+  const handleSaveLessonContent = async () => {
+    if (!previewLesson) return;
+    if (!editingTitle.trim()) {
+      setSaveContentError("عنوان درس نمی‌تواند خالی باشد.");
+      return;
+    }
+    if (!editingContentMarkdown.trim()) {
+      setSaveContentError("متن محتوای درسنامه نمی‌تواند خالی باشد.");
+      return;
+    }
+
+    setIsSavingContent(true);
+    setSaveContentError(null);
+    setSaveContentSuccess(null);
+
+    try {
+      await adminApi.updateLesson(previewLesson.id, {
+        title: editingTitle.trim(),
+        contentMarkdown: editingContentMarkdown.trim(),
+      });
+
+      setSaveContentSuccess(
+        "تغییرات با موفقیت در پیش‌نویس دوره ثبت شد. برای انتشار به دانشجویان، از زبانه انتشار اقدام فرمایید."
+      );
+
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["admin-lesson-detail", previewLesson.id, courseId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["course-drafts", courseId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["course-hierarchy", courseId],
+        }),
+      ]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "خطا در ذخیره تغییرات درس";
+      setSaveContentError(msg);
+    } finally {
+      setIsSavingContent(false);
     }
   };
 
@@ -319,8 +423,31 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
             />
           </button>
 
-          {/* Module Actions: Reorder & Group Assignment Dropdown */}
+          {/* Module Actions: Reorder & Group Assignment Dropdown & Chapter PDF */}
           <div className="flex items-center gap-1.5 shrink-0">
+            {/* Download Chapter PDF Button */}
+            <button
+              type="button"
+              disabled={downloadingChapterId === mod.id || mod.lessons.length === 0}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDownloadChapterPdf(mod);
+              }}
+              title={
+                mod.lessons.length === 0
+                  ? "این فصل فاقد درسنامه است"
+                  : "دریافت PDF تمام جلسات این فصل در یک فایل"
+              }
+              className="px-2.5 py-1 rounded-lg bg-teal-600/10 hover:bg-teal-600/20 text-teal-700 dark:text-teal-300 border border-teal-600/30 font-semibold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {downloadingChapterId === mod.id ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-teal-600 shrink-0" />
+              ) : (
+                <Download className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+              )}
+              <span className="hidden sm:inline">دریافت PDF فصل</span>
+            </button>
+
             {/* Group Selector */}
             {groups.length > 0 && (
               <select
@@ -364,6 +491,23 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
           </div>
         </div>
 
+        {/* Chapter PDF Error Alert */}
+        {chapterPdfError?.moduleId === mod.id && (
+          <div className="mx-3.5 sm:mx-4 mb-2 p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <span>{chapterPdfError.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setChapterPdfError(null)}
+              className="text-rose-700 dark:text-rose-300 hover:opacity-75 p-0.5 cursor-pointer"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
         {/* Lessons in Module */}
         {isExpanded && (
           <div className="border-t border-[var(--color-border)] bg-[var(--color-surface-warm)]/30 divide-y divide-[var(--color-border)]">
@@ -382,8 +526,16 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
                       {toPersianDigits(lIdx + 1)}
                     </div>
                     <div className="min-w-0">
-                      <div className="font-bold text-xs text-[var(--color-text)] truncate">
-                        {lesson.title}
+                      <div className="flex items-center gap-2 truncate">
+                        <span className="font-bold text-xs text-[var(--color-text)] truncate">
+                          {lesson.title}
+                        </span>
+                        {draftChangedLessonIds.has(lesson.id) && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0">
+                            <Edit3 className="w-2.5 h-2.5" />
+                            <span>تغییر در پیش‌نویس</span>
+                          </span>
+                        )}
                       </div>
                       <div className="flex flex-wrap items-center gap-2 text-[10px] text-[var(--color-text-muted)] mt-0.5">
                         <span>
@@ -825,15 +977,81 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
                   {lessonDetailsQuery.data?.moduleTitle ? ` | فصل: ${lessonDetailsQuery.data.moduleTitle}` : ""}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setPreviewLesson(null)}
-                className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-1 rounded-lg hover:bg-[var(--color-surface-warm)] transition-colors"
-                aria-label="بستن پنجره"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingContent(!isEditingContent);
+                    setSaveContentError(null);
+                    setSaveContentSuccess(null);
+                    if (!isEditingContent) {
+                      setActiveModalTab("content");
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-xl border font-bold text-xs flex items-center gap-1.5 transition-colors ${
+                    isEditingContent
+                      ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
+                      : "bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] border-[var(--color-primary-default)]/30 hover:bg-[var(--color-primary-default)]/20"
+                  }`}
+                  title="ویرایش محتوای جلسه و ثبت در پیش‌نویس دوره"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>{isEditingContent ? "انصراف از ویرایش" : "ویرایش جلسه"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!previewLesson) return;
+                    setIsDownloadingPdf(true);
+                    setPdfError(null);
+                    try {
+                      await downloadLessonPdf(previewLesson.id, {
+                        courseId,
+                        fallbackName: buildPdfFilename("lesson", previewLesson.title, previewLesson.id),
+                      });
+                    } catch (err: unknown) {
+                      const msg = err instanceof Error ? err.message : "خطا در دریافت فایل PDF درسنامه";
+                      setPdfError(msg);
+                    } finally {
+                      setIsDownloadingPdf(false);
+                    }
+                  }}
+                  disabled={isDownloadingPdf}
+                  className="px-3 py-1.5 rounded-xl bg-teal-600/10 hover:bg-teal-600/20 text-teal-700 dark:text-teal-300 border border-teal-600/30 font-bold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  title="دریافت فایل PDF اختصاصی آوانا"
+                >
+                  {isDownloadingPdf ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-teal-600" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                  )}
+                  <span>دریافت PDF درسنامه</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPreviewLesson(null);
+                    setPdfError(null);
+                  }}
+                  className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-1 rounded-lg hover:bg-[var(--color-surface-warm)] transition-colors"
+                  aria-label="بستن پنجره"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
+
+            {pdfError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{pdfError}</span>
+                </div>
+                <button type="button" onClick={() => setPdfError(null)} className="p-1 hover:opacity-80">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
 
             <div className="space-y-4">
               {/* Badges / Stats Bar */}
@@ -968,18 +1186,166 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
                 <div className="min-h-[220px]">
                   {/* Content / Markdown Tab */}
                   {activeModalTab === "content" && (
-                    <div className="p-5 bg-[var(--color-surface-warm)]/40 rounded-2xl border border-[var(--color-border)] text-xs text-[var(--color-text)] max-h-96 overflow-y-auto leading-relaxed">
-                      {lessonDetailsQuery.data?.contentMarkdown?.trim() ? (
-                        <MarkdownRenderer content={lessonDetailsQuery.data.contentMarkdown} />
-                      ) : (
-                        <div className="text-center py-10 space-y-2">
-                          <BookOpen className="w-8 h-8 text-[var(--color-text-muted)] mx-auto opacity-50" />
-                          <p className="text-xs text-[var(--color-text-muted)]">
-                            متن درسنامه‌ای برای این درس ثبت نشده است.
-                          </p>
+                    isEditingContent ? (
+                      <div className="space-y-4">
+                        {/* Notice banner */}
+                        <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2.5">
+                          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="font-bold">حالت ویرایش پیش‌نویس جلسه</p>
+                            <p className="text-[11px] opacity-90 mt-0.5 leading-relaxed">
+                              اصلاحات شما مستقیماً در سیستم Draft ثبت می‌شود. پس از ذخیره، با مراجعه به زبانه «مرکز انتشار دوره» می‌توانید پیش‌نمایش نسخه جدید را بررسی و آن را به‌صورت اتمیک برای تمام دانشجویان منتشر کنید.
+                            </p>
+                          </div>
                         </div>
-                      )}
-                    </div>
+
+                        {saveContentError && (
+                          <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-600 dark:text-rose-400 font-bold flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4 shrink-0" />
+                            <span>{saveContentError}</span>
+                          </div>
+                        )}
+
+                        {saveContentSuccess && (
+                          <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-2">
+                            <Check className="w-4 h-4 shrink-0 text-emerald-600" />
+                            <span>{saveContentSuccess}</span>
+                          </div>
+                        )}
+
+                        {/* Title input */}
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-[var(--color-text)]">
+                            عنوان جلسه / درسنامه:
+                          </label>
+                          <input
+                            type="text"
+                            value={editingTitle}
+                            onChange={(e) => {
+                              setEditingTitle(e.target.value);
+                              setSaveContentError(null);
+                            }}
+                            placeholder="عنوان جلسه..."
+                            className="w-full px-3.5 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-xs text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary-default)]"
+                          />
+                        </div>
+
+                        {/* Content editor & Real-time preview */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-[var(--color-text)]">
+                              محتوای Markdown جلسه:
+                            </label>
+                            <div className="flex items-center gap-1 bg-[var(--color-surface-warm)] p-0.5 rounded-lg border border-[var(--color-border)]">
+                              <button
+                                type="button"
+                                onClick={() => setEditPreviewTab("edit")}
+                                className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all ${
+                                  editPreviewTab === "edit"
+                                    ? "bg-[var(--color-surface)] text-[var(--color-text)] shadow-xs"
+                                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                                }`}
+                              >
+                                کد مارک‌داون
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditPreviewTab("preview")}
+                                className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all ${
+                                  editPreviewTab === "preview"
+                                    ? "bg-[var(--color-surface)] text-[var(--color-text)] shadow-xs"
+                                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                                }`}
+                              >
+                                پیش‌نمایش زنده
+                              </button>
+                            </div>
+                          </div>
+
+                          {editPreviewTab === "edit" ? (
+                            <textarea
+                              rows={10}
+                              value={editingContentMarkdown}
+                              onChange={(e) => {
+                                setEditingContentMarkdown(e.target.value);
+                                setSaveContentError(null);
+                              }}
+                              placeholder="متن درسنامه را به صورت Markdown وارد کنید..."
+                              className="w-full px-3.5 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-xs font-mono text-[var(--color-text)] leading-relaxed focus:outline-none focus:ring-1 focus:ring-[var(--color-primary-default)] resize-y"
+                            />
+                          ) : (
+                            <div className="p-4 bg-[var(--color-surface-warm)]/40 rounded-xl border border-[var(--color-border)] text-xs text-[var(--color-text)] max-h-64 overflow-y-auto leading-relaxed">
+                              {editingContentMarkdown.trim() ? (
+                                <MarkdownRenderer content={editingContentMarkdown} />
+                              ) : (
+                                <p className="text-[var(--color-text-muted)] text-center py-6">
+                                  متنی برای پیش‌نمایش وارد نشده است.
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[var(--color-border)]">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsEditingContent(false);
+                              setSaveContentError(null);
+                            }}
+                            className="px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text-muted)] hover:bg-[var(--color-surface-warm)] transition-colors"
+                          >
+                            انصراف
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleSaveLessonContent}
+                            disabled={isSavingContent || !editingTitle.trim() || !editingContentMarkdown.trim()}
+                            className="px-4 py-2 bg-[var(--color-primary-default)] hover:opacity-90 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                          >
+                            {isSavingContent ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Check className="w-3.5 h-3.5" />
+                            )}
+                            <span>ثبت در پیش‌نویس دوره</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between pb-1">
+                          <span className="text-xs text-[var(--color-text-muted)]">
+                            برای ویرایش متن و عنوان این درس و ثبت نسخه جدید، روی دکمه ویرایش کلیک کنید.
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsEditingContent(true);
+                              setSaveContentError(null);
+                              setSaveContentSuccess(null);
+                            }}
+                            className="px-3 py-1 rounded-lg bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] text-xs font-bold hover:bg-[var(--color-primary-default)]/20 transition-colors flex items-center gap-1.5 shrink-0"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                            <span>ویرایش متن درسنامه</span>
+                          </button>
+                        </div>
+                        <div className="p-5 bg-[var(--color-surface-warm)]/40 rounded-2xl border border-[var(--color-border)] text-xs text-[var(--color-text)] max-h-96 overflow-y-auto leading-relaxed">
+                          {lessonDetailsQuery.data?.contentMarkdown?.trim() ? (
+                            <MarkdownRenderer content={lessonDetailsQuery.data.contentMarkdown} />
+                          ) : (
+                            <div className="text-center py-10 space-y-2">
+                              <BookOpen className="w-8 h-8 text-[var(--color-text-muted)] mx-auto opacity-50" />
+                              <p className="text-xs text-[var(--color-text-muted)]">
+                                متن درسنامه‌ای برای این درس ثبت نشده است.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
                   )}
 
                   {/* Flashcards Tab */}

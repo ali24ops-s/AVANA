@@ -47,6 +47,8 @@ export class GenerationProgressService {
       status = "planning";
     } else if (stage === "review") {
       status = "reviewing";
+    } else if (stage === "analysis") {
+      status = "idle";
     }
 
     return this.store.updateMonotonic(documentId, organizationId, {
@@ -72,7 +74,7 @@ export class GenerationProgressService {
   ): Promise<DocumentGenerationProgressRecord> {
     const now = new Date().toISOString();
     return this.store.updateMonotonic(documentId, organizationId, {
-      status: "generating",
+      status: stage === "analysis" ? "idle" : "generating",
       stage,
       progressCurrent: Math.max(0, current),
       progressTotal: total !== undefined ? Math.max(0, total) : undefined,
@@ -93,7 +95,8 @@ export class GenerationProgressService {
     const targetTotal = existing?.progressTotal || 1;
 
     return this.store.updateMonotonic(documentId, organizationId, {
-      stage,
+      status: stage === "analysis" ? "idle" : existing?.status || "idle",
+      stage: stage === "analysis" ? null : stage,
       progressCurrent: targetTotal,
       lastActivityAt: now,
     });

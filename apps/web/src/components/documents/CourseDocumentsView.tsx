@@ -17,6 +17,7 @@ import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createDocumentsApi } from "../../lib/api/documents.js";
 import { createGenerationApi } from "../../lib/api/generation.js";
 import { createSourcePacksApi } from "../../lib/api/source-packs.js";
+import { getUserFriendlyErrorMessage } from "../../lib/api/error-mapper.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { DocumentUploader } from "./DocumentUploader.js";
 import { DocumentStatusCard } from "./DocumentStatusCard.js";
@@ -422,7 +423,7 @@ export function CourseDocumentsView({
             ),
           );
         } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : "خطا در آپلود";
+          const msg = getUserFriendlyErrorMessage(err, { scope: "upload" });
           setMultiDocs((prev) =>
             prev.map((d, idx) =>
               idx === i ? { ...d, status: "error", error: msg } : d,
@@ -461,7 +462,12 @@ export function CourseDocumentsView({
       setPackTitle("پک منابع درس");
       setUploadMode("single");
     } catch (err: unknown) {
-      setMultiValidationError(err instanceof Error ? err.message : "خطا در ثبت پک منابع");
+      setMultiValidationError(
+        getUserFriendlyErrorMessage(err, {
+          scope: "upload",
+          fallbackMessage: "خطا در ثبت پک منابع",
+        }),
+      );
     } finally {
       setIsSubmittingPack(false);
     }

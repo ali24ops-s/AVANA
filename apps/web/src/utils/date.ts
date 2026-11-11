@@ -223,7 +223,20 @@ export interface JalaliDateParts {
  * Converts a Gregorian Date into Jalali date parts { jy, jm, jd }.
  */
 export function gregorianToJalali(dateInput: Date | string | number = new Date()): JalaliDateParts {
-  const date = typeof dateInput === "object" ? dateInput : new Date(dateInput);
+  let date: Date;
+  if (typeof dateInput === "string") {
+    const match = dateInput.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      date = new Date(`${match[1]}-${match[2]}-${match[3]}T12:00:00Z`);
+    } else {
+      date = new Date(dateInput);
+    }
+  } else if (typeof dateInput === "object") {
+    date = dateInput;
+  } else {
+    date = new Date(dateInput);
+  }
+
   if (isNaN(date.getTime())) {
     const now = new Date();
     return gregorianToJalali(now);
@@ -231,6 +244,7 @@ export function gregorianToJalali(dateInput: Date | string | number = new Date()
 
   try {
     const formatter = new Intl.DateTimeFormat("en-US-u-ca-persian", {
+      timeZone: "Asia/Tehran",
       calendar: "persian",
       year: "numeric",
       month: "numeric",
@@ -281,8 +295,8 @@ export function jalaliToGregorian(jy: number, jm: number, jd: number): Date {
   }
 
   const targetDate = matchedDate || baseDate;
-  // Return Date at local midnight
-  return new Date(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), targetDate.getUTCDate(), 0, 0, 0);
+  // Return Date at UTC midnight to avoid host timezone day-shift
+  return new Date(Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), targetDate.getUTCDate(), 0, 0, 0));
 }
 
 /**
@@ -304,7 +318,7 @@ export function getJalaliFirstDayOfWeek(jy: number, jm: number): number {
   const firstDayGregorian = jalaliToGregorian(jy, jm, 1);
   // In JS getDay(): 0 is Sunday, 6 is Saturday
   // Persian week: Saturday = 0, Sunday = 1, ..., Friday = 6
-  return (firstDayGregorian.getDay() + 1) % 7;
+  return (firstDayGregorian.getUTCDay() + 1) % 7;
 }
 
 /**
@@ -312,7 +326,17 @@ export function getJalaliFirstDayOfWeek(jy: number, jm: number): number {
  */
 export function formatPersianExamDate(dateInput: string | Date): string {
   try {
-    const date = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
+    let date: Date;
+    if (typeof dateInput === "string") {
+      const match = dateInput.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (match) {
+        date = new Date(`${match[1]}-${match[2]}-${match[3]}T12:00:00Z`);
+      } else {
+        date = new Date(dateInput);
+      }
+    } else {
+      date = dateInput;
+    }
     if (isNaN(date.getTime())) {
       return "";
     }
@@ -353,49 +377,60 @@ export function extractLocalDateAndTimeString(
 }
 
 /**
- * Combines a local date string (YYYY-MM-DD or ISO string) and a local time string (HH:mm)
- * into a single valid ISO datetime string using local system timezone.
+ * Combines a local date string (YYYY-MM-DD or ISO string) and a time string (HH:mm)
+ * into a single valid ISO datetime string using Asia/Tehran timezone by default.
+ * Removes dependency on the user device's local timezone.
  */
-export function combineLocalDateAndTimeToIso(dateStr: string, timeStr: string): string {
+export function combineLocalDateAndTimeToIso(
+  dateStr: string,
+  timeStr: string,
+  timeZone: string = "Asia/Tehran",
+): string {
   if (!dateStr || !timeStr) return "";
 
-  let year: number;
-  let monthIndex: number;
-  let day: number;
-
+  let cleanDate = dateStr;
   if (dateStr.includes("T")) {
-    const d = new Date(dateStr);
+    cleanDate = dateStr.split("T")[0];
+  }
+  const dateMatch = cleanDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!dateMatch) return "";
+
+  const timeMatch = timeStr.match(/^(\d{1,2}):(\d{2})$/);
+  if (!timeMatch) return "";
+
+  const hh = timeMatch[1].padStart(2, "0");
+  const mm = timeMatch[2];
+
+  if (timeZone === "Asia/Tehran") {
+    // Asia/Tehran is standard UTC+03:30 (Iran abolished DST)
+    const tehranIso = `${cleanDate}T${hh}:${mm}:00+03:30`;
+    const d = new Date(tehranIso);
     if (isNaN(d.getTime())) return "";
-    year = d.getFullYear();
-    monthIndex = d.getMonth();
-    day = d.getDate();
-  } else {
-    const parts = dateStr.split("-").map(Number);
-    if (parts.length < 3 || parts.some(isNaN)) return "";
-    year = parts[0];
-    monthIndex = parts[1] - 1;
-    day = parts[2];
+    return d.toISOString();
   }
 
-  const timeParts = timeStr.split(":").map(Number);
-  if (timeParts.length < 2 || timeParts.some(isNaN)) return "";
-  const hours = timeParts[0];
-  const minutes = timeParts[1];
-
-  const localDate = new Date(year, monthIndex, day, hours, minutes, 0, 0);
+  const parts = cleanDate.split("-").map(Number);
+  const localDate = new Date(parts[0], parts[1] - 1, parts[2], Number(hh), Number(mm), 0, 0);
   if (isNaN(localDate.getTime())) return "";
   return localDate.toISOString();
 }
 
 /**
- * Formats time only with Persian digits: e.g. "۱۰:۰۰", "۰۹:۰۵", "۱۱:۳۰".
+ * Formats time only with Persian digits in Asia/Tehran: e.g. "۱۰:۰۰", "۰۹:۰۵", "۱۱:۳۰".
  */
-export function formatPersianTimeOnly(dateInput: string | Date): string {
+export function formatPersianTimeOnly(
+  dateInput: string | Date,
+  timeZone: string = "Asia/Tehran",
+): string {
   const d = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
   if (isNaN(d.getTime())) return "";
-  const hours = String(d.getHours()).padStart(2, "0");
-  const minutes = String(d.getMinutes()).padStart(2, "0");
-  return toPersianDigits(`${hours}:${minutes}`);
+  const timeStr = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(d);
+  return toPersianDigits(timeStr);
 }
 
 /**

@@ -34,4 +34,6 @@ export {
   validateAndNormalizeIranPhone,
   normalizeIranPhone,
   isValidIranPhone,
+  getPhoneLookupVariants,
+  maskPhoneNumberForLogs,
 } from "./phone-validation.js";

@@ -37,6 +37,8 @@ export interface UserStore {
 
   findWithPasswordByEmail(email: string): Promise<UserWithPasswordRecord | undefined>;
 
+  findWithPasswordByPhoneNumber?(phoneNumber: string): Promise<UserWithPasswordRecord | undefined>;
+
   findById(id: UserId): Promise<UserRecord | undefined>;
 
   createFromVerifiedIdentity(identity: VerifiedIdentity): Promise<UserRecord>;
@@ -72,10 +74,14 @@ export interface UserStore {
       university?: string | null;
       faculty?: string | null;
       department?: string | null;
+      phoneNumber?: string | null;
+      email?: string;
     },
   ): Promise<void>;
 
   updatePhoneNumber?(userId: UserId, phoneNumber: string): Promise<void>;
+
+  updateEmail?(userId: UserId, email: string): Promise<void>;
 
   deleteUser?(userId: UserId): Promise<void>;
 }

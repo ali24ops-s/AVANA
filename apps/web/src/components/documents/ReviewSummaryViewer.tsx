@@ -16,6 +16,7 @@ import {
 import { Card, Button, Badge, Alert } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createGenerationApi } from "../../lib/api/generation.js";
+import { getUserFriendlyErrorMessage } from "../../lib/api/error-mapper.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { canManageCourseContent } from "../../utils/coursePermissions.js";
 import {
@@ -76,6 +77,16 @@ export interface ReviewSummaryViewerProps {
   onNavigateToFlashcards?: () => void;
   onNavigateToQuiz?: () => void;
   onUnlock?: () => void;
+  // Personal summary extensions:
+  isPersonalSummary?: boolean;
+  personalPayload?: ReviewSummaryPayload | null;
+  personalSummaryVersion?: number;
+  personalGeneratedAt?: string;
+  highlightsCount?: number;
+  notesCount?: number;
+  hasNewAnnotations?: boolean;
+  onRegeneratePersonal?: () => void;
+  isRegeneratingPersonal?: boolean;
 }
 
 export function ReviewSummaryViewer({
@@ -86,6 +97,15 @@ export function ReviewSummaryViewer({
   onNavigateToFlashcards,
   onNavigateToQuiz,
   onUnlock,
+  isPersonalSummary = false,
+  personalPayload,
+  personalSummaryVersion,
+  personalGeneratedAt: _personalGeneratedAt,
+  highlightsCount,
+  notesCount,
+  hasNewAnnotations,
+  onRegeneratePersonal,
+  isRegeneratingPersonal,
 }: ReviewSummaryViewerProps) {
   const queryClient = useQueryClient();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
@@ -93,14 +113,14 @@ export function ReviewSummaryViewer({
   const { user, memberships } = useAuth();
   const canRegenerate = canManageCourseContent(memberships, user);
 
-  // Fetch Review Summary
+  // Fetch Official Review Summary (only when not viewing personal summary)
   const reviewSummaryQuery = useQuery({
     queryKey: ["review-summary", organizationId, documentId, courseId],
     queryFn: () => genApi.getReviewSummary(organizationId, documentId, courseId),
-    enabled: Boolean(organizationId && documentId),
+    enabled: Boolean(organizationId && documentId) && !isPersonalSummary,
   });
 
-  // Generate / Regenerate mutation
+  // Generate / Regenerate mutation for official summary
   const generateMutation = useMutation({
     mutationFn: (options?: { force?: boolean }) =>
       genApi.triggerReviewSummary(organizationId, documentId, courseId, {
@@ -118,15 +138,20 @@ export function ReviewSummaryViewer({
   });
 
   const content = reviewSummaryQuery.data?.content;
-  const payload = content?.payload as unknown as ReviewSummaryPayload | undefined;
+  const payload = isPersonalSummary
+    ? (personalPayload as ReviewSummaryPayload | undefined)
+    : (content?.payload as unknown as ReviewSummaryPayload | undefined);
 
-  const isGenerating = generateMutation.isPending || content?.status === "regenerating";
-  const isLoading = reviewSummaryQuery.isLoading;
-  const isError = reviewSummaryQuery.isError || generateMutation.error;
-  const errorMessage =
-    (generateMutation.error as Error)?.message ||
-    (reviewSummaryQuery.error as Error)?.message ||
-    "خطا در دریافت یا تولید خلاصه مروری";
+  const isGenerating = isPersonalSummary
+    ? Boolean(isRegeneratingPersonal)
+    : (generateMutation.isPending || content?.status === "regenerating");
+  const isLoading = isPersonalSummary ? false : reviewSummaryQuery.isLoading;
+  const isError = isPersonalSummary ? false : (reviewSummaryQuery.isError || generateMutation.error);
+  const rawError = generateMutation.error || reviewSummaryQuery.error;
+  const errorMessage = getUserFriendlyErrorMessage(rawError, {
+    scope: "generation",
+    fallback: "خطا در دریافت یا تولید خلاصه مروری",
+  });
 
   // 1. Loading state
   if (isLoading) {
@@ -151,14 +176,20 @@ export function ReviewSummaryViewer({
           <Sparkles className="w-8 h-8 animate-pulse text-[var(--color-primary)]" />
         </div>
         <div className="space-y-2 max-w-md">
-          <h3 className="text-lg font-black text-[var(--color-text)]">در حال استخراج و ساخت خلاصه مروری فشرده</h3>
+          <h3 className="text-lg font-black text-[var(--color-text)]">
+            {isPersonalSummary
+              ? "در حال تولید خلاصه شخصی بر اساس هایلایت‌ها و یادداشت‌های شما"
+              : "در حال استخراج و ساخت خلاصه مروری فشرده"}
+          </h3>
           <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-            موتور هوش مصنوعی آوانا در حال فشرده‌سازی مفاهیم کلیدی، مکانیسم‌ها، مقایسه‌ها و نکات آزمونی برای مرور ۱۰ تا ۱۵ دقیقه‌ای است...
+            {isPersonalSummary
+              ? "موتور هوش مصنوعی آوانا در حال استخراج و ترکیب نکات کلیدی هایلایت‌شده و یادداشت‌های شخصی شما در قالب یک برگه مرور ساختاریافته است..."
+              : "موتور هوش مصنوعی آوانا در حال فشرده‌سازی مفاهیم کلیدی، مکانیسم‌ها، مقایسه‌ها و نکات آزمونی برای مرور ۱۰ تا ۱۵ دقیقه‌ای است..."}
           </p>
         </div>
         <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] px-4 py-2 rounded-full border border-[var(--color-border)]">
           <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-primary)]" />
-          <span>تضمین دقت علمی بدون اضافه‌گویی</span>
+          <span>{isPersonalSummary ? "تضمین دقت بر مبنای یادداشت‌های اختصاصی" : "تضمین دقت علمی بدون اضافه‌گویی"}</span>
         </div>
       </Card>
     );
@@ -166,12 +197,16 @@ export function ReviewSummaryViewer({
 
   // 3. Error state
   if (isError && !payload) {
-    const isForbidden =
-      errorMessage.includes("403") ||
-      errorMessage.toLowerCase().includes("forbidden") ||
+    const rawErrObj = rawError as { statusCode?: number; status?: number; message?: string } | null;
+    const isForbidden = Boolean(
+      rawErrObj?.statusCode === 403 ||
+      rawErrObj?.status === 403 ||
+      rawErrObj?.message?.includes("403") ||
+      rawErrObj?.message?.toLowerCase().includes("forbidden") ||
       errorMessage.includes("خرید دوره") ||
       errorMessage.includes("اشتراک") ||
-      errorMessage.includes("اعضای ویژه");
+      errorMessage.includes("اعضای ویژه")
+    );
 
     if (isForbidden) {
       return (
@@ -299,36 +334,95 @@ export function ReviewSummaryViewer({
         <header className="space-y-4 pb-6 sm:pb-8 border-b border-[var(--color-border)]">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="primary" size="md" icon={<Zap className="w-3.5 h-3.5" />}>
-                خلاصه مروری (Review Summary)
-              </Badge>
-              <Badge variant="warning" size="md" icon={<Clock className="w-3.5 h-3.5" />}>
-                زمان مطالعه تقریبی: {toPersianDigits(estimatedMins)} دقیقه
-              </Badge>
-              <Badge variant="secondary" size="md" icon={<GraduationCap className="w-3.5 h-3.5" />}>
-                مناسب برای: مرور سریع قبل از آزمون
-              </Badge>
+              {isPersonalSummary ? (
+                <>
+                  <Badge variant="primary" size="md" icon={<Bookmark className="w-3.5 h-3.5" />}>
+                    خلاصه شخصی من
+                  </Badge>
+                  {personalSummaryVersion && (
+                    <Badge variant="secondary" size="md" icon={<Sparkles className="w-3.5 h-3.5" />}>
+                      نسخه {toPersianDigits(personalSummaryVersion)}
+                    </Badge>
+                  )}
+                  {(highlightsCount !== undefined || notesCount !== undefined) && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[var(--color-surface-warm)] text-[var(--color-text-secondary)] border border-[var(--color-border)]">
+                      {toPersianDigits(highlightsCount || 0)} هایلایت • {toPersianDigits(notesCount || 0)} یادداشت
+                    </span>
+                  )}
+                  <Badge variant="warning" size="md" icon={<Clock className="w-3.5 h-3.5" />}>
+                    زمان مطالعه: {toPersianDigits(estimatedMins)} دقیقه
+                  </Badge>
+                </>
+              ) : (
+                <>
+                  <Badge variant="primary" size="md" icon={<Zap className="w-3.5 h-3.5" />}>
+                    خلاصه مروری (Review Summary)
+                  </Badge>
+                  <Badge variant="warning" size="md" icon={<Clock className="w-3.5 h-3.5" />}>
+                    زمان مطالعه تقریبی: {toPersianDigits(estimatedMins)} دقیقه
+                  </Badge>
+                  <Badge variant="secondary" size="md" icon={<GraduationCap className="w-3.5 h-3.5" />}>
+                    مناسب برای: مرور سریع قبل از آزمون
+                  </Badge>
+                </>
+              )}
             </div>
 
-            {canRegenerate && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  generateMutation.reset();
-                  generateMutation.mutate({ force: true });
-                }}
-                disabled={isGenerating}
-                title="تولید مجدد خلاصه مروری"
-                leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin" : ""}`} />}
-              >
-                <span>{isGenerating ? "در حال به‌روزرسانی..." : "به‌روزرسانی خلاصه"}</span>
-              </Button>
+            {isPersonalSummary ? (
+              onRegeneratePersonal && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onRegeneratePersonal}
+                  disabled={isRegeneratingPersonal}
+                  title="به‌روزرسانی خلاصه شخصی بر اساس یادداشت‌های جدید"
+                  leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isRegeneratingPersonal ? "animate-spin" : ""}`} />}
+                >
+                  <span>{isRegeneratingPersonal ? "در حال به‌روزرسانی..." : "به‌روزرسانی خلاصه شخصی (۳٬۰۰۰ تومان)"}</span>
+                </Button>
+              )
+            ) : (
+              canRegenerate && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    generateMutation.reset();
+                    generateMutation.mutate({ force: true });
+                  }}
+                  disabled={isGenerating}
+                  title="تولید مجدد خلاصه مروری"
+                  leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin" : ""}`} />}
+                >
+                  <span>{isGenerating ? "در حال به‌روزرسانی..." : "به‌روزرسانی خلاصه"}</span>
+                </Button>
+              )
             )}
           </div>
 
+          {/* New annotations notice in personal summary */}
+          {isPersonalSummary && hasNewAnnotations && (
+            <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-900 dark:text-amber-200">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>شما هایلایت‌ها یا یادداشت‌های جدیدی در این فصل ثبت کرده‌اید.</span>
+              </div>
+              {onRegeneratePersonal && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onRegeneratePersonal}
+                  disabled={isRegeneratingPersonal}
+                  className="shrink-0"
+                >
+                  <span>به‌روزرسانی اکنون</span>
+                </Button>
+              )}
+            </div>
+          )}
+
           {/* Mutation Error banner when previous payload exists */}
-          {generateMutation.error && (
+          {!isPersonalSummary && generateMutation.error && (
             <Alert
               variant="error"
               title="خطا در به‌روزرسانی خلاصه مروری"
@@ -363,7 +457,11 @@ export function ReviewSummaryViewer({
             >
               <div className="flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                <span>در حال استخراج و ساخت نسخه به‌روزشده خلاصه مروری با هوش مصنوعی...</span>
+                <span>
+                  {isPersonalSummary
+                    ? "در حال به‌روزرسانی خلاصه شخصی بر مبنای یادداشت‌های جدید با هوش مصنوعی..."
+                    : "در حال استخراج و ساخت نسخه به‌روزشده خلاصه مروری با هوش مصنوعی..."}
+                </span>
               </div>
               <Badge variant="primary" size="sm">
                 در حال پردازش
@@ -373,10 +471,12 @@ export function ReviewSummaryViewer({
 
           <div className="space-y-1.5">
             <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-[var(--color-text)] tracking-tight leading-snug">
-              {cleanEducationalTitle(payload.title, cleanEducationalTitle(documentTitle, "خلاصه جامع و مروری مبحث"))}
+              {cleanEducationalTitle(payload.title, cleanEducationalTitle(documentTitle, isPersonalSummary ? "خلاصه شخصی فصل" : "خلاصه جامع و مروری مبحث"))}
             </h1>
             <p className="text-xs sm:text-sm text-[var(--color-text-muted)]">
-              برگه مرور یکپارچه (Review Sheet) جهت یادآوری سریع و فعال‌سازی اطلاعات کلیدی
+              {isPersonalSummary
+                ? "برگه مرور اختصاصی تدوین‌شده با هوش مصنوعی بر مبنای هایلایت‌ها و یادداشت‌های شخصی شما"
+                : "برگه مرور یکپارچه (Review Sheet) جهت یادآوری سریع و فعال‌سازی اطلاعات کلیدی"}
             </p>
           </div>
 

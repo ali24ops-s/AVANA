@@ -4,6 +4,7 @@ import {
   DomainError,
   resolveEffectiveRole,
   validateAndNormalizeIranPhone,
+  maskPhoneNumberForLogs,
   isValidAcademicField,
   validateTeacherAcademicProfile,
   auditUserRegistered,
@@ -25,7 +26,9 @@ import type { DeviceService } from "./device-service.js";
 import { detectDeviceType } from "./device-service.js";
 
 import type { NotificationService } from "../notifications/notification-service.js";
-import { attachSessionCookies, clearSessionCookies } from "./cookie-utils.js";
+import { attachSessionCookies, attachCsrfCookie, clearSessionCookies } from "./cookie-utils.js";
+import { validateCsrfToken } from "./csrf.js";
+import { makeAuthMiddleware } from "../../http/authMiddleware.js";
 
 export interface AuthRouteOptions {
   identityAdapter?: IdentityAdapter;
@@ -132,11 +135,12 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
   const getKey = (request: import("fastify").FastifyRequest) => {
     const body =
       typeof request.body === "object" && request.body !== null
-        ? (request.body as { email?: string; phoneNumber?: string })
+        ? (request.body as { email?: string; phoneNumber?: string; identifier?: string })
         : {};
     const email = body.email ? body.email.trim().toLowerCase() : "";
     const phone = body.phoneNumber ? body.phoneNumber.trim() : "";
-    const identifier = email || phone;
+    const ident = body.identifier ? body.identifier.trim().toLowerCase() : "";
+    const identifier = ident || email || phone;
     return identifier ? `auth_${request.ip}_${identifier}` : `auth_${request.ip}_anon`;
   };
 
@@ -186,6 +190,58 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     const key = getKey(request);
     rateLimitAttempts.delete(key);
   };
+
+  /**
+   * Distinguishes definitive pre-send errors (invalid params, auth failure, quota zero)
+   * from ambiguous network/timeout errors where the SMS might have been dispatched.
+   */
+  function isDefinitivePreSendError(err: unknown): boolean {
+    if (!err) return false;
+    const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+
+    // Ambiguous network / timeout errors — NOT definitive pre-send
+    const ambiguousPatterns = [
+      "timeout",
+      "timed out",
+      "etimedout",
+      "econnreset",
+      "econnrefused",
+      "network",
+      "abort",
+      "gateway",
+      "502",
+      "503",
+      "504",
+    ];
+    if (ambiguousPatterns.some((p) => msg.includes(p))) {
+      return false;
+    }
+
+    // Check if error explicitly has status code
+    const status =
+      (err as { status?: number; statusCode?: number })?.status ??
+      (err as { status?: number; statusCode?: number })?.statusCode;
+    if (typeof status === "number") {
+      if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
+        return true;
+      }
+      return false;
+    }
+
+    if (
+      msg.includes("invalid") ||
+      msg.includes("unauthorized") ||
+      msg.includes("forbidden") ||
+      msg.includes("not found") ||
+      msg.includes("disabled") ||
+      msg.includes("credit") ||
+      msg.includes("balance")
+    ) {
+      return true;
+    }
+
+    return false;
+  }
 
   /**
    * Issue a 6-digit verification challenge for a user and channel (email or phone).
@@ -250,12 +306,18 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
             code,
           });
         } catch (err) {
-          await emailVerificationStore.invalidateAllForUser(
-            userId as UserId,
-            "phone",
-          );
+          if (isDefinitivePreSendError(err)) {
+            resendCooldowns.delete(`${userId}_phone`);
+            await emailVerificationStore.invalidateAllForUser(
+              userId as UserId,
+              "phone",
+            );
+          }
           app.log.error(
-            { err: err instanceof Error ? err.message : String(err) },
+            {
+              err: err instanceof Error ? err.message : String(err),
+              phone: maskPhoneNumberForLogs(target),
+            },
             "Failed to send verification SMS",
           );
           throw new DomainError(
@@ -264,6 +326,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
           );
         }
       } else {
+        resendCooldowns.delete(`${userId}_phone`);
         throw new DomainError(
           "internal_error",
           "سرویس پیامک در دسترس نیست. لطفاً با مدیر سامانه تماس بگیرید یا از روش ایمیل استفاده کنید.",
@@ -271,6 +334,12 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       }
     }
   }
+
+  const { requireAuth } = makeAuthMiddleware({
+    sessionService,
+    userStore,
+    allowedOrigins: opts.appUrl ? [opts.appUrl] : undefined,
+  });
 
   /**
    * Helper to extract session token from cookies or Authorization header.
@@ -320,6 +389,11 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
 
     if (details.renewed) {
       attachSessionCookies(reply, token, sessionService.getConfig());
+    } else if (request.cookies?.["avana_session"]) {
+      const csrfCookie = request.cookies?.["avana_csrf"];
+      if (!csrfCookie || !validateCsrfToken(csrfCookie, token)) {
+        attachCsrfCookie(reply, token, sessionService.getConfig());
+      }
     }
 
     const user = details.user;
@@ -366,6 +440,30 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
    * PATCH /v1/auth/profile — Update current authenticated user's profile name and/or major.
    */
   app.patch("/v1/auth/profile", async (request, reply) => {
+    const sessionCookie = request.cookies?.["avana_session"];
+    const csrfCookie = request.cookies?.["avana_csrf"];
+    const csrfHeader = (request.headers["x-csrf-token"] ??
+      request.headers["X-CSRF-Token"]) as string | undefined;
+
+    const isProd = process.env.NODE_ENV === "production";
+    const shouldEnforce =
+      isProd ||
+      Boolean(csrfCookie) ||
+      Boolean(csrfHeader) ||
+      process.env.AVANA_CSRF_ENFORCE === "true";
+
+    if (sessionCookie && shouldEnforce) {
+      if (!csrfHeader) {
+        throw new DomainError("forbidden", "CSRF token missing");
+      }
+      if (csrfCookie && csrfHeader !== csrfCookie) {
+        throw new DomainError("forbidden", "CSRF token mismatch");
+      }
+      if (!validateCsrfToken(csrfHeader, sessionCookie)) {
+        throw new DomainError("forbidden", "Invalid CSRF token");
+      }
+    }
+
     const token = extractSessionToken(request);
     if (!token) {
       throw new DomainError("unauthorized", "Not signed in");
@@ -399,6 +497,11 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
 
     const actorUserId = details.user.userId;
 
+    const currentUser = await userStore.findById(actorUserId);
+    if (!currentUser) {
+      throw new DomainError("not_found", "کاربر یافت نشد.");
+    }
+
     const body = (typeof request.body === "object" && request.body !== null
       ? request.body
       : {}) as {
@@ -409,6 +512,8 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       university?: unknown;
       faculty?: unknown;
       department?: unknown;
+      phoneNumber?: unknown;
+      email?: unknown;
     };
 
     let updatedAny = false;
@@ -417,6 +522,8 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     let resolvedUniversity: string | null | undefined = undefined;
     let resolvedFaculty: string | null | undefined = undefined;
     let resolvedDepartment: string | null | undefined = undefined;
+    let resolvedPhoneNumber: string | null | undefined = undefined;
+    let resolvedEmail: string | undefined = undefined;
 
     // 1. Handle Name update if provided
     if (body.firstName !== undefined || body.lastName !== undefined) {
@@ -511,6 +618,73 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       }
     }
 
+    // 4. Handle Phone Number update if provided
+    if (body.phoneNumber !== undefined) {
+      if (body.phoneNumber === null || body.phoneNumber === "") {
+        if (currentUser.phoneNumber !== null) {
+          resolvedPhoneNumber = null;
+          updatedAny = true;
+        }
+      } else if (typeof body.phoneNumber === "string") {
+        const trimmedPhone = body.phoneNumber.trim();
+        if (!trimmedPhone) {
+          if (currentUser.phoneNumber !== null) {
+            resolvedPhoneNumber = null;
+            updatedAny = true;
+          }
+        } else {
+          const phoneValidation = validateAndNormalizeIranPhone(trimmedPhone);
+          if (!phoneValidation.valid || !phoneValidation.normalized) {
+            throw new DomainError(
+              "bad_request",
+              phoneValidation.error || "شماره موبایل معتبر نیست.",
+            );
+          }
+          const normalizedPhone = phoneValidation.normalized;
+          if (normalizedPhone !== currentUser.phoneNumber) {
+            // Check uniqueness across other users
+            if (userStore.findByPhoneNumber) {
+              const existingWithPhone = await userStore.findByPhoneNumber(normalizedPhone);
+              if (existingWithPhone && existingWithPhone.id !== actorUserId) {
+                throw new DomainError(
+                  "conflict",
+                  "این شماره موبایل قبلاً برای حساب دیگری ثبت شده است.",
+                );
+              }
+            }
+            resolvedPhoneNumber = normalizedPhone;
+            updatedAny = true;
+          }
+        }
+      } else {
+        throw new DomainError("bad_request", "شماره موبایل نامعتبر است.");
+      }
+    }
+
+    // 5. Handle Email update if provided
+    if (body.email !== undefined) {
+      if (typeof body.email === "string") {
+        const trimmedEmail = body.email.trim().toLowerCase();
+        if (!trimmedEmail || !trimmedEmail.includes("@")) {
+          throw new DomainError("bad_request", "نشانی ایمیل نامعتبر است.");
+        }
+        if (trimmedEmail !== currentUser.email.toLowerCase()) {
+          // Check uniqueness across other users
+          const existingWithEmail = await userStore.findByEmail(trimmedEmail);
+          if (existingWithEmail && existingWithEmail.id !== actorUserId) {
+            throw new DomainError(
+              "conflict",
+              "این نشانی ایمیل قبلاً برای حساب دیگری ثبت شده است.",
+            );
+          }
+          resolvedEmail = trimmedEmail;
+          updatedAny = true;
+        }
+      } else {
+        throw new DomainError("bad_request", "نشانی ایمیل نامعتبر است.");
+      }
+    }
+
     if (!updatedAny) {
       throw new DomainError("bad_request", "اطلاعاتی جهت ویرایش ارسال نشده است.");
     }
@@ -522,6 +696,8 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         university: resolvedUniversity,
         faculty: resolvedFaculty,
         department: resolvedDepartment,
+        phoneNumber: resolvedPhoneNumber,
+        email: resolvedEmail,
       });
     } else {
       if (resolvedName) {
@@ -529,6 +705,25 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       }
       if (resolvedMajor !== undefined && userStore.updateMajor) {
         await userStore.updateMajor(actorUserId, resolvedMajor);
+      }
+      if (resolvedPhoneNumber !== undefined && userStore.updatePhoneNumber) {
+        await userStore.updatePhoneNumber(actorUserId, resolvedPhoneNumber || "");
+      }
+      if (resolvedEmail !== undefined && userStore.updateEmail) {
+        await userStore.updateEmail(actorUserId, resolvedEmail);
+      }
+    }
+
+    if (resolvedPhoneNumber !== undefined) {
+      resendCooldowns.delete(`${actorUserId}_phone`);
+      if (emailVerificationStore) {
+        await emailVerificationStore.invalidateAllForUser(actorUserId, "phone");
+      }
+    }
+    if (resolvedEmail !== undefined) {
+      resendCooldowns.delete(`${actorUserId}_email`);
+      if (emailVerificationStore) {
+        await emailVerificationStore.invalidateAllForUser(actorUserId, "email");
       }
     }
 
@@ -984,16 +1179,6 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         );
       }
 
-      const isPhoneVerified = Boolean(
-        userRecord.phoneVerifiedAt ?? userRecord.phoneVerified,
-      );
-      if (!isPhoneVerified) {
-        throw new DomainError(
-          "forbidden",
-          "شماره موبایل این حساب کاربری هنوز تأیید نشده است. لطفاً ابتدا با ایمیل و رمز عبور وارد شوید و شماره موبایل خود را تأیید کنید.",
-        );
-      }
-
       const cooldownKey = `${userRecord.id}_phone_login`;
       const now = Date.now();
       const nextAllowed = resendCooldowns.get(cooldownKey);
@@ -1009,6 +1194,9 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       const channel = "phone_login" as "phone";
 
       if (emailVerificationStore) {
+        // Set cooldown immediately to guard against concurrent requests
+        resendCooldowns.set(cooldownKey, Date.now() + RESEND_COOLDOWN_MS);
+
         await emailVerificationStore.invalidateAllForUser(
           userRecord.id as UserId,
           channel,
@@ -1032,8 +1220,6 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
           target: normalizedPhone,
         });
 
-        resendCooldowns.set(cooldownKey, Date.now() + RESEND_COOLDOWN_MS);
-
         if (smsProvider) {
           try {
             await smsProvider.sendVerificationCode({
@@ -1041,12 +1227,18 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
               code,
             });
           } catch (err) {
-            await emailVerificationStore.invalidateAllForUser(
-              userRecord.id as UserId,
-              channel,
-            );
+            if (isDefinitivePreSendError(err)) {
+              resendCooldowns.delete(cooldownKey);
+              await emailVerificationStore.invalidateAllForUser(
+                userRecord.id as UserId,
+                channel,
+              );
+            }
             app.log.error(
-              { err: err instanceof Error ? err.message : String(err) },
+              {
+                err: err instanceof Error ? err.message : String(err),
+                phone: maskPhoneNumberForLogs(normalizedPhone),
+              },
               "Failed to send login SMS",
             );
             throw new DomainError(
@@ -1055,6 +1247,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
             );
           }
         } else {
+          resendCooldowns.delete(cooldownKey);
           throw new DomainError(
             "internal_error",
             "سرویس پیامک در دسترس نیست.",
@@ -1116,17 +1309,6 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         );
       }
 
-      const isPhoneVerified = Boolean(
-        userRecord.phoneVerifiedAt ?? userRecord.phoneVerified,
-      );
-      if (!isPhoneVerified) {
-        recordFailedAttempt(request);
-        throw new DomainError(
-          "forbidden",
-          "شماره موبایل این حساب کاربری هنوز تأیید نشده است. لطفاً ابتدا با ایمیل و رمز عبور وارد شوید و شماره موبایل خود را تأیید کنید.",
-        );
-      }
-
       const channel = "phone_login" as "phone";
 
       if (emailVerificationStore) {
@@ -1180,23 +1362,37 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
 
       clearFailedAttempts(request);
 
+      // Successfully authenticated via phone OTP: mark phone as verified atomically BEFORE issuing session
+      if (userStore.setPhoneVerified) {
+        await userStore.setPhoneVerified(userRecord.id);
+      }
+
       const isPlatformAdmin =
         userRecord.globalRole === "platform_admin" ||
         userRecord.role === "platform_admin";
-      await issueSessionCookies(
-        request,
-        reply,
-        userRecord.id,
-        userRecord.email,
-        isPlatformAdmin,
-      );
+      try {
+        await issueSessionCookies(
+          request,
+          reply,
+          userRecord.id,
+          userRecord.email,
+          isPlatformAdmin,
+        );
+      } catch (err) {
+        clearSessionCookies(reply, sessionService.getConfig());
+        throw err;
+      }
 
       const memberships = await resolveMemberships(
         organizationStore,
         userRecord.id,
       );
 
-      const verificationState = resolveUserVerificationState(userRecord);
+      const verificationState = resolveUserVerificationState({
+        ...userRecord,
+        phoneVerified: true,
+        phoneVerifiedAt: userRecord.phoneVerifiedAt ?? new Date().toISOString(),
+      });
 
       const membershipRoles = memberships.map((m) => m.role as Role);
       const effectiveRole = resolveEffectiveRole(
@@ -1232,59 +1428,78 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     "/v1/auth/sign-in",
     { preHandler: [rateLimitPreHandler] },
     async (request, reply) => {
-    const body = request.body as { email?: string; password?: string; name?: string };
+    const body = request.body as {
+      email?: string;
+      identifier?: string;
+      password?: string;
+      name?: string;
+    };
 
-    if (!body?.email) {
-      throw new DomainError("bad_request", "Email is required");
+    const rawIdentifier = (body?.identifier || body?.email || "").trim();
+    const password = body?.password;
+
+    if (!rawIdentifier) {
+      throw new DomainError("bad_request", "ایمیل یا شماره موبایل الزامی است.");
     }
 
-    const email = body.email.trim().toLowerCase();
-    const password = body.password;
+    const isEmail = rawIdentifier.includes("@");
+    let userRecord: (UserRecord & { passwordHash?: string | null }) | undefined =
+      undefined;
 
-    if (!email.includes("@")) {
-      recordFailedAttempt(request);
-      throw new DomainError(
-        "unauthorized",
-        "ایمیل یا رمز عبور نادرست است.",
-      );
-    }
+    if (isEmail) {
+      const email = rawIdentifier.toLowerCase();
+      userRecord = await userStore.findWithPasswordByEmail(email);
 
-    let userRecord = await userStore.findWithPasswordByEmail(email);
-
-    if (password) {
-      if (!userRecord && opts.identityAdapter) {
-        try {
-          const identity = await opts.identityAdapter.verifyIdentity({
-            email,
-            name: body.name,
-          });
-          const hashedPassword = await hashPassword(password);
-          userRecord = await userStore.createUserWithPassword({
-            email: identity.email,
-            passwordHash: hashedPassword,
-            name: identity.name,
-          });
-        } catch {
+      if (password) {
+        if (!userRecord && opts.identityAdapter) {
+          try {
+            const identity = await opts.identityAdapter.verifyIdentity({
+              email,
+              name: body.name,
+            });
+            const hashedPassword = await hashPassword(password);
+            userRecord = await userStore.createUserWithPassword({
+              email: identity.email,
+              passwordHash: hashedPassword,
+              name: identity.name,
+            });
+          } catch {
+            recordFailedAttempt(request);
+            throw new DomainError(
+              "unauthorized",
+              "ایمیل یا رمز عبور نادرست است.",
+            );
+          }
+        } else if (!userRecord) {
+          recordFailedAttempt(request);
+          throw new DomainError(
+            "unauthorized",
+            "ایمیل یا رمز عبور نادرست است.",
+          );
+        } else if (userRecord.passwordHash) {
+          const isMatch = await verifyPassword(password, userRecord.passwordHash);
+          if (!isMatch) {
+            recordFailedAttempt(request);
+            throw new DomainError(
+              "unauthorized",
+              "ایمیل یا رمز عبور نادرست است.",
+            );
+          }
+        } else {
           recordFailedAttempt(request);
           throw new DomainError(
             "unauthorized",
             "ایمیل یا رمز عبور نادرست است.",
           );
         }
-      } else if (!userRecord) {
-        recordFailedAttempt(request);
-        throw new DomainError(
-          "unauthorized",
-          "ایمیل یا رمز عبور نادرست است.",
-        );
-      } else if (userRecord.passwordHash) {
-        const isMatch = await verifyPassword(password, userRecord.passwordHash);
-        if (!isMatch) {
-          recordFailedAttempt(request);
-          throw new DomainError(
-            "unauthorized",
-            "ایمیل یا رمز عبور نادرست است.",
-          );
+      } else if (opts.identityAdapter) {
+        // Legacy test double fallback without password
+        const identity = await opts.identityAdapter.verifyIdentity({
+          email,
+          name: body.name,
+        });
+        if (!userRecord) {
+          userRecord = await userStore.createFromVerifiedIdentity(identity);
         }
       } else {
         recordFailedAttempt(request);
@@ -1293,21 +1508,69 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
           "ایمیل یا رمز عبور نادرست است.",
         );
       }
-    } else if (opts.identityAdapter) {
-      // Legacy test double fallback without password
-      const identity = await opts.identityAdapter.verifyIdentity({
-        email,
-        name: body.name,
-      });
-      if (!userRecord) {
-        userRecord = await userStore.createFromVerifiedIdentity(identity);
-      }
     } else {
-      recordFailedAttempt(request);
-      throw new DomainError(
-        "unauthorized",
-        "ایمیل یا رمز عبور نادرست است.",
+      // Mobile Phone Number login
+      const phoneValidation = validateAndNormalizeIranPhone(rawIdentifier);
+      if (!phoneValidation.valid || !phoneValidation.normalized) {
+        recordFailedAttempt(request);
+        throw new DomainError(
+          "unauthorized",
+          "شماره موبایل یا رمز عبور نادرست است.",
+        );
+      }
+
+      const normalizedPhone = phoneValidation.normalized;
+      if (userStore.findWithPasswordByPhoneNumber) {
+        userRecord = await userStore.findWithPasswordByPhoneNumber(normalizedPhone);
+      } else if (userStore.findByPhoneNumber) {
+        const u = await userStore.findByPhoneNumber(normalizedPhone);
+        userRecord = u ? { ...u, passwordHash: null } : undefined;
+      }
+
+      if (!userRecord) {
+        recordFailedAttempt(request);
+        throw new DomainError(
+          "unauthorized",
+          "شماره موبایل یا رمز عبور نادرست است.",
+        );
+      }
+
+      // Check if phone number is verified
+      const isPhoneVerified = Boolean(
+        userRecord.phoneVerifiedAt ?? userRecord.phoneVerified,
       );
+      if (!isPhoneVerified) {
+        recordFailedAttempt(request);
+        throw new DomainError(
+          "forbidden",
+          "شماره موبایل شما تأیید نشده است. لطفاً ابتدا وارد حساب خود شده و شماره را تأیید کنید یا با ایمیل وارد شوید.",
+        );
+      }
+
+      if (!password) {
+        recordFailedAttempt(request);
+        throw new DomainError(
+          "unauthorized",
+          "رمز عبور الزامی است.",
+        );
+      }
+
+      if (!userRecord.passwordHash) {
+        recordFailedAttempt(request);
+        throw new DomainError(
+          "unauthorized",
+          "برای این حساب هنوز رمز عبور تنظیم نشده است. لطفاً از طریق ورود با کد یکبارمصرف (OTP) یا بازیابی رمز عبور وارد شوید.",
+        );
+      }
+
+      const isMatch = await verifyPassword(password, userRecord.passwordHash);
+      if (!isMatch) {
+        recordFailedAttempt(request);
+        throw new DomainError(
+          "unauthorized",
+          "شماره موبایل یا رمز عبور نادرست است.",
+        );
+      }
     }
 
     clearFailedAttempts(request);
@@ -1698,11 +1961,15 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
   });
 
   /**
-   * POST /v1/auth/resend-verification — Backward-compatible Email Resend endpoint.
+   * POST /v1/auth/resend-verification — Backward-compatible Email & Phone Resend endpoint.
    */
   app.post("/v1/auth/resend-verification", async (request, _reply) => {
     let targetUserId: string | undefined;
     let targetEmail: string | undefined;
+    let targetPhone: string | undefined;
+    let channel: "email" | "phone" = "email";
+
+    const body = request.body as { email?: string; phoneNumber?: string } | undefined;
 
     const token = extractSessionToken(request);
     if (token) {
@@ -1712,26 +1979,47 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         if (u) {
           targetUserId = u.id;
           targetEmail = u.email;
+          targetPhone = u.phoneNumber ?? undefined;
         }
       }
     }
 
-    const body = request.body as { email?: string } | undefined;
-
-    if (!targetUserId && body?.email) {
+    if (body?.phoneNumber) {
+      channel = "phone";
+      const val = validateAndNormalizeIranPhone(body.phoneNumber);
+      if (val.valid && val.normalized) {
+        targetPhone = val.normalized;
+        if (!targetUserId && userStore.findByPhoneNumber) {
+          try {
+            const u = await userStore.findByPhoneNumber(val.normalized);
+            if (u) {
+              targetUserId = u.id;
+            }
+          } catch {
+            // Absorb conflict errors to prevent account enumeration
+          }
+        }
+      }
+    } else if (body?.email) {
+      channel = "email";
       const normEmail = body.email.trim().toLowerCase();
-      const u = await userStore.findByEmail(normEmail);
-      if (u) {
-        targetUserId = u.id;
-        targetEmail = u.email;
+      targetEmail = normEmail;
+      if (!targetUserId) {
+        const u = await userStore.findByEmail(normEmail);
+        if (u) {
+          targetUserId = u.id;
+        }
       }
     }
 
     const rateKey = targetUserId
-      ? `${targetUserId}_email`
-      : body?.email
-        ? `email_${body.email.trim().toLowerCase()}`
-        : `ip_${request.ip}`;
+      ? `${targetUserId}_${channel}`
+      : channel === "phone" && targetPhone
+        ? `phone_${targetPhone}`
+        : channel === "email" && targetEmail
+          ? `email_${targetEmail}`
+          : `ip_${request.ip}`;
+
     const now = Date.now();
     const nextAllowed = resendCooldowns.get(rateKey);
 
@@ -1744,17 +2032,38 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
 
     resendCooldowns.set(rateKey, now + RESEND_COOLDOWN_MS);
 
-    if (targetUserId && targetEmail) {
+    if (targetUserId) {
       const userRec = await userStore.findById(targetUserId as UserId);
-      if (userRec && !userRec.emailVerifiedAt && !userRec.emailVerified) {
-        await issueVerificationChallenge(targetUserId, "email", targetEmail);
+      if (userRec) {
+        if (channel === "phone" && (userRec.phoneNumber || targetPhone)) {
+          const isPhoneVerified = Boolean(userRec.phoneVerifiedAt ?? userRec.phoneVerified);
+          if (!isPhoneVerified) {
+            await issueVerificationChallenge(
+              targetUserId,
+              "phone",
+              userRec.phoneNumber || targetPhone!,
+            );
+          }
+        } else if (channel === "email" && (userRec.email || targetEmail)) {
+          const isEmailVerified = Boolean(userRec.emailVerifiedAt ?? userRec.emailVerified);
+          if (!isEmailVerified) {
+            await issueVerificationChallenge(
+              targetUserId,
+              "email",
+              userRec.email || targetEmail!,
+            );
+          }
+        }
       }
     }
 
-    // Generic response to prevent email enumeration
+    // Generic response to prevent user enumeration
     return {
       request_id: request.id,
-      message: "کد تأیید جدید به ایمیل شما ارسال شد.",
+      message:
+        channel === "phone"
+          ? "در صورتی که حساب کاربری با این شماره ثبت شده باشد، کد تأیید ارسال شد."
+          : "کد تأیید جدید به ایمیل شما ارسال شد.",
       cooldown_seconds: 60,
     };
   });
@@ -1922,6 +2231,30 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
    * POST /v1/auth/sign-out — Revoke session.
    */
   app.post("/v1/auth/sign-out", async (request, reply) => {
+    const sessionCookie = request.cookies?.["avana_session"];
+    const csrfCookie = request.cookies?.["avana_csrf"];
+    const csrfHeader = (request.headers["x-csrf-token"] ??
+      request.headers["X-CSRF-Token"]) as string | undefined;
+
+    const isProd = process.env.NODE_ENV === "production";
+    const shouldEnforce =
+      isProd ||
+      Boolean(csrfCookie) ||
+      Boolean(csrfHeader) ||
+      process.env.AVANA_CSRF_ENFORCE === "true";
+
+    if (sessionCookie && shouldEnforce) {
+      if (!csrfHeader) {
+        throw new DomainError("forbidden", "CSRF token missing");
+      }
+      if (csrfCookie && csrfHeader !== csrfCookie) {
+        throw new DomainError("forbidden", "CSRF token mismatch");
+      }
+      if (!validateCsrfToken(csrfHeader, sessionCookie)) {
+        throw new DomainError("forbidden", "Invalid CSRF token");
+      }
+    }
+
     const token = extractSessionToken(request);
     if (token) {
       await sessionService.revokeSession(token, "sign_out");
@@ -2094,100 +2427,88 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
   /**
    * POST /v1/welcome-gift/acknowledge — Acknowledges that the user has seen the welcome popup.
    */
-  app.post("/v1/welcome-gift/acknowledge", async (request, _reply) => {
-    const token = extractSessionToken(request);
-    if (!token) {
-      throw new DomainError("unauthorized", "Not signed in");
-    }
+  app.post(
+    "/v1/welcome-gift/acknowledge",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const userId = (request as unknown as { user: { userId: string } }).user.userId;
 
-    const sessionUser = await sessionService.validateSession(token);
-    if (!sessionUser) {
-      throw new DomainError("unauthorized", "Not signed in");
-    }
+      if (!opts.welcomeGiftService) {
+        return {
+          request_id: request.id,
+          success: true,
+          popup_seen_at: new Date().toISOString(),
+        };
+      }
 
-    if (!opts.welcomeGiftService) {
+      const result = await opts.welcomeGiftService.acknowledgePopup(
+        userId as UserId,
+      );
       return {
         request_id: request.id,
-        success: true,
-        popup_seen_at: new Date().toISOString(),
+        ...result,
       };
-    }
-
-    const result = await opts.welcomeGiftService.acknowledgePopup(
-      sessionUser.userId,
-    );
-    return {
-      request_id: request.id,
-      ...result,
-    };
-  });
+    },
+  );
 
   /**
    * GET /v1/onboarding/tour — Checks eligibility and returns user's onboarding tour status.
    */
-  app.get("/v1/onboarding/tour", async (request, _reply) => {
-    const token = extractSessionToken(request);
-    if (!token) {
-      throw new DomainError("unauthorized", "Not signed in");
-    }
+  app.get(
+    "/v1/onboarding/tour",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const userId = (request as unknown as { user: { userId: string } }).user.userId;
 
-    const sessionUser = await sessionService.validateSession(token);
-    if (!sessionUser) {
-      throw new DomainError("unauthorized", "Not signed in");
-    }
+      if (!opts.onboardingTourService) {
+        return {
+          request_id: request.id,
+          eligible: false,
+          status: "completed",
+        };
+      }
 
-    if (!opts.onboardingTourService) {
+      const status = await opts.onboardingTourService.getStatus(userId as UserId);
       return {
         request_id: request.id,
-        eligible: false,
-        status: "completed",
+        ...status,
       };
-    }
-
-    const status = await opts.onboardingTourService.getStatus(sessionUser.userId);
-    return {
-      request_id: request.id,
-      ...status,
-    };
-  });
+    },
+  );
 
   /**
    * POST /v1/onboarding/tour — Updates the onboarding tour status (skipped or completed).
    */
-  app.post("/v1/onboarding/tour", async (request, _reply) => {
-    const token = extractSessionToken(request);
-    if (!token) {
-      throw new DomainError("unauthorized", "Not signed in");
-    }
+  app.post(
+    "/v1/onboarding/tour",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const userId = (request as unknown as { user: { userId: string } }).user.userId;
 
-    const sessionUser = await sessionService.validateSession(token);
-    if (!sessionUser) {
-      throw new DomainError("unauthorized", "Not signed in");
-    }
+      const body = (request.body as { action?: "skip" | "complete"; step?: number }) || {};
+      const action = body.action === "complete" ? "complete" : "skip";
+      const step = typeof body.step === "number" ? body.step : 1;
 
-    const body = (request.body as { action?: "skip" | "complete"; step?: number }) || {};
-    const action = body.action === "complete" ? "complete" : "skip";
-    const step = typeof body.step === "number" ? body.step : 1;
+      if (!opts.onboardingTourService) {
+        return {
+          request_id: request.id,
+          success: true,
+          status: action === "complete" ? "completed" : "skipped",
+          updated_at: new Date().toISOString(),
+        };
+      }
 
-    if (!opts.onboardingTourService) {
+      const result = await opts.onboardingTourService.updateStatus(
+        userId as UserId,
+        action,
+        step,
+      );
       return {
         request_id: request.id,
-        success: true,
-        status: action === "complete" ? "completed" : "skipped",
-        updated_at: new Date().toISOString(),
+        ...result,
       };
-    }
-
-    const result = await opts.onboardingTourService.updateStatus(
-      sessionUser.userId,
-      action,
-      step,
-    );
-    return {
-      request_id: request.id,
-      ...result,
-    };
-  });
+    },
+  );
 };
 
 /**

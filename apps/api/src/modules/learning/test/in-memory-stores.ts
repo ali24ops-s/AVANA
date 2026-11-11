@@ -461,13 +461,18 @@ export class InMemoryDocumentStore implements DocumentStore {
   }
 
   async create(document: DocumentRecord): Promise<DocumentRecord> {
-    for (const [id, d] of this.documents.entries()) {
-      if (
-        d.organizationId === document.organizationId &&
-        d.sha256 === document.sha256 &&
-        d.deletedAt !== null
-      ) {
-        this.documents.delete(id);
+    if (document.sha256) {
+      for (const [id, d] of this.documents.entries()) {
+        if (
+          d.organizationId === document.organizationId &&
+          d.sha256 === document.sha256
+        ) {
+          if (d.deletedAt !== null) {
+            this.documents.delete(id);
+          } else {
+            return { ...d };
+          }
+        }
       }
     }
     this.documents.set(document.id, { ...document });

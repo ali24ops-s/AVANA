@@ -163,11 +163,12 @@ describe("Teacher Assignment Submissions Drawer — 8 Flow & State Scenarios", (
       },
     };
 
+    const handleDrawerClose = vi.fn();
     render(
       <QueryClientProvider client={queryClient}>
         <AssignmentSubmissionsDrawer
           isOpen={true}
-          onClose={vi.fn()}
+          onClose={handleDrawerClose}
           assignmentId="asg-test-1"
         />
       </QueryClientProvider>,
@@ -182,6 +183,15 @@ describe("Teacher Assignment Submissions Drawer — 8 Flow & State Scenarios", (
     // Opening answer details
     fireEvent.click(screen.getByRole("button", { name: /باز کردن پاسخ/i }));
     expect(screen.getByText("پاسخ مدار با گیت‌های NAND پیاده‌سازی شد.")).toBeInTheDocument();
+
+    // First Escape: closes ONLY the student answer dialog, drawer stays open
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByText("پاسخ مدار با گیت‌های NAND پیاده‌سازی شد.")).not.toBeInTheDocument();
+    expect(handleDrawerClose).not.toHaveBeenCalled();
+
+    // Second Escape: now closes the submissions drawer
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(handleDrawerClose).toHaveBeenCalledTimes(1);
   });
 
   // Scenario 4: Valid assignment + Deadline passed + Has submissions
@@ -389,9 +399,9 @@ describe("Teacher Assignment Submissions Drawer — 8 Flow & State Scenarios", (
       mockSubmissionsData = {
         assignment: {
           ...baseAssignment,
-          startsAt: "" as any,
-          dueAt: null as any,
-          createdAt: "" as any,
+          startsAt: "" as unknown as string,
+          dueAt: null as unknown as string,
+          createdAt: "" as unknown as string,
         },
         submissions: [],
         stats: {

@@ -42,6 +42,7 @@ import type { GenerationProgressService } from "./generation-progress-service.js
 import type { WalletService } from "../wallet/wallet-service.js";
 import type { WalletStore } from "../wallet/wallet-store.js";
 import { refundGenerationJobDebit } from "./generation-refund-helper.js";
+import { sanitizeText } from "../../utils/sanitize-text.js";
 
 export type GenerationProcessorDeps = {
   generationService?: GenerationService;
@@ -195,7 +196,8 @@ async function markFailed(
   );
   const now = new Date().toISOString();
   const errorCode = resolveErrorCode(err);
-  const errorMessage = err instanceof Error ? err.message : String(err);
+  const rawErrorMessage = err instanceof Error ? err.message : String(err);
+  const errorMessage = sanitizeText(rawErrorMessage);
 
   if (
     existing &&
@@ -229,6 +231,15 @@ function resolveErrorCode(err: unknown): string {
     typeof (err as { code: unknown }).code === "string"
   ) {
     return (err as { code: string }).code;
+  }
+  if (err instanceof Error) {
+    const lower = err.message.toLowerCase();
+    if (lower.includes("timeout") || lower.includes("timed out")) return "timeout";
+    if (lower.includes("rate limit") || lower.includes("429")) return "rate_limit_exceeded";
+    if (lower.includes("quota") || lower.includes("resource_exhausted")) return "quota_exhausted";
+    if (lower.includes("unauthorized") || lower.includes("401")) return "unauthorized";
+    if (lower.includes("forbidden") || lower.includes("403")) return "forbidden";
+    if (lower.includes("service unavailable") || lower.includes("503")) return "service_unavailable";
   }
   return "generation_failed";
 }
@@ -433,7 +444,8 @@ export async function processGenerationJob(
     }
 
     const { errorCode, errorMessage } = await markFailed(generationJobStore, jobId, payload, err);
-    process.stderr.write(`[GENERATION] job failed: ${jobId} (error: ${errorMessage}, code: ${errorCode})\n`);
+    const trackingStr = payload.requestId ? ` (requestId: ${payload.requestId})` : "";
+    process.stderr.write(`[GENERATION] job failed: ${jobId}${trackingStr} (error: ${errorMessage}, code: ${errorCode})\n`);
     await refundGenerationDebit(deps, jobId, payload, `job_failed:${errorCode}`);
     throw err;
   }

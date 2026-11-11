@@ -4,6 +4,7 @@ node_modules/
 
 # Production & build output
 dist/
+dist-artifact/
 build/
 out/
 .next/
@@ -94,3 +95,12 @@ scratch-*.ts
 
 # Generated load-test results
 /docs/load-tests/results/
+
+# Studio local outputs, heavy media renders & caches (local-only)
+tools/tutorial-studio/output/
+tools/tutorial-studio/.cache/
+tools/tutorial-studio/.remotion/
+tools/tutorial-studio/.vite/
+tools/tutorial-studio/.vite-temp/
+stage5_*.png
+

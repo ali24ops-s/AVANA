@@ -33,8 +33,13 @@ export function ContentExportModal({ isOpen, onClose, courses }: ContentExportMo
   useEffect(() => {
     if (isOpen) {
       setError(null);
+      if (courses.length === 1 && courses[0]?.id) {
+        setSelectedCourseId(courses[0].id);
+      } else if (selectedCourseId && !courses.some((c) => c.id === selectedCourseId)) {
+        setSelectedCourseId(courses.length === 1 && courses[0]?.id ? courses[0].id : "");
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, courses]);
 
   if (!isOpen) return null;
 
@@ -57,11 +62,18 @@ export function ContentExportModal({ isOpen, onClose, courses }: ContentExportMo
   };
 
   const handleExport = async () => {
+    const effectiveCourseId = selectedCourseId || (courses.length === 1 && courses[0]?.id ? courses[0].id : undefined);
+
+    if (courses.length === 1 && !effectiveCourseId) {
+      setError("شناسه دوره معتبر برای دریافت خروجی یافت نشد.");
+      return;
+    }
+
     setExporting(true);
     setError(null);
     try {
       await downloadContentExport({
-        courseId: selectedCourseId || undefined,
+        courseId: effectiveCourseId,
         scope,
       });
       onClose();
@@ -127,7 +139,7 @@ export function ContentExportModal({ isOpen, onClose, courses }: ContentExportMo
               value={selectedCourseId}
               onChange={(val) => setSelectedCourseId(typeof val === "string" ? val : val[0] || "")}
               options={[
-                { value: "", label: "همه دوره‌ها (تمام محتوای آموزشی موجود)" },
+                ...(courses.length !== 1 ? [{ value: "", label: "همه دوره‌ها (تمام محتوای آموزشی موجود)" }] : []),
                 ...courses.map((c) => ({ value: c.id, label: c.name })),
               ]}
             />

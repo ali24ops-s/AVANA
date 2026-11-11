@@ -77,6 +77,7 @@ export interface ReviewRouteOptions {
   db?: DbClient;
   systemOrganizationId?: OrganizationId;
   courseStore?: CourseStore;
+  studyService?: import("../study/index.js").StudyService | (() => import("../study/index.js").StudyService | undefined);
 }
 
 const UUID_RE =
@@ -260,6 +261,12 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
         contentId,
       );
 
+      const resolvedStudyService =
+        typeof opts.studyService === "function" ? opts.studyService() : opts.studyService;
+      if (resolvedStudyService) {
+        resolvedStudyService.invalidateTopicSummaryCache(organizationId);
+      }
+
       return { request_id: request.id, ...result };
     },
   );
@@ -287,6 +294,12 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
         courseId,
         documentId,
       );
+
+      const resolvedStudyService =
+        typeof opts.studyService === "function" ? opts.studyService() : opts.studyService;
+      if (resolvedStudyService) {
+        resolvedStudyService.invalidateTopicSummaryCache(organizationId);
+      }
 
       return { request_id: request.id, ...result };
     },

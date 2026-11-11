@@ -185,10 +185,16 @@ export interface ParsedExportPackageData {
 
 export type ImportEntityStatus = "NEW" | "EXISTING" | "UPDATED" | "CONFLICT";
 
+export type ImportEntitySubStatus =
+  | "EXISTING_SAME_COURSE"
+  | "EXISTING_UNOWNED"
+  | "EXISTING_SHARED";
+
 export interface ImportEntityResolution {
   entityType: string;
   exportId: string;
   status: ImportEntityStatus;
+  subStatus?: ImportEntitySubStatus;
   targetEntityId?: string;
   conflictReason?: string;
   titleOrName?: string;

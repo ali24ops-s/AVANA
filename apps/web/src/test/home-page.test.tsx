@@ -1245,7 +1245,10 @@ describe("HomePage Component", () => {
             }),
         } as Response);
       }
-      if (init?.method === "PATCH" && urlStr.includes(`/v1/organizations/${orgId}/courses/${courseId}`)) {
+      if (
+        (init?.method === "POST" && urlStr.includes(`/v1/organizations/${orgId}/courses/exam`)) ||
+        (init?.method === "PATCH" && urlStr.includes(`/v1/organizations/${orgId}/courses/${courseId}`))
+      ) {
         patchedPayload = JSON.parse(String(init.body));
         return Promise.resolve({
           ok: true,
@@ -1346,6 +1349,134 @@ describe("HomePage Component", () => {
     });
   });
 
+  it("Upcoming Exams: allows switching to 'افزودن درس جدید', entering new course title, optional time, and registering exam", async () => {
+    let registerPayload: { title?: string; course_id?: string; exam_at?: string } | null = null;
+    const orgId = "00000000-0000-0000-0000-000000000001";
+    const courseId = "00000000-0000-0000-0000-000000000002";
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((url, init) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-me",
+              user: { id: "user-1", email: "student@avana.ir", role: "student" },
+              memberships: [{ organization_id: orgId, role: "student" }],
+            }),
+        } as Response);
+      }
+      if (init?.method === "POST" && urlStr.includes(`/v1/organizations/${orgId}/courses/exam`)) {
+        registerPayload = JSON.parse(String(init.body));
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-exam-new",
+              course: {
+                id: "new-course-id-123",
+                title: registerPayload?.title || "شیمی آلی ۱",
+                exam_at: registerPayload?.exam_at,
+              },
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/organizations/") && urlStr.includes("/courses")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-c",
+              items: [
+                {
+                  id: courseId,
+                  organization_id: orgId,
+                  title: "فیزیولوژی قلب و عروق",
+                  exam_at: null,
+                },
+              ],
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/organizations")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-orgs",
+              items: [{ id: orgId, name: "دانشگاه آوانا" }],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/home"]}>
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("هیچ امتحانی ثبت نشده است")).toBeInTheDocument();
+    });
+
+    // Click "افزودن امتحان" button
+    const addExamBtns = screen.getAllByRole("button", { name: /افزودن امتحان/i });
+    fireEvent.click(addExamBtns[0]);
+
+    // Modal should be open
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByText("+ افزودن درس جدید")).toBeInTheDocument();
+    });
+
+    // Click "+ افزودن درس جدید" tab
+    fireEvent.click(screen.getByRole("button", { name: "+ افزودن درس جدید" }));
+
+    // Input for new course title should be visible
+    expect(screen.getByLabelText("نام درس جدید")).toBeInTheDocument();
+
+    // Type course name
+    fireEvent.change(screen.getByLabelText("نام درس جدید"), {
+      target: { value: "شیمی آلی ۱" },
+    });
+
+    // Open Persian Date Picker
+    const datePickerBtn = screen.getByLabelText("تاریخ برگزاری امتحان");
+    fireEvent.click(datePickerBtn);
+
+    // Select today
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "تقویم انتخاب تاریخ شمسی" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /انتخاب امروز/i }));
+
+    // Verify exam time input is NOT present
+    expect(screen.queryByLabelText("ساعت برگزاری (اختیاری)")).not.toBeInTheDocument();
+
+    // Submit form
+    const form = screen.getByRole("dialog").querySelector("form");
+    expect(form).not.toBeNull();
+    fireEvent.submit(form!);
+
+    await waitFor(() => {
+      expect(registerPayload).not.toBeNull();
+      expect(registerPayload?.title).toBe("شیمی آلی ۱");
+      expect(registerPayload?.exam_at).toContain("00:00:00.000Z");
+    });
+  });
+
   it("Upcoming Exams: allows configuring exam scope (selecting specific modules) in AddExamModal", async () => {
     let patchedPayload: { exam_at?: string; exam_scope?: { moduleIds?: string[] } } | null = null;
     const orgId = "00000000-0000-0000-0000-000000000001";
@@ -1385,7 +1516,10 @@ describe("HomePage Component", () => {
             }),
         } as Response);
       }
-      if (init?.method === "PATCH" && urlStr.includes(`/v1/organizations/${orgId}/courses/${courseId}`)) {
+      if (
+        (init?.method === "POST" && urlStr.includes(`/v1/organizations/${orgId}/courses/exam`)) ||
+        (init?.method === "PATCH" && urlStr.includes(`/v1/organizations/${orgId}/courses/${courseId}`))
+      ) {
         patchedPayload = JSON.parse(String(init.body));
         return Promise.resolve({
           ok: true,
@@ -1770,8 +1904,13 @@ describe("HomePage Component", () => {
             }),
         } as Response);
       }
-      if (init?.method === "PATCH" && urlStr.includes(`/v1/organizations/${orgId}/courses/${examCourseId}`)) {
-        patchPayload = JSON.parse(String(init.body));
+      if (
+        (init?.method === "DELETE" && urlStr.includes(`/v1/organizations/${orgId}/courses/${examCourseId}/exam`)) ||
+        (init?.method === "PATCH" && urlStr.includes(`/v1/organizations/${orgId}/courses/${examCourseId}`))
+      ) {
+        patchPayload = init?.body
+          ? JSON.parse(String(init.body))
+          : { exam_at: null, exam_scope: null };
         currentExamAt = null;
         return Promise.resolve({
           ok: true,
@@ -1779,6 +1918,7 @@ describe("HomePage Component", () => {
           json: () =>
             Promise.resolve({
               request_id: "req-patch",
+              success: true,
               course: {
                 id: examCourseId,
                 title: "ژنتیک پزشکی",
@@ -1882,7 +2022,7 @@ describe("HomePage Component", () => {
             }),
         } as Response);
       }
-      if (init?.method === "PATCH") {
+      if (init?.method === "DELETE" || init?.method === "PATCH") {
         return Promise.resolve({
           ok: false,
           status: 500,
@@ -2062,6 +2202,96 @@ describe("HomePage Component", () => {
       expect(screen.getByRole("dialog", { name: "لغو ثبت امتحان" })).toBeInTheDocument();
       expect(screen.getByText("«بافت‌شناسی تخصصی»")).toBeInTheDocument();
     });
+  });
+
+  it("Upcoming Exams Date-based Scheduling: includes today's exams until end of day without displaying time, and excludes past days' exams", async () => {
+    const orgId = "00000000-0000-0000-0000-000000000001";
+    const pastCourseId = "00000000-0000-0000-0000-000000000088";
+    const todayCourseId = "00000000-0000-0000-0000-000000000099";
+
+    // Yesterday's exam (expired) vs today's legacy exam with timestamp
+    const yesterdayDate = new Date(Date.now() - 36 * 3600 * 1000);
+    const todayWithLegacyTime = new Date(Date.now() - 2 * 3600 * 1000); // 2 hours ago earlier today
+
+    const pastExamAt = yesterdayDate.toISOString();
+    const todayExamAt = todayWithLegacyTime.toISOString();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-me",
+              user: { id: "user-tz", email: "student@avana.ir", role: "student" },
+              memberships: [{ organization_id: orgId, role: "student" }],
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/organizations/") && urlStr.includes("/courses")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-c",
+              items: [
+                {
+                  id: pastCourseId,
+                  organization_id: orgId,
+                  title: "امتحان دیروز",
+                  exam_at: pastExamAt,
+                },
+                {
+                  id: todayCourseId,
+                  organization_id: orgId,
+                  title: "امتحان امروز با برچسب زمان قدیمی",
+                  exam_at: todayExamAt,
+                },
+              ],
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/organizations")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-orgs",
+              items: [{ id: orgId, name: "دانشگاه آوانا" }],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/home"]}>
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    const upcomingSection = document.querySelector('[data-tour="upcoming-exams"]');
+    expect(upcomingSection).not.toBeNull();
+
+    // Today's exam must appear in upcoming exams (even if its timestamp has passed)
+    await waitFor(() => {
+      expect(upcomingSection?.textContent).toContain("امتحان امروز با برچسب زمان قدیمی");
+    });
+
+    // It must NOT show any hour or time string ("ساعت")
+    expect(upcomingSection?.textContent).not.toContain("ساعت");
+
+    // Yesterday's exam must be EXCLUDED from Upcoming Exams section
+    expect(upcomingSection?.textContent).not.toContain("امتحان دیروز");
   });
 
   describe("Popular Courses (دوره‌های محبوب) Section Tests", () => {

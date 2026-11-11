@@ -516,4 +516,149 @@ describe("Course Access & Purchase Logic (Web Components)", () => {
       expect(screen.getByText("۳۵٪")).toBeDefined();
     });
   });
+
+  describe("Add to My Courses action in library variant", () => {
+    it("renders 'افزودن به دوره‌های من' button when hasAccess is true, onAdd is provided, and isAdded is false", () => {
+      const onAdd = vi.fn();
+      render(
+        <MemoryRouter>
+          <CourseCard
+            id="course-user-pub"
+            title="فیزیولوژی اعصاب کاربرساخته"
+            variant="library"
+            access={{ hasAccess: true, isFree: true }}
+            onAdd={onAdd}
+            isAdded={false}
+          />
+        </MemoryRouter>,
+      );
+
+      const addBtn = screen.getByTestId("add-to-my-courses-btn-course-user-pub");
+      expect(addBtn).toBeDefined();
+      expect(screen.getByText("افزودن به دوره‌های من")).toBeDefined();
+      expect(screen.getByTestId("view-course-btn-course-user-pub")).toBeDefined();
+
+      addBtn.click();
+      expect(onAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it("renders 'ورود به دوره' and does NOT show add button when isAdded is true", () => {
+      const onAdd = vi.fn();
+      render(
+        <MemoryRouter>
+          <CourseCard
+            id="course-user-pub-enrolled"
+            title="فیزیولوژی اعصاب کاربرساخته"
+            variant="library"
+            access={{ hasAccess: true, isFree: true }}
+            onAdd={onAdd}
+            isAdded={true}
+          />
+        </MemoryRouter>,
+      );
+
+      expect(screen.queryByTestId("add-to-my-courses-btn-course-user-pub-enrolled")).toBeNull();
+      expect(screen.getByText("ورود به دوره")).toBeDefined();
+    });
+
+    it("shows loading state when isAdding is true", () => {
+      const onAdd = vi.fn();
+      render(
+        <MemoryRouter>
+          <CourseCard
+            id="course-loading"
+            title="دوره در حال افزودن"
+            variant="library"
+            access={{ hasAccess: true, isFree: true }}
+            onAdd={onAdd}
+            isAdded={false}
+            isAdding={true}
+          />
+        </MemoryRouter>,
+      );
+
+      expect(screen.getByText("در حال افزودن...")).toBeDefined();
+      const addBtn = screen.getByTestId("add-to-my-courses-btn-course-loading");
+      expect(addBtn.hasAttribute("disabled")).toBe(true);
+    });
+
+    it("CourseLibraryCardAdapter properly forwards onAdd, isAdded, and isAdding", () => {
+      const onAdd = vi.fn();
+      render(
+        <MemoryRouter>
+          <CourseLibraryCardAdapter
+            course={{
+              id: "lib-course-adapter",
+              title: "داروسازی کاربردی",
+              access: { hasAccess: true, isFree: true },
+            } as any}
+            onAdd={onAdd}
+            isAdded={false}
+          />
+        </MemoryRouter>,
+      );
+
+      const addBtn = screen.getByTestId("add-to-my-courses-btn-lib-course-adapter");
+      expect(addBtn).toBeDefined();
+      addBtn.click();
+      expect(onAdd).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("User-Published Courses Visual Differentiation", () => {
+    it("renders 'منتشرشده توسط کاربر' badge and publisher name for user-published courses", () => {
+      render(
+        <MemoryRouter>
+          <CourseCard
+            id="user-pub-card"
+            title="فارماکولوژی بالینی"
+            isOfficial={false}
+            isUserPublished={true}
+            publisherName="دکتر محمدی"
+            variant="library"
+          />
+        </MemoryRouter>,
+      );
+
+      expect(screen.getAllByText("منتشرشده توسط کاربر").length).toBeGreaterThan(0);
+      expect(screen.getByText("دکتر محمدی")).toBeDefined();
+    });
+
+    it("does NOT render 'منتشرشده توسط کاربر' badge for official courses", () => {
+      render(
+        <MemoryRouter>
+          <CourseCard
+            id="official-card"
+            title="بیوشیمی عمومی آوانا"
+            isOfficial={true}
+            isUserPublished={false}
+            variant="library"
+          />
+        </MemoryRouter>,
+      );
+
+      expect(screen.queryByText("منتشرشده توسط کاربر")).toBeNull();
+      expect(screen.queryByText(/مؤلف:/)).toBeNull();
+    });
+
+    it("CourseLibraryCardAdapter forwards isUserPublished and publisherName", () => {
+      render(
+        <MemoryRouter>
+          <CourseLibraryCardAdapter
+            course={{
+              id: "adapter-user-card",
+              title: "ژنتیک پزشکی",
+              isOfficial: false,
+              isUserPublished: true,
+              publisherName: "دکتر حسینی",
+            } as any}
+          />
+        </MemoryRouter>,
+      );
+
+      expect(screen.getAllByText("منتشرشده توسط کاربر").length).toBeGreaterThan(0);
+      expect(screen.getByText("دکتر حسینی")).toBeDefined();
+    });
+  });
 });
+

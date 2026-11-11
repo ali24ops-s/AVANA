@@ -12,6 +12,7 @@
 
 import type { ErrorEnvelope } from "@avana/contracts";
 import { ApiError } from "./errors.js";
+import { DEFAULT_PERSIAN_MESSAGES } from "./error-mapper.js";
 
 export type ApiClientOptions = {
   baseUrl: string;
@@ -123,6 +124,35 @@ export function buildUrlWithParams(
 }
 
 /**
+ * Extract CSRF token from browser document.cookie.
+ */
+export function getCsrfTokenFromCookie(): string | undefined {
+  if (typeof document === "undefined" || !document.cookie) return undefined;
+  const match = document.cookie.match(/(?:^|;\s*)avana_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+/**
+ * Ensure an active CSRF token is available, bootstrapping from /v1/auth/session if necessary.
+ */
+export async function ensureCsrfToken(baseUrl: string, signal?: AbortSignal): Promise<string | undefined> {
+  let activeCsrfToken = getCsrfTokenFromCookie();
+  if (!activeCsrfToken && typeof document !== "undefined") {
+    try {
+      await fetch(`${baseUrl}/v1/auth/session`, {
+        method: "GET",
+        credentials: "include",
+        signal,
+      });
+      activeCsrfToken = getCsrfTokenFromCookie();
+    } catch {
+      // If bootstrap fails, proceed so server response is cleanly handled
+    }
+  }
+  return activeCsrfToken;
+}
+
+/**
  * Create a configured API client bound to a base URL.
  */
 export function createApiClient(options: ApiClientOptions) {
@@ -133,29 +163,74 @@ export function createApiClient(options: ApiClientOptions) {
     opts: RequestOptions = {},
   ): Promise<T> {
     const { method = "GET", body, headers: extraHeaders, params, signal } = opts;
+    const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
 
     const headers: Record<string, string> = {
       "x-request-id": generateUUID(),
       ...extraHeaders,
     };
 
-    if (body !== undefined) {
+    if (body !== undefined && !isFormData) {
       headers["Content-Type"] = "application/json";
     }
 
     // Attach CSRF token for state-changing requests
-    if (options.csrfToken && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
-      headers["x-csrf-token"] = options.csrfToken;
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+      let activeCsrfToken = options.csrfToken || getCsrfTokenFromCookie();
+      const isPublicAuthRoute =
+        path.startsWith("/v1/auth/sign-in") ||
+        path.startsWith("/v1/auth/register") ||
+        path.startsWith("/v1/auth/sign-up") ||
+        path.startsWith("/v1/auth/otp") ||
+        path.startsWith("/v1/auth/password");
+
+      if (!activeCsrfToken && typeof document !== "undefined" && !isPublicAuthRoute) {
+        activeCsrfToken = await ensureCsrfToken(baseUrl, signal);
+      }
+
+      if (activeCsrfToken) {
+        headers["x-csrf-token"] = activeCsrfToken;
+      }
     }
 
     const finalPath = buildUrlWithParams(path, params);
-    const response = await fetch(`${baseUrl}${finalPath}`, {
-      method,
-      headers,
-      credentials: "include", // Send cookies (avana_session)
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal,
-    });
+    const fetchBody: BodyInit | undefined = isFormData
+      ? (body as FormData)
+      : body !== undefined
+        ? JSON.stringify(body)
+        : undefined;
+
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}${finalPath}`, {
+        method,
+        headers,
+        credentials: "include", // Send cookies (avana_session)
+        body: fetchBody,
+        signal,
+      });
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new ApiError({
+          request_id: generateUUID(),
+          error: {
+            code: "timeout" as ErrorEnvelope["error"]["code"],
+            message: "مهلت زمانی درخواست به پایان رسید. لطفاً دوباره تلاش کنید.",
+          },
+        });
+      }
+
+      const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+      throw new ApiError({
+        request_id: generateUUID(),
+        error: {
+          code: "service_unavailable" as ErrorEnvelope["error"]["code"],
+          message: isOffline
+            ? "ارتباط با اینترنت برقرار نیست. لطفاً وضعیت شبکه خود را بررسی کنید."
+            : "خطا در برقراری ارتباط با سرور. لطفاً اتصال اینترنت خود را بررسی کنید.",
+        },
+      });
+    }
 
     // Handle 204 No Content
     if (response.status === 204) {
@@ -226,21 +301,19 @@ export function createApiClient(options: ApiClientOptions) {
       }
 
       const messageByStatus: Record<number, string> = {
-        401: "You are not authorized. Please sign in.",
-        403: "You do not have permission to perform this action.",
-        404: "The requested resource was not found.",
-        413: "The uploaded file is too large.",
-        502: "Service temporarily unavailable. Please try again later.",
-        503: "Service temporarily unavailable. Please try again later.",
-        504: "Gateway timeout. Please try again later.",
+        401: DEFAULT_PERSIAN_MESSAGES.unauthorized,
+        403: DEFAULT_PERSIAN_MESSAGES.forbidden,
+        404: DEFAULT_PERSIAN_MESSAGES.not_found,
+        413: DEFAULT_PERSIAN_MESSAGES.file_too_large,
+        502: DEFAULT_PERSIAN_MESSAGES.bad_gateway,
+        503: DEFAULT_PERSIAN_MESSAGES.service_unavailable,
+        504: DEFAULT_PERSIAN_MESSAGES.timeout,
       };
 
       const code = codeByStatus[response.status] || "internal_error";
       const message =
         messageByStatus[response.status] ||
-        (response.status >= 500
-          ? "A server error occurred. Please try again later."
-          : `Request failed with status ${response.status}`);
+        DEFAULT_PERSIAN_MESSAGES.general_error;
 
       throw new ApiError({
         request_id: requestId,
@@ -264,6 +337,13 @@ export function createApiClient(options: ApiClientOptions) {
       opts?: Omit<RequestOptions, "method" | "body">,
     ): Promise<T> {
       return request<T>(path, { ...opts, method: "POST", body });
+    },
+    postFormData<T>(
+      path: string,
+      formData: FormData,
+      opts?: Omit<RequestOptions, "method" | "body">,
+    ): Promise<T> {
+      return request<T>(path, { ...opts, method: "POST", body: formData });
     },
     put<T>(
       path: string,

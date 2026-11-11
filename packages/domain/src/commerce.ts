@@ -33,6 +33,7 @@ export type CourseStatus =
   | "approved"
   | "published"
   | "rejected"
+  | "unpublished"
   | "archived";
 
 export const COURSE_STATUSES: readonly CourseStatus[] = [
@@ -43,6 +44,7 @@ export const COURSE_STATUSES: readonly CourseStatus[] = [
   "approved",
   "published",
   "rejected",
+  "unpublished",
   "archived",
 ];
 

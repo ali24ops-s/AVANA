@@ -207,9 +207,9 @@ export function PersianDatePicker({
     if (isDayDisabled(d)) return;
 
     const gDate = jalaliToGregorian(viewYear, viewMonth, d);
-    const yyyy = gDate.getFullYear();
-    const mm = String(gDate.getMonth() + 1).padStart(2, "0");
-    const dd = String(gDate.getDate()).padStart(2, "0");
+    const yyyy = gDate.getUTCFullYear();
+    const mm = String(gDate.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(gDate.getUTCDate()).padStart(2, "0");
     const isoString = `${yyyy}-${mm}-${dd}`;
 
     onChange(isoString);

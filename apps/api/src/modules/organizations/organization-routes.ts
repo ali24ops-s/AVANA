@@ -107,10 +107,10 @@ export const organizationRoutes: FastifyPluginAsync<
         if (!isRole(body.role)) {
           throw new DomainError("bad_request", "Invalid role specified");
         }
-        if (body.role === Roles.organization_admin && !isPlatformAdmin) {
+        if (!isPlatformAdmin && body.role !== Roles.student) {
           throw new DomainError(
             "forbidden",
-            "Only platform administrators can create organizations with organization_admin role",
+            "Only platform administrators can assign privileged or non-student roles during organization creation",
           );
         }
         initialRole = body.role;

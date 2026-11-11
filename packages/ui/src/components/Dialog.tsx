@@ -26,6 +26,11 @@ function releaseScrollLock() {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Global Active Dialog Stack for LIFO Escape Key Management                   */
+/* -------------------------------------------------------------------------- */
+let openDialogStack: Array<() => void> = [];
+
+/* -------------------------------------------------------------------------- */
 /* Compound Subcomponents                                                     */
 /* -------------------------------------------------------------------------- */
 export interface DialogHeaderProps {
@@ -109,6 +114,16 @@ export interface DialogProps {
   hideCloseButton?: boolean;
   ariaLabel?: string;
   ariaDescribedBy?: string;
+  /**
+   * Explicit compound mode toggle.
+   * When true:
+   * - Dialog will NEVER auto-inject a DialogHeader or wrap children in DialogContent.
+   * - Children are rendered directly without any layout wrapper.
+   * - Full responsibility for Header, Content, Scrolling, and Footer is with the consumer.
+   * When false or undefined:
+   * - Falls back to auto-detection (detectCompound) to maintain 100% backward compatibility.
+   */
+  isCompound?: boolean;
 }
 
 export const Dialog: React.FC<DialogProps> = ({
@@ -127,6 +142,7 @@ export const Dialog: React.FC<DialogProps> = ({
   hideCloseButton = false,
   ariaLabel,
   ariaDescribedBy,
+  isCompound,
 }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousActiveElement = useRef<HTMLElement | null>(null);
@@ -139,6 +155,11 @@ export const Dialog: React.FC<DialogProps> = ({
 
     acquireScrollLock();
 
+    const handleClose = () => {
+      onCloseRef.current();
+    };
+    openDialogStack.push(handleClose);
+
     // Store active element for focus restoration on close
     if (typeof document !== "undefined") {
       previousActiveElement.current = document.activeElement as HTMLElement | null;
@@ -146,7 +167,12 @@ export const Dialog: React.FC<DialogProps> = ({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onCloseRef.current();
+        // Only the topmost open dialog handles Escape in LIFO order
+        const topDialogOnClose = openDialogStack[openDialogStack.length - 1];
+        if (topDialogOnClose === handleClose) {
+          e.preventDefault();
+          handleClose();
+        }
         return;
       }
 
@@ -215,6 +241,7 @@ export const Dialog: React.FC<DialogProps> = ({
     return () => {
       cancelAnimationFrame(animationFrameId);
       releaseScrollLock();
+      openDialogStack = openDialogStack.filter((cb) => cb !== handleClose);
 
       if (typeof window !== "undefined") {
         window.removeEventListener("keydown", handleKeyDown);
@@ -241,13 +268,32 @@ export const Dialog: React.FC<DialogProps> = ({
     full: "max-w-full m-4",
   };
 
-  const hasCompoundContent = React.Children.toArray(children).some(
-    (child) =>
-      React.isValidElement(child) &&
-      (child.type === DialogHeader ||
-        child.type === DialogContent ||
-        child.type === DialogFooter),
-  );
+  const isCompoundElement = (el: unknown): boolean =>
+    React.isValidElement(el) &&
+    (el.type === DialogHeader ||
+      el.type === DialogContent ||
+      el.type === DialogFooter);
+
+  const detectCompound = (node: React.ReactNode, depth = 0): boolean => {
+    if (depth > 3 || !node) return false;
+    return React.Children.toArray(node).some((child) => {
+      if (isCompoundElement(child)) return true;
+      if (
+        React.isValidElement(child) &&
+        child.props &&
+        typeof child.props === "object" &&
+        "children" in child.props
+      ) {
+        return detectCompound(
+          (child.props as { children?: React.ReactNode }).children,
+          depth + 1,
+        );
+      }
+      return false;
+    });
+  };
+
+  const effectiveIsCompound = isCompound ?? detectCompound(children);
 
   const containerZIndex = containerClassName.includes("z-")
     ? containerClassName
@@ -276,8 +322,8 @@ export const Dialog: React.FC<DialogProps> = ({
         onClick={(e) => e.stopPropagation()}
         className={`relative z-10 w-full ${maxWidthStyles[maxWidth]} bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] rounded-[20px] shadow-[0_8px_40px_rgba(0,0,0,0.16)] overflow-hidden flex flex-col max-h-[calc(100dvh-2rem)] my-auto animate-in zoom-in-95 duration-150 text-start focus:outline-none ${className}`}
       >
-        {/* Simple Header (if not using compound DialogHeader) */}
-        {!hideHeader && !hasCompoundContent && (title || description || !hideCloseButton) && (
+        {/* Simple Header (if not in compound mode) */}
+        {!hideHeader && !effectiveIsCompound && (title || description || !hideCloseButton) && (
           <DialogHeader
             onClose={hideCloseButton ? undefined : onClose}
             className={headerClassName}
@@ -304,7 +350,7 @@ export const Dialog: React.FC<DialogProps> = ({
         )}
 
         {/* Dialog Body */}
-        {hasCompoundContent ? (
+        {effectiveIsCompound ? (
           children
         ) : (
           <DialogContent className={bodyClassName}>{children}</DialogContent>

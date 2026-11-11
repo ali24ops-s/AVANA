@@ -552,9 +552,14 @@ export function createStudyApi(client: ApiClient) {
     listQuizzes(
       organizationId: string,
       courseId: string,
-    ): Promise<QuizListResponse> {
-      return client.get<QuizListResponse>(
-        `/v1/organizations/${organizationId}/courses/${courseId}/quizzes`,
+      options?: { limit?: number; offset?: number },
+    ): Promise<QuizListResponse & { total?: number; limit?: number; offset?: number; has_more?: boolean }> {
+      const params = new URLSearchParams();
+      if (options?.limit !== undefined) params.set("limit", String(options.limit));
+      if (options?.offset !== undefined) params.set("offset", String(options.offset));
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return client.get<QuizListResponse & { total?: number; limit?: number; offset?: number; has_more?: boolean }>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/quizzes${qs}`,
       );
     },
 
@@ -632,8 +637,17 @@ export function createStudyApi(client: ApiClient) {
     /**
      * GET /v1/courses/:courseId/quizzes — Direct course quizzes.
      */
-    getCourseQuizzes(courseId: string): Promise<QuizListResponse> {
-      return client.get<QuizListResponse>(`/v1/courses/${courseId}/quizzes`);
+    getCourseQuizzes(
+      courseId: string,
+      options?: { limit?: number; offset?: number },
+    ): Promise<QuizListResponse & { total?: number; limit?: number; offset?: number; has_more?: boolean }> {
+      const params = new URLSearchParams();
+      if (options?.limit !== undefined) params.set("limit", String(options.limit));
+      if (options?.offset !== undefined) params.set("offset", String(options.offset));
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return client.get<QuizListResponse & { total?: number; limit?: number; offset?: number; has_more?: boolean }>(
+        `/v1/courses/${courseId}/quizzes${qs}`,
+      );
     },
 
     /**

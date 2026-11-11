@@ -19,6 +19,7 @@ import {
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createAuthApi } from "../lib/api/auth.js";
 import { ApiError } from "../lib/api/errors.js";
+import { useQueryClient } from "@tanstack/react-query";
 import type {
   MeResponse,
   PhoneVerifyOtpResponse,
@@ -81,7 +82,7 @@ export type AuthState = {
   forgotPassword: (email: string) => Promise<{ message: string; cooldown_seconds?: number }>;
   /** Reset password using token. */
   resetPassword: (token: string, password: string) => Promise<{ message: string }>;
-  /** Update profile name, academic major, or teacher affiliations. */
+  /** Update profile name, academic major, teacher affiliations, phone or email. */
   updateProfile: (
     firstName?: string,
     lastName?: string,
@@ -90,6 +91,8 @@ export type AuthState = {
     university?: string | null,
     faculty?: string | null,
     department?: string | null,
+    phoneNumber?: string | null,
+    email?: string,
   ) => Promise<void>;
   /** Sign out (revoke session). */
   signOut: () => Promise<void>;
@@ -100,6 +103,13 @@ export type AuthState = {
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  let queryClient: ReturnType<typeof useQueryClient> | null = null;
+  try {
+    queryClient = useQueryClient();
+  } catch {
+    // Outside QueryClientProvider in some unit tests
+  }
+
   const [user, setUser] = useState<UserResource | null>(null);
   const [memberships, setMemberships] = useState<UserMembership[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -425,6 +435,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       university?: string | null,
       faculty?: string | null,
       department?: string | null,
+      phoneNumber?: string | null,
+      email?: string,
     ) => {
       setIsLoading(true);
       setError(null);
@@ -437,6 +449,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           university,
           faculty,
           department,
+          phoneNumber,
+          email,
         });
         setUser(response.user);
         if (response.memberships) {
@@ -463,10 +477,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Even if the API call fails, clear local state
     }
+    try {
+      queryClient?.removeQueries({ queryKey: ["my-courses"] });
+      queryClient?.removeQueries({ queryKey: ["daily-study-plan"] });
+      queryClient?.removeQueries({ queryKey: ["study-plans"] });
+    } catch {
+      // Ignore if queryClient is not available
+    }
     setUser(null);
     setMemberships([]);
     setError(null);
-  }, [authApi]);
+  }, [authApi, queryClient]);
 
   const isEmailVerified = user ? user.emailVerified === true : false;
   const isPhoneVerified = user ? user.phoneVerified === true : false;

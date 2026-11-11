@@ -165,11 +165,20 @@ export type CourseResource = {
     moduleIds?: string[];
     lessonIds?: string[];
   } | null;
+  official_exam_at?: string | null;
+  official_exam_scope?: {
+    moduleIds?: string[];
+    lessonIds?: string[];
+  } | null;
   created_at: string;
   updated_at: string;
   archived: boolean;
   isOfficial?: boolean;
   is_official?: boolean;
+  isUserPublished?: boolean;
+  is_user_published?: boolean;
+  publisherName?: string | null;
+  publisher_name?: string | null;
 };
 
 export type CourseResponse = {
@@ -212,7 +221,8 @@ export type UpdateCourseRequest = {
 // ---------------------------------------------------------------------------
 
 export type SignInRequest = {
-  email: string;
+  email?: string;
+  identifier?: string;
   password: string;
 };
 

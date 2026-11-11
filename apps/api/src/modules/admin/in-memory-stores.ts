@@ -81,6 +81,9 @@ export class InMemoryAdminStore implements AdminStore {
       this.commerceStore = optionsOrCommerceStore as import("../commerce/commerce-store.js").InMemoryCommerceStore;
     } else if (optionsOrCommerceStore) {
       this.options = optionsOrCommerceStore as AdminStoreOptions;
+      if (this.options.errorStore) {
+        this.errorStore = this.options.errorStore;
+      }
     }
   }
 
@@ -382,7 +385,34 @@ export class InMemoryAdminStore implements AdminStore {
 
   async getCourseById(courseId: string): Promise<AdminCourseRecord | null> {
     const course = this.memoryCourses.find((c) => c.id === courseId);
-    return course || null;
+    if (course) return course;
+    if (this.options && (this.options as any).courseStore) {
+      const cs = (this.options as any).courseStore;
+      const found = await cs.findById(courseId as import("@avana/domain").CourseId);
+      if (found) {
+        return {
+          id: found.id,
+          name: found.name,
+          subject: found.subject ?? null,
+          description: found.description ?? null,
+          status: found.status,
+          scope: found.isOfficial ? "official" : "user",
+          isOfficial: found.isOfficial,
+          organizationId: found.organizationId,
+          hasContent: false,
+          createdAt: found.createdAt,
+          updatedAt: found.updatedAt,
+          counts: {
+            modules: 0,
+            lessons: 0,
+            flashcards: 0,
+            quizzes: 0,
+            quizQuestions: 0,
+          },
+        };
+      }
+    }
+    return null;
   }
 
   async listDocuments(params?: { page: number; pageSize: number; search?: string; status?: string }): Promise<{ documents: AdminDocumentRecord[]; totalCount: number }> {
@@ -491,7 +521,20 @@ export class InMemoryAdminStore implements AdminStore {
     };
   }
 
-  async listLogs(_params?: { page: number; pageSize: number; level?: string }): Promise<{ logs: AdminLogRecord[]; totalCount: number }> {
+  public errorStore?: import("../../observability/error-monitoring-store.js").ErrorMonitoringStore;
+
+  setErrorStore(store: import("../../observability/error-monitoring-store.js").ErrorMonitoringStore): void {
+    this.errorStore = store;
+  }
+
+  async listLogs(params?: { page: number; pageSize: number; level?: string }): Promise<{ logs: AdminLogRecord[]; totalCount: number }> {
+    if (this.errorStore) {
+      const res = await this.errorStore.listRecentLogs(params ?? { page: 1, pageSize: 20 });
+      return {
+        logs: res.logs as AdminLogRecord[],
+        totalCount: res.totalCount,
+      };
+    }
     return { logs: [], totalCount: 0 };
   }
 

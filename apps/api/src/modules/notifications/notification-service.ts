@@ -136,6 +136,20 @@ export class NotificationService {
     return record ? toNotificationItem(record) : null;
   }
 
+  async updateMetadataByIdempotencyKey(
+    idempotencyKey: string,
+    metadata: Record<string, unknown>,
+  ): Promise<NotificationItem | null> {
+    if (this.store.updateMetadataByIdempotencyKey) {
+      const record = await this.store.updateMetadataByIdempotencyKey(
+        idempotencyKey,
+        metadata,
+      );
+      return record ? toNotificationItem(record) : null;
+    }
+    return null;
+  }
+
   async listForUser(
     userId: UserId,
     options?: ListNotificationsOptions,

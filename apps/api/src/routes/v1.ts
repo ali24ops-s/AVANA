@@ -68,8 +68,7 @@ import type { GenerationChunkStore } from "../modules/generation/generation-chun
 import type { GenerationJobStore } from "../modules/generation/generation-jobs-store.js";
 import type { GenerationQueue } from "../modules/generation/generation-queue.js";
 import {
-  GapGPTModelGateway,
-  OpenRouterModelGateway,
+  createModelGateway,
   type ModelGateway,
 } from "../modules/generation/gateway/index.js";
 import type { OrganizationStore } from "../modules/organizations/organization-store.js";
@@ -150,6 +149,8 @@ import {
   adminSupportRoutes,
   SupportService,
   type SupportStore,
+  InMemorySupportNotificationQueue,
+  type SupportNotificationQueue,
 } from "../modules/support/index.js";
 
 import type { SmsProvider } from "../modules/identity/sms-service.js";
@@ -183,6 +184,7 @@ export interface V1RouteOptions {
   notificationService?: NotificationService;
   supportStore?: SupportStore;
   supportService?: SupportService;
+  supportNotificationQueue?: SupportNotificationQueue;
   deviceStore?: DeviceStore;
   emailVerificationStore?: EmailVerificationStore;
   passwordResetStore?: PasswordResetStore;
@@ -228,6 +230,8 @@ export interface V1RouteOptions {
   referralService?: ReferralService;
   promotionService?: PromotionService;
   paymentGateway?: PaymentGateway;
+  paymentRateLimiter?: import("../modules/commerce/payment-rate-limiter.js").PaymentExtractionRateLimiter;
+  redis?: import("ioredis").Redis;
   entitlementService?: EntitlementService;
   officialContentService?: OfficialContentService;
   courseDraftService?: CourseDraftService;
@@ -262,7 +266,18 @@ export interface V1RouteOptions {
   onboardingTourService?: OnboardingTourService;
   db?: import("@avana/database/client").DbClient;
   ga4Service?: Ga4MeasurementProtocolService;
+  systemOrganizationId?: import("@avana/domain").OrganizationId;
+  errorStore?: import("../observability/error-monitoring-store.js").ErrorMonitoringStore;
+  errorMonitoringService?: import("../observability/error-monitoring-service.js").ErrorMonitoringService;
+  personalSummaryStore?: import("../modules/study/index.js").PersonalSummaryStore;
+  personalSummaryService?: import("../modules/study/index.js").PersonalSummaryService;
+  mindMapService?: import("../modules/study/index.js").MindMapService;
+  crmStore?: import("../modules/admin/crm/crm-store.js").CrmStore;
+  crmService?: import("../modules/admin/crm/crm-service.js").CrmService;
+  crmCampaignQueue?: import("../modules/admin/crm/crm-campaign-queue.js").CrmCampaignQueue;
+  crmChannelAdapterRegistry?: import("../modules/admin/crm/crm-channel-adapter.js").CrmChannelAdapterRegistry;
 }
+
 
 
 export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
@@ -426,6 +441,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       quizStore: opts.quizStore,
       flashcardStore: opts.flashcardStore,
       auditService: opts.auditService,
+      sourcePackStore: opts.sourcePackStore,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
     });
   }
@@ -509,6 +525,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       auditService: opts.auditService,
       entitlementService: opts.entitlementService ?? entitlementService,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
+      sourcePackStore: opts.sourcePackStore,
+      coursePublicationStore: opts.coursePublicationStore,
     });
   }
 
@@ -606,6 +624,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       walletStore: opts.walletStore,
       entitlementService: opts.entitlementService,
       questionPatternStore,
+      sourcePackStore: opts.sourcePackStore,
     });
   }
 
@@ -645,6 +664,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       db: opts.db,
       systemOrganizationId: opts.config?.systemOrganizationId as OrganizationId,
       courseStore: opts.courseStore,
+      studyService: () => sharedStudyService,
     });
   }
 
@@ -765,6 +785,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       opts.flashcardStudySessionStore,
       entitlementService,
       opts.subCourseGroupStore,
+      opts.coursePublicationStore,
     );
 
     if (
@@ -825,6 +846,9 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
           ? new (await import("../modules/study/index.js")).DrizzleDailyStudyPlanStore(opts.db)
           : undefined),
       studyPlannerService: opts.studyPlannerService,
+      coursePublicationStore: opts.coursePublicationStore,
+      personalSummaryService: opts.personalSummaryService,
+      mindMapService: opts.mindMapService,
     });
   }
 
@@ -840,21 +864,22 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
     opts.courseStore &&
     opts.organizationStore
   ) {
+    // Register AI Study Assistant routes (POST /v1/ai/ask)
+    // AI Study Assistant strictly uses Google Gemini (gemini-3.5-flash-lite) with zero fallback to GapGPT, OpenRouter, DeepSeek, or Cloudflare.
     const assistantGateway =
       opts.assistantGateway ??
+      opts.adminGateway ??
       opts.gateway ??
-      (opts.config.userAi.provider === "openrouter"
-        ? new OpenRouterModelGateway({
-            apiKey: opts.config.userAi.openrouterApiKey,
-            modelName: opts.config.userAi.openrouterModel,
-            httpReferer: opts.config.userAi.httpReferer,
-            appTitle: opts.config.userAi.appTitle,
-          })
-        : new GapGPTModelGateway({
-            apiKey: opts.config.userAi.gapgptApiKey,
-            baseUrl: opts.config.userAi.gapgptBaseUrl,
-            modelName: opts.config.userAi.gapgptModel,
-          }));
+      createModelGateway({
+        provider: "gemini",
+        enableFallback: false,
+        geminiApiKey: opts.config.generation.geminiApiKey,
+        geminiApiKeys: opts.config.generation.geminiApiKeys,
+        geminiKeyConfigs: opts.config.generation.geminiKeyConfigs,
+        geminiQuotas: opts.config.generation.geminiQuotas,
+        geminiModel: opts.config.generation.geminiModel,
+        geminiSocksProxyUrl: opts.config.generation.geminiSocksProxyUrl,
+      });
 
     await app.register(assistantRoutes, {
       sessionService: new SessionService(
@@ -924,6 +949,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
             draftChangeStore: new DrizzleCourseDraftChangeStore((opts.adminStore as any).db),
             releaseStore: new DrizzleCourseReleaseStore((opts.adminStore as any).db),
             courseStore: opts.courseStore,
+            coursePublicationStore: opts.coursePublicationStore,
+            systemOrganizationId: opts.systemOrganizationId,
             moduleStore: opts.moduleStore,
             lessonStore: opts.lessonStore,
             flashcardStore: opts.flashcardStore,
@@ -980,6 +1007,9 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
                 progressService,
               );
               gs.setQuestionPatternStore(questionPatternStore);
+              if (opts.sourcePackStore) {
+                gs.setSourcePackStore(opts.sourcePackStore);
+              }
               return gs;
             })(),
             new ReviewService(
@@ -1006,6 +1036,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
             recoveryService,
             progressService,
             courseDraftService,
+            opts.sourcePackStore,
           )
         : undefined);
 
@@ -1043,7 +1074,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       adminStore: opts.adminStore,
       deviceService,
       documentProcessingService: opts.documentStore && opts.documentChunkStore && opts.storageProvider ? new DocumentProcessingService(opts.documentStore, opts.documentChunkStore, opts.storageProvider, defaultPolicy, opts.auditService, opts.organizationStore, progressService, opts.generationChunkStore, opts.generatedContentStore) : undefined,
-      documentService: opts.documentStore && opts.storageProvider && opts.organizationStore ? new DocumentService(opts.documentStore, opts.storageProvider, opts.organizationStore, defaultPolicy, opts.auditService, opts.documentChunkStore, opts.generatedContentStore, opts.generationJobStore, opts.flashcardStore, opts.quizStore, opts.courseStore, opts.moduleStore, opts.lessonStore) : undefined,
+      documentService: opts.documentStore && opts.storageProvider && opts.organizationStore ? new DocumentService(opts.documentStore, opts.storageProvider, opts.organizationStore, defaultPolicy, opts.auditService, opts.documentChunkStore, opts.generatedContentStore, opts.generationJobStore, opts.flashcardStore, opts.quizStore, opts.courseStore, opts.moduleStore, opts.lessonStore, opts.entitlementService ?? entitlementService, opts.config?.systemOrganizationId, opts.sourcePackStore, opts.coursePublicationStore) : undefined,
       generationQueue: opts.queue,
       generationJobStore: opts.generationJobStore,
       officialContentService,
@@ -1071,8 +1102,13 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       questionPatternStore,
       quizQuestionStore: opts.quizQuestionStore,
       gateway: opts.adminGateway ?? opts.gateway,
-      adminGateway: opts.adminGateway ?? opts.gateway,
       ga4Service,
+      errorStore: opts.errorStore,
+      errorMonitoringService: opts.errorMonitoringService,
+      crmStore: opts.crmStore,
+      crmService: opts.crmService,
+      crmCampaignQueue: opts.crmCampaignQueue,
+      crmChannelAdapterRegistry: opts.crmChannelAdapterRegistry,
     });
   }
 
@@ -1153,6 +1189,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
         : undefined,
       promotionService,
       referralService,
+      paymentRateLimiter: opts.paymentRateLimiter,
+      redis: opts.redis,
       ga4Service,
       systemOrganizationId: opts.config?.systemOrganizationId
         ? (opts.config.systemOrganizationId as OrganizationId)
@@ -1268,12 +1306,25 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
     opts.userStore &&
     (opts.supportStore || opts.supportService)
   ) {
+    const supportNotificationQueue =
+      opts.supportNotificationQueue ??
+      (opts.emailService
+        ? new InMemorySupportNotificationQueue({
+            emailService: opts.emailService,
+            notificationStore: opts.notificationStore,
+            userStore: opts.userStore,
+            appUrl: opts.config.appUrl,
+          })
+        : undefined);
+
     const supportService =
       opts.supportService ??
       new SupportService(
         opts.supportStore!,
         notificationService,
         opts.auditService,
+        supportNotificationQueue,
+        opts.userStore,
       );
 
     await app.register(supportRoutes, {

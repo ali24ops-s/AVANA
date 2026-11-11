@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Badge,
@@ -55,6 +55,14 @@ export function UserSupportPage() {
     searchParams.get("ticketId") || null,
   );
   const [activeFeedback, setActiveFeedback] = useState<FeedbackItem | null>(null);
+
+  // Synchronize URL search parameter when navigating without reload (e.g. from notification clicks)
+  const urlTicketId = searchParams.get("ticketId");
+  useEffect(() => {
+    if (urlTicketId && urlTicketId !== activeTicketId) {
+      setActiveTicketId(urlTicketId);
+    }
+  }, [urlTicketId, activeTicketId]);
 
   // History Tab Filter
   const [tabFilter, setTabFilter] = useState<RequestTabFilter>("all");

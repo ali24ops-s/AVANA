@@ -107,6 +107,44 @@ describe("API Client", () => {
       expect((thrownError as ApiError).requestId).toBe("safe-req-123");
     });
 
+    it("maps AbortError or timeout to ApiError with timeout code and isTimeout helper", async () => {
+      const abortError = new DOMException("The operation was aborted", "AbortError");
+      vi.spyOn(globalThis, "fetch").mockRejectedValue(abortError);
+
+      const client = createApiClient({ baseUrl: "" });
+      let thrownError: unknown;
+      try {
+        await client.get("/v1/courses");
+      } catch (err) {
+        thrownError = err;
+      }
+      expect(thrownError).toBeInstanceOf(ApiError);
+      const apiErr = thrownError as ApiError;
+      expect(apiErr.code).toBe("timeout");
+      expect(apiErr.isTimeout).toBe(true);
+      expect(apiErr.isNetworkError).toBe(false);
+      expect(apiErr.message).toBe("مهلت زمانی درخواست به پایان رسید. لطفاً دوباره تلاش کنید.");
+    });
+
+    it("maps fetch network disconnect or failure to ApiError with service_unavailable code and isNetworkError helper", async () => {
+      const networkError = new TypeError("Failed to fetch");
+      vi.spyOn(globalThis, "fetch").mockRejectedValue(networkError);
+
+      const client = createApiClient({ baseUrl: "" });
+      let thrownError: unknown;
+      try {
+        await client.get("/v1/courses");
+      } catch (err) {
+        thrownError = err;
+      }
+      expect(thrownError).toBeInstanceOf(ApiError);
+      const apiErr = thrownError as ApiError;
+      expect(apiErr.code).toBe("service_unavailable");
+      expect(apiErr.isNetworkError).toBe(true);
+      expect(apiErr.isTimeout).toBe(false);
+      expect(apiErr.message).toBe("خطا در برقراری ارتباط با سرور. لطفاً اتصال اینترنت خود را بررسی کنید.");
+    });
+
     it("handles 204 no content responses", async () => {
       const mockResponse = {
         ok: true,
@@ -197,6 +235,152 @@ describe("API Client", () => {
           "x-request-id": expect.any(String),
         }),
       );
+    });
+
+    describe("FormData and multipart upload handling", () => {
+      it("sends CSRF token automatically in FormData requests and preserves credentials", async () => {
+        let capturedInit: RequestInit | undefined;
+        vi.spyOn(globalThis, "fetch").mockImplementation((_, init) => {
+          capturedInit = init;
+          return Promise.resolve({
+            ok: true,
+            status: 201,
+            json: () => Promise.resolve({ document_id: "doc-123" }),
+          } as Response);
+        });
+
+        const client = createApiClient({
+          baseUrl: "",
+          csrfToken: "csrf-token-abc",
+        });
+
+        const formData = new FormData();
+        formData.append("file", new Blob(["sample"]), "sample.pdf");
+
+        const result = await client.postFormData<{ document_id: string }>(
+          "/v1/organizations/org-1/documents",
+          formData,
+        );
+
+        expect(result).toEqual({ document_id: "doc-123" });
+        expect(capturedInit?.credentials).toBe("include");
+        expect(capturedInit?.headers).toEqual(
+          expect.objectContaining({
+            "x-csrf-token": "csrf-token-abc",
+          }),
+        );
+      });
+
+      it("does not set Content-Type header manually for FormData requests", async () => {
+        let capturedInit: RequestInit | undefined;
+        vi.spyOn(globalThis, "fetch").mockImplementation((_, init) => {
+          capturedInit = init;
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ success: true }),
+          } as Response);
+        });
+
+        const client = createApiClient({ baseUrl: "" });
+        const formData = new FormData();
+        formData.append("key", "value");
+
+        await client.postFormData("/v1/upload", formData);
+
+        const headers = capturedInit?.headers as Record<string, string>;
+        expect(headers["Content-Type"]).toBeUndefined();
+        expect(headers["content-type"]).toBeUndefined();
+      });
+
+      it("passes FormData directly to fetch body without JSON.stringify", async () => {
+        let capturedInit: RequestInit | undefined;
+        vi.spyOn(globalThis, "fetch").mockImplementation((_, init) => {
+          capturedInit = init;
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ success: true }),
+          } as Response);
+        });
+
+        const client = createApiClient({ baseUrl: "" });
+        const formData = new FormData();
+        formData.append("file", new Blob(["content"]), "test.docx");
+
+        await client.post("/v1/upload", formData);
+
+        expect(capturedInit?.body).toBe(formData);
+        expect(typeof capturedInit?.body).not.toBe("string");
+      });
+
+      it("preserves x-request-id on FormData requests", async () => {
+        let capturedInit: RequestInit | undefined;
+        vi.spyOn(globalThis, "fetch").mockImplementation((_, init) => {
+          capturedInit = init;
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ success: true }),
+          } as Response);
+        });
+
+        const client = createApiClient({ baseUrl: "" });
+        const formData = new FormData();
+        formData.append("file", new Blob(["data"]));
+
+        await client.postFormData("/v1/upload", formData);
+
+        const headers = capturedInit?.headers as Record<string, string>;
+        expect(headers["x-request-id"]).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+        );
+      });
+
+      it("bootstraps CSRF token via /v1/auth/session when token is missing from cookie", async () => {
+        const calls: Array<{ url: string; init?: RequestInit }> = [];
+        vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+          const url = String(input);
+          calls.push({ url, init });
+          if (url.endsWith("/v1/auth/session")) {
+            // Simulate cookie being set on session call
+            Object.defineProperty(document, "cookie", {
+              writable: true,
+              value: "avana_csrf=bootstrapped-csrf-token",
+            });
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: () => Promise.resolve({ user: { id: "1" } }),
+            } as Response);
+          }
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ ok: true }),
+          } as Response);
+        });
+
+        // Ensure document.cookie is empty initially
+        Object.defineProperty(document, "cookie", {
+          writable: true,
+          value: "",
+        });
+
+        const client = createApiClient({ baseUrl: "http://localhost:3000" });
+        const formData = new FormData();
+        formData.append("data", "hello");
+
+        await client.postFormData("/v1/upload", formData);
+
+        // Verify /v1/auth/session was called to bootstrap CSRF
+        expect(calls[0].url).toBe("http://localhost:3000/v1/auth/session");
+        // Verify subsequent upload request has the bootstrapped CSRF token
+        const uploadCall = calls[1];
+        expect((uploadCall.init?.headers as Record<string, string>)["x-csrf-token"]).toBe(
+          "bootstrapped-csrf-token",
+        );
+      });
     });
   });
 

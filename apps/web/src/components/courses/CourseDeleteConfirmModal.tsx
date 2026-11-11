@@ -6,7 +6,7 @@
  */
 
 import { Trash2, AlertTriangle, Loader2 } from "lucide-react";
-import { Dialog } from "@avana/ui";
+import { Dialog, DialogContent, DialogFooter } from "@avana/ui";
 
 export interface CourseDeleteConfirmModalProps {
   open: boolean;
@@ -26,13 +26,14 @@ export function CourseDeleteConfirmModal({
   return (
     <Dialog
       isOpen={open}
-      onClose={onClose}
+      onClose={isDeleting ? () => {} : onClose}
       maxWidth="md"
       hideHeader
+      isCompound={true}
       ariaLabel="حذف از دوره‌های من"
     >
-      <div className="p-6 flex flex-col">
-        <div className="flex items-start gap-4">
+      <DialogContent className="p-5 sm:p-6">
+        <div className="flex items-start gap-4 text-start" dir="rtl">
           <div className="w-12 h-12 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-600 dark:text-rose-400 flex items-center justify-center shrink-0">
             <AlertTriangle className="w-6 h-6" />
           </div>
@@ -54,36 +55,36 @@ export function CourseDeleteConfirmModal({
             </p>
           </div>
         </div>
+      </DialogContent>
 
-        <div className="mt-6 pt-4 border-t border-[var(--color-border)] flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isDeleting}
-            className="px-4 py-2.5 rounded-xl text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            انصراف
-          </button>
-          <button
-            type="button"
-            onClick={() => void onConfirm()}
-            disabled={isDeleting}
-            className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-xs disabled:opacity-50 active:scale-98 cursor-pointer"
-          >
-            {isDeleting ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>در حال حذف...</span>
-              </>
-            ) : (
-              <>
-                <Trash2 className="w-4 h-4" />
-                <span>حذف دوره</span>
-              </>
-            )}
-          </button>
-        </div>
-      </div>
+      <DialogFooter className="px-5 py-3.5 sm:px-6 sm:py-4 flex flex-row items-center justify-end gap-3">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={isDeleting}
+          className="px-4 py-2.5 rounded-xl text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors disabled:opacity-50 cursor-pointer"
+        >
+          انصراف
+        </button>
+        <button
+          type="button"
+          onClick={() => void onConfirm()}
+          disabled={isDeleting}
+          className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-xs disabled:opacity-50 active:scale-98 cursor-pointer"
+        >
+          {isDeleting ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>در حال حذف...</span>
+            </>
+          ) : (
+            <>
+              <Trash2 className="w-4 h-4" />
+              <span>حذف دوره</span>
+            </>
+          )}
+        </button>
+      </DialogFooter>
     </Dialog>
   );
 }

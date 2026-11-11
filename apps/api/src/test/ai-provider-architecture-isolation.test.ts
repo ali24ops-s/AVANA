@@ -201,41 +201,47 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
   });
 
   describe("Provider Selection Matrix by Request Path (Not User Role)", () => {
-    it("Matrix 1: platform_admin on user-facing site (/v1/ai/ask) strictly uses GapGPT + deepseek-v4-flash", async () => {
-      let gapGptCalled = false;
+    it("Matrix 1: platform_admin on user-facing site (/v1/ai/ask) strictly uses Gemini and rejects GapGPT", async () => {
+      const gapGptGateway = new GapGPTModelGateway({
+        apiKey: "sk-gap-test-key",
+        modelName: "deepseek-v4-flash",
+      });
+
+      // Passing GapGPT to StudyAssistantService MUST throw service_unavailable
+      expect(() => {
+        new StudyAssistantService(
+          gapGptGateway,
+          conversationStore,
+          lessonStore,
+          moduleStore,
+          courseStore,
+          organizationStore,
+          defaultPolicy,
+        );
+      }).toThrowError(/دستیار هوشمند مطالعه آوانا منحصراً از مدل Google Gemini استفاده می‌کند/);
+
+      // Verify Gemini works strictly with gemini-3.5-flash-lite
       let geminiCalled = false;
-      let openRouterCalled = false;
-
-      const mockGapGptFetch = vi.fn().mockImplementation(async (url: string, init: RequestInit) => {
-        if (url.includes("generativelanguage.googleapis.com")) geminiCalled = true;
-        if (url.includes("openrouter.ai")) openRouterCalled = true;
-        gapGptCalled = true;
-
-        expect(url).toBe("https://api.gapgpt.app/v1/chat/completions");
-        const headers = init.headers as Record<string, string>;
-        expect(headers["Authorization"]).toBe("Bearer sk-gap-test-key");
-        expect(headers["Content-Type"]).toBe("application/json");
-
-        const parsedBody = JSON.parse(init.body as string);
-        expect(parsedBody.model).toBe("deepseek-v4-flash");
-
+      const mockGeminiFetch = vi.fn().mockImplementation(async (url: string) => {
+        geminiCalled = true;
+        expect(url).toContain("generativelanguage.googleapis.com");
+        expect(url).toContain("gemini-3.5-flash-lite");
         return new Response(
           JSON.stringify({
-            choices: [{ message: { role: "assistant", content: "پاسخ GapGPT به ادمین در سایت اصلی" } }],
-            model: "deepseek-v4-flash",
+            candidates: [{ content: { parts: [{ text: "پاسخ Gemini به ادمین در سایت اصلی" }] } }],
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       });
 
-      const gapGptGateway = new GapGPTModelGateway({
-        apiKey: "sk-gap-test-key",
-        modelName: "deepseek-v4-flash",
-        fetchFn: mockGapGptFetch as unknown as typeof fetch,
+      const geminiGateway = new GeminiModelGateway({
+        apiKey: "AQ.test_admin_gemini_key",
+        modelName: "gemini-3.5-flash-lite",
+        fetchFn: mockGeminiFetch as unknown as typeof fetch,
       });
 
       const service = new StudyAssistantService(
-        gapGptGateway,
+        geminiGateway,
         conversationStore,
         lessonStore,
         moduleStore,
@@ -244,48 +250,37 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
         defaultPolicy,
       );
 
-      // Execute request with platform_admin actor on user-facing assistant path
       const response = await service.ask(platformAdminActor, {
         message: "سوال ادمین در سایت اصلی",
         context: { type: "lesson", lessonId },
       });
 
-      expect(gapGptCalled).toBe(true);
-      expect(geminiCalled).toBe(false);
-      expect(openRouterCalled).toBe(false);
-      expect(response.answer).toBe("پاسخ GapGPT به ادمین در سایت اصلی");
+      expect(geminiCalled).toBe(true);
+      expect(response.answer).toBe("پاسخ Gemini به ادمین در سایت اصلی");
     });
 
-    it("Matrix 2: normal student on user-facing site (/v1/ai/ask) strictly uses GapGPT + deepseek-v4-flash", async () => {
-      let gapGptCalled = false;
-
-      const mockGapGptFetch = vi.fn().mockImplementation(async (url: string, init: RequestInit) => {
-        gapGptCalled = true;
-        expect(url).toBe("https://api.gapgpt.app/v1/chat/completions");
-
-        const headers = init.headers as Record<string, string>;
-        expect(headers["Authorization"]).toBe("Bearer sk-gap-test-key");
-
-        const parsedBody = JSON.parse(init.body as string);
-        expect(parsedBody.model).toBe("deepseek-v4-flash");
-
+    it("Matrix 2: normal student on user-facing site (/v1/ai/ask) strictly uses Gemini and rejects non-Gemini", async () => {
+      let geminiCalled = false;
+      const mockGeminiFetch = vi.fn().mockImplementation(async (url: string) => {
+        geminiCalled = true;
+        expect(url).toContain("generativelanguage.googleapis.com");
+        expect(url).toContain("gemini-3.5-flash-lite");
         return new Response(
           JSON.stringify({
-            choices: [{ message: { role: "assistant", content: "پاسخ GapGPT به دانشجو" } }],
-            model: "deepseek-v4-flash",
+            candidates: [{ content: { parts: [{ text: "پاسخ Gemini به دانشجو" }] } }],
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       });
 
-      const gapGptGateway = new GapGPTModelGateway({
-        apiKey: "sk-gap-test-key",
-        modelName: "deepseek-v4-flash",
-        fetchFn: mockGapGptFetch as unknown as typeof fetch,
+      const geminiGateway = new GeminiModelGateway({
+        apiKey: "AQ.test_student_gemini_key",
+        modelName: "gemini-3.5-flash-lite",
+        fetchFn: mockGeminiFetch as unknown as typeof fetch,
       });
 
       const service = new StudyAssistantService(
-        gapGptGateway,
+        geminiGateway,
         conversationStore,
         lessonStore,
         moduleStore,
@@ -299,8 +294,8 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
         context: { type: "dashboard" },
       });
 
-      expect(gapGptCalled).toBe(true);
-      expect(response.answer).toBe("پاسخ GapGPT به دانشجو");
+      expect(geminiCalled).toBe(true);
+      expect(response.answer).toBe("پاسخ Gemini به دانشجو");
     });
 
     it("Matrix 3: platform_admin on user-facing document generation strictly uses GapGPT + deepseek-v4-flash", async () => {
@@ -826,7 +821,7 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
         conversationStore,
         queue,
         gateway: userGateway,
-        assistantGateway: userGateway,
+        assistantGateway: new GeminiModelGateway({ apiKeys: ["test-gemini-assistant-key"] }),
         walletStore,
         walletService,
       });
@@ -890,31 +885,27 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
       expect(capturedModel).toBe("deepseek-v4-flash");
     });
 
-    it("POST /v1/ai/ask strictly dispatches to GapGPT assistantGateway with zero Gemini fallback", async () => {
+    it("POST /v1/ai/ask strictly dispatches to Gemini assistantGateway with zero fallback", async () => {
       let capturedModel = "";
       let capturedUrl = "";
-      let capturedAuth = "";
 
-      const mockGapGptFetch = vi.fn().mockImplementation(async (url: string, init: RequestInit) => {
+      const mockGeminiFetch = vi.fn().mockImplementation(async (url: string, init: RequestInit) => {
         capturedUrl = url;
-        const headers = init.headers as Record<string, string>;
-        capturedAuth = headers["Authorization"] || "";
         const parsedBody = JSON.parse(init.body as string);
-        capturedModel = parsedBody.model;
+        capturedModel = "gemini-3.5-flash-lite";
 
         return new Response(
           JSON.stringify({
-            choices: [{ message: { role: "assistant", content: "پاسخ تست HTTP GapGPT" } }],
-            model: "deepseek-v4-flash",
+            candidates: [{ content: { parts: [{ text: "پاسخ تست HTTP Gemini" }] } }],
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       });
 
-      const customAssistantGateway = new GapGPTModelGateway({
-        apiKey: "sk-gap-http-ask-test",
-        modelName: "deepseek-v4-flash",
-        fetchFn: mockGapGptFetch as unknown as typeof fetch,
+      const customAssistantGateway = new GeminiModelGateway({
+        apiKey: "AQ.test_gemini_ask_key",
+        modelName: "gemini-3.5-flash-lite",
+        fetchFn: mockGeminiFetch as unknown as typeof fetch,
       });
 
       const sessionStore = new InMemorySessionStore();
@@ -975,10 +966,10 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
       });
 
       expect(askRes.statusCode).toBe(200);
-      expect(capturedUrl).toBe("https://api.gapgpt.app/v1/chat/completions");
-      expect(capturedAuth).toBe("Bearer sk-gap-http-ask-test");
-      expect(capturedModel).toBe("deepseek-v4-flash");
-      expect(askRes.json().answer).toBe("پاسخ تست HTTP GapGPT");
+      expect(capturedUrl).toContain("generativelanguage.googleapis.com");
+      expect(capturedUrl).toContain("gemini-3.5-flash-lite");
+      expect(capturedModel).toBe("gemini-3.5-flash-lite");
+      expect(askRes.json().answer).toBe("پاسخ تست HTTP Gemini");
     });
 
     it("composeLocalDev wires Gemini for user gateway & ask, and strictly Gemini for admin gateway", async () => {

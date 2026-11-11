@@ -128,15 +128,16 @@ export function isDateOnlyExamString(value: unknown): boolean {
 
 /**
  * Determines whether an exam timestamp or date string represents an upcoming/active exam
- * vs an expired/past exam.
+ * vs an expired/past exam based on calendar date in Asia/Tehran.
  *
  * Rules:
  * 1. Default reference timezone is "Asia/Tehran".
- * 2. If date has an exact time (e.g. "2026-10-27T10:00:00+03:30"), it is upcoming if examTime >= refTime,
- *    and expires immediately after that point in time.
- * 3. If date is a calendar date without time (e.g. "2026-10-27" or "2026-10-27T00:00:00.000Z"),
- *    it remains active throughout the entire calendar day in Asia/Tehran (until 23:59:59.999).
- * 4. Invalid strings, null, undefined, and empty strings always return false.
+ * 2. Exam scheduling is strictly date-based: any exam scheduled for the current calendar
+ *    day in Asia/Tehran remains upcoming/active until the end of that day (23:59:59.999).
+ * 3. Exams with dates prior to the current calendar day are considered expired/past.
+ * 4. Existing legacy exams with timestamps are evaluated strictly by their calendar date
+ *    in Asia/Tehran without time-of-day cutoff.
+ * 5. Invalid strings, null, undefined, and empty strings always return false.
  */
 export function isExamUpcoming(
   examDateInput: string | Date | null | undefined,
@@ -150,36 +151,29 @@ export function isExamUpcoming(
   const examDate = typeof examDateInput === "string" ? new Date(examDateInput) : examDateInput;
   if (isNaN(examDate.getTime())) return false;
 
-  const isDateOnly = isDateOnlyExamString(examDateInput);
+  const examStr = typeof examDateInput === "string" ? examDateInput.trim() : "";
+  const match = examStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  let examYear: number;
+  let examMonth: number;
+  let examDay: number;
 
-  if (isDateOnly) {
-    const examStr = typeof examDateInput === "string" ? examDateInput.trim() : "";
-    const match = examStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    let examYear: number;
-    let examMonth: number;
-    let examDay: number;
-
-    if (match) {
-      examYear = parseInt(match[1], 10);
-      examMonth = parseInt(match[2], 10);
-      examDay = parseInt(match[3], 10);
-    } else {
-      const parts = getLocalDateParts(examDate, validTz);
-      examYear = parts.year;
-      examMonth = parts.month;
-      examDay = parts.day;
-    }
-
-    const refParts = getLocalDateParts(referenceDate, validTz);
-    const examUtcDays = Date.UTC(examYear, examMonth - 1, examDay) / 86400000;
-    const refUtcDays = Date.UTC(refParts.year, refParts.month - 1, refParts.day) / 86400000;
-    const dayDiff = Math.round(examUtcDays - refUtcDays);
-
-    return dayDiff >= 0;
+  if (match) {
+    examYear = parseInt(match[1], 10);
+    examMonth = parseInt(match[2], 10);
+    examDay = parseInt(match[3], 10);
+  } else {
+    const parts = getLocalDateParts(examDate, validTz);
+    examYear = parts.year;
+    examMonth = parts.month;
+    examDay = parts.day;
   }
 
-  // Exact timestamp with time: expires as soon as referenceDate passes examDate
-  return examDate.getTime() >= referenceDate.getTime();
+  const refParts = getLocalDateParts(referenceDate, validTz);
+  const examUtcDays = Date.UTC(examYear, examMonth - 1, examDay) / 86400000;
+  const refUtcDays = Date.UTC(refParts.year, refParts.month - 1, refParts.day) / 86400000;
+  const dayDiff = Math.round(examUtcDays - refUtcDays);
+
+  return dayDiff >= 0;
 }
 
 /**
@@ -222,8 +216,6 @@ export function calculateExamDaysRemaining(
   const parsed = typeof examDateStr === "string" ? new Date(examDateStr) : examDateStr;
   if (isNaN(parsed.getTime())) return null;
 
-  const isUpcoming = isExamUpcoming(examDateStr, referenceDate, validTz);
-
   const match = typeof examDateStr === "string" ? examDateStr.match(/^(\d{4})-(\d{2})-(\d{2})/) : null;
   let examYear: number;
   let examMonth: number;
@@ -245,11 +237,7 @@ export function calculateExamDaysRemaining(
   const refUtcDays = Date.UTC(refParts.year, refParts.month - 1, refParts.day) / 86400000;
   const dayDiff = Math.round(examUtcDays - refUtcDays);
 
-  if (!isUpcoming) {
-    return dayDiff === 0 ? -1 : Math.min(-1, dayDiff);
-  }
-
-  return Math.max(0, dayDiff);
+  return dayDiff;
 }
 
 /**

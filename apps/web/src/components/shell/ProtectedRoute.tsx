@@ -37,10 +37,28 @@ export function ProtectedRoute() {
   // Not authenticated — redirect to sign-in with preserved return path (unless previewing in dev)
   if (!isAuthenticated && !isDevPreview) {
     const returnUrl = location.pathname + location.search;
-    const redirectSearch =
-      returnUrl && returnUrl !== "/" && returnUrl !== "/home"
-        ? `?redirect=${encodeURIComponent(returnUrl)}`
-        : "";
+    const cleanPath = location.pathname.toLowerCase();
+    const isAuthRoute =
+      cleanPath === "/sign-in" ||
+      cleanPath === "/login" ||
+      cleanPath === "/register" ||
+      cleanPath === "/sign-up" ||
+      cleanPath === "/forgot-password" ||
+      cleanPath === "/reset-password";
+
+    // Only preserve redirect if it is an internal non-auth path and cannot cause open redirect
+    const isSafeRedirect =
+      returnUrl &&
+      returnUrl !== "/" &&
+      returnUrl !== "/home" &&
+      !isAuthRoute &&
+      returnUrl.startsWith("/") &&
+      !returnUrl.startsWith("//") &&
+      !returnUrl.includes("\\");
+
+    const redirectSearch = isSafeRedirect
+      ? `?redirect=${encodeURIComponent(returnUrl)}`
+      : "";
     return <Navigate to={`/sign-in${redirectSearch}`} replace />;
   }
 

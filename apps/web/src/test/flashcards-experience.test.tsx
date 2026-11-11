@@ -132,26 +132,7 @@ describe("Flashcard Experience Flow", () => {
       expect(screen.getByText("خوب")).toBeDefined();
     });
 
-    // Submit rating 1st time (Good -> re-enters session queue)
-    fireEvent.click(screen.getByText("خوب"));
-
-    await waitFor(() => {
-      // Re-appears because 1st Good does not graduate
-      expect(
-        screen.getByText("What is the primary mechanism of action of ACE inhibitors?"),
-      ).toBeDefined();
-    });
-
-    // Flip again
-    fireEvent.click(
-      screen.getByText("What is the primary mechanism of action of ACE inhibitors?"),
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("خوب")).toBeDefined();
-    });
-
-    // Submit rating 2nd time (Good -> graduates!)
+    // Submit rating 1st time (Good -> 1-day interval -> graduates immediately!)
     fireEvent.click(screen.getByText("خوب"));
 
     await waitFor(() => {
@@ -713,7 +694,7 @@ describe("Flashcard Experience Flow", () => {
                 course_id: mockCourseId,
                 question: "سوال ۲",
                 answer: "جواب ۲",
-                interval_days: 1,
+                interval_days: 0,
                 ease_factor: 2.5,
               },
               {
@@ -815,21 +796,12 @@ describe("Flashcard Experience Flow", () => {
     fireEvent.keyDown(window, { code: "KeyA", key: "a" });
     await waitFor(() => {
       expect(submittedRatings).toContain("easy");
-      // Card 1 re-appears because 1st Good did not graduate
-      expect(screen.getByText("سوال ۱")).toBeDefined();
-    });
-
-    // 11. Flip card 1 again & press physical 'S' (2nd Good -> card 1 graduates!)
-    fireEvent.keyDown(window, { code: "Space", key: " " });
-    await waitFor(() => {
-      expect(screen.getByText("پاسخ نمایان شد — سطح یادگیری خود را انتخاب کنید")).toBeDefined();
-    });
-    fireEvent.keyDown(window, { code: "KeyS", key: "s" });
-
-    // 12. Card 2 re-appears (1st Hard did not graduate) -> Flip & press physical 'A' (Easy -> card 2 graduates!)
-    await waitFor(() => {
+      // Card 1 graduated immediately on 1st Good (1 day).
+      // Card 2 re-appears because 1st Hard on new card (interval 0) did not graduate
       expect(screen.getByText("سوال ۲")).toBeDefined();
     });
+
+    // 11. Flip card 2 & press physical 'A' (Easy -> card 2 graduates immediately!)
     fireEvent.keyDown(window, { code: "Space", key: " " });
     await waitFor(() => {
       expect(screen.getByText("پاسخ نمایان شد — سطح یادگیری خود را انتخاب کنید")).toBeDefined();
@@ -842,7 +814,7 @@ describe("Flashcard Experience Flow", () => {
     });
   });
 
-  it("authoritative SRS graduation: Hard requires exactly 4 reviews, 1st Good requires re-review, Again never graduates early, and session stays active while cards remain in review queue", async () => {
+  it("authoritative SRS graduation: Hard on new card requires 4 reviews, Good (1 day) graduates immediately, Again never graduates early, and session stays active while cards remain in review queue", async () => {
     let reviewCount = 0;
     global.fetch = vi.fn().mockImplementation((url: string, opts?: { method?: string; body?: string }) => {
       if (opts?.method === "POST" && url.includes("/review")) {
@@ -875,7 +847,7 @@ describe("Flashcard Experience Flow", () => {
                 course_id: mockCourseId,
                 question: "کارت آزمایش خوب",
                 answer: "پاسخ خوب",
-                interval_days: 0,
+                interval_days: 1,
                 ease_factor: 2.5,
               },
             ],
@@ -905,47 +877,36 @@ describe("Flashcard Experience Flow", () => {
     });
     expect(screen.getByText("دیده‌نشده:")).toBeDefined();
 
-    // === SCENARIO 1: Hard 1st time on Card 1 -> NOT completed, moves to Card 2 ===
+    // === SCENARIO 1: Hard 1st time on Card 1 (interval 0) -> NOT completed, moves to Card 2 ===
     fireEvent.click(screen.getByText("کارت آزمایش سخت"));
     await waitFor(() => expect(screen.getByText("سخت")).toBeDefined());
     fireEvent.click(screen.getByText("سخت"));
 
-    // === SCENARIO 5: Good 1st time on Card 2 -> NOT completed, re-enters queue ===
+    // === SCENARIO 2: Good 1st time on Card 2 (reviewed card with 1 day interval) -> GRADUATES IMMEDIATELY! ===
     await waitFor(() => expect(screen.getByText("کارت آزمایش خوب")).toBeDefined());
     fireEvent.click(screen.getByText("کارت آزمایش خوب"));
     await waitFor(() => expect(screen.getByText("خوب")).toBeDefined());
     fireEvent.click(screen.getByText("خوب"));
 
-    // === SCENARIO 7: Initial queue exhausted but 2 cards still pending graduation -> Session does NOT complete! ===
-    // Card 1 reappears for 2nd evaluation!
+    // === SCENARIO 3: Card 2 has graduated, only Card 1 remains in queue for 2nd evaluation ===
     await waitFor(() => expect(screen.getByText("کارت آزمایش سخت")).toBeDefined());
     expect(screen.queryByText("مرور تمام شد!")).toBeNull();
 
-    // === SCENARIO 2: Hard 2nd time on Card 1 -> NOT completed, moves to Card 2 ===
+    // Hard 2nd time on Card 1 -> NOT completed, reappears in queue
     fireEvent.click(screen.getByText("کارت آزمایش سخت"));
     await waitFor(() => expect(screen.getByText("سخت")).toBeDefined());
     fireEvent.click(screen.getByText("سخت"));
 
-    // === SCENARIO 5 (part 2): Good 2nd time on Card 2 -> GRADUATED! (finished count = 1) ===
-    await waitFor(() => expect(screen.getByText("کارت آزمایش خوب")).toBeDefined());
-    fireEvent.click(screen.getByText("کارت آزمایش خوب"));
-    await waitFor(() => expect(screen.getByText("خوب")).toBeDefined());
-    fireEvent.click(screen.getByText("خوب"));
-
-    // Card 1 reappears for 3rd evaluation! (Card 2 graduated, so only Card 1 remains)
+    // Hard 3rd time on Card 1 -> NOT completed, reappears in queue
     await waitFor(() => expect(screen.getByText("کارت آزمایش سخت")).toBeDefined());
     expect(screen.queryByText("مرور تمام شد!")).toBeNull();
-
-    // === SCENARIO 3: Hard 3rd time on Card 1 -> NOT completed, reappears in queue ===
     fireEvent.click(screen.getByText("کارت آزمایش سخت"));
     await waitFor(() => expect(screen.getByText("سخت")).toBeDefined());
     fireEvent.click(screen.getByText("سخت"));
 
-    // Card 1 reappears for 4th evaluation!
+    // Hard 4th time on Card 1 -> GRADUATED! (All 2 cards graduated -> Session completes!)
     await waitFor(() => expect(screen.getByText("کارت آزمایش سخت")).toBeDefined());
     expect(screen.queryByText("مرور تمام شد!")).toBeNull();
-
-    // === SCENARIO 4: Hard 4th time on Card 1 -> GRADUATED! (All 2 cards graduated -> Session completes!) ===
     fireEvent.click(screen.getByText("کارت آزمایش سخت"));
     await waitFor(() => expect(screen.getByText("سخت")).toBeDefined());
     fireEvent.click(screen.getByText("سخت"));
@@ -955,6 +916,167 @@ describe("Flashcard Experience Flow", () => {
       expect(screen.getByText("مرور تمام شد!")).toBeDefined();
     });
     expect(reviewCount).toBeGreaterThan(0);
+  });
+
+  it("New card: 1st Good does NOT graduate (remains in queue), 2nd Good graduates", async () => {
+    let reviewCount = 0;
+    global.fetch = vi.fn().mockImplementation((url: string, opts?: { method?: string; body?: string }) => {
+      if (opts?.method === "POST" && url.includes("/review")) {
+        reviewCount++;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ request_id: "req-rev", success: true }),
+        });
+      }
+      if (url.includes("/review-queue")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-1",
+            due_cards: [
+              {
+                id: "card-new-test",
+                organization_id: mockOrgId,
+                course_id: mockCourseId,
+                question: "کارت جدید نمونه",
+                answer: "پاسخ جدید",
+                interval_days: 0,
+                ease_factor: 2.5,
+              },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ request_id: "req-summary", courses: [] }),
+      });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FlashcardExperience
+          organizationId={mockOrgId}
+          courseId={mockCourseId}
+        />
+      </QueryClientProvider>,
+    );
+
+    // Initial state: Card is displayed
+    await waitFor(() => {
+      expect(screen.getByText("کارت جدید نمونه")).toBeDefined();
+    });
+
+    // === 1st Good: Should NOT complete the session, card remains in queue ===
+    fireEvent.click(screen.getByText("کارت جدید نمونه"));
+    await waitFor(() => expect(screen.getByText("خوب")).toBeDefined());
+    fireEvent.click(screen.getByText("خوب"));
+
+    // Card reappears in active queue for 2nd evaluation
+    await waitFor(() => {
+      expect(screen.getByText("کارت جدید نمونه")).toBeDefined();
+    });
+    expect(screen.queryByText("مرور تمام شد!")).toBeNull();
+    expect(reviewCount).toBe(1);
+
+    // === 2nd Good: Now it graduates and session completes! ===
+    fireEvent.click(screen.getByText("کارت جدید نمونه"));
+    await waitFor(() => expect(screen.getByText("خوب")).toBeDefined());
+    fireEvent.click(screen.getByText("خوب"));
+
+    await waitFor(() => {
+      expect(screen.getByText("مرور تمام شد!")).toBeDefined();
+    });
+    expect(reviewCount).toBe(2);
+  });
+
+  it("New card + 1st Good + Refresh: session remains in progress and requires 2nd Good", async () => {
+    // Simulating refreshed study session where Card 1 was reviewed once with Good
+    global.fetch = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (opts?.method === "POST" && url.includes("/review")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ request_id: "req-rev", success: true }),
+        });
+      }
+      if (url.includes("/flashcard-sessions/session-resume-new-good")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-res",
+            session: {
+              id: "session-resume-new-good",
+              user_id: "user-1",
+              course_id: mockCourseId,
+              organization_id: mockOrgId,
+              status: "in_progress",
+              total_cards: 1,
+              completed_cards: 0,
+              current_index: 1,
+            },
+            cards: [
+              {
+                id: "card-resumed-new",
+                organization_id: mockOrgId,
+                course_id: mockCourseId,
+                question: "کارت جدید با رفرش",
+                answer: "پاسخ رفرش",
+                interval_days: 0,
+                ease_factor: 2.5,
+              },
+            ],
+            session_cards: [
+              {
+                id: "sc-1",
+                session_id: "session-resume-new-good",
+                flashcard_id: "card-resumed-new",
+                status: "reviewed",
+                rating: "good",
+                sort_order: 0,
+              },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ request_id: "req-summary", courses: [] }),
+      });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FlashcardExperience
+          organizationId={mockOrgId}
+          sessionId="session-resume-new-good"
+          courseId={mockCourseId}
+        />
+      </QueryClientProvider>,
+    );
+
+    // Since the new card only had 1 Good, session must NOT be completed upon resume!
+    await waitFor(() => {
+      expect(screen.getByText("کارت جدید با رفرش")).toBeDefined();
+    });
+    expect(screen.queryByText("مرور تمام شد!")).toBeNull();
+
+    // Now submit 2nd Good
+    fireEvent.click(screen.getByText("کارت جدید با رفرش"));
+    await waitFor(() => expect(screen.getByText("خوب")).toBeDefined());
+    fireEvent.click(screen.getByText("خوب"));
+
+    // Session now successfully completes
+    await waitFor(() => {
+      expect(screen.getByText("مرور تمام شد!")).toBeDefined();
+    });
   });
 
   it("renders 'new cards available' state when user opens course with new cards and 0 due cards, and transitions to learning on button click", async () => {

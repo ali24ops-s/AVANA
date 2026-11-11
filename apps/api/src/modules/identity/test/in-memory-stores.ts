@@ -1,8 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * In-memory implementations of SessionStore and UserStore for testing.
  */
 
-import { resolveEffectiveRole, type UserId } from "@avana/domain";
+import { resolveEffectiveRole, type UserId, DomainError, getPhoneLookupVariants } from "@avana/domain";
 import type { SessionRecord, SessionStore } from "../session-store.js";
 import type { UserRecord, UserStore } from "../user-store.js";
 import type { OrganizationStore } from "../../organizations/organization-store.js";
@@ -453,17 +454,84 @@ export class InMemoryUserStore implements UserStore {
   }
 
   async findByPhoneNumber(phoneNumber: string): Promise<UserRecord | undefined> {
-    const norm = phoneNumber.trim();
+    const variants = new Set(getPhoneLookupVariants(phoneNumber));
+    if (variants.size === 0) return undefined;
+
+    const matchedUsers: UserRecord[] = [];
+    const seenUserIds = new Set<string>();
+
     for (const user of this.users.values()) {
-      if (user.phoneNumber && user.phoneNumber.trim() === norm) {
-        const userCopy = { ...user };
-        delete userCopy.passwordHash;
-        const globalRole = user.globalRole === "platform_admin" || user.role === "platform_admin" ? "platform_admin" : (user.globalRole ?? null);
-        const role = await this.resolveRole(user.id, globalRole);
-        return { ...userCopy, role, globalRole, teacherStatus: user.teacherStatus ?? "approved" };
+      if (user.phoneNumber && variants.has(user.phoneNumber.trim())) {
+        if (!seenUserIds.has(user.id)) {
+          seenUserIds.add(user.id);
+          matchedUsers.push(user);
+        }
       }
     }
-    return undefined;
+
+    if (matchedUsers.length === 0) return undefined;
+    if (matchedUsers.length > 1) {
+      throw new DomainError(
+        "conflict",
+        "تعارض در حساب‌های کاربری با این شماره موبایل شناسایی شد. لطفاً با نشانی ایمیل و رمز عبور وارد شوید.",
+      );
+    }
+
+    const user = matchedUsers[0];
+    const userCopy = { ...user };
+    delete (userCopy as any).passwordHash;
+    const globalRole =
+      user.globalRole === "platform_admin" || user.role === "platform_admin"
+        ? "platform_admin"
+        : (user.globalRole ?? null);
+    const role = await this.resolveRole(user.id, globalRole);
+    return {
+      ...userCopy,
+      role,
+      globalRole,
+      teacherStatus: user.teacherStatus ?? "approved",
+    };
+  }
+
+  async findWithPasswordByPhoneNumber(
+    phoneNumber: string,
+  ): Promise<(UserRecord & { passwordHash?: string | null }) | undefined> {
+    const variants = new Set(getPhoneLookupVariants(phoneNumber));
+    if (variants.size === 0) return undefined;
+
+    const matchedUsers: (UserRecord & { passwordHash?: string | null })[] = [];
+    const seenUserIds = new Set<string>();
+
+    for (const user of this.users.values()) {
+      if (user.phoneNumber && variants.has(user.phoneNumber.trim())) {
+        if (!seenUserIds.has(user.id)) {
+          seenUserIds.add(user.id);
+          matchedUsers.push(user);
+        }
+      }
+    }
+
+    if (matchedUsers.length === 0) return undefined;
+    if (matchedUsers.length > 1) {
+      throw new DomainError(
+        "conflict",
+        "تعارض در حساب‌های کاربری با این شماره موبایل شناسایی شد. لطفاً با نشانی ایمیل و رمز عبور وارد شوید.",
+      );
+    }
+
+    const user = matchedUsers[0];
+    const globalRole =
+      user.globalRole === "platform_admin" || user.role === "platform_admin"
+        ? "platform_admin"
+        : (user.globalRole ?? null);
+    const role = await this.resolveRole(user.id, globalRole);
+    return {
+      ...user,
+      role,
+      globalRole,
+      teacherStatus: user.teacherStatus ?? "approved",
+      passwordHash: user.passwordHash ?? null,
+    };
   }
 
   async findWithPasswordByEmail(
@@ -572,13 +640,28 @@ export class InMemoryUserStore implements UserStore {
     };
   }
 
-  async createUser(user: UserRecord & { passwordHash?: string | null }): Promise<UserRecord> {
+  clear(): void {
+    this.users.clear();
+  }
+
+  async createUser(user: Partial<UserRecord> & { passwordHash?: string | null; id?: UserId }): Promise<UserRecord> {
+    const id = (user.id ?? randomUUID()) as UserId;
     const userCopy = {
+      email: user.email ?? `user_${id}@example.com`,
+      name: user.name ?? "User",
+      role: "student",
+      globalRole: null,
+      teacherStatus: "approved" as const,
+      emailVerified: false,
+      phoneVerified: false,
+      emailVerifiedAt: null,
+      phoneVerifiedAt: null,
       ...user,
+      id,
       createdAt: user.createdAt ?? new Date().toISOString(),
     };
-    this.users.set(user.id, userCopy);
-    return userCopy;
+    this.users.set(id, userCopy as any);
+    return userCopy as any;
   }
 
   async setEmailVerified(userId: UserId): Promise<void> {
@@ -628,6 +711,8 @@ export class InMemoryUserStore implements UserStore {
       university?: string | null;
       faculty?: string | null;
       department?: string | null;
+      phoneNumber?: string | null;
+      email?: string;
     },
   ): Promise<void> {
     const user = this.users.get(userId);
@@ -637,6 +722,16 @@ export class InMemoryUserStore implements UserStore {
       if (fields.university !== undefined) user.university = fields.university ? fields.university.trim() : null;
       if (fields.faculty !== undefined) user.faculty = fields.faculty ? fields.faculty.trim() : null;
       if (fields.department !== undefined) user.department = fields.department ? fields.department.trim() : null;
+      if (fields.phoneNumber !== undefined) {
+        user.phoneNumber = fields.phoneNumber ? fields.phoneNumber.trim() : null;
+        user.phoneVerifiedAt = null;
+        user.phoneVerified = false;
+      }
+      if (fields.email !== undefined) {
+        user.email = fields.email.trim().toLowerCase();
+        user.emailVerifiedAt = null;
+        user.emailVerified = false;
+      }
     }
   }
 
@@ -646,6 +741,15 @@ export class InMemoryUserStore implements UserStore {
       user.phoneNumber = phoneNumber;
       user.phoneVerifiedAt = null;
       user.phoneVerified = false;
+    }
+  }
+
+  async updateEmail(userId: UserId, email: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      user.email = email.trim().toLowerCase();
+      user.emailVerifiedAt = null;
+      user.emailVerified = false;
     }
   }
 

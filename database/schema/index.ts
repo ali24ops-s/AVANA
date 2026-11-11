@@ -230,6 +230,8 @@ export const courseMemberships = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     role: varchar("role", { length: 50 }).notNull().default("student"),
+    examDate: timestamp("exam_date", { withTimezone: true }),
+    examScope: jsonb("exam_scope"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -244,6 +246,10 @@ export const courseMemberships = pgTable(
     ),
     courseIdx: index("idx_course_memberships_course").on(table.courseId),
     userIdx: index("idx_course_memberships_user").on(table.userId),
+    userExamIdx: index("idx_course_memberships_user_exam").on(
+      table.userId,
+      table.examDate,
+    ),
   }),
 );
 
@@ -1753,6 +1759,11 @@ export const coursePublications = pgTable(
     creatorIdx: index("idx_course_publications_creator").on(
       table.creatorUserId,
     ),
+    courseVersionUniqueIdx: uniqueIndex(
+      "idx_course_publications_course_version",
+    )
+      .on(table.courseId, table.version)
+      .where(sql`${table.deletedAt} IS NULL`),
   }),
 );
 
@@ -3748,3 +3759,659 @@ export const userOnboardingTours = pgTable(
 
 export type UserOnboardingTour = typeof userOnboardingTours.$inferSelect;
 export type NewUserOnboardingTour = typeof userOnboardingTours.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Avana CRM Core System (Migration 0088)
+// ---------------------------------------------------------------------------
+
+export const crmTags = pgTable(
+  "crm_tags",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: varchar("name", { length: 100 }).notNull().unique(),
+    color: varchar("color", { length: 20 }).notNull().default("#3b82f6"),
+    description: text("description"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    nameIdx: uniqueIndex("idx_crm_tags_name").on(table.name),
+  }),
+);
+
+export const crmCustomerTags = pgTable(
+  "crm_customer_tags",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tagId: uuid("tag_id")
+      .notNull()
+      .references(() => crmTags.id, { onDelete: "cascade" }),
+    assignedBy: uuid("assigned_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({
+      columns: [table.userId, table.tagId],
+      name: "pk_crm_customer_tags",
+    }),
+    tagIdx: index("idx_crm_customer_tags_tag").on(table.tagId),
+    userIdx: index("idx_crm_customer_tags_user").on(table.userId),
+  }),
+);
+
+export const crmCustomerNotes = pgTable(
+  "crm_customer_notes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    content: text("content").notNull(),
+    isPinned: boolean("is_pinned").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userIdx: index("idx_crm_customer_notes_user").on(table.userId),
+    userPinnedIdx: index("idx_crm_customer_notes_user_pinned").on(
+      table.userId,
+      table.isPinned,
+      table.createdAt,
+    ),
+  }),
+);
+
+export type CrmTag = typeof crmTags.$inferSelect;
+export type NewCrmTag = typeof crmTags.$inferInsert;
+export type CrmCustomerTag = typeof crmCustomerTags.$inferSelect;
+export type NewCrmCustomerTag = typeof crmCustomerTags.$inferInsert;
+export type CrmCustomerNote = typeof crmCustomerNotes.$inferSelect;
+export type NewCrmCustomerNote = typeof crmCustomerNotes.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Avana CRM Dynamic Segmentation (Migration 0089)
+// ---------------------------------------------------------------------------
+
+export const crmSegments = pgTable(
+  "crm_segments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: varchar("name", { length: 150 }).notNull(),
+    description: text("description"),
+    isActive: boolean("is_active").notNull().default(true),
+    matchOperator: varchar("match_operator", { length: 10 }).notNull().default("and"),
+    filterRules: jsonb("filter_rules").notNull().default(sql`'[]'::jsonb`),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    activeIdx: index("idx_crm_segments_active").on(table.isActive),
+    createdByIdx: index("idx_crm_segments_created_by").on(table.createdBy),
+    createdAtIdx: index("idx_crm_segments_created_at").on(table.createdAt),
+  }),
+);
+
+export type CrmSegment = typeof crmSegments.$inferSelect;
+export type NewCrmSegment = typeof crmSegments.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Avana CRM Customer Campaign Management (Phase 3)
+// ---------------------------------------------------------------------------
+
+export const crmCampaigns = pgTable(
+  "crm_campaigns",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: varchar("name", { length: 150 }).notNull(),
+    description: text("description"),
+    targetSegmentId: uuid("target_segment_id")
+      .notNull()
+      .references(() => crmSegments.id, { onDelete: "restrict" }),
+    channel: varchar("channel", { length: 30 }).notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    messageContent: text("message_content"),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    statusIdx: index("idx_crm_campaigns_status").on(table.status),
+    segmentIdx: index("idx_crm_campaigns_segment").on(table.targetSegmentId),
+    createdByIdx: index("idx_crm_campaigns_created_by").on(table.createdBy),
+    createdAtIdx: index("idx_crm_campaigns_created_at").on(table.createdAt),
+  }),
+);
+
+export type CrmCampaign = typeof crmCampaigns.$inferSelect;
+export type NewCrmCampaign = typeof crmCampaigns.$inferInsert;
+
+export const crmCampaignExecutions = pgTable(
+  "crm_campaign_executions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => crmCampaigns.id, { onDelete: "cascade" }),
+    jobId: varchar("job_id", { length: 100 }),
+    status: varchar("status", { length: 30 }).notNull().default("pending"),
+    totalRecipients: integer("total_recipients").notNull().default(0),
+    processedRecipients: integer("processed_recipients").notNull().default(0),
+    successfulRecipients: integer("successful_recipients").notNull().default(0),
+    failedRecipients: integer("failed_recipients").notNull().default(0),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    triggeredBy: uuid("triggered_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    campaignIdx: index("idx_crm_campaign_executions_campaign").on(table.campaignId),
+    statusIdx: index("idx_crm_campaign_executions_status").on(table.status),
+    jobIdIdx: index("idx_crm_campaign_executions_job_id").on(table.jobId),
+    createdAtIdx: index("idx_crm_campaign_executions_created_at").on(table.createdAt),
+  }),
+);
+
+export type CrmCampaignExecution = typeof crmCampaignExecutions.$inferSelect;
+export type NewCrmCampaignExecution = typeof crmCampaignExecutions.$inferInsert;
+
+export const crmCampaignRecipients = pgTable(
+  "crm_campaign_recipients",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => crmCampaigns.id, { onDelete: "cascade" }),
+    executionId: uuid("execution_id")
+      .notNull()
+      .references(() => crmCampaignExecutions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    channel: varchar("channel", { length: 30 }).notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    errorCode: varchar("error_code", { length: 50 }),
+    errorMessage: text("error_message"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    execUserIdx: uniqueIndex("idx_crm_campaign_recipients_exec_user").on(
+      table.executionId,
+      table.userId,
+    ),
+    campaignIdx: index("idx_crm_campaign_recipients_campaign").on(table.campaignId),
+    executionIdx: index("idx_crm_campaign_recipients_execution").on(table.executionId),
+    userIdx: index("idx_crm_campaign_recipients_user").on(table.userId),
+    statusIdx: index("idx_crm_campaign_recipients_status").on(table.status),
+    execStatusIdx: index("idx_crm_campaign_recipients_exec_status").on(
+      table.executionId,
+      table.status,
+    ),
+  }),
+);
+
+export type CrmCampaignRecipient = typeof crmCampaignRecipients.$inferSelect;
+export type NewCrmCampaignRecipient = typeof crmCampaignRecipients.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Presentation Assistant Core (Phase 1)
+// ---------------------------------------------------------------------------
+
+export const presentationProjects = pgTable(
+  "presentation_projects",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 255 }).notNull(),
+    pptxDocumentId: uuid("pptx_document_id").references(() => documents.id, {
+      onDelete: "set null",
+    }),
+    targetDurationMinutes: integer("target_duration_minutes")
+      .notNull()
+      .default(15),
+    academicLevel: varchar("academic_level", { length: 30 })
+      .notNull()
+      .default("intermediate"),
+    tone: varchar("tone", { length: 30 })
+      .notNull()
+      .default("formal_scientific"),
+    elaborationDepth: varchar("elaboration_depth", { length: 30 })
+      .notNull()
+      .default("balanced"),
+    status: varchar("status", { length: 30 })
+      .notNull()
+      .default("created"),
+    currentStage: varchar("current_stage", { length: 50 }),
+    totalSlides: integer("total_slides").notNull().default(0),
+    overallIntroduction: text("overall_introduction"),
+    overallConclusion: text("overall_conclusion"),
+    totalEstimatedSeconds: integer("total_estimated_seconds")
+      .notNull()
+      .default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    orgOwnerIdx: index("idx_presentation_projects_org_owner").on(
+      table.organizationId,
+      table.ownerUserId,
+    ),
+    statusIdx: index("idx_presentation_projects_status").on(table.status),
+    docIdx: index("idx_presentation_projects_doc").on(table.pptxDocumentId),
+    targetDurationCheck: check(
+      "chk_presentation_projects_duration",
+      sql`${table.targetDurationMinutes} IN (5, 10, 15, 20, 30)`,
+    ),
+    totalSlidesCheck: check(
+      "chk_presentation_projects_total_slides",
+      sql`${table.totalSlides} >= 0`,
+    ),
+    totalEstimatedSecondsCheck: check(
+      "chk_presentation_projects_estimated_seconds",
+      sql`${table.totalEstimatedSeconds} >= 0`,
+    ),
+    academicLevelCheck: check(
+      "chk_presentation_projects_academic_level",
+      sql`${table.academicLevel} IN ('introductory', 'intermediate', 'advanced')`,
+    ),
+    toneCheck: check(
+      "chk_presentation_projects_tone",
+      sql`${table.tone} IN ('formal_scientific', 'fluent_student')`,
+    ),
+    elaborationDepthCheck: check(
+      "chk_presentation_projects_depth",
+      sql`${table.elaborationDepth} IN ('concise', 'balanced', 'comprehensive')`,
+    ),
+    statusCheck: check(
+      "chk_presentation_projects_status",
+      sql`${table.status} IN ('created', 'extracting', 'analyzing', 'generating', 'completed', 'failed')`,
+    ),
+  }),
+);
+
+export type PresentationProject = typeof presentationProjects.$inferSelect;
+export type NewPresentationProject = typeof presentationProjects.$inferInsert;
+
+export const presentationSlides = pgTable(
+  "presentation_slides",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => presentationProjects.id, { onDelete: "cascade" }),
+    slideIndex: integer("slide_index").notNull(),
+    title: varchar("title", { length: 500 }),
+    rawText: text("raw_text").notNull().default(""),
+    extractedTables: jsonb("extracted_tables")
+      .$type<Array<{ headers?: string[]; rows: string[][] }>>()
+      .notNull()
+      .default([]),
+    speakerNotes: text("speaker_notes"),
+    hasVisuals: boolean("has_visuals").notNull().default(false),
+    visualSummary: text("visual_summary"),
+    mediaStorageKeys: jsonb("media_storage_keys")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    extractionMetadata: jsonb("extraction_metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    projectSlideIdx: uniqueIndex("idx_presentation_slides_project_slide").on(
+      table.projectId,
+      table.slideIndex,
+    ),
+    projectIdx: index("idx_presentation_slides_project").on(table.projectId),
+    slideIndexCheck: check(
+      "chk_presentation_slides_index",
+      sql`${table.slideIndex} > 0`,
+    ),
+  }),
+);
+
+export type PresentationSlide = typeof presentationSlides.$inferSelect;
+export type NewPresentationSlide = typeof presentationSlides.$inferInsert;
+
+export const presentationReferences = pgTable(
+  "presentation_references",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => presentationProjects.id, { onDelete: "cascade" }),
+    documentId: uuid("document_id").references(() => documents.id, {
+      onDelete: "set null",
+    }),
+    type: varchar("type", { length: 30 }).notNull(),
+    title: varchar("title", { length: 500 }).notNull(),
+    sourceIdentifier: text("source_identifier"),
+    accessStatus: varchar("access_status", { length: 30 })
+      .notNull()
+      .default("pending"),
+    bibliographicMetadata: jsonb("bibliographic_metadata")
+      .$type<{
+        authors?: string[];
+        journal?: string;
+        year?: number;
+        doi?: string;
+        pmid?: string;
+        abstract?: string;
+      }>()
+      .notNull()
+      .default({}),
+    extractedContent: text("extracted_content"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    projectRefIdx: index("idx_presentation_refs_project").on(table.projectId),
+    docIdx: index("idx_presentation_refs_doc").on(table.documentId),
+    statusIdx: index("idx_presentation_refs_status").on(table.accessStatus),
+    typeCheck: check(
+      "chk_presentation_refs_type",
+      sql`${table.type} IN ('text', 'pdf', 'docx', 'url', 'doi', 'pubmed')`,
+    ),
+    accessStatusCheck: check(
+      "chk_presentation_refs_access_status",
+      sql`${table.accessStatus} IN ('pending', 'full_text_available', 'abstract_only', 'metadata_only', 'manual_text_provided', 'failed_to_fetch')`,
+    ),
+  }),
+);
+
+export type PresentationReference = typeof presentationReferences.$inferSelect;
+export type NewPresentationReference = typeof presentationReferences.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// User Personal Contents (Personal Summaries, Flashcards, Quizzes) (Migration 0096)
+// ---------------------------------------------------------------------------
+
+export const userPersonalContents = pgTable(
+  "user_personal_contents",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    moduleId: uuid("module_id")
+      .notNull()
+      .references(() => modules.id, { onDelete: "cascade" }),
+    contentType: varchar("content_type", { length: 30 })
+      .notNull()
+      .default("review_summary"),
+    version: integer("version").notNull().default(1),
+    status: varchar("status", { length: 30 }).notNull().default("pending"),
+    payload: jsonb("payload").notNull().default({}),
+    inputSnapshot: jsonb("input_snapshot").notNull().default({}),
+    highlightsCount: integer("highlights_count").notNull().default(0),
+    notesCount: integer("notes_count").notNull().default(0),
+    costToman: integer("cost_toman").notNull().default(3000),
+    transactionId: uuid("transaction_id").references(
+      () => walletTransactions.id,
+      { onDelete: "set null" },
+    ),
+    refundTransactionId: uuid("refund_transaction_id").references(
+      () => walletTransactions.id,
+      { onDelete: "set null" },
+    ),
+    refundStatus: varchar("refund_status", { length: 30 })
+      .notNull()
+      .default("none"),
+    failureReason: text("failure_reason"),
+    workerId: varchar("worker_id", { length: 100 }),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    versionUniqueIdx: uniqueIndex("uq_user_personal_contents_version").on(
+      table.userId,
+      table.moduleId,
+      table.contentType,
+      table.version,
+    ),
+    idempotencyUniqueIdx: uniqueIndex(
+      "uq_user_personal_contents_idempotency",
+    ).on(table.idempotencyKey),
+    queryIdx: index("idx_user_personal_contents_query").on(
+      table.userId,
+      table.moduleId,
+      table.contentType,
+      table.status,
+      table.version,
+    ),
+    txIdx: index("idx_user_personal_contents_tx").on(table.transactionId),
+    statusCheck: check(
+      "chk_personal_content_status",
+      sql`${table.status} IN ('pending', 'completed', 'failed')`,
+    ),
+    typeCheck: check(
+      "chk_personal_content_type",
+      sql`${table.contentType} IN ('review_summary', 'flashcard', 'quiz', 'mind_map')`,
+    ),
+    refundStatusCheck: check(
+      "chk_personal_refund_status",
+      sql`${table.refundStatus} IN ('none', 'pending', 'refunded', 'failed')`,
+    ),
+  }),
+);
+
+export type UserPersonalContent = typeof userPersonalContents.$inferSelect;
+export type NewUserPersonalContent = typeof userPersonalContents.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Error Monitoring & Observability (Phase 1)
+// ---------------------------------------------------------------------------
+
+export const errorGroups = pgTable(
+  "error_groups",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    fingerprint: varchar("fingerprint", { length: 64 }).notNull(),
+    fingerprintVersion: integer("fingerprint_version").notNull().default(1),
+    environment: varchar("environment", { length: 30 }).notNull().default("production"),
+    source: varchar("source", { length: 30 }).notNull().default("backend"),
+    severity: varchar("severity", { length: 20 }).notNull().default("error"),
+    feature: varchar("feature", { length: 50 }).notNull().default("system"),
+    errorCode: varchar("error_code", { length: 100 }),
+    title: varchar("title", { length: 255 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("unresolved"),
+    appVersion: varchar("app_version", { length: 50 }),
+    totalOccurrences: integer("total_occurrences").notNull().default(1),
+    affectedUsersCount: integer("affected_users_count").notNull().default(0),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedByUserId: uuid("resolved_by_user_id"),
+  },
+  (table) => ({
+    fingerprintUniqueIdx: uniqueIndex("uq_error_groups_fingerprint").on(table.fingerprint),
+    statusLastSeenIdx: index("idx_error_groups_status_last_seen").on(table.status, table.lastSeenAt),
+    filterIdx: index("idx_error_groups_filter").on(table.source, table.severity, table.feature, table.lastSeenAt),
+    resolverFk: foreignKey({
+      columns: [table.resolvedByUserId],
+      foreignColumns: [users.id],
+      name: "fk_error_groups_resolver",
+    }).onDelete("set null"),
+  }),
+);
+
+export const errorGroupUsers = pgTable(
+  "error_group_users",
+  {
+    groupId: uuid("group_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.groupId, table.userId], name: "pk_error_group_users" }),
+    groupFk: foreignKey({
+      columns: [table.groupId],
+      foreignColumns: [errorGroups.id],
+      name: "fk_error_group_users_group",
+    }).onDelete("cascade"),
+    userFk: foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: "fk_error_group_users_user",
+    }).onDelete("cascade"),
+    userGroupIdx: index("idx_error_group_users_user").on(table.userId),
+  }),
+);
+
+export const errorEvents = pgTable(
+  "error_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    groupId: uuid("group_id").notNull(),
+    fingerprint: varchar("fingerprint", { length: 64 }).notNull(),
+    requestId: varchar("request_id", { length: 64 }),
+    correlationId: varchar("correlation_id", { length: 64 }),
+    operation: varchar("operation", { length: 80 }),
+    failureStage: varchar("failure_stage", { length: 80 }),
+    userId: uuid("user_id"),
+    organizationId: uuid("organization_id"),
+    courseId: uuid("course_id"),
+    endpoint: varchar("endpoint", { length: 255 }),
+    httpMethod: varchar("http_method", { length: 10 }),
+    httpStatus: integer("http_status"),
+    stackTrace: text("stack_trace"),
+    sanitizedContext: jsonb("sanitized_context").notNull().default({}),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    groupFk: foreignKey({
+      columns: [table.groupId],
+      foreignColumns: [errorGroups.id],
+      name: "fk_error_events_group",
+    }).onDelete("cascade"),
+    userFk: foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: "fk_error_events_user",
+    }).onDelete("set null"),
+    orgFk: foreignKey({
+      columns: [table.organizationId],
+      foreignColumns: [organizations.id],
+      name: "fk_error_events_org",
+    }).onDelete("set null"),
+    courseFk: foreignKey({
+      columns: [table.courseId],
+      foreignColumns: [courses.id],
+      name: "fk_error_events_course",
+    }).onDelete("set null"),
+    groupTimeIdx: index("idx_error_events_group_time").on(table.groupId, table.occurredAt),
+    timeIdx: index("idx_error_events_occurred_at").on(table.occurredAt),
+    reqIdx: index("idx_error_events_request_id").on(table.requestId),
+    corrIdx: index("idx_error_events_correlation_id").on(table.correlationId),
+  }),
+);
+
+export const errorAdminNotes = pgTable(
+  "error_admin_notes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    groupId: uuid("group_id").notNull(),
+    adminUserId: uuid("admin_user_id").notNull(),
+    action: varchar("action", { length: 50 }).notNull().default("comment"),
+    note: text("note").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    groupFk: foreignKey({
+      columns: [table.groupId],
+      foreignColumns: [errorGroups.id],
+      name: "fk_error_notes_group",
+    }).onDelete("cascade"),
+    adminUserFk: foreignKey({
+      columns: [table.adminUserId],
+      foreignColumns: [users.id],
+      name: "fk_error_notes_admin_user",
+    }).onDelete("cascade"),
+    groupCreatedIdx: index("idx_error_notes_group_created").on(table.groupId, table.createdAt),
+  }),
+);
+
+export type ErrorGroup = typeof errorGroups.$inferSelect;
+export type NewErrorGroup = typeof errorGroups.$inferInsert;
+export type ErrorGroupUser = typeof errorGroupUsers.$inferSelect;
+export type ErrorEvent = typeof errorEvents.$inferSelect;
+export type NewErrorEvent = typeof errorEvents.$inferInsert;
+export type ErrorAdminNote = typeof errorAdminNotes.$inferSelect;
+export type NewErrorAdminNote = typeof errorAdminNotes.$inferInsert;
+
+

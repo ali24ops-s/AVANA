@@ -147,7 +147,7 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
   app.get(
     "/v1/courses/:courseId/learn",
     { preHandler: [requireAuth] },
-    async (request, _reply) => {
+    async (request, reply) => {
       const actor = getActor(request);
       const params = request.params as { courseId: string };
       const query = (request.query || {}) as {
@@ -166,6 +166,7 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
         },
       );
 
+      reply.header("Cache-Control", "private, no-cache, must-revalidate");
       return result;
     },
   );

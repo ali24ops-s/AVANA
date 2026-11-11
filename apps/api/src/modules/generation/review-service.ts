@@ -828,7 +828,7 @@ export class ReviewService {
         record.organizationId,
       );
       const priorSummaries = priorContents.filter(
-        (g) => g.type === "review_summary" && g.id !== record.id && g.deletedAt === null,
+        (g) => g.type === "review_summary" && g.id !== record.id && g.deletedAt === null && g.courseId === record.courseId,
       );
       for (const prior of priorSummaries) {
         await this.generatedContentStore.update({
@@ -1334,7 +1334,7 @@ export class ReviewService {
           record.organizationId,
         );
         const priorSummaries = priorContents.filter(
-          (g) => g.type === "review_summary" && g.id !== record.id && g.deletedAt === null,
+          (g) => g.type === "review_summary" && g.id !== record.id && g.deletedAt === null && g.courseId === record.courseId,
         );
         for (const prior of priorSummaries) {
           await contentStore.update({
@@ -1485,7 +1485,7 @@ export class ReviewService {
         record.organizationId,
       );
       const priorLessonDrafts = priorDrafts.filter(
-        (g) => g.type === "lesson" && g.id !== record.id && g.materializedLessonId,
+        (g) => g.type === "lesson" && g.id !== record.id && g.materializedLessonId && g.courseId === record.courseId,
       );
       for (const prior of priorLessonDrafts) {
         if (prior.materializedLessonId) {
@@ -1650,7 +1650,7 @@ export class ReviewService {
             record.organizationId,
           );
           for (const d of docDrafts) {
-            if (d.deletedAt || d.status === "rejected") continue;
+            if (d.deletedAt || d.status === "rejected" || d.courseId !== record.courseId) continue;
             if (d.type === "flashcard") {
               const p = d.payload as { cards?: unknown[]; question?: unknown; answer?: unknown } | undefined;
               if (Array.isArray(p?.cards) && p.cards.length > 0) {
@@ -1842,7 +1842,7 @@ export class ReviewService {
             record.organizationId,
           );
           const lessonSibling = siblings.find(
-            (s) => s.type === "lesson" && s.deletedAt === null,
+            (s) => s.type === "lesson" && s.deletedAt === null && s.courseId === record.courseId,
           );
           if (lessonSibling) {
             const sp = lessonSibling.payload as PayloadWithTitle | undefined;

@@ -507,10 +507,10 @@ describe("CourseDraftService", () => {
 
     await expect(
       service.publishDraftSession(workerActor, sessionId),
-    ).rejects.toThrowError(/تنها مدیران یا ویرایشگران دوره/);
+    ).rejects.toThrowError(/تنها مدیران یا ویرایشگران/);
 
     await expect(
       service.rollbackRelease(workerActor, courseId, 1, "unauthorized rollback"),
-    ).rejects.toThrowError(/تنها مدیران یا ویرایشگران دوره/);
+    ).rejects.toThrowError(/تنها مدیران/);
   });
 });

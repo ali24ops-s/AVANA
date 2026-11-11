@@ -8,8 +8,10 @@ import {
   RotateCcw,
   Sparkles,
   Loader2,
+  EyeOff,
+  BookOpen,
 } from "lucide-react";
-import { Button, Badge } from "@avana/ui";
+import { Button, Badge, Dialog, DialogContent, DialogHeader } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createCourseApi } from "../../lib/api/courses.js";
 import { RequestCoursePublishModal } from "./RequestCoursePublishModal.js";
@@ -21,6 +23,9 @@ export interface CoursePublicationBannerProps {
   courseDescription?: string | null;
   courseSubject?: string | null;
   isOfficial?: boolean;
+  canEdit?: boolean;
+  isOwner?: boolean;
+  isEnrolled?: boolean;
 }
 
 export function CoursePublicationBanner({
@@ -30,8 +35,13 @@ export function CoursePublicationBanner({
   courseDescription,
   courseSubject,
   isOfficial = false,
+  canEdit: propCanEdit,
 }: CoursePublicationBannerProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isUnpublishModalOpen, setIsUnpublishModalOpen] = useState(false);
+  const [isUnpublishing, setIsUnpublishing] = useState(false);
+  const [unpublishError, setUnpublishError] = useState<string | null>(null);
+
   const queryClient = useQueryClient();
 
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
@@ -57,9 +67,21 @@ export function CoursePublicationBanner({
   const publishedPublication = publicationQuery.data?.publishedPublication;
   const status = publication?.status;
 
+  const canEdit =
+    publicationQuery.data?.canEdit !== undefined
+      ? publicationQuery.data.canEdit
+      : (propCanEdit ?? true);
+
   const isCourseAlreadyPublished = Boolean(
     publishedPublication && publishedPublication.status === "published",
   );
+  const isCourseUnpublished =
+    status === "unpublished" ||
+    (!isCourseAlreadyPublished &&
+      (publication?.status === "unpublished" ||
+        publication?.status === "superseded" ||
+        publication?.status === "cancelled"));
+
   const isUpdatePending =
     isCourseAlreadyPublished &&
     publication &&
@@ -87,6 +109,52 @@ export function CoursePublicationBanner({
       queryKey: ["course-structure", organizationId, courseId],
     });
   };
+
+  const handleUnpublish = async () => {
+    setIsUnpublishing(true);
+    setUnpublishError(null);
+    try {
+      await courseApi.unpublishCourse(organizationId, courseId);
+      setIsUnpublishModalOpen(false);
+      handleSubmitted();
+    } catch (err: unknown) {
+      setUnpublishError(
+        err instanceof Error ? err.message : "خطا در خارج کردن دوره از انتشار",
+      );
+    } finally {
+      setIsUnpublishing(false);
+    }
+  };
+
+  // If user does not have edit permissions (e.g. enrolled learner / recipient), show read-only info
+  if (!canEdit) {
+    return (
+      <div
+        className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-4 sm:p-5 shadow-xs transition-all"
+        dir="rtl"
+        data-testid="course-shared-banner"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-teal-500/10 border border-teal-500/20 text-[#008080] flex items-center justify-center flex-shrink-0">
+            <BookOpen className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold text-[var(--color-text)]">
+                دوره اشتراک‌گذاری‌شده:
+              </span>
+              <Badge className="bg-teal-500/10 text-[#008080] border-teal-500/20 text-[11px] font-bold">
+                نسخه کتابخانه‌ای (فقط خواندنی)
+              </Badge>
+            </div>
+            <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+              شما به محتوای این دوره، آزمون‌ها و فلش‌کارت‌ها دسترسی کامل دارید. مدیریت محتوا، انتشار و اسناد فقط در اختیار سازنده اصلی دوره است.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -222,8 +290,42 @@ export function CoursePublicationBanner({
               <span>درخواست مجدد به‌روزرسانی</span>
             </Button>
           </div>
+        ) : isCourseUnpublished ? (
+          /* State: Unpublished */
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-neutral-500/10 border border-neutral-500/20 text-neutral-600 dark:text-neutral-400 flex items-center justify-center flex-shrink-0">
+                <EyeOff className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-[var(--color-text)]">
+                    وضعیت انتشار در کتابخانه:
+                  </span>
+                  <Badge className="bg-neutral-500/10 text-neutral-600 dark:text-neutral-400 border-neutral-500/20 text-[11px] font-bold">
+                    <EyeOff className="w-3 h-3 ml-1" />
+                    از انتشار خارج شده
+                  </Badge>
+                </div>
+                <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                  این دوره از کتابخانه عمومی خارج شده است. فراگیرانی که قبلاً دوره را اضافه کرده‌اند همچنان به محتوای آن دسترسی دارند، اما دوره دیگر برای کاربران جدید نمایش داده نمی‌شود.
+                </p>
+              </div>
+            </div>
+
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setIsModalOpen(true)}
+              className="text-xs bg-[#008080] hover:bg-[#006666] text-white font-bold flex-shrink-0 self-start sm:self-center"
+              data-testid="request-publish-cta-button"
+            >
+              <Sparkles className="w-3.5 h-3.5 ml-1.5" />
+              <span>درخواست انتشار مجدد</span>
+            </Button>
+          </div>
         ) : status === "published" || isCourseAlreadyPublished ? (
-          /* State 2: Published in Library with Update Option */
+          /* State 2: Published in Library with Update & Unpublish Options */
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-start sm:items-center gap-3 min-w-0">
               <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0">
@@ -250,16 +352,28 @@ export function CoursePublicationBanner({
               </div>
             </div>
 
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => setIsModalOpen(true)}
-              className="text-xs bg-[#008080] hover:bg-[#006666] text-white font-bold flex-shrink-0 self-start sm:self-center"
-              data-testid="request-update-cta-button"
-            >
-              <Sparkles className="w-3.5 h-3.5 ml-1.5" />
-              <span>درخواست به‌روزرسانی دوره</span>
-            </Button>
+            <div className="flex items-center gap-2 flex-wrap flex-shrink-0 self-start sm:self-center">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsUnpublishModalOpen(true)}
+                className="text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 font-bold"
+                data-testid="unpublish-course-button"
+              >
+                <EyeOff className="w-3.5 h-3.5 ml-1.5" />
+                <span>خارج کردن از انتشار</span>
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsModalOpen(true)}
+                className="text-xs bg-[#008080] hover:bg-[#006666] text-white font-bold"
+                data-testid="request-update-cta-button"
+              >
+                <Sparkles className="w-3.5 h-3.5 ml-1.5" />
+                <span>درخواست به‌روزرسانی دوره</span>
+              </Button>
+            </div>
           </div>
         ) : status === "rejected" ? (
           /* State 3: Initial Rejection with reason & retry option */
@@ -338,6 +452,89 @@ export function CoursePublicationBanner({
         currentVersion={publishedPublication?.version ?? publication?.version ?? 1}
         onSubmitted={handleSubmitted}
       />
+
+      {/* Unpublish Confirmation Modal */}
+      <Dialog
+        isOpen={isUnpublishModalOpen}
+        onClose={() => !isUnpublishing && setIsUnpublishModalOpen(false)}
+        maxWidth="md"
+        ariaLabel="خارج کردن دوره از حالت انتشار"
+      >
+        <DialogHeader
+          onClose={() => !isUnpublishing && setIsUnpublishModalOpen(false)}
+          className="p-5 bg-[var(--color-surface-subtle)] border-b border-[var(--color-border)]"
+        >
+          <div className="flex items-center gap-3" dir="rtl">
+            <div className="w-10 h-10 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-600 flex items-center justify-center flex-shrink-0">
+              <EyeOff className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-[var(--color-text)]">
+                خارج کردن دوره از کتابخانه
+              </h2>
+              <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                تغییر وضعیت دوره به حالت منتشر نشده
+              </p>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <DialogContent className="p-5 space-y-4">
+          <p className="text-sm text-[var(--color-text)] leading-relaxed">
+            آیا از خارج کردن دوره <span className="font-bold text-[var(--color-text)]">«{courseTitle}»</span> از کتابخانه عمومی اطمینان دارید؟
+          </p>
+
+          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-400 space-y-1">
+            <p className="font-bold flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>نکات مهم پس از خروج از انتشار:</span>
+            </p>
+            <ul className="list-disc list-inside space-y-0.5 pr-1 text-[11px]">
+              <li>فراگیرانی که قبلاً دوره را اضافه کرده‌اند، همچنان به محتوای این نسخه برای مطالعه، آزمون‌ها و فلش‌کارت‌ها دسترسی خواهند داشت.</li>
+              <li>این دوره از کتابخانه عمومی، دسته‌بندی‌ها و جستجو برای کاربران جدید مخفی خواهد شد.</li>
+              <li>تاریخچه انتشار و نسخه‌های قبلی دوره محفوظ مانده و هر زمان می‌توانید مجدداً درخواست انتشار ثبت کنید.</li>
+            </ul>
+          </div>
+
+          {unpublishError && (
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{unpublishError}</span>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-3 pt-2 border-t border-[var(--color-border)]">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsUnpublishModalOpen(false)}
+              disabled={isUnpublishing}
+            >
+              انصراف
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={handleUnpublish}
+              disabled={isUnpublishing}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-bold"
+              data-testid="confirm-unpublish-button"
+            >
+              {isUnpublishing ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 ml-1.5 animate-spin" />
+                  <span>در حال خارج کردن...</span>
+                </>
+              ) : (
+                <>
+                  <EyeOff className="w-3.5 h-3.5 ml-1.5" />
+                  <span>تأیید و خروج از انتشار</span>
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

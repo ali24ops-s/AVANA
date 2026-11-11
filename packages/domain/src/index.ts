@@ -12,6 +12,7 @@ export * from "./study.js";
 export * from "./study-session.js";
 export * from "./study-planner.js";
 export * from "./question-shuffling.js";
+export * from "./pattern-validation.js";
 
 export * from "./content-pack.js";
 export * from "./course-publication.js";
@@ -45,4 +46,8 @@ export * from "./seo.js";
 export * from "./source-pack.js";
 export * from "./welcome-gift.js";
 export * from "./onboarding.js";
-
+export * from "./remarkLessonCallouts.js";
+export * from "./mind-map.js";
+export * from "./presentation.js";
+export * from "./presentation-layout.js";
+export * from "./crm.js";

@@ -22,6 +22,7 @@ import { AvaniAvatar } from "../components/brand/AvaniAvatar.js";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
 import { createCourseApi } from "../lib/api/courses.js";
+import { useAuth } from "../providers/AuthProvider.js";
 import {
   Button,
   Input,
@@ -97,6 +98,7 @@ function LoopingWordReveal() {
 }
 
 export function LibraryPage() {
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Normalize/strip package URL parameters if entered directly
@@ -127,9 +129,9 @@ export function LibraryPage() {
   const organization = orgQuery.data?.items?.[0];
 
   const myCoursesQuery = useQuery({
-    queryKey: ["my-courses", organization?.id],
+    queryKey: ["my-courses", organization?.id, user?.id],
     queryFn: () => courseApi.listMyCourses(organization!.id),
-    enabled: !!organization?.id,
+    enabled: !!organization?.id && !!user?.id,
   });
 
   const enrolledCourseIds = new Set(

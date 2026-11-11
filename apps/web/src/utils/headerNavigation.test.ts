@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getHeaderManagementActions } from "./headerNavigation.js";
+import { getHeaderManagementActions, getHeaderNavItems } from "./headerNavigation.js";
 
 describe("headerNavigation - getHeaderManagementActions", () => {
   it("Student (regular user): returns no management actions", () => {
@@ -193,5 +193,79 @@ describe("headerNavigation - getHeaderManagementActions", () => {
     expect(actions[1].id).toBe("teacher");
     expect(actions[1].to).toBe("/teacher");
     expect(actions.some((a) => a.to === "/admin/courses")).toBe(false);
+  });
+});
+
+describe("headerNavigation - getHeaderNavItems", () => {
+  it("returns primary navigation items in the exact expected visual RTL order", () => {
+    const items = getHeaderNavItems(false);
+
+    expect(items.map((i) => i.label)).toEqual([
+      "خانه",
+      "دوره‌ها",
+      "کلاس‌های من",
+      "کتابخانه",
+      "آزمون‌ها",
+      "فلش‌کارت‌ها",
+    ]);
+
+    expect(items.map((i) => i.to)).toEqual([
+      "/home",
+      "/courses",
+      "/classrooms",
+      "/library",
+      "/exams",
+      "/flashcards",
+    ]);
+
+    expect(items.map((i) => i.id)).toEqual([
+      "home",
+      "courses",
+      "classrooms",
+      "library",
+      "exams",
+      "flashcards",
+    ]);
+  });
+
+  it("appends files navigation item when filesEnabled is true", () => {
+    const items = getHeaderNavItems(true);
+
+    expect(items).toHaveLength(7);
+    expect(items[6]).toMatchObject({
+      id: "files",
+      to: "/files",
+      label: "فایل‌ها",
+    });
+  });
+
+  it("correctly evaluates isActive for each navigation item", () => {
+    const items = getHeaderNavItems(false);
+    const home = items.find((i) => i.id === "home")!;
+    const courses = items.find((i) => i.id === "courses")!;
+    const classrooms = items.find((i) => i.id === "classrooms")!;
+    const library = items.find((i) => i.id === "library")!;
+    const exams = items.find((i) => i.id === "exams")!;
+    const flashcards = items.find((i) => i.id === "flashcards")!;
+
+    expect(home.isActive("/home")).toBe(true);
+    expect(home.isActive("/")).toBe(true);
+    expect(home.isActive("/courses")).toBe(false);
+
+    expect(courses.isActive("/courses")).toBe(true);
+    expect(courses.isActive("/courses/123")).toBe(true);
+    expect(courses.isActive("/home")).toBe(false);
+
+    expect(classrooms.isActive("/classrooms")).toBe(true);
+    expect(classrooms.isActive("/classrooms/c1")).toBe(true);
+
+    expect(library.isActive("/library")).toBe(true);
+    expect(library.isActive("/library/all")).toBe(true);
+
+    expect(exams.isActive("/exams")).toBe(true);
+    expect(exams.isActive("/exams/123")).toBe(true);
+
+    expect(flashcards.isActive("/flashcards")).toBe(true);
+    expect(flashcards.isActive("/flashcards/deck1")).toBe(true);
   });
 });

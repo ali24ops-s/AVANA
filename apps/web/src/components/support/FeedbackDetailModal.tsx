@@ -1,6 +1,8 @@
 import { useState } from "react";
 import {
   Dialog,
+  DialogHeader,
+  DialogContent,
   DialogFooter,
   Button,
   Badge,
@@ -76,8 +78,14 @@ export function FeedbackDetailModal({
   if (!feedback || !isOpen) return null;
 
   return (
-    <Dialog isOpen={isOpen} onClose={onClose} hideHeader maxWidth="xl">
-      <div className="p-5 sm:p-6 space-y-4 max-h-[85vh] overflow-y-auto" dir="rtl">
+    <Dialog
+      isOpen={isOpen}
+      onClose={onClose}
+      maxWidth="xl"
+      isCompound={true}
+      ariaLabel="جزئیات بازخورد"
+    >
+      <DialogHeader onClose={onClose}>
         <div>
           <div className="flex items-center gap-2 flex-wrap mb-2">
             <Badge variant={getFeedbackStatusBadgeVariant(feedback.status)}>
@@ -98,114 +106,117 @@ export function FeedbackDetailModal({
             {feedback.userName && ` • کاربر: ${feedback.userName}`}
           </p>
         </div>
+      </DialogHeader>
 
-        <div className="space-y-4 py-2 text-xs sm:text-sm">
-          {errorMessage && (
-            <Alert variant="error" title="خطا">
-              {errorMessage}
-            </Alert>
-          )}
+      <DialogContent className="p-5 sm:p-6 space-y-4 text-xs sm:text-sm">
+        {errorMessage && (
+          <Alert variant="error" title="خطا">
+            {errorMessage}
+          </Alert>
+        )}
 
-          {/* Feedback Description */}
-          <div className="p-4 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
-            <div className="text-xs font-semibold text-[var(--color-text-muted)] mb-1.5">
-              متن بازخورد کاربر:
-            </div>
-            <p className="whitespace-pre-wrap leading-relaxed text-[var(--color-text)]">
-              {feedback.description}
-            </p>
-
-            {feedback.attachmentUrl && (
-              <div className="mt-3 pt-2.5 border-t border-[var(--color-border)]">
-                <SupportAttachmentAction
-                  attachmentUrl={feedback.attachmentUrl}
-                  variant="neutral"
-                  onError={(err) => setErrorMessage(err)}
-                />
-              </div>
-            )}
+        {/* Feedback Description */}
+        <div className="p-4 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
+          <div className="text-xs font-semibold text-[var(--color-text-muted)] mb-1.5">
+            متن بازخورد کاربر:
           </div>
+          <p className="whitespace-pre-wrap leading-relaxed text-[var(--color-text)]">
+            {feedback.description}
+          </p>
 
-          {/* Existing Admin Response View */}
-          {feedback.adminResponse && !isAdminMode && (
-            <div className="p-4 rounded-2xl bg-[#008080]/10 border border-[#008080]/30 text-[var(--color-text)]">
-              <div className="flex items-center gap-2 mb-2 text-[#008080] font-bold text-xs">
-                <ShieldCheck className="w-4 h-4" />
-                <span>پاسخ تیم پشتیبانی آوانا:</span>
-                {feedback.respondedAt && (
-                  <span className="text-[10px] font-normal opacity-80 mr-auto">
-                    {formatPersianDateTime(feedback.respondedAt)}
-                  </span>
-                )}
-              </div>
-              <p className="whitespace-pre-wrap leading-relaxed text-xs sm:text-sm">
-                {feedback.adminResponse}
-              </p>
+          {feedback.attachmentUrl && (
+            <div className="mt-3 pt-2.5 border-t border-[var(--color-border)]">
+              <SupportAttachmentAction
+                attachmentUrl={feedback.attachmentUrl}
+                variant="neutral"
+                onError={(err) => setErrorMessage(err)}
+              />
             </div>
-          )}
-
-          {/* Admin Response Form */}
-          {isAdminMode && (
-            <form onSubmit={handleAdminSubmit} className="space-y-3 pt-2">
-              <div>
-                <label className="block text-xs font-semibold text-[var(--color-text)] mb-1.5">
-                  وضعیت بازخورد
-                </label>
-                <AvanaSelect
-                  value={targetStatus}
-                  onChange={(val) => setTargetStatus(String(Array.isArray(val) ? val[0] : val))}
-                  options={[
-                    { value: "in_review", label: "در حال بررسی" },
-                    { value: "answered", label: "پاسخ داده شده" },
-                    { value: "closed", label: "بستن بازخورد" },
-                  ]}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-[var(--color-text)] mb-1.5">
-                  پاسخ رسمی ادمین به کاربر (اختیاری)
-                </label>
-                <textarea
-                  rows={4}
-                  value={adminResponseText}
-                  onChange={(e) => setAdminResponseText(e.target.value)}
-                  placeholder="پاسخ خود را برای این بازخورد بنویسید (در صورت ثبت، برای کاربر پیام اعلان ارسال می‌شود)..."
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] text-xs sm:text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all resize-none font-sans"
-                  disabled={respondMutation.isPending}
-                />
-              </div>
-
-              <DialogFooter className="gap-2 sm:gap-0 pt-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={onClose}
-                  disabled={respondMutation.isPending}
-                >
-                  بستن
-                </Button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  isLoading={respondMutation.isPending}
-                  leftIcon={<CheckCircle2 className="w-4 h-4" />}
-                >
-                  ثبت پاسخ و تغییر وضعیت
-                </Button>
-              </DialogFooter>
-            </form>
           )}
         </div>
 
-        {!isAdminMode && (
-          <DialogFooter>
+        {/* Existing Admin Response View */}
+        {feedback.adminResponse && !isAdminMode && (
+          <div className="p-4 rounded-2xl bg-[#008080]/10 border border-[#008080]/30 text-[var(--color-text)]">
+            <div className="flex items-center gap-2 mb-2 text-[#008080] font-bold text-xs">
+              <ShieldCheck className="w-4 h-4" />
+              <span>پاسخ تیم پشتیبانی آوانا:</span>
+              {feedback.respondedAt && (
+                <span className="text-[10px] font-normal opacity-80 mr-auto">
+                  {formatPersianDateTime(feedback.respondedAt)}
+                </span>
+              )}
+            </div>
+            <p className="whitespace-pre-wrap leading-relaxed text-xs sm:text-sm">
+              {feedback.adminResponse}
+            </p>
+          </div>
+        )}
+
+        {/* Admin Response Form */}
+        {isAdminMode && (
+          <form id="admin-feedback-form" onSubmit={handleAdminSubmit} className="space-y-3 pt-2">
+            <div>
+              <label className="block text-xs font-semibold text-[var(--color-text)] mb-1.5">
+                وضعیت بازخورد
+              </label>
+              <AvanaSelect
+                value={targetStatus}
+                onChange={(val) => setTargetStatus(String(Array.isArray(val) ? val[0] : val))}
+                options={[
+                  { value: "in_review", label: "در حال بررسی" },
+                  { value: "answered", label: "پاسخ داده شده" },
+                  { value: "closed", label: "بستن بازخورد" },
+                ]}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[var(--color-text)] mb-1.5">
+                پاسخ رسمی ادمین به کاربر (اختیاری)
+              </label>
+              <textarea
+                rows={4}
+                value={adminResponseText}
+                onChange={(e) => setAdminResponseText(e.target.value)}
+                placeholder="پاسخ خود را برای این بازخورد بنویسید (در صورت ثبت، برای کاربر پیام اعلان ارسال می‌شود)..."
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] text-xs sm:text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all resize-none font-sans"
+                disabled={respondMutation.isPending}
+              />
+            </div>
+          </form>
+        )}
+      </DialogContent>
+
+      <DialogFooter>
+        {isAdminMode ? (
+          <div className="flex items-center justify-end gap-2.5 w-full">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onClose}
+              disabled={respondMutation.isPending}
+            >
+              بستن
+            </Button>
+            <Button
+              type="submit"
+              form="admin-feedback-form"
+              variant="primary"
+              isLoading={respondMutation.isPending}
+              leftIcon={<CheckCircle2 className="w-4 h-4" />}
+            >
+              ثبت پاسخ و تغییر وضعیت
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-end w-full">
             <Button variant="outline" onClick={onClose}>
               بستن
             </Button>
-          </DialogFooter>
+          </div>
         )}
-      </div>
+      </DialogFooter>
     </Dialog>
   );
 }

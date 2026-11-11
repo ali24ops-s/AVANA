@@ -33,6 +33,11 @@ import type {
 } from "./support-store.js";
 import type { NotificationService } from "../notifications/notification-service.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import type { UserStore } from "../identity/user-store.js";
+import {
+  type SupportNotificationQueue,
+  maskEmailForLogs,
+} from "./support-notification-queue.js";
 
 export function toFeedbackItem(record: FeedbackRecord): FeedbackItem {
   return {
@@ -112,6 +117,8 @@ export class SupportService {
     private readonly store: SupportStore,
     private readonly notificationService?: NotificationService,
     private readonly auditService?: AuditService,
+    private readonly notificationQueue?: SupportNotificationQueue,
+    private readonly userStore?: UserStore,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -560,15 +567,69 @@ export class SupportService {
         });
       }
 
-      // Notify User
+      // Channel Status Initialization (in_site, email, sms)
+      let recipientEmail = ticket.userEmail;
+      if (!recipientEmail && this.userStore) {
+        try {
+          const user = await this.userStore.findById(ticket.userId);
+          if (user?.email) {
+            recipientEmail = user.email;
+          }
+        } catch {
+          // Never allow userStore lookup failure to disrupt admin message
+        }
+      }
+
+      const nowIso = new Date().toISOString();
+      const maskedEmail = recipientEmail ? maskEmailForLogs(recipientEmail) : undefined;
+      const initialChannels = {
+        in_site: {
+          status: "sent" as const,
+          sentAt: nowIso,
+        },
+        email: {
+          status: "pending" as const,
+          recipient: maskedEmail,
+          attempts: 0,
+        },
+        sms: {
+          status: "skipped" as const,
+          reason: "provider_otp_only",
+        },
+      };
+
+      // 1. In-site Notification (Existing system, idempotent on message.id)
       if (this.notificationService) {
         await this.notificationService.createForUser(ticket.userId, {
           type: "support_ticket_replied",
-          title: "پاسخ جدید در تیکت پشتیبانی",
+          title: "پاسخ جدید از پشتیبانی",
           message: `پشتیبانی به تیکت «${ticket.title}» پاسخ داد.`,
           actionUrl: `/account/support?tab=my_requests&ticketId=${ticketId}`,
           idempotencyKey: `ticket_reply:${message.id}`,
+          metadata: {
+            ticketId,
+            messageId: message.id,
+            channels: initialChannels,
+          },
         });
+      }
+
+      // 2. Outbound persistent notification queue (Email & SMS check, error-isolated)
+      if (this.notificationQueue) {
+        try {
+          await this.notificationQueue.enqueue({
+            ticketId,
+            messageId: message.id,
+            userId: ticket.userId,
+            ticketTitle: ticket.title,
+            userEmail: recipientEmail,
+          });
+        } catch (queueErr) {
+          // STRICT RESILIENCE: Never allow queuing or network failure to disrupt admin message
+          if (process.env.NODE_ENV !== "test") {
+            process.stderr.write(`[support-service] Enqueue warning: ${String(queueErr)}\n`);
+          }
+        }
       }
     }
 

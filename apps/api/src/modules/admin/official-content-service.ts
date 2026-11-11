@@ -39,6 +39,8 @@ import type { GeneratedContentStore } from "../generation/generation-store.js";
 import type { ModuleStore, LessonStore, DocumentStore } from "../learning/learning-store.js";
 import type { FlashcardStore, QuizStore, QuizQuestionStore } from "../study/study-store.js";
 import type { AdminStore } from "./admin-store.js";
+import type { SourcePackStore } from "../source-packs/source-pack-store.js";
+import { assertDocumentAssociatedWithCourse } from "../documents/document-course-association.js";
 import type { DbClient } from "@avana/database/client";
 import {
   courses,
@@ -166,7 +168,12 @@ export class OfficialContentService {
     public readonly recoveryService?: GenerationRecoveryService,
     private readonly generationProgressService?: GenerationProgressService,
     public readonly courseDraftService?: CourseDraftService,
+    private sourcePackStore?: SourcePackStore,
   ) {}
+
+  setSourcePackStore(sourcePackStore: SourcePackStore): void {
+    this.sourcePackStore = sourcePackStore;
+  }
 
   private requireAdmin(actor: Actor): void {
     if (
@@ -408,6 +415,7 @@ export class OfficialContentService {
       force?: boolean;
       questionPatternId?: string | null;
       questionPatternVersion?: number | null;
+      questionPatternIds?: string[] | null;
     },
   ): Promise<{ generationRunId: string; status: CourseStatus }> {
     this.requireContentManager(actor);
@@ -417,27 +425,15 @@ export class OfficialContentService {
       throw new DomainError("not_found", "دوره رسمی یافت نشد.");
     }
 
-    const document = await this.documentStore.findByIdForOrganization(
-      documentId,
+    await assertDocumentAssociatedWithCourse(
+      {
+        documentStore: this.documentStore,
+        sourcePackStore: this.sourcePackStore,
+      },
+      documentId as import("@avana/domain").DocumentId,
+      courseId,
       this.systemOrganizationId,
     );
-    if (!document || document.deletedAt) {
-      throw new DomainError("not_found", "سند منبع یافت نشد.");
-    }
-
-    if (!document.courseId) {
-      throw new DomainError(
-        "bad_request",
-        "این سند به دوره‌ای اختصاص نیافته است. لطفاً ابتدا سند را به دوره متصل کنید.",
-      );
-    }
-
-    if (document.courseId !== courseId) {
-      throw new DomainError(
-        "bad_request",
-        "این سند متعلق به دوره دیگری است و امکان تولید محتوا برای این دوره با آن وجود ندارد.",
-      );
-    }
 
     // If course is currently generating, check if active or stale
     if (course.status === "generating") {
@@ -498,6 +494,7 @@ export class OfficialContentService {
           force: options?.force,
           questionPatternId: options?.questionPatternId as any,
           questionPatternVersion: options?.questionPatternVersion,
+          questionPatternIds: options?.questionPatternIds as any,
         },
       );
 
@@ -626,10 +623,10 @@ export class OfficialContentService {
       this.systemOrganizationId,
     );
 
-    // Merge uniquely
+    // Merge uniquely scoped to this course
     const draftMap = new Map<string, (typeof draftsFromDocs)[0]>();
     for (const d of [...draftsFromDocs, ...draftsFromCourse]) {
-      if (!d.deletedAt) {
+      if (!d.deletedAt && d.courseId === courseId) {
         draftMap.set(d.id, d);
       }
     }
@@ -1682,7 +1679,7 @@ export class OfficialContentService {
         this.systemOrganizationId,
       );
       for (const d of [...draftsFromDocs, ...draftsFromCourse]) {
-        if (d.type === "review_summary" && !d.deletedAt && d.status !== "rejected" && isCompleteReviewSummary(d.payload)) {
+        if (d.courseId === courseId && d.type === "review_summary" && !d.deletedAt && d.status !== "rejected" && isCompleteReviewSummary(d.payload)) {
           hasReviewSummary = true;
           break;
         }
@@ -1706,7 +1703,7 @@ export class OfficialContentService {
         ).flat();
 
         for (const draft of allDrafts) {
-          if (draft.deletedAt || draft.status === "rejected") continue;
+          if (draft.courseId !== courseId || draft.deletedAt || draft.status === "rejected") continue;
           const payload = draft.payload as Record<string, unknown>;
 
           if (lessonCount === 0 && draft.type === "lesson" && Array.isArray(payload?.sessions)) {

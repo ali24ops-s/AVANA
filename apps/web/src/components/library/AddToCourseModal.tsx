@@ -48,7 +48,7 @@ export function AddToCourseModal({
   onNavigateToCourse,
 }: AddToCourseModalProps) {
   const navigate = useNavigate();
-  const { isAuthenticated, memberships } = useAuth();
+  const { user, isAuthenticated, memberships } = useAuth();
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [result, setResult] = useState<AddPackToCourseResponse | null>(null);
   const [customError, setCustomError] = useState<string | null>(null);
@@ -71,9 +71,9 @@ export function AddToCourseModal({
 
   // Fetch user's courses in the organization
   const coursesQuery = useQuery({
-    queryKey: ["my-courses", organizationId],
+    queryKey: ["my-courses", organizationId, user?.id],
     queryFn: () => courseApi.listMyCourses(organizationId!),
-    enabled: Boolean(open && organizationId),
+    enabled: Boolean(open && organizationId && user?.id),
   });
 
   const courses: CourseResource[] = coursesQuery.data?.items ?? [];

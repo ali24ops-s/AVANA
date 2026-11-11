@@ -32,6 +32,7 @@ import {
   asOrganizationId,
   asCourseId,
   asModuleId,
+  normalizePersianDigits,
 } from "@avana/domain";
 import { CommerceService } from "./commerce-service.js";
 import { EntitlementService } from "./entitlement-service.js";
@@ -57,6 +58,7 @@ import type { NotificationService } from "../notifications/notification-service.
 import type { WalletService } from "../wallet/wallet-service.js";
 import type { SubscriptionCreditBonusesConfig } from "@avana/domain";
 import type { PromotionService } from "./promotion-service.js";
+import { PaymentExtractionRateLimiter } from "./payment-rate-limiter.js";
 
 export interface CommerceRouteOptions {
   sessionService: AuthMiddlewareDeps["sessionService"];
@@ -66,6 +68,8 @@ export interface CommerceRouteOptions {
   storageProvider?: StorageProvider;
   modelGateway?: ModelGateway;
   paymentExtractionService?: PaymentInfoExtractionService;
+  paymentRateLimiter?: PaymentExtractionRateLimiter;
+  redis?: import("ioredis").Redis;
   courseStore?: CourseStore;
   moduleStore?: ModuleStore;
   lessonStore?: LessonStore;
@@ -211,6 +215,13 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
       opts.modelGateway,
       cardToCardConfig?.destinationCardNumber,
     );
+
+  const paymentRateLimiter =
+    opts.paymentRateLimiter ??
+    new PaymentExtractionRateLimiter({
+      redis: opts.redis,
+      isProduction: process.env.NODE_ENV === "production",
+    });
 
   const entitlementService = new EntitlementService({
     commerceStore,
@@ -759,58 +770,105 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
   // -------------------------------------------------------------------------
   // POST /v1/commerce/card-to-card/extract — Extract Payment Details (Read-Only)
   // -------------------------------------------------------------------------
-  app.post("/v1/commerce/card-to-card/extract", async (request, reply) => {
-    const body = (request.body ?? {}) as {
-      text?: string;
-      payment_text?: string;
-      paymentText?: string;
-      product_id?: string;
-      productId?: string;
-      amount?: number;
-      use_ai_fallback?: boolean;
-      useAiFallback?: boolean;
-    };
+  app.post(
+    "/v1/commerce/card-to-card/extract",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const reqAny = request as unknown as { user?: { userId: string } };
+      const userId = reqAny.user?.userId;
+      if (!userId) {
+        throw new DomainError("unauthorized", "Not signed in");
+      }
 
-    const rawText = body.text ?? body.payment_text ?? body.paymentText ?? "";
-    const rawProductId = body.product_id ?? body.productId;
-    const useAiFallback = body.use_ai_fallback ?? body.useAiFallback ?? true;
+      const body = (request.body ?? {}) as {
+        text?: string;
+        payment_text?: string;
+        paymentText?: string;
+        product_id?: string;
+        productId?: string;
+        amount?: number;
+        use_ai_fallback?: boolean;
+        useAiFallback?: boolean;
+      };
 
-    let expectedAmount: number | undefined;
-    if (typeof body.amount === "number" && Number.isInteger(body.amount) && body.amount > 0) {
-      expectedAmount = body.amount;
-    } else if (rawProductId) {
-      try {
-        if (rawProductId === "wallet_topup") {
-          // For wallet_topup, amount is always dynamic and specified in body.amount, never product price
-          expectedAmount = undefined;
-        } else {
-          let prodId: import("@avana/domain").ProductId | null = null;
-          if (isProductId(rawProductId)) {
-            prodId = rawProductId as import("@avana/domain").ProductId;
+      const rawInput = body.text ?? body.payment_text ?? body.paymentText;
+      if (typeof rawInput !== "string") {
+        throw new DomainError("bad_request", "متن فیش بانکی الزامی است.");
+      }
+
+      const rawText = rawInput.trim();
+      if (rawText.length < 10) {
+        throw new DomainError(
+          "bad_request",
+          "متن فیش بانکی بسیار کوتاه است و حاوی اطلاعات کافی نیست.",
+        );
+      }
+
+      if (rawText.length > 3000) {
+        throw new DomainError(
+          "bad_request",
+          "متن فیش بانکی بیش از حد مجاز (حداکثر ۳۰۰۰ کاراکتر) طولانی است.",
+        );
+      }
+
+      // Heuristic: Must contain digits (Persian/Arabic or Latin numbers) representing financial data
+      const hasDigits = /[\d\u0660-\u0669\u06F0-\u06F9]/.test(rawText);
+      if (!hasDigits) {
+        throw new DomainError(
+          "bad_request",
+          "متن ارسالی فاقد ارقام و مشخصات تراکنش بانکی است.",
+        );
+      }
+
+      // Rate limiting: atomic evaluation across userId and IP.
+      // Prioritize un-spoofable X-Real-IP set by Nginx socket proxy, fallback to request.ip.
+      const realIpHeader = request.headers["x-real-ip"];
+      const clientIp =
+        (typeof realIpHeader === "string" && realIpHeader.trim()
+          ? realIpHeader.trim()
+          : request.ip) || "127.0.0.1";
+      await paymentRateLimiter.checkAndConsume(userId, clientIp);
+
+      const rawProductId = body.product_id ?? body.productId;
+      const useAiFallback = body.use_ai_fallback ?? body.useAiFallback ?? true;
+
+      let expectedAmount: number | undefined;
+      if (typeof body.amount === "number" && Number.isInteger(body.amount) && body.amount > 0) {
+        expectedAmount = body.amount;
+      } else if (rawProductId) {
+        try {
+          if (rawProductId === "wallet_topup") {
+            // For wallet_topup, amount is always dynamic and specified in body.amount, never product price
+            expectedAmount = undefined;
           } else {
-            const prod = await commerceStore.findProductByCode(rawProductId);
-            if (prod) prodId = prod.id;
-          }
-          if (prodId) {
-            const product = await commerceService.getProduct(prodId);
-            if (product.type !== "wallet_topup") {
-              expectedAmount = product.price;
+            let prodId: import("@avana/domain").ProductId | null = null;
+            if (isProductId(rawProductId)) {
+              prodId = rawProductId as import("@avana/domain").ProductId;
+            } else {
+              const prod = await commerceStore.findProductByCode(rawProductId);
+              if (prod) prodId = prod.id;
+            }
+            if (prodId) {
+              const product = await commerceService.getProduct(prodId);
+              if (product.type !== "wallet_topup") {
+                expectedAmount = product.price;
+              }
             }
           }
+        } catch {
+          // Ignore product lookup error during extraction
         }
-      } catch {
-        // Ignore product lookup error during extraction
       }
-    }
 
-    const extractionResult = await paymentExtractionService.extract(rawText, {
-      expectedAmount,
-      useAiFallback,
-      correlationId: request.id,
-    });
+      const extractionResult = await paymentExtractionService.extract(rawText, {
+        expectedAmount,
+        useAiFallback,
+        correlationId: request.id,
+      });
 
-    return reply.send(extractionResult);
-  });
+      return reply.send(extractionResult);
+    },
+  );
 
   // -------------------------------------------------------------------------
   // POST /v1/commerce/payments/card-to-card (and alias /v1/commerce/card-to-card/submit)
@@ -882,11 +940,22 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
       }
 
       const amount = body.amount;
-      const trackingNumber = body.tracking_number ?? body.trackingNumber;
-      const sourceCardLast4 =
-        body.source_card_last4 ?? body.sourceCardLast4;
-      const paymentDate = body.payment_date ?? body.paymentDate;
-      const paymentTime = body.payment_time ?? body.paymentTime;
+      const rawTracking = body.tracking_number ?? body.trackingNumber;
+      const trackingNumber = rawTracking
+        ? normalizePersianDigits(String(rawTracking)).trim()
+        : undefined;
+      const rawLast4 = body.source_card_last4 ?? body.sourceCardLast4;
+      const sourceCardLast4 = rawLast4
+        ? normalizePersianDigits(String(rawLast4)).replace(/\D/g, "").slice(0, 4)
+        : undefined;
+      const rawDate = body.payment_date ?? body.paymentDate;
+      const paymentDate = rawDate
+        ? normalizePersianDigits(String(rawDate)).trim()
+        : undefined;
+      const rawTime = body.payment_time ?? body.paymentTime;
+      const paymentTime = rawTime
+        ? normalizePersianDigits(String(rawTime)).trim()
+        : undefined;
       const payerName = body.payer_name ?? body.payerName;
       const receiptUrl = body.receipt_url ?? body.receiptUrl;
       const rawPaymentText = body.raw_payment_text ?? body.rawPaymentText;

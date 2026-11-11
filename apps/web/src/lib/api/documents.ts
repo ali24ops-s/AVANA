@@ -20,6 +20,7 @@ import type {
 } from "@avana/contracts";
 import { type ApiClient, generateUUID } from "./client.js";
 import { ApiError } from "./errors.js";
+import { DEFAULT_PERSIAN_MESSAGES } from "./error-mapper.js";
 
 export type DocumentListFilters = {
   search?: string;
@@ -62,61 +63,11 @@ export function createDocumentsApi(client: ApiClient) {
         formData.append("course_id", courseId);
       }
 
-      const headers: Record<string, string> = {
-        "x-request-id": generateUUID(),
-      };
-
       const url = `/v1/organizations/${organizationId}/documents${
         courseId ? `?course_id=${encodeURIComponent(courseId)}` : ""
       }`;
 
-      const response = await fetch(url, {
-        method: "POST",
-        headers,
-        credentials: "include",
-        body: formData,
-      });
-
-      let data: unknown;
-      try {
-        if (typeof response.text === "function") {
-          const text = await response.text();
-          data = text ? JSON.parse(text) : undefined;
-        } else if (typeof response.json === "function") {
-          data = await response.json();
-        }
-      } catch {
-        data = null;
-      }
-
-      if (!response.ok) {
-        if (
-          data &&
-          typeof data === "object" &&
-          "error" in data &&
-          data.error &&
-          typeof (data as { error: unknown }).error === "object"
-        ) {
-          throw new ApiError(data as ErrorEnvelope);
-        }
-
-        const requestId =
-          response.headers.get("x-request-id") || generateUUID();
-        const code = response.status === 413 ? "bad_request" : "internal_error";
-        const message =
-          response.status === 413
-            ? "File exceeds maximum allowed size"
-            : response.status >= 500
-            ? "Upload failed due to a server error"
-            : `Upload failed with status ${response.status}`;
-
-        throw new ApiError({
-          request_id: requestId,
-          error: { code, message },
-        });
-      }
-
-      return data as ConfirmUploadResponse;
+      return client.postFormData<ConfirmUploadResponse>(url, formData);
     },
 
     /**

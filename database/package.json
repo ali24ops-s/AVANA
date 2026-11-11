@@ -22,9 +22,10 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc --build tsconfig.build.json --force",
+    "build": "tsc --build tsconfig.build.json --force && node dist/tracker/generate-manifest.js",
     "type-check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "migrate:prod": "node dist/migrate.js"
   },
   "devDependencies": {
     "typescript": "5.9.3"

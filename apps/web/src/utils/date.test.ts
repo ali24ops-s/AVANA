@@ -398,13 +398,13 @@ describe("Persian Date Utilities (utils/date.ts)", () => {
       expect(isExamPast("2026-10-15", refDate)).toBe(false);
       expect(calculateExamDaysRemaining("2026-10-15", refDate)).toBe(0);
 
-      // Today past exact time (12:00 Tehran < 14:00 Tehran)
+      // Today earlier legacy time (12:00 Tehran) - remains valid throughout the day
       const pastTimeToday = "2026-10-15T08:30:00Z";
-      expect(isExamUpcoming(pastTimeToday, refDate)).toBe(false);
-      expect(isExamPast(pastTimeToday, refDate)).toBe(true);
-      expect(calculateExamDaysRemaining(pastTimeToday, refDate)).toBe(-1);
+      expect(isExamUpcoming(pastTimeToday, refDate)).toBe(true);
+      expect(isExamPast(pastTimeToday, refDate)).toBe(false);
+      expect(calculateExamDaysRemaining(pastTimeToday, refDate)).toBe(0);
 
-      // Today future exact time (16:00 Tehran > 14:00 Tehran)
+      // Today later legacy time (16:00 Tehran) - remains valid throughout the day
       const futureTimeToday = "2026-10-15T12:30:00Z";
       expect(isExamUpcoming(futureTimeToday, refDate)).toBe(true);
       expect(isExamPast(futureTimeToday, refDate)).toBe(false);

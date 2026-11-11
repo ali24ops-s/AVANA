@@ -343,3 +343,340 @@ export function normalizeEducationalContent(content: string | null | undefined):
 
   return normalizedLines.join("\n");
 }
+
+/**
+ * Helper to identify biomedical / scientific tokens that may have been incorrectly wrapped
+ * in Markdown backticks by LLMs.
+ */
+export function isScientificToken(token: string): boolean {
+  const trimmed = token.trim();
+  if (!trimmed) return false;
+
+  // STRICT PROGRAMMING GUARDS: Exclude real programming code, CLI commands, scripts, syntax
+  if (
+    /^(?:const|let|var|function|return|import|export|class|if|else|for|while|switch|case|break|continue|try|catch|finally|throw|typeof|instanceof|void|delete|new|this|async|await|yield|console|npm|pnpm|yarn|bun|npx|git|docker|curl|wget|cd|ls|mkdir|rm|chmod|chown|ssh|sudo|pip|python|node|ts|js|select|insert|update|delete|from|where|order by|group by)\b/i.test(
+      trimmed,
+    )
+  ) {
+    return false;
+  }
+
+  // Code operators & constructs
+  if (/[;={}[\]<>*+!~`"\\]/.test(trimmed)) {
+    return false;
+  }
+  // Function calls like foo() or methods like arr.map()
+  if (/\w+\([^)]*\)/.test(trimmed) || /\.\w+\(/.test(trimmed)) {
+    return false;
+  }
+  // Dot property access or file paths
+  if (trimmed.includes("./") || trimmed.startsWith("/") || /\w+\.\w+/.test(trimmed) || /[a-z0-9_]+\/[a-z0-9_]{3,}/i.test(trimmed)) {
+    return false;
+  }
+
+  // 1. Specific biomedical prefixes & pathways
+  if (/^(?:hsp|Hsp|HSP)\d+[a-zA-Z]?$/i.test(trimmed)) return true;
+  if (/^(?:FKBP|fkbp)\d+[a-zA-Z]?$/i.test(trimmed)) return true;
+  if (/^(?:COX|cox)(?:-[1-3]|\d+)?$/i.test(trimmed)) return true;
+  if (/^(?:CYP|cyp)\d+[A-Za-z]\d+$/i.test(trimmed)) return true;
+  if (/^(?:GLUT|glut|SGLT|sglt)\d+$/i.test(trimmed)) return true;
+  if (/^(?:JAK|jak|STAT|stat)\d+$/i.test(trimmed)) return true;
+  if (/^(?:IL|il|TNF|tnf|INF|inf)(?:-[0-9a-zA-Zα-ωΑ-Ω]+)?$/i.test(trimmed)) return true;
+  if (/^(?:p53|Bcl-2|mTOR|NF-kB|NF-κB|HMG-CoA)$/i.test(trimmed)) return true;
+
+  // 2. Mixed-case biological messengers & nucleotides
+  if (/^(?:cAMP|cGMP|mRNA|tRNA|rRNA|cDNA|HbA1c)$/i.test(trimmed)) return true;
+
+  // 3. Uppercase & Mixed biomedical abbreviations
+  if (/^[A-Z]{2,6}s?$/.test(trimmed)) return true;
+  if (/^[A-Z]{2,5}(?:-[0-9A-Za-z]{1,3}|[0-9]{1,3})$/.test(trimmed)) return true;
+
+  // 4. Clinical stages & classifications
+  if (/^(?:Stage|Grade|Class|Type|Phase)\s+[0-9IVXAB]+(?:\s+[A-Za-z]+)?$/i.test(trimmed)) return true;
+
+  // 5. Drug classes & multi-word medical categories
+  if (
+    /^(?:[A-Za-z0-9-]+\s+)*(?:inhibitor|inhibitors|blocker|blockers|agonist|agonists|antagonist|antagonists|diuretic|diuretics|channel|receptor|receptors|syndrome|disease|hypertension)$/i.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
+
+  // 6. Dosages, lab values & medical units
+  if (
+    /^\d+(?:\.\d+)?\s*(?:mg|mcg|μg|g|kg|mL|L|dL|mmol|mEq|IU|bpm|mmHg|mol)(?:\/(?:kg|day|hr|min|dL|L|dose))?(?:\/(?:min|hr|day))?$/i.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
+
+  // 7. Capitalized Single Drug / Chemical / Medical Names
+  if (/^[A-Z][a-z]{2,25}$/.test(trimmed)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Helper to unwrap raw JSON session or lesson payloads if an object/JSON was accidentally passed as content string.
+ */
+export function unwrapJsonContent(raw: string): string {
+  const trimmed = raw.trim();
+  if (
+    (trimmed.startsWith("{") && (trimmed.includes('"contentMarkdown"') || trimmed.includes('"kind"'))) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"') && (trimmed.includes("\\n") || trimmed.includes('\\"')))
+  ) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === "string") {
+        return unwrapJsonContent(parsed);
+      }
+      if (parsed && typeof parsed === "object") {
+        if (typeof (parsed as { contentMarkdown?: unknown }).contentMarkdown === "string") {
+          return (parsed as { contentMarkdown: string }).contentMarkdown;
+        }
+        if (
+          Array.isArray((parsed as { sessions?: unknown[] }).sessions) &&
+          (parsed as { sessions: Array<{ contentMarkdown?: string }> }).sessions.length > 0 &&
+          typeof (parsed as { sessions: Array<{ contentMarkdown?: string }> }).sessions[0].contentMarkdown === "string"
+        ) {
+          return (parsed as { sessions: Array<{ contentMarkdown: string }> }).sessions
+            .map((s) => s.contentMarkdown || "")
+            .join("\n\n---\n\n");
+        }
+      }
+    } catch {
+      const match = trimmed.match(/"contentMarkdown"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"citationChunkIds"|"\s*,\s*"kind"|"\s*}|"$)/);
+      if (match && match[1]) {
+        return match[1]
+          .replace(/\\n/g, "\n")
+          .replace(/\\r/g, "\r")
+          .replace(/\\t/g, "\t")
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, "\\");
+      }
+    }
+  }
+  return raw;
+}
+
+/**
+ * Normalizes rich content before parsing:
+ * Unwraps JSON, fixes LaTeX delimiters, converts legacy commands, protects dollars.
+ */
+export function normalizeRichContent(text: string): string {
+  if (!text) {
+    return text;
+  }
+
+  // 0. Unwrap raw JSON objects or string literals if passed as content
+  let raw = unwrapJsonContent(text);
+
+  // 0.1 Sanitize trailing leaked metadata artifacts & model EOF traces
+  raw = raw
+    .replace(/```\[EOF\][\s\S]*$/g, "")
+    .replace(/,?\s*"citationChunkIds"\s*:\s*\[[\s\S]*?\]\s*}?$/s, "")
+    .replace(/,?\s*"kind"\s*:\s*"[^"]*"\s*}?$/s, "")
+    .replace(
+      /(?:\n|^)\s*(?:"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"\s*,?\s*)+$/s,
+      "",
+    )
+    .trimEnd();
+
+  // 0.2 Fix keyboard typos (e.g. Persian layout '---j' -> '---')
+  raw = raw.replace(/^---j$/gm, "---");
+
+  // Split content by code blocks
+  const parts = raw.split(/(```[\s\S]*?```|`[^`\n]+`)/g);
+
+  const formulaMap: Record<string, string> = {
+    IDH1: "IDH1",
+    IDH2: "IDH2",
+    FLT3: "FLT3",
+    BRCA: "BRCA",
+    BRCA1: "BRCA1",
+    BRCA2: "BRCA2",
+    "ER-\\alpha": "ER-α",
+    "TNF-\\alpha": "TNF-α",
+    "\\beta_2": "$\\beta_2$",
+    "HCO3^-": "$\\text{HCO}_3^-$",
+    "Cl^-": "$\\text{Cl}^-$",
+    "NH4^+": "$\\text{NH}_4^+$",
+    "Na+": "$\\text{Na}^+$",
+    "K+": "$\\text{K}^+$",
+    "H+": "$\\text{H}^+$",
+    "H2": "$\\text{H}_2$",
+    "CO2 + H2O <=> H2CO3 <=> H+ + HCO3^-":
+      "$\\text{CO}_2 + \\text{H}_2\\text{O} \\rightleftharpoons \\text{H}_2\\text{CO}_3 \\rightleftharpoons \\text{H}^+ + \\text{HCO}_3^-$",
+  };
+
+  return parts
+    .map((part, index) => {
+      if (index % 2 === 1) {
+        if (part.startsWith("`") && !part.startsWith("```") && part.endsWith("`")) {
+          const inner = part.slice(1, -1);
+          if (isScientificToken(inner)) {
+            return inner;
+          }
+        }
+        if (
+          part.startsWith("```") &&
+          /```(?:chemical|smiles|reaction|rxn|chemical-reaction|chart|charts|chart-json)/i.test(part) &&
+          (part.includes("\\n") || part.includes("\\r\\n"))
+        ) {
+          return part.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
+        }
+        return part;
+      }
+
+      let processed = part;
+
+      if (processed.includes("\\[")) {
+        processed = processed.replace(/\\\[([\s\S]*?)\\\]/g, (_match, equation) => {
+          return `$$${equation}$$`;
+        });
+      }
+
+      if (processed.includes("\\(")) {
+        processed = processed.replace(/\\\(([\s\S]*?)\\\)/g, (_match, equation) => {
+          return `$${equation}$`;
+        });
+      }
+
+      processed = processed.replace(/(\$\$[\s\S]*?\$\$|\$[^$\n]+\$)/g, (mathBlock) => {
+        let math = mathBlock
+          .replace(/\\?text\{/g, "\\text{")
+          .replace(/\text\{/g, "\\text{")
+          .replace(/\t\s*ext\{/g, "\\text{");
+        math = math.replace(/\\-\s*/g, " ");
+        return math;
+      });
+
+      processed = processed.replace(
+        /(^|[^\\])((?<!\\)\$[^$\n]+(?<!\\)\$)\)(?!\))/g,
+        (fullMatch, prefix, mathBlock, offset, fullStr) => {
+          const openInMath = (mathBlock.match(/\(/g) || []).length;
+          const closeInMath = (mathBlock.match(/\)/g) || []).length;
+          if (openInMath === closeInMath && openInMath > 0) {
+            const beforeText = fullStr.slice(0, offset + prefix.length);
+            const lastNewline = beforeText.lastIndexOf("\n");
+            const lineBefore =
+              lastNewline >= 0 ? beforeText.slice(lastNewline + 1) : beforeText;
+            const openBefore = (lineBefore.match(/\(/g) || []).length;
+            const closeBefore = (lineBefore.match(/\)/g) || []).length;
+            if (openBefore <= closeBefore) {
+              return `${prefix}${mathBlock}`;
+            }
+          }
+          return fullMatch;
+        },
+      );
+
+      processed = processed.replace(
+        /(?<!\\)\$(\d+(?:[.,]\d+)*(?:\s*(?:k|K|M|B|USD|EUR|تومان|ریال|هزار|میلیون))?)(?!\.?\d)(?=[.,؛!؟\s]|$)/g,
+        (fullMatch, amount, offset, fullStr) => {
+          const afterIdx = offset + fullMatch.length;
+          if (fullStr[afterIdx] === "$") {
+            return fullMatch;
+          }
+          const restOfLine = fullStr.slice(afterIdx);
+          const nextNewline = restOfLine.indexOf("\n");
+          const lineRest = nextNewline >= 0 ? restOfLine.slice(0, nextNewline) : restOfLine;
+          const closingDollarIdx = lineRest.indexOf("$");
+
+          if (closingDollarIdx !== -1) {
+            const between = lineRest.slice(0, closingDollarIdx);
+            if (/[-=+*/\\^_{}<>~×≤≥±a-zA-Z]/.test(between)) {
+              return fullMatch;
+            }
+          }
+
+          return `\\$${amount}`;
+        },
+      );
+
+      const mathSplit = processed.split(/(\$\$[\s\S]*?\$\$|\$[^$\n]+\$)/g);
+      processed = mathSplit
+        .map((segment, segIdx) => {
+          if (segIdx % 2 === 1) return segment;
+
+          let seg = segment;
+          seg = seg.replace(/\\newline\b/g, "\n");
+          seg = seg.replace(/\\r\\n/g, "\n");
+          seg = seg.replace(/\\n(?!(?:nu|nabla|neq|natural|nearrow|nwarrow|ni)\b)/g, "\n");
+          seg = seg.replace(/\\"/g, '"');
+          seg = seg
+            .replace(/\\?text\{([^{}\n]+)\}/g, "$1")
+            .replace(/(?:\b|\t)ext\{([^{}\n]+)\}/g, "$1");
+          seg = seg.replace(/\\t(?!(?:ext|au|heta|imes)\b)/g, " ");
+
+          seg = seg.replace(/\\ce\{([^{}]+)\}/g, (m, formula) => {
+            const trimmed = formula.trim().replace(/\\\\/g, "\\");
+            if (formulaMap[trimmed]) {
+              return formulaMap[trimmed];
+            }
+            if (/^[A-Za-z0-9_-]+$/.test(trimmed)) {
+              return trimmed;
+            }
+            return m;
+          });
+
+          seg = seg
+            .replace(/\\(?:rightarrow|to|longrightarrow)\b/g, "→")
+            .replace(/\\(?:leftarrow|gets|longleftarrow)\b/g, "←")
+            .replace(/\\leftrightarrow\b/g, "↔")
+            .replace(/\\Rightarrow\b/g, "⇒")
+            .replace(/\\Leftarrow\b/g, "⇐")
+            .replace(/\\Leftrightarrow\b/g, "⇔")
+            .replace(/\\(?:rightleftharpoons|leftharpoons)\b/g, "⇌")
+            .replace(/\\uparrow\b/g, "↑")
+            .replace(/\\downarrow\b/g, "↓")
+            .replace(/\\times\b/g, "×")
+            .replace(/\\(?:leq|le)\b/g, "≤")
+            .replace(/\\(?:geq|ge)\b/g, "≥")
+            .replace(/\\pm\b/g, "±")
+            .replace(/\\alpha\b/g, "α")
+            .replace(/\\beta\b/g, "β")
+            .replace(/\\gamma\b/g, "γ")
+            .replace(/\\delta\b/g, "δ")
+            .replace(/\\mu\b/g, "µ")
+            .replace(/\\circ\b/g, "°")
+            .replace(/\\approx\b/g, "≈")
+            .replace(/\\neq\b/g, "≠");
+
+          return seg;
+        })
+        .join("");
+
+      return normalizeMarkdownTables(processed);
+    })
+    .join("");
+}
+
+/**
+ * Normalizes markdown tables where LLM output may have a mismatch between the number of columns
+ * in the header row and delimiter row.
+ */
+export function normalizeMarkdownTables(content: string): string {
+  if (!content.includes("|")) return content;
+  const lines = content.split("\n");
+  const delimRegex = /^[ \t]*\|(?:[ \t]*:?-+:?[ \t]*\|)+[ \t]*$/;
+
+  for (let i = 0; i < lines.length - 1; i++) {
+    const cur = lines[i];
+    const next = lines[i + 1];
+    if (cur.includes("|") && delimRegex.test(next)) {
+      const headerCols = cur.split("|").slice(1, -1).map((c) => c.trim());
+      const delimCols = next.split("|").slice(1, -1).map((c) => c.trim());
+      if (headerCols.length > 0 && delimCols.length !== headerCols.length) {
+        const normalizedDelim =
+          "| " + headerCols.map((_, idx) => delimCols[idx] || "---").join(" | ") + " |";
+        lines[i + 1] = normalizedDelim;
+      }
+    }
+  }
+  return lines.join("\n");
+}

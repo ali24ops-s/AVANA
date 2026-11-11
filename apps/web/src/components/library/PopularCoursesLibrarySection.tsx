@@ -118,6 +118,9 @@ export function PopularCoursesLibrarySection({
                 coverImage={rawCourse.cover_image || rawCourse.thumbnail_url}
                 href={`/courses/${course.id}`}
                 variant="compact"
+                isOfficial={course.isOfficial ?? (course as any).is_official}
+                isUserPublished={course.isUserPublished ?? (course as any).is_user_published ?? (course.isOfficial === false || (course as any).is_official === false)}
+                publisherName={course.publisherName ?? (course as any).publisher_name ?? null}
               />
             );
           })}

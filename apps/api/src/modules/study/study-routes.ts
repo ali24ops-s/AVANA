@@ -40,6 +40,7 @@ import {
   type StudyTaskStatus,
   DomainError,
   defaultPolicy,
+  Roles,
   isFlashcardRating,
   parseFlashcardId,
   parseQuizAttemptId,
@@ -68,10 +69,12 @@ import type {
   SubCourseGroupStore,
 } from "../learning/learning-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
-import type { CourseStore } from "../courses/course-store.js";
+import type { CourseStore, CoursePublicationStore } from "../courses/course-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { EntitlementService } from "../commerce/entitlement-service.js";
 import { AnnotationService } from "./annotation-service.js";
+import { PersonalSummaryService } from "./personal-summary-service.js";
+import { MindMapService } from "./mind-map-service.js";
 import type {
   LessonAnnotationStore,
   ContentReportStore,
@@ -110,6 +113,9 @@ export interface StudyRouteOptions {
   annotationService?: AnnotationService;
   dailyPlanStore?: DailyStudyPlanStore;
   studyPlannerService?: StudyPlannerService;
+  coursePublicationStore?: CoursePublicationStore;
+  personalSummaryService?: PersonalSummaryService;
+  mindMapService?: MindMapService;
 }
 
 const UUID_RE =
@@ -145,9 +151,12 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     annotationService: customAnnotationService,
     dailyPlanStore,
     studyPlannerService,
+    coursePublicationStore,
+    personalSummaryService,
+    mindMapService,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
+  const { requireAuth, requireRole } = makeAuthMiddleware({ sessionService, userStore });
   const service =
     studyService ??
     new StudyService(
@@ -169,6 +178,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       flashcardStudySessionStore,
       entitlementService,
       subCourseGroupStore,
+      coursePublicationStore,
     );
 
   const plannerService =
@@ -328,6 +338,201 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const actor = getActor(req);
     const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
 
+    if (
+      flashcardStore.getCardCountsByCourseLesson &&
+      userFlashcardScheduleStore?.getUserScheduleAggregates
+    ) {
+      const [cardCounts, scheduleAggregates, coursesInfo] = await Promise.all([
+        flashcardStore.getCardCountsByCourseLesson(organizationId, systemOrganizationId),
+        userFlashcardScheduleStore.getUserScheduleAggregates(actor.userId),
+        courseStore?.listByOrganization(organizationId, actor.userId, systemOrganizationId) || Promise.resolve([]),
+      ]);
+
+      const courseModulesList = await Promise.all(
+        coursesInfo.map((c) => moduleStore.listByCourse(c.id as CourseId)),
+      );
+      const allModuleIds = courseModulesList.flat().map((m) => m.id);
+      const allLessons = allModuleIds.length > 0 ? await lessonStore.listByModules(allModuleIds) : [];
+
+      const scheduleAggMap = new Map<
+        string,
+        {
+          dueCards: number;
+          overdueCards: number;
+          learningCards: number;
+          reviewedCards: number;
+        }
+      >();
+      for (const s of scheduleAggregates) {
+        const key = `${s.courseId}:${s.lessonId ?? ""}:${s.documentId ?? ""}`;
+        scheduleAggMap.set(key, s);
+      }
+
+      let totalDue = 0;
+      let totalOverdue = 0;
+      let totalNew = 0;
+      let totalLearning = 0;
+      let totalCards = 0;
+
+      const validCourseSummaries = [];
+
+      for (let i = 0; i < coursesInfo.length; i++) {
+        const course = coursesInfo[i];
+        const courseModules = courseModulesList[i];
+        const courseLessons = allLessons.filter((l) =>
+          courseModules.some((m) => m.id === l.moduleId),
+        );
+
+        const lessonToModuleMap = new Map<string, string>();
+        const lessonMap = new Map<
+          string,
+          {
+            lesson_id: string;
+            title: string;
+            total_cards: number;
+            due_cards: number;
+            new_cards: number;
+            learning_cards: number;
+            overdue_cards: number;
+          }
+        >();
+
+        for (const les of courseLessons) {
+          lessonToModuleMap.set(les.id, les.moduleId);
+          lessonMap.set(les.id, {
+            lesson_id: les.id,
+            title: les.title,
+            total_cards: 0,
+            due_cards: 0,
+            new_cards: 0,
+            learning_cards: 0,
+            overdue_cards: 0,
+          });
+        }
+
+        const docToModuleMap = new Map<string, string>();
+        const moduleStatsMap = new Map<
+          string,
+          {
+            module_id: string;
+            title: string;
+            total_cards: number;
+            due_cards: number;
+            new_cards: number;
+            learning_cards: number;
+            overdue_cards: number;
+          }
+        >();
+
+        for (const m of courseModules) {
+          if (m.documentId) {
+            docToModuleMap.set(m.documentId, m.id);
+          }
+          moduleStatsMap.set(m.id, {
+            module_id: m.id,
+            title: m.title,
+            total_cards: 0,
+            due_cards: 0,
+            new_cards: 0,
+            learning_cards: 0,
+            overdue_cards: 0,
+          });
+        }
+
+        let cTotal = 0, cDue = 0, cOverdue = 0, cNew = 0, cLearning = 0;
+
+        const courseCardCounts = cardCounts.filter((c) => c.courseId === course.id);
+
+        for (const countRow of courseCardCounts) {
+          let targetModuleId: string | null = null;
+          const matchedLessonId: string | null = countRow.lessonId ?? null;
+          if (matchedLessonId && lessonToModuleMap.has(matchedLessonId)) {
+            targetModuleId = lessonToModuleMap.get(matchedLessonId)!;
+          } else if (countRow.documentId && docToModuleMap.has(countRow.documentId)) {
+            targetModuleId = docToModuleMap.get(countRow.documentId)!;
+          } else if (courseModules.length === 1) {
+            targetModuleId = courseModules[0].id;
+          }
+
+          const mStats = targetModuleId ? moduleStatsMap.get(targetModuleId) : null;
+          const lStats = matchedLessonId ? lessonMap.get(matchedLessonId) : null;
+
+          const schedKey = `${countRow.courseId}:${countRow.lessonId ?? ""}:${countRow.documentId ?? ""}`;
+          const sched = scheduleAggMap.get(schedKey);
+
+          const totalRowCards = countRow.totalCards;
+          const dueCards = sched ? sched.dueCards : 0;
+          const overdueCards = sched ? sched.overdueCards : 0;
+          const learningCards = sched ? sched.learningCards : 0;
+          const reviewedCards = sched ? sched.reviewedCards : 0;
+          const newCards = Math.max(0, totalRowCards - reviewedCards);
+
+          cTotal += totalRowCards;
+          cNew += newCards;
+          cDue += dueCards;
+          cOverdue += overdueCards;
+          cLearning += learningCards;
+
+          if (mStats) {
+            mStats.total_cards += totalRowCards;
+            mStats.new_cards += newCards;
+            mStats.due_cards += dueCards;
+            mStats.overdue_cards += overdueCards;
+            mStats.learning_cards += learningCards;
+          }
+          if (lStats) {
+            lStats.total_cards += totalRowCards;
+            lStats.new_cards += newCards;
+            lStats.due_cards += dueCards;
+            lStats.overdue_cards += overdueCards;
+            lStats.learning_cards += learningCards;
+          }
+        }
+
+        const modulesSummaries = Array.from(moduleStatsMap.values())
+          .map((m) => {
+            const moduleLessons = Array.from(lessonMap.values()).filter(
+              (l) => lessonToModuleMap.get(l.lesson_id) === m.module_id && l.total_cards > 0,
+            );
+            return {
+              ...m,
+              lessons: moduleLessons,
+            };
+          })
+          .filter((m) => m.total_cards > 0);
+
+        if (cTotal > 0) {
+          totalCards += cTotal;
+          totalDue += cDue;
+          totalOverdue += cOverdue;
+          totalNew += cNew;
+          totalLearning += cLearning;
+
+          validCourseSummaries.push({
+            course_id: course.id,
+            title: course.name,
+            total_cards: cTotal,
+            due_cards: cDue,
+            new_cards: cNew,
+            learning_cards: cLearning,
+            overdue_cards: cOverdue,
+            modules: modulesSummaries,
+          });
+        }
+      }
+
+      return {
+        request_id: req.id,
+        courses: validCourseSummaries,
+        total_due: totalDue,
+        total_overdue: totalOverdue,
+        total_new: totalNew,
+        total_learning: totalLearning,
+        total_cards: totalCards,
+      };
+    }
+
+    // Fallback path when stores don't implement aggregation
     const [allFlashcards, userSchedules, userReviews, coursesInfo] = await Promise.all([
       flashcardStore.listByOrganization(organizationId, systemOrganizationId),
       userFlashcardScheduleStore
@@ -432,10 +637,6 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
         for (const f of allFlashcards) {
           if (f.courseId !== course.id) continue;
 
-          // Resolve module relationship:
-          // 1. Explicit lessonId -> lesson.moduleId
-          // 2. Explicit documentId -> module.documentId
-          // 3. Sole course module (courseModules.length === 1)
           let targetModuleId: string | null = null;
           const matchedLessonId: string | null = f.lessonId ?? null;
           if (matchedLessonId && lessonToModuleMap.has(matchedLessonId)) {
@@ -552,7 +753,20 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const organizationId = await resolveOrganizationId(actor, req.params);
     const query = req.query || {};
 
-    await service.authorize(actor, organizationId, "study:read");
+    let targetOrgId = organizationId;
+    if (courseStore) {
+      const course = await courseStore.findByIdForUser(
+        courseId,
+        actor.userId,
+        systemOrganizationId,
+      );
+      if (!course) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      targetOrgId = (course.organizationId || (course as { organization_id?: OrganizationId }).organization_id) as OrganizationId;
+    }
+
+    await service.authorize(actor, targetOrgId, "study:read", courseId);
 
     if (entitlementService) {
       const access = await entitlementService.checkAccess(actor, {
@@ -564,7 +778,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       });
       if (!access.granted) {
         const previewLimit = query.limit ? parseInt(query.limit, 10) : (query.moduleId ? 15 : 5);
-        const previewCards = await service.getPreviewFlashcards(actor, organizationId, courseId, {
+        const previewCards = await service.getPreviewFlashcards(actor, targetOrgId, courseId, {
           moduleId: query.moduleId,
           previewSessionId: query.previewSessionId,
           limit: previewLimit,
@@ -582,7 +796,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     }
 
     const [allFlashcards, userSchedules, userReviews] = await Promise.all([
-      flashcardStore.listByCourse(courseId, organizationId),
+      flashcardStore.listByCourse(courseId, targetOrgId, systemOrganizationId),
       userFlashcardScheduleStore
         ? userFlashcardScheduleStore.listByUser(actor.userId)
         : Promise.resolve([]),
@@ -629,10 +843,23 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const organizationId = await resolveOrganizationId(actor, req.params);
     const query = req.query || {};
 
-    await service.authorize(actor, organizationId, "study:read");
+    let targetOrgId = organizationId;
+    if (courseStore) {
+      const course = await courseStore.findByIdForUser(
+        courseId,
+        actor.userId,
+        systemOrganizationId,
+      );
+      if (!course) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      targetOrgId = (course.organizationId || (course as { organization_id?: OrganizationId }).organization_id) as OrganizationId;
+    }
+
+    await service.authorize(actor, targetOrgId, "study:read", courseId);
 
     const previewLimit = query.limit ? parseInt(query.limit, 10) : (query.moduleId ? 15 : 5);
-    const previewCards = await service.getPreviewFlashcards(actor, organizationId, courseId, {
+    const previewCards = await service.getPreviewFlashcards(actor, targetOrgId, courseId, {
       moduleId: query.moduleId,
       previewSessionId: query.previewSessionId,
       limit: previewLimit,
@@ -1056,6 +1283,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       rating: body.rating as FlashcardRating,
       reactionMs: body.reaction_ms,
       isExamMode: body.is_exam_mode,
+      courseId: req.params.courseId ? (req.params.courseId as any) : undefined,
     });
 
     return {
@@ -1404,10 +1632,29 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   // 6. Quizzes List Handler
   // -------------------------------------------------------------------------
   const handleListQuizzes = async (request: unknown) => {
-    const req = request as { params: { organizationId?: string; courseId: string }; id: string };
+    const req = request as {
+      params: { organizationId?: string; courseId: string };
+      query?: { limit?: string; offset?: string };
+      id: string;
+    };
     const actor = getActor(req);
     const courseId = getCourseId(req.params);
     const organizationId = await resolveOrganizationId(actor, req.params);
+    const limit = req.query?.limit ? Math.max(1, Math.min(100, parseInt(req.query.limit, 10))) : 15;
+    const offset = req.query?.offset ? Math.max(0, parseInt(req.query.offset, 10)) : 0;
+
+    let targetOrgId = organizationId;
+    if (courseStore) {
+      const course = await courseStore.findByIdForUser(
+        courseId,
+        actor.userId,
+        systemOrganizationId,
+      );
+      if (!course) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      targetOrgId = (course.organizationId || (course as { organization_id?: OrganizationId }).organization_id) as OrganizationId;
+    }
 
     if (entitlementService) {
       const access = await entitlementService.checkAccess(actor, {
@@ -1416,9 +1663,10 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
         resourceId: courseId,
       });
       if (!access.granted) {
-        const preview = await service.getPreviewQuiz(actor, organizationId, courseId);
+        const preview = await service.getPreviewQuiz(actor, targetOrgId, courseId);
         const previewItems = preview.quiz ? [{
           ...preview.quiz,
+          question_count: preview.quiz.questions.length,
           questions: preview.quiz.questions.map((qn) => ({
             ...qn,
             question_type: qn.questionType,
@@ -1430,33 +1678,43 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
           preview_limit: 5,
           quizzes: previewItems,
           items: previewItems,
+          total: previewItems.length,
+          limit,
+          offset,
+          has_more: false,
         };
       }
     }
 
-    const quizzes = await service.listQuizzes(
+    const result = await service.listQuizzes(
       actor,
-      organizationId,
+      targetOrgId,
       courseId,
+      { limit, offset },
     );
 
-    const quizzesWithQuestions = await Promise.all(
-      quizzes.map(async (q) => {
-        const questions = await quizQuestionStore.listByQuiz(q.id);
-        return {
-          ...q,
-          questions: questions.map((qn) => ({
-            ...qn,
-            question_type: qn.questionType,
-          })),
-        };
-      }),
-    );
+    const formattedQuizzes = result.items.map((q) => ({
+      id: q.id,
+      organization_id: q.organizationId,
+      course_id: q.courseId,
+      document_id: q.documentId,
+      title: q.title,
+      topic: q.topic,
+      difficulty: q.difficulty,
+      status: q.status,
+      question_count: q.question_count ?? q.questionCount ?? 0,
+      created_at: q.createdAt,
+      updated_at: q.updatedAt,
+    }));
 
     return {
       request_id: req.id,
-      quizzes: quizzesWithQuestions,
-      items: quizzesWithQuestions,
+      quizzes: formattedQuizzes,
+      items: formattedQuizzes,
+      total: result.total,
+      limit: result.limit,
+      offset: result.offset,
+      has_more: result.has_more,
     };
   };
 
@@ -1529,9 +1787,22 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const quizId = parseQuizId(req.params.quizId, "quizId");
     const query = req.query || {};
 
+    let targetOrgId = organizationId;
+    if (courseStore && req.params.courseId) {
+      const course = await courseStore.findByIdForUser(
+        req.params.courseId as CourseId,
+        actor.userId,
+        systemOrganizationId,
+      );
+      if (!course) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      targetOrgId = (course.organizationId || (course as { organization_id?: OrganizationId }).organization_id) as OrganizationId;
+    }
+
     const quiz = await service.getQuizForAttempt(
       actor,
-      organizationId,
+      targetOrgId,
       quizId,
       {
         moduleId: query.moduleId,
@@ -1771,6 +2042,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
 
     await service.authorize(actor, organizationId, "study:read");
     await flashcardStore.deleteByDocument(documentId as DocumentId, organizationId);
+    service.invalidateFlashcardSummaryCache(organizationId);
 
     reply.code(204);
     return;
@@ -1804,6 +2076,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
 
     await service.authorize(actor, organizationId, "study:read");
     await quizStore.deleteByDocument(documentId as DocumentId, organizationId);
+    service.invalidateTopicSummaryCache(organizationId);
 
     reply.code(204);
     return;
@@ -2316,5 +2589,493 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       };
     },
   );
+
+  // ---------------------------------------------------------------------------
+  // Personal Summaries (Generated from User's Own Highlights & Notes)
+  // ---------------------------------------------------------------------------
+
+  if (personalSummaryService) {
+    const getPersonalSummaryService = () => personalSummaryService;
+
+    /**
+     * GET /v1/study/modules/:moduleId/personal-summary & GET /v1/courses/:courseId/modules/:moduleId/personal-summary
+     */
+    const handleGetPersonalSummary = async (request: unknown) => {
+      const req = request as {
+        params: { moduleId: string; courseId?: string };
+        id: string;
+      };
+      const actor = getActor(req);
+      const { moduleId } = req.params;
+
+      if (!moduleId || !UUID_RE.test(moduleId)) {
+        throw new DomainError("bad_request", "Invalid module ID");
+      }
+
+      const res = await getPersonalSummaryService().getPersonalSummary(actor, moduleId);
+      return {
+        request_id: req.id,
+        ...res,
+      };
+    };
+
+    app.get(
+      "/v1/study/modules/:moduleId/personal-summary",
+      { preHandler: [requireAuth] },
+      handleGetPersonalSummary,
+    );
+
+    app.get(
+      "/v1/courses/:courseId/modules/:moduleId/personal-summary",
+      { preHandler: [requireAuth] },
+      handleGetPersonalSummary,
+    );
+
+    /**
+     * POST /v1/study/modules/:moduleId/personal-summary/generate & POST /v1/courses/:courseId/modules/:moduleId/personal-summary/generate
+     */
+    const handleGeneratePersonalSummary = async (request: unknown) => {
+      const req = request as {
+        params: { moduleId: string; courseId?: string };
+        id: string;
+      };
+      const actor = getActor(req);
+      const { moduleId } = req.params;
+
+      if (!moduleId || !UUID_RE.test(moduleId)) {
+        throw new DomainError("bad_request", "Invalid module ID");
+      }
+
+      const res = await getPersonalSummaryService().generatePersonalSummary(actor, moduleId);
+      return {
+        request_id: req.id,
+        ...res,
+      };
+    };
+
+    app.post(
+      "/v1/study/modules/:moduleId/personal-summary/generate",
+      { preHandler: [requireAuth] },
+      handleGeneratePersonalSummary,
+    );
+
+    app.post(
+      "/v1/courses/:courseId/modules/:moduleId/personal-summary/generate",
+      { preHandler: [requireAuth] },
+      handleGeneratePersonalSummary,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Interactive AI Mind Map
+  // ---------------------------------------------------------------------------
+
+  if (mindMapService) {
+    const getMindMapService = () => mindMapService;
+
+    /**
+     * GET /v1/study/modules/:moduleId/personal-summary/mind-map & GET /v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map
+     */
+    const handleGetMindMap = async (request: unknown) => {
+      const req = request as {
+        params: { moduleId: string; courseId?: string };
+        id: string;
+      };
+      const actor = getActor(req);
+      const { moduleId } = req.params;
+
+      if (!moduleId || !UUID_RE.test(moduleId)) {
+        throw new DomainError("bad_request", "Invalid module ID");
+      }
+
+      const res = await getMindMapService().getMindMap(actor, moduleId);
+      return {
+        request_id: req.id,
+        ...res,
+      };
+    };
+
+    app.get(
+      "/v1/study/modules/:moduleId/personal-summary/mind-map",
+      { preHandler: [requireAuth] },
+      handleGetMindMap,
+    );
+
+    app.get(
+      "/v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map",
+      { preHandler: [requireAuth] },
+      handleGetMindMap,
+    );
+
+    /**
+     * POST /v1/study/modules/:moduleId/personal-summary/mind-map/generate & POST /v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map/generate
+     */
+  const handleGenerateMindMap = async (request: unknown) => {
+    const req = request as {
+      params: { moduleId: string; courseId?: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const { moduleId } = req.params;
+
+    if (!moduleId || !UUID_RE.test(moduleId)) {
+      throw new DomainError("bad_request", "Invalid module ID");
+    }
+
+    const res = await getMindMapService().generateMindMap(actor, moduleId, req.id);
+    return {
+      request_id: req.id,
+      ...res,
+    };
+  };
+
+  app.post(
+    "/v1/study/modules/:moduleId/personal-summary/mind-map/generate",
+    { preHandler: [requireAuth] },
+    handleGenerateMindMap,
+  );
+
+  app.post(
+    "/v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map/generate",
+    { preHandler: [requireAuth] },
+    handleGenerateMindMap,
+  );
+
+  /**
+   * PUT /v1/study/modules/:moduleId/personal-summary/mind-map & PUT /v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map
+   */
+  const handleUpdateMindMap = async (request: unknown) => {
+    const req = request as {
+      params: { moduleId: string; courseId?: string };
+      body: import("@avana/contracts").UpdateMindMapRequest;
+      id: string;
+    };
+    const actor = getActor(req);
+    const { moduleId } = req.params;
+
+    if (!moduleId || !UUID_RE.test(moduleId)) {
+      throw new DomainError("bad_request", "Invalid module ID");
+    }
+
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      throw new DomainError("bad_request", "Request body is required and must be an object");
+    }
+
+    const res = await getMindMapService().updateMindMap(actor, moduleId, req.body);
+    return {
+      request_id: req.id,
+      mind_map: res,
+    };
+  };
+
+  app.put(
+    "/v1/study/modules/:moduleId/personal-summary/mind-map",
+    { preHandler: [requireAuth] },
+    handleUpdateMindMap,
+  );
+
+  app.patch(
+    "/v1/study/modules/:moduleId/personal-summary/mind-map",
+    { preHandler: [requireAuth] },
+    handleUpdateMindMap,
+  );
+
+  app.put(
+    "/v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map",
+    { preHandler: [requireAuth] },
+    handleUpdateMindMap,
+  );
+
+  app.patch(
+    "/v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map",
+    { preHandler: [requireAuth] },
+    handleUpdateMindMap,
+  );
+
+  /**
+   * POST /v1/study/modules/:moduleId/personal-summary/mind-map/nodes/:nodeId/expand
+   */
+  const handleExpandMindMapNode = async (request: unknown) => {
+    const req = request as {
+      params: { moduleId: string; nodeId: string; courseId?: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const { moduleId, nodeId } = req.params;
+
+    if (!moduleId || !UUID_RE.test(moduleId)) {
+      throw new DomainError("bad_request", "Invalid module ID");
+    }
+    if (!nodeId) {
+      throw new DomainError("bad_request", "Invalid node ID");
+    }
+
+    const res = await getMindMapService().expandNode(actor, moduleId, nodeId);
+    return {
+      request_id: req.id,
+      ...res,
+    };
+  };
+
+  app.post(
+    "/v1/study/modules/:moduleId/personal-summary/mind-map/nodes/:nodeId/expand",
+    { preHandler: [requireAuth] },
+    handleExpandMindMapNode,
+  );
+
+  app.post(
+    "/v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map/nodes/:nodeId/expand",
+    { preHandler: [requireAuth] },
+    handleExpandMindMapNode,
+  );
+
+  /**
+   * POST /v1/study/modules/:moduleId/personal-summary/mind-map/reset
+   */
+  const handleResetMindMap = async (request: unknown) => {
+    const req = request as {
+      params: { moduleId: string; courseId?: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const { moduleId } = req.params;
+
+    if (!moduleId || !UUID_RE.test(moduleId)) {
+      throw new DomainError("bad_request", "Invalid module ID");
+    }
+
+    const res = await getMindMapService().resetToAiBase(actor, moduleId);
+    return {
+      request_id: req.id,
+      mind_map: res,
+    };
+  };
+
+  app.post(
+    "/v1/study/modules/:moduleId/personal-summary/mind-map/reset",
+    { preHandler: [requireAuth] },
+    handleResetMindMap,
+  );
+
+  app.post(
+    "/v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map/reset",
+    { preHandler: [requireAuth] },
+    handleResetMindMap,
+  );
+
+  /**
+   * GET /v1/study/modules/:moduleId/personal-summary/mind-map/versions
+   */
+  const handleListMindMapVersions = async (request: unknown) => {
+    const req = request as {
+      params: { moduleId: string; courseId?: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const { moduleId } = req.params;
+
+    if (!moduleId || !UUID_RE.test(moduleId)) {
+      throw new DomainError("bad_request", "Invalid module ID");
+    }
+
+    const res = await getMindMapService().listVersions(actor, moduleId);
+    return {
+      request_id: req.id,
+      ...res,
+    };
+  };
+
+  app.get(
+    "/v1/study/modules/:moduleId/personal-summary/mind-map/versions",
+    { preHandler: [requireAuth] },
+    handleListMindMapVersions,
+  );
+
+  app.get(
+    "/v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map/versions",
+    { preHandler: [requireAuth] },
+    handleListMindMapVersions,
+  );
+
+  /**
+   * GET /v1/study/modules/:moduleId/personal-summary/mind-map/versions/:version
+   */
+  const handleGetMindMapVersion = async (request: unknown) => {
+    const req = request as {
+      params: { moduleId: string; version: string; courseId?: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const { moduleId, version: versionStr } = req.params;
+
+    if (!moduleId || !UUID_RE.test(moduleId)) {
+      throw new DomainError("bad_request", "Invalid module ID");
+    }
+
+    const version = parseInt(versionStr, 10);
+    if (isNaN(version) || version < 1) {
+      throw new DomainError("bad_request", "Invalid version number");
+    }
+
+    const res = await getMindMapService().getVersion(actor, moduleId, version);
+    return {
+      request_id: req.id,
+      ...res,
+    };
+  };
+
+  app.get(
+    "/v1/study/modules/:moduleId/personal-summary/mind-map/versions/:version",
+    { preHandler: [requireAuth] },
+    handleGetMindMapVersion,
+  );
+
+  app.get(
+    "/v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map/versions/:version",
+    { preHandler: [requireAuth] },
+    handleGetMindMapVersion,
+  );
+
+  /**
+   * POST /v1/study/modules/:moduleId/personal-summary/mind-map/versions/:version/restore
+   */
+  const handleRestoreMindMapVersion = async (request: unknown) => {
+    const req = request as {
+      params: { moduleId: string; version: string; courseId?: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const { moduleId, version: versionStr } = req.params;
+
+    if (!moduleId || !UUID_RE.test(moduleId)) {
+      throw new DomainError("bad_request", "Invalid module ID");
+    }
+
+    const version = parseInt(versionStr, 10);
+    if (isNaN(version) || version < 1) {
+      throw new DomainError("bad_request", "Invalid version number");
+    }
+
+    const res = await getMindMapService().restoreVersion(actor, moduleId, version);
+    return {
+      request_id: req.id,
+      ...res,
+    };
+  };
+
+  app.post(
+    "/v1/study/modules/:moduleId/personal-summary/mind-map/versions/:version/restore",
+    { preHandler: [requireAuth] },
+    handleRestoreMindMapVersion,
+  );
+
+  app.post(
+    "/v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map/versions/:version/restore",
+    { preHandler: [requireAuth] },
+    handleRestoreMindMapVersion,
+  );
+
+  /**
+   * GET /v1/study/modules/:moduleId/personal-summary/mind-map/export & GET /v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map/export
+   * Strictly restricted to platform_admin role.
+   */
+  const handleExportMindMap = async (request: unknown) => {
+    const req = request as {
+      params: { moduleId: string; courseId?: string };
+      query?: { format?: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const { moduleId, courseId } = req.params;
+    const format = req.query?.format;
+
+    if (!moduleId || !UUID_RE.test(moduleId)) {
+      throw new DomainError("bad_request", "Invalid module ID");
+    }
+    if (courseId && !UUID_RE.test(courseId)) {
+      throw new DomainError("bad_request", "Invalid course ID");
+    }
+    if (!format || (format !== "svg" && format !== "html")) {
+      throw new DomainError("bad_request", "فرمت خروجی نامعتبر است (svg یا html مجاز است).");
+    }
+
+    const res = await getMindMapService().getMindMap(actor, moduleId);
+    if (!res.has_mind_map || !res.mind_map) {
+      throw new DomainError("not_found", "مایندمپ یافت نشد.");
+    }
+
+    return {
+      request_id: req.id,
+      success: true,
+      authorized: true,
+      moduleId,
+      courseId: courseId ?? null,
+      format,
+      exportedAt: new Date().toISOString(),
+    };
+  };
+
+  app.get(
+    "/v1/study/modules/:moduleId/personal-summary/mind-map/export",
+    { preHandler: [requireAuth, requireRole(Roles.platform_admin)] },
+    handleExportMindMap,
+  );
+
+  app.get(
+    "/v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map/export",
+    { preHandler: [requireAuth, requireRole(Roles.platform_admin)] },
+    handleExportMindMap,
+  );
+
+  /**
+   * POST /v1/study/mind-maps/:id/enrich-chemicals
+   * POST /v1/study/modules/:moduleId/personal-summary/mind-map/enrich-chemicals
+   * POST /v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map/enrich-chemicals
+   *
+   * Retroactively executes chemical enrichment on an existing mind map.
+   */
+  const handleEnrichMindMapChemicals = async (request: unknown) => {
+    const req = request as {
+      params: { id?: string; moduleId?: string; courseId?: string };
+      body?: { clientUpdatedAt?: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const targetId = req.params.id || req.params.moduleId;
+
+    if (!targetId) {
+      throw new DomainError("bad_request", "شناسه مایندمپ یا سرفصل الزامی است.");
+    }
+
+    const res = await getMindMapService().enrichMindMapChemicals(actor, targetId, {
+      courseId: req.params.courseId,
+      expectedUpdatedAt: req.body?.clientUpdatedAt,
+    });
+
+    return {
+      request_id: req.id,
+      ...res,
+    };
+  };
+
+  app.post(
+    "/v1/study/mind-maps/:id/enrich-chemicals",
+    { preHandler: [requireAuth] },
+    handleEnrichMindMapChemicals,
+  );
+
+  app.post(
+    "/v1/study/modules/:moduleId/personal-summary/mind-map/enrich-chemicals",
+    { preHandler: [requireAuth] },
+    handleEnrichMindMapChemicals,
+  );
+
+  app.post(
+    "/v1/courses/:courseId/modules/:moduleId/personal-summary/mind-map/enrich-chemicals",
+    { preHandler: [requireAuth] },
+    handleEnrichMindMapChemicals,
+  );
+  }
 };
+
 

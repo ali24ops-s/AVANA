@@ -434,7 +434,7 @@ export function TicketConversationModal({
   if (!isOpen) return null;
 
   return (
-    <Dialog isOpen={isOpen} onClose={onClose} hideHeader maxWidth="2xl">
+    <Dialog isOpen={isOpen} onClose={onClose} isCompound={true} maxWidth="2xl">
       <div
         className="w-full max-h-[92vh] h-[85vh] flex flex-col p-0 overflow-hidden"
         dir="rtl"

@@ -115,3 +115,63 @@ export function isValidIranPhone(
 ): boolean {
   return validateAndNormalizeIranPhone(rawInput).valid;
 }
+
+/**
+ * Generate all common storage/input variants of a valid Iranian mobile number
+ * to ensure resilient, format-agnostic database lookups.
+ *
+ * Supported formats generated:
+ * 1. Canonical E.164: +989xxxxxxxxx
+ * 2. National format: 09xxxxxxxxx
+ * 3. International with 00: 00989xxxxxxxxx
+ * 4. Raw 10-digit without leading 0: 9xxxxxxxxx
+ */
+export function getPhoneLookupVariants(rawInput: string | null | undefined): string[] {
+  if (!rawInput || typeof rawInput !== "string") {
+    return [];
+  }
+
+  const converted = convertEasternToAsciiDigits(rawInput.trim());
+  const sanitized = converted.replace(/[\s\-_()]/g, "");
+  if (!sanitized) return [];
+
+  // If valid according to validateAndNormalizeIranPhone
+  const validation = validateAndNormalizeIranPhone(sanitized);
+  if (!validation.valid || !validation.normalized) {
+    // If not standardly valid, return just the cleaned input if non-empty
+    return sanitized ? [sanitized] : [];
+  }
+
+  const canonical = validation.normalized; // +989xxxxxxxxx (13 chars)
+  const core10 = canonical.slice(3); // 9xxxxxxxxx (10 chars starting with 9)
+
+  const variants = new Set<string>([
+    canonical, // +989xxxxxxxxx
+    `0${core10}`, // 09xxxxxxxxx
+    `0098${core10}`, // 00989xxxxxxxxx
+    core10, // 9xxxxxxxxx
+  ]);
+
+  if (sanitized && !variants.has(sanitized)) {
+    variants.add(sanitized);
+  }
+
+  return Array.from(variants);
+}
+
+/**
+ * Mask a phone number for privacy-compliant logging (e.g. +98912***3456 or 0912***3456).
+ * Never leaks the full phone number or OTP.
+ */
+export function maskPhoneNumberForLogs(rawInput: string | null | undefined): string {
+  if (!rawInput || typeof rawInput !== "string") {
+    return "[empty]";
+  }
+  const str = rawInput.trim();
+  if (str.length <= 6) {
+    return "***";
+  }
+  const prefix = str.slice(0, Math.min(5, Math.floor(str.length / 2)));
+  const suffix = str.slice(-3);
+  return `${prefix}***${suffix}`;
+}

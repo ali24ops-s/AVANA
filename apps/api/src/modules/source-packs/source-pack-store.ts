@@ -51,6 +51,7 @@ export interface CreateSourcePackInput {
 
 export interface UpdateSourcePackInput {
   title?: string;
+  status?: string;
   documents?: Array<{
     documentId: DocumentId;
     role: SourcePackRole;

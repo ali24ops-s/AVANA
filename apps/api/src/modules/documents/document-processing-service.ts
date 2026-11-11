@@ -185,11 +185,20 @@ export class DocumentProcessingService {
 
     const doc = await this.requireDocument(organizationId, documentId);
 
-    // Idempotency: already extracted → return current status.
-    if (doc.status === "extracted") {
-      const chunkCount = (await this.chunkStore.listByDocument(documentId))
-        .length;
-      return this.toStatus(doc, chunkCount);
+    // Idempotency: if document has already been extracted, return current status without re-processing
+    const existingChunks = await this.chunkStore.listByDocument(documentId);
+    const isExtractionCompletedStatus =
+      doc.status === "extracted" ||
+      doc.status === "pending_generation" ||
+      doc.status === "generating" ||
+      doc.status === "review_pending" ||
+      doc.status === "ready";
+
+    const isAlreadyExtracted =
+      existingChunks.length > 0 && isExtractionCompletedStatus;
+
+    if (isAlreadyExtracted) {
+      return this.toStatus(doc, existingChunks.length);
     }
 
     const now = new Date().toISOString();
@@ -218,13 +227,10 @@ export class DocumentProcessingService {
       // Build and persist chunks.
       const chunks = buildChunks(documentId, organizationId, result.pages, 1);
 
-      // Replace any prior chunks (idempotent regeneration).
+      // Replace prior chunks cleanly.
       await this.chunkStore.deleteByDocument(documentId);
       if (this.generationChunkStore) {
         await this.generationChunkStore.deleteByDocument(documentId, organizationId);
-      }
-      if (this.generatedContentStore) {
-        await this.generatedContentStore.deleteDraftsByDocument(documentId, organizationId);
       }
       if (chunks.length > 0) {
         await this.chunkStore.createMany(chunks);

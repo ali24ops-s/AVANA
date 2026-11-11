@@ -8,12 +8,15 @@ import {
   asOrganizationId,
   asCourseDraftChangeId,
   asCourseReleaseId,
+  asCoursePublicationId,
+  DomainError,
   parseUUID,
   type Actor,
   type CourseDraftSessionRecord,
   type CourseDraftChangeRecord,
   type CourseReleaseRecord,
 } from "@avana/domain";
+import { InMemoryCoursePublicationStore } from "../modules/courses/test/in-memory-stores.js";
 import { CourseDraftService } from "../modules/courses/course-draft-service.js";
 import type { CourseStore, CourseRecord } from "../modules/courses/course-store.js";
 import type {
@@ -56,7 +59,6 @@ describe("Course Draft & Atomic Release Lifecycle Integration Test", () => {
   let moduleStore: InMemoryModuleStore;
   let lessonStore: InMemoryLessonStore;
   let progressStore: InMemoryProgressStore;
-  let documentStore: InMemoryDocumentStore;
 
   // Study stores
   let flashcardsMap: Map<string, FlashcardRecord>;
@@ -111,7 +113,6 @@ describe("Course Draft & Atomic Release Lifecycle Integration Test", () => {
     moduleStore = new InMemoryModuleStore();
     lessonStore = new InMemoryLessonStore();
     progressStore = new InMemoryProgressStore();
-    documentStore = new InMemoryDocumentStore();
 
     flashcardsMap = new Map();
     flashcardStore = {
@@ -664,5 +665,563 @@ describe("Course Draft & Atomic Release Lifecycle Integration Test", () => {
     const postRollbackLearn = await learningService.getCourseLearning(studentActor, courseId, "req-4");
     expect((postRollbackLearn.course as any).version).toBe(3);
     expect(postRollbackLearn.modules[0].lessons.find((l) => l.id === les1Id)?.completed).toBe(true);
+  });
+
+  it("synchronizes CoursePublication snapshot atomically so learners immediately see corrected session content while preserving student progress", async () => {
+    const pubCourseId = asCourseId(randomUUID() as any);
+    const pubModuleId = asModuleId(randomUUID() as any);
+    const pubLessonId = asLessonId(randomUUID() as any);
+    const pubPublicationStore = new InMemoryCoursePublicationStore();
+    const now = new Date().toISOString();
+
+    coursesMap.set(pubCourseId, {
+      id: pubCourseId,
+      organizationId: orgId,
+      name: "دوره جامع فیزیک کوانتوم",
+      subject: "Physics",
+      status: "published",
+      isOfficial: true,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    await moduleStore.create({
+      id: pubModuleId,
+      courseId: pubCourseId,
+      title: "فصل اول: مکانیک کوانتومی",
+      description: "مبانی کوانتوم",
+      sortOrder: 0,
+      documentId: null,
+      subCourseGroupId: null,
+    });
+
+    await lessonStore.create({
+      id: pubLessonId,
+      moduleId: pubModuleId,
+      title: "جلسه ۱: تابع موج",
+      contentType: "markdown",
+      contentMarkdown: "متن اولیه جلسه اول که دارای اشکال و اشتباه علمی در فرمول است.",
+      sortOrder: 0,
+      publicationStatus: "published",
+      estimatedMinutes: 15,
+      reference: "منبع قبلی",
+    });
+
+    // Create initial CoursePublication record for Version 1
+    const v1PubId = asCoursePublicationId(randomUUID() as any);
+    await pubPublicationStore.create({
+      id: v1PubId,
+      courseId: pubCourseId,
+      creatorUserId: adminId,
+      organizationId: orgId,
+      title: "دوره جامع فیزیک کوانتوم",
+      description: "مبانی کوانتوم",
+      subject: "Physics",
+      version: 1,
+      status: "published",
+      publishedAt: now,
+      metadata: {},
+      snapshot: {
+        courseId: pubCourseId,
+        title: "دوره جامع فیزیک کوانتوم",
+        chapters: [
+          {
+            id: pubModuleId,
+            title: "فصل اول: مکانیک کوانتومی",
+            sortOrder: 0,
+            lessons: [
+              {
+                id: pubLessonId,
+                title: "جلسه ۱: تابع موج",
+                contentMarkdown: "متن اولیه جلسه اول که دارای اشکال و اشتباه علمی در فرمول است.",
+                sortOrder: 0,
+                estimatedMinutes: 15,
+              },
+            ],
+          },
+        ],
+        stats: {
+          chapterCount: 1,
+          lessonCount: 1,
+          flashcardCount: 0,
+          quizQuestionCount: 0,
+          estimatedReadingMinutes: 15,
+        },
+      },
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    await releaseStore.create({
+      id: asCourseReleaseId(randomUUID() as any),
+      courseId: pubCourseId,
+      versionNumber: 1,
+      name: "نسخه اولیه ۱.۰.۰",
+      notes: "انتشار اولیه فیزیک کوانتوم",
+      publishedBy: adminId,
+      manifest: [
+        {
+          entityType: "module",
+          entityId: pubModuleId,
+          action: "create",
+          identityOperation: "created",
+          parentId: null,
+          sortOrderBefore: null,
+          sortOrderAfter: 0,
+          before: null,
+          after: {
+            id: pubModuleId,
+            courseId: pubCourseId,
+            title: "فصل اول: مکانیک کوانتومی",
+            sortOrder: 0,
+          },
+        },
+        {
+          entityType: "lesson",
+          entityId: pubLessonId,
+          action: "create",
+          identityOperation: "created",
+          parentId: pubModuleId,
+          sortOrderBefore: null,
+          sortOrderAfter: 0,
+          before: null,
+          after: {
+            id: pubLessonId,
+            moduleId: pubModuleId,
+            title: "جلسه ۱: تابع موج",
+            contentType: "markdown",
+            contentMarkdown: "متن اولیه جلسه اول که دارای اشکال و اشتباه علمی در فرمول است.",
+            sortOrder: 0,
+            publicationStatus: "published",
+            estimatedMinutes: 15,
+            reference: "منبع قبلی",
+          },
+        },
+      ],
+      createdAt: now,
+    });
+
+    const enrolledStudents = new Set<string>([studentId]);
+    (courseStore as any).isUserEnrolled = async (uId: any, cId: any) =>
+      cId === pubCourseId && enrolledStudents.has(uId);
+
+    const pubDraftService = new CourseDraftService({
+      courseStore,
+      draftSessionStore,
+      draftChangeStore,
+      releaseStore,
+      coursePublicationStore: pubPublicationStore,
+      systemOrganizationId: orgId,
+      moduleStore,
+      lessonStore,
+      flashcardStore,
+      quizStore,
+      quizQuestionStore,
+    });
+
+    const mockOrgStore = {
+      findMembership: async () => ({ role: "student" }),
+      listMembershipsByUserId: async () => [{ organizationId: orgId, role: "student" }],
+    };
+
+    const pubLearningService = new LearningService(
+      courseStore,
+      mockOrgStore as any,
+      moduleStore,
+      lessonStore,
+      progressStore,
+      undefined,
+      undefined,
+      orgId,
+      undefined,
+      undefined,
+      undefined,
+      pubPublicationStore,
+    );
+
+    // 1. Initial Learner Read Path: Learner reads from v1 publication snapshot and sees defective text
+    const initialLearn = await pubLearningService.getCourseLearning(studentActor, pubCourseId, "req-pub-1");
+    expect(initialLearn.modules[0].lessons[0].content_markdown).toBe(
+      "متن اولیه جلسه اول که دارای اشکال و اشتباه علمی در فرمول است.",
+    );
+
+    // Student marks lesson as completed
+    await progressStore.upsert({
+      userId: studentId,
+      lessonId: pubLessonId,
+      completed: true,
+      completedAt: now,
+    });
+
+    // 2. Admin creates draft session and stages correction of the session
+    const draftSession = await pubDraftService.getOrCreateActiveSession(adminActor, pubCourseId, {
+      title: "اصلاح اشتباه علمی جلسه اول",
+    });
+
+    await pubDraftService.recordChange(adminActor, draftSession.id, {
+      entityType: "lesson",
+      entityId: pubLessonId,
+      parentId: pubModuleId,
+      action: "update",
+      payload: {
+        before: {
+          title: "جلسه ۱: تابع موج",
+          contentMarkdown: "متن اولیه جلسه اول که دارای اشکال و اشتباه علمی در فرمول است.",
+        },
+        after: {
+          title: "جلسه ۱: تابع موج و معادله شرودینگر (اصلاح‌شده)",
+          contentMarkdown: "متن کاملاً اصلاح‌شده و دقیق علمی جلسه اول بر مبنای آخرین شواهد آزمایشگاهی.",
+        },
+      },
+    });
+
+    // 3. Draft Isolation: Student STILL reads defective v1 text until admin publishes
+    const midDraftLearn = await pubLearningService.getCourseLearning(studentActor, pubCourseId, "req-pub-2");
+    expect(midDraftLearn.modules[0].lessons[0].content_markdown).toBe(
+      "متن اولیه جلسه اول که دارای اشکال و اشتباه علمی در فرمول است.",
+    );
+
+    // 4. Admin publishes the draft session
+    const { release, course: updatedCourse } = await pubDraftService.publishDraftSession(
+      adminActor,
+      draftSession.id,
+    );
+
+    expect(updatedCourse.version).toBe(2);
+    expect(release.versionNumber).toBe(2);
+
+    // Verify CoursePublication record was updated/created with version 2
+    const latestPub = await pubPublicationStore.findPublishedByCourse(pubCourseId);
+    expect(latestPub).toBeDefined();
+    expect(latestPub?.version).toBe(2);
+    expect(latestPub?.snapshot.chapters[0].lessons[0].title).toBe(
+      "جلسه ۱: تابع موج و معادله شرودینگر (اصلاح‌شده)",
+    );
+    expect(latestPub?.snapshot.chapters[0].lessons[0].contentMarkdown).toBe(
+      "متن کاملاً اصلاح‌شده و دقیق علمی جلسه اول بر مبنای آخرین شواهد آزمایشگاهی.",
+    );
+
+    // 5. Existing Enrolled Learner Read Path: IMMEDIATELY sees updated session v2!
+    const postPublishLearn = await pubLearningService.getCourseLearning(studentActor, pubCourseId, "req-pub-3");
+    expect(postPublishLearn.modules[0].lessons[0].title).toBe(
+      "جلسه ۱: تابع موج و معادله شرودینگر (اصلاح‌شده)",
+    );
+    expect(postPublishLearn.modules[0].lessons[0].content_markdown).toBe(
+      "متن کاملاً اصلاح‌شده و دقیق علمی جلسه اول بر مبنای آخرین شواهد آزمایشگاهی.",
+    );
+    // Student progress is 100% PRESERVED
+    expect(postPublishLearn.modules[0].lessons[0].completed).toBe(true);
+
+    // 6. Newly Enrolled Learner: Also immediately sees updated session v2
+    const student2Id = asUserId(randomUUID() as any);
+    enrolledStudents.add(student2Id);
+    const student2Actor: Actor = { userId: student2Id, role: "student" };
+
+    const student2Learn = await pubLearningService.getCourseLearning(student2Actor, pubCourseId, "req-pub-4");
+    expect(student2Learn.modules[0].lessons[0].title).toBe(
+      "جلسه ۱: تابع موج و معادله شرودینگر (اصلاح‌شده)",
+    );
+    expect(student2Learn.modules[0].lessons[0].content_markdown).toBe(
+      "متن کاملاً اصلاح‌شده و دقیق علمی جلسه اول بر مبنای آخرین شواهد آزمایشگاهی.",
+    );
+    expect(student2Learn.modules[0].lessons[0].completed).toBe(false);
+
+    // 7. Rollback to v1: restores publication snapshot and students see v1
+    const { release: rollbackRel } = await pubDraftService.rollbackRelease(
+      adminActor,
+      pubCourseId,
+      1,
+      "بازگردانی به نسخه ۱ به درخواست مدیر",
+    );
+    expect(rollbackRel.versionNumber).toBe(3);
+
+    const rolledBackPub = await pubPublicationStore.findPublishedByCourse(pubCourseId);
+    expect(rolledBackPub?.version).toBe(3);
+    expect(rolledBackPub?.snapshot.chapters[0].lessons[0].contentMarkdown).toBe(
+      "متن اولیه جلسه اول که دارای اشکال و اشتباه علمی در فرمول است.",
+    );
+
+    const postRollbackLearnStudent = await pubLearningService.getCourseLearning(studentActor, pubCourseId, "req-pub-5");
+    expect(postRollbackLearnStudent.modules[0].lessons[0].content_markdown).toBe(
+      "متن اولیه جلسه اول که دارای اشکال و اشتباه علمی در فرمول است.",
+    );
+    expect(postRollbackLearnStudent.modules[0].lessons[0].completed).toBe(true);
+  });
+
+  it("strictly isolates active learner content from pending_review publications", async () => {
+    const isolateCourseId = asCourseId(randomUUID() as any);
+    const isolateModId = asModuleId(randomUUID() as any);
+    const isolateLesId = asLessonId(randomUUID() as any);
+    const pubStore = new InMemoryCoursePublicationStore();
+    const now = new Date().toISOString();
+
+    coursesMap.set(isolateCourseId, {
+      id: isolateCourseId,
+      organizationId: orgId,
+      name: "شیمی آلی پیشرفته",
+      subject: "Chemistry",
+      status: "published",
+      isOfficial: true,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    (courseStore as any).isUserEnrolled = async () => true;
+
+    // Published Version 1
+    await pubStore.create({
+      id: asCoursePublicationId(randomUUID() as any),
+      courseId: isolateCourseId,
+      creatorUserId: adminId,
+      organizationId: orgId,
+      title: "شیمی آلی پیشرفته",
+      description: "نسخه فعال",
+      subject: "Chemistry",
+      version: 1,
+      status: "published",
+      publishedAt: now,
+      metadata: {},
+      snapshot: {
+        courseId: isolateCourseId,
+        title: "شیمی آلی پیشرفته",
+        chapters: [
+          {
+            id: isolateModId,
+            title: "فصل اول",
+            sortOrder: 0,
+            lessons: [
+              {
+                id: isolateLesId,
+                title: "درس ۱ نسخه فعال",
+                contentMarkdown: "محتوای نسخه فعال v1",
+                sortOrder: 0,
+              },
+            ],
+          },
+        ],
+        stats: { chapterCount: 1, lessonCount: 1, flashcardCount: 0, quizQuestionCount: 0, estimatedReadingMinutes: 10 },
+      },
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // Unapproved Version 2 submitted for review (status: pending_review)
+    await pubStore.create({
+      id: asCoursePublicationId(randomUUID() as any),
+      courseId: isolateCourseId,
+      creatorUserId: adminId,
+      organizationId: orgId,
+      title: "شیمی آلی پیشرفته",
+      description: "نسخه در انتظار بررسی",
+      subject: "Chemistry",
+      version: 2,
+      status: "pending_review",
+      publishedAt: null,
+      metadata: {},
+      snapshot: {
+        courseId: isolateCourseId,
+        title: "شیمی آلی پیشرفته",
+        chapters: [
+          {
+            id: isolateModId,
+            title: "فصل اول تایید نشده",
+            sortOrder: 0,
+            lessons: [
+              {
+                id: isolateLesId,
+                title: "درس ۱ در انتظار تایید",
+                contentMarkdown: "محتوای پیش‌نویس تایید نشده که نباید به دانشجو نشان داده شود",
+                sortOrder: 0,
+              },
+            ],
+          },
+        ],
+        stats: { chapterCount: 1, lessonCount: 1, flashcardCount: 0, quizQuestionCount: 0, estimatedReadingMinutes: 10 },
+      },
+      createdAt: new Date(Date.now() + 1000).toISOString(),
+      updatedAt: new Date(Date.now() + 1000).toISOString(),
+      deletedAt: null,
+    });
+
+    const mockOrgStore = {
+      findMembership: async () => ({ role: "student" }),
+      listMembershipsByUserId: async () => [{ organizationId: orgId, role: "student" }],
+    };
+
+    const isolateLearningService = new LearningService(
+      courseStore,
+      mockOrgStore as any,
+      moduleStore,
+      lessonStore,
+      progressStore,
+      undefined,
+      undefined,
+      orgId,
+      undefined,
+      undefined,
+      undefined,
+      pubStore,
+    );
+
+    // Student MUST read approved published content (v1) and NEVER pending_review (v2)
+    const learnerContent = await isolateLearningService.getCourseLearning(studentActor, isolateCourseId, "req-isolate");
+    expect(learnerContent.modules[0].lessons[0].title).toBe("درس ۱ نسخه فعال");
+    expect(learnerContent.modules[0].lessons[0].content_markdown).toBe("محتوای نسخه فعال v1");
+  });
+
+  it("enforces optimistic concurrency control and blocks stale draft modifications", async () => {
+    const staleCourseId = asCourseId(randomUUID() as any);
+    const staleModId = asModuleId(randomUUID() as any);
+    const now = new Date().toISOString();
+
+    const courseRec: CourseRecord = {
+      id: staleCourseId,
+      organizationId: orgId,
+      name: "هوش مصنوعی مقدماتی",
+      subject: "AI",
+      status: "published",
+      isOfficial: true,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+    coursesMap.set(staleCourseId, courseRec);
+
+    const draftSvc = new CourseDraftService({
+      courseStore,
+      draftSessionStore,
+      draftChangeStore,
+      releaseStore,
+      moduleStore,
+      lessonStore,
+      systemOrganizationId: orgId,
+    });
+
+    // 1. Create a draft session on version 1
+    const session = await draftSvc.getOrCreateActiveSession(adminActor, staleCourseId);
+    expect(session.baseCourseVersion).toBe(1);
+
+    // 2. Out-of-band concurrent update: Course version bumped to 2 by another admin
+    courseRec.version = 2;
+
+    // 3. Modifying stale draft throws conflict
+    await expect(
+      draftSvc.recordChange(adminActor, session.id, {
+        entityType: "lesson",
+        entityId: randomUUID(),
+        parentId: staleModId,
+        action: "create",
+        payload: {
+          before: null,
+          after: { title: "درس تصادفی", contentMarkdown: "..." },
+        },
+      }),
+    ).rejects.toThrow("تضاد نسخه");
+
+    // 4. Publishing stale draft throws conflict
+    await expect(draftSvc.publishDraftSession(adminActor, session.id)).rejects.toThrow(
+      "تضاد نسخه",
+    );
+  });
+
+  it("governs publishing authorization: permits genuine creator on community courses, forbids non-owner and enforces strict admin on official courses", async () => {
+    const creatorId = asUserId(randomUUID() as any);
+    const otherUserId = asUserId(randomUUID() as any);
+    const userOrgId = asOrganizationId(randomUUID() as any);
+    const userCourseId = asCourseId(randomUUID() as any);
+    const officialCourseId = asCourseId(randomUUID() as any);
+    const now = new Date().toISOString();
+
+    const creatorActor: Actor = { userId: creatorId, role: "student" };
+    const otherActor: Actor = { userId: otherUserId, role: "student" };
+
+    // Community course: owned by creatorId
+    coursesMap.set(userCourseId, {
+      id: userCourseId,
+      organizationId: userOrgId,
+      creatorUserId: creatorId,
+      name: "آموزش مقدماتی گیتار",
+      subject: "Music",
+      status: "published",
+      isOfficial: false,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // Official course: has systemOrganizationId
+    coursesMap.set(officialCourseId, {
+      id: officialCourseId,
+      organizationId: orgId, // matches systemOrganizationId
+      creatorUserId: creatorId, // even if creatorId is set
+      name: "ریاضیات عمومی ۱ دانشگاهی",
+      subject: "Math",
+      status: "published",
+      isOfficial: true,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    const draftSvc = new CourseDraftService({
+      courseStore,
+      draftSessionStore,
+      draftChangeStore,
+      releaseStore,
+      moduleStore,
+      lessonStore,
+      systemOrganizationId: orgId,
+    });
+
+    // Case 1: Unrelated student cannot manage community course draft
+    await expect(
+      draftSvc.getOrCreateActiveSession(otherActor, userCourseId),
+    ).rejects.toThrow(DomainError);
+
+    // Case 2: Genuine creator CAN create and publish community course draft
+    const userSession = await draftSvc.getOrCreateActiveSession(creatorActor, userCourseId);
+    expect(userSession).toBeDefined();
+
+    const newLesId = randomUUID();
+    await draftSvc.recordChange(creatorActor, userSession.id, {
+      entityType: "lesson",
+      entityId: newLesId,
+      parentId: null,
+      action: "create",
+      payload: {
+        before: null,
+        after: { title: "آکورد لامینور", contentMarkdown: "مبانی اجرای آکورد" },
+      },
+    });
+
+    const userRelease = await draftSvc.publishDraftSession(creatorActor, userSession.id);
+    expect(userRelease.course.version).toBe(2);
+
+    // Case 3: Official course - creator (regular user) CANNOT publish official course
+    const officialSession = await draftSvc.getOrCreateActiveSession(adminActor, officialCourseId);
+    await draftSvc.recordChange(adminActor, officialSession.id, {
+      entityType: "lesson",
+      entityId: randomUUID(),
+      parentId: null,
+      action: "create",
+      payload: { before: null, after: { title: "حد و پیوستگی", contentMarkdown: "..." } },
+    });
+
+    await expect(
+      draftSvc.publishDraftSession(creatorActor, officialSession.id),
+    ).rejects.toThrow("تنها مدیران یا ویرایشگران مجاز");
+
+    // Case 4: Platform admin CAN publish official course
+    const officialRelease = await draftSvc.publishDraftSession(adminActor, officialSession.id);
+    expect(officialRelease.course.version).toBe(2);
   });
 });

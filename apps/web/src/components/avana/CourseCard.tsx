@@ -86,6 +86,13 @@ export interface CourseCardProps {
   /** Archival status */
   archived?: boolean;
 
+  /** Official AVANA course flag */
+  isOfficial?: boolean;
+  /** User-published course flag */
+  isUserPublished?: boolean;
+  /** Publisher display name (sanitized, no PII) */
+  publisherName?: string | null;
+
   /** Actions */
   onView?: () => void;
   onBuy?: () => void;
@@ -108,10 +115,12 @@ function CourseThumbnailHeader({
   coverImage,
   title,
   subject,
+  isUserPublished,
 }: {
   coverImage?: string | null;
   title: string;
   subject?: string | null;
+  isUserPublished?: boolean;
 }) {
   if (coverImage) {
     return (
@@ -122,11 +131,23 @@ function CourseThumbnailHeader({
           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
           loading="lazy"
         />
-        {subject && (
-          <div className="absolute top-2.5 start-2.5">
-            <Badge variant="primary" size="sm">
-              {subject}
-            </Badge>
+        {(subject || isUserPublished) && (
+          <div className="absolute top-2.5 start-2.5 flex items-center gap-1.5 flex-wrap">
+            {subject && (
+              <Badge variant="primary" size="sm">
+                {subject}
+              </Badge>
+            )}
+            {isUserPublished && (
+              <Badge
+                variant="warning"
+                size="sm"
+                className="bg-amber-500/90 text-amber-950 font-medium border-none shadow-xs"
+                data-testid="user-published-badge"
+              >
+                منتشرشده توسط کاربر
+              </Badge>
+            )}
           </div>
         )}
       </div>
@@ -150,6 +171,7 @@ function CourseHeaderRow({
   onDelete,
   onShare,
   courseId,
+  isUserPublished,
 }: {
   hasCoverImage: boolean;
   subject?: string | null;
@@ -161,6 +183,7 @@ function CourseHeaderRow({
   onDelete?: () => void;
   onShare?: () => void;
   courseId?: string;
+  isUserPublished?: boolean;
 }) {
   const isPurchased = access?.isPurchased === true;
   const isSubscription = access?.isSubscription === true;
@@ -170,11 +193,12 @@ function CourseHeaderRow({
 
   const showGraduationCap = !hasCoverImage && variant !== "my-courses";
   const showSubjectBadge = !hasCoverImage && Boolean(subject);
+  const showUserPublishedBadge = !hasCoverImage && Boolean(isUserPublished);
   const showInProgressBadge = learningStatus === "in_progress" && variant !== "my-courses";
   const showCompletedBadge = learningStatus === "completed" || Boolean(isCompleted);
   const showNotStartedBadge = learningStatus === "not_started" && variant === "library";
 
-  const hasStartContent = showGraduationCap || showSubjectBadge;
+  const hasStartContent = showGraduationCap || showSubjectBadge || showUserPublishedBadge;
   const hasEndContent = Boolean(
     showCompletedBadge ||
     showInProgressBadge ||
@@ -199,7 +223,7 @@ function CourseHeaderRow({
         variant === "my-courses" ? "items-center min-h-[1.75rem]" : "items-start"
       }`}
     >
-      {/* Subject & Optional Icon */}
+      {/* Subject & Optional Icon & User-Published Badge */}
       {hasStartContent ? (
         <div className="flex flex-wrap items-center gap-2 min-w-0">
           {showGraduationCap && (
@@ -210,6 +234,16 @@ function CourseHeaderRow({
           {showSubjectBadge && (
             <Badge variant="primary" size="sm">
               {subject}
+            </Badge>
+          )}
+          {showUserPublishedBadge && (
+            <Badge
+              variant="warning"
+              size="sm"
+              className="bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30"
+              data-testid="user-published-badge"
+            >
+              منتشرشده توسط کاربر
             </Badge>
           )}
         </div>
@@ -315,6 +349,9 @@ export function CourseCard({
   progress,
   stats,
   archived,
+  isOfficial,
+  isUserPublished: propIsUserPublished,
+  publisherName,
   onView,
   onBuy,
   onDelete,
@@ -326,6 +363,7 @@ export function CourseCard({
   className = "",
   dataTestId,
 }: CourseCardProps) {
+  const isUserPublished = propIsUserPublished ?? (isOfficial === false);
   const [internalShareOpen, setInternalShareOpen] = React.useState(false);
 
   const handleShare = () => {
@@ -383,7 +421,11 @@ export function CourseCard({
       data-testid={resolvedTestId}
       hoverable
       onClick={handleCardClick}
-      className={`group relative flex flex-col justify-between p-5 bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text)] transition-all duration-200 rounded-[16px] ${
+      className={`group relative flex flex-col justify-between p-5 text-[var(--color-text)] transition-all duration-200 rounded-[16px] ${
+        isUserPublished
+          ? "border-amber-500/30 hover:border-amber-500/50 bg-amber-500/[0.02] dark:border-amber-500/25 dark:bg-amber-500/[0.03]"
+          : "border-[var(--color-border)] bg-[var(--color-surface)]"
+      } ${
         onSelect ? "cursor-pointer" : ""
       } ${className}`}
       dir="rtl"
@@ -395,6 +437,7 @@ export function CourseCard({
           coverImage={coverImage}
           title={cleanTitle}
           subject={subject}
+          isUserPublished={isUserPublished}
         />
 
         {/* Header Badges & Actions */}
@@ -416,6 +459,7 @@ export function CourseCard({
           onDelete={onDelete}
           onShare={handleShare}
           courseId={id}
+          isUserPublished={isUserPublished}
         />
 
         {/* Course Title Link */}
@@ -436,6 +480,14 @@ export function CourseCard({
             {cleanTitle}
           </h3>
         </Link>
+
+        {/* Publisher display name for user-published courses */}
+        {isUserPublished && publisherName && (
+          <div className="flex items-center gap-1 text-xs text-amber-700/90 dark:text-amber-400/90 mt-1 mb-1 font-medium">
+            <span>مؤلف:</span>
+            <span>{publisherName}</span>
+          </div>
+        )}
 
         {/* Description (for Library or full cards) */}
         {variant === "library" && cleanDesc && (
@@ -758,6 +810,9 @@ export function CourseLibraryCardAdapter({
         flashcardCount: flashcardCount && flashcardCount > 0 ? flashcardCount : undefined,
         quizQuestionCount: quizQuestionCount && quizQuestionCount > 0 ? quizQuestionCount : undefined,
       }}
+      isOfficial={course.isOfficial ?? (course as any).is_official}
+      isUserPublished={course.isUserPublished ?? (course as any).is_user_published ?? (course.isOfficial === false || (course as any).is_official === false)}
+      publisherName={course.publisherName ?? (course as any).publisher_name ?? null}
       onBuy={
         onBuy &&
         purchase?.canPurchase !== false &&
@@ -818,6 +873,9 @@ export function MyCourseCardAdapter({
       href={`/courses/${course.id}`}
       variant="my-courses"
       archived={course.archived}
+      isOfficial={course.isOfficial ?? course.is_official}
+      isUserPublished={course.isUserPublished ?? course.is_user_published ?? (course.isOfficial === false || course.is_official === false)}
+      publisherName={course.publisherName ?? course.publisher_name ?? null}
       access={{
         hasAccess: isPurchased || hasSubscription || (price !== undefined && price === 0),
         isPurchased,

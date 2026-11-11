@@ -20,6 +20,7 @@ import {
 import { BrandLogo } from "../brand/BrandLogo.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { ApiError } from "../../lib/api/errors.js";
+import { getUserFriendlyErrorMessage } from "../../lib/api/error-mapper.js";
 import { validateAndNormalizeIranPhone } from "@avana/domain";
 import { Button } from "@avana/ui";
 import { WORKER_MODE_ENABLED } from "../../config/features.js";
@@ -106,15 +107,15 @@ export function SignInPage() {
     }
   }, [isAuthenticated, navigate, safeRedirect]);
 
-  // Handle Email + Password Sign-in
+  // Handle Email / Phone + Password Sign-in
   async function handleEmailSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setErrorGuidance(null);
 
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail) {
-      setError("لطفاً نشانی ایمیل خود را وارد کنید.");
+    const trimmedIdentifier = email.trim();
+    if (!trimmedIdentifier) {
+      setError("لطفاً ایمیل یا شماره موبایل خود را وارد کنید.");
       return;
     }
 
@@ -125,7 +126,7 @@ export function SignInPage() {
 
     setIsSubmitting(true);
     try {
-      const res = await signIn(trimmedEmail, password);
+      const res = await signIn(trimmedIdentifier, password);
       trackLogin("password");
       const targetUser = res?.user ?? user;
       const targetMemberships = res?.memberships ?? memberships;
@@ -134,7 +135,7 @@ export function SignInPage() {
       navigate(target, { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
-        let errorMsg = err.message;
+        let errorMsg = getUserFriendlyErrorMessage(err, { scope: "auth" });
         if (err.message === "Email domain not allowed") {
           errorMsg = "دامنه ایمیل مجاز نیست.";
           setErrorGuidance(null);
@@ -146,6 +147,12 @@ export function SignInPage() {
           errorMsg = "خطایی در ارتباط با سرور رخ داده است. لطفاً بعداً دوباره تلاش کنید.";
           setErrorGuidance(null);
         } else if (
+          err.status === 403 ||
+          err.code === "forbidden" ||
+          err.message.includes("تأیید نشده")
+        ) {
+          setErrorGuidance(null);
+        } else if (
           err.status === 401 ||
           err.code === "unauthorized" ||
           err.message.includes("نادرست است")
@@ -153,14 +160,14 @@ export function SignInPage() {
           // Keep generic message to prevent enumeration, provide helpful non-assertive guidance
           setErrorGuidance({
             type: "email_credentials",
-            target: trimmedEmail,
+            target: trimmedIdentifier,
           });
         } else {
           setErrorGuidance(null);
         }
         setError(errorMsg);
       } else {
-        setError("ورود به سیستم با خطا مواجه شد. لطفاً دوباره تلاش کنید.");
+        setError(getUserFriendlyErrorMessage(err, { scope: "auth", fallbackMessage: "ورود به سیستم با خطا مواجه شد. لطفاً دوباره تلاش کنید." }));
         setErrorGuidance(null);
       }
     } finally {
@@ -199,16 +206,16 @@ export function SignInPage() {
           err.code === "not_found" ||
           err.message.includes("یافت نشد")
         ) {
-          setError(err.message);
+          setError(getUserFriendlyErrorMessage(err, { scope: "auth" }));
           setErrorGuidance({
             type: "phone_not_found",
             target: validation.normalized,
           });
           return;
         }
-        setError(err.message);
+        setError(getUserFriendlyErrorMessage(err, { scope: "auth" }));
       } else {
-        setError("ارسال کد ورود با خطا مواجه شد. لطفاً دوباره تلاش کنید.");
+        setError(getUserFriendlyErrorMessage(err, { scope: "auth", fallbackMessage: "ارسال کد ورود با خطا مواجه شد. لطفاً دوباره تلاش کنید." }));
       }
       setErrorGuidance(null);
     } finally {
@@ -246,9 +253,9 @@ export function SignInPage() {
     } catch (err) {
       setErrorGuidance(null);
       if (err instanceof ApiError) {
-        setError(err.message);
+        setError(getUserFriendlyErrorMessage(err, { scope: "auth" }));
       } else {
-        setError("کد واردشده صحیح نیست یا منقضی شده است.");
+        setError(getUserFriendlyErrorMessage(err, { scope: "auth", fallbackMessage: "کد واردشده صحیح نیست یا منقضی شده است." }));
       }
     } finally {
       setIsSubmitting(false);
@@ -268,7 +275,7 @@ export function SignInPage() {
       setCooldown(60);
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(err.message);
+        setError(getUserFriendlyErrorMessage(err, { scope: "auth" }));
       }
     } finally {
       setIsSubmitting(false);
@@ -408,18 +415,18 @@ export function SignInPage() {
                     htmlFor="email"
                     className="block text-xs font-semibold text-[var(--color-text)] mb-1.5"
                   >
-                    نشانی ایمیل
+                    ایمیل یا شماره موبایل
                   </label>
                   <div className="relative flex items-center" dir="ltr">
                     <Mail className="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
                     <input
                       id="email"
-                      type="email"
+                      type="text"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="name@example.com"
+                      placeholder="ایمیل یا شماره موبایل"
                       required
-                      autoComplete="email"
+                      autoComplete="username"
                       disabled={isSubmitting}
                       dir="ltr"
                       className="w-full ps-10 pe-4 py-2.5 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-start font-mono text-xs sm:text-sm disabled:opacity-50 transition-all"

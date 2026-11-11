@@ -547,6 +547,7 @@ describe("14-Day Session Persistence & Rolling Renewal", () => {
       },
     });
     const sessionCookie = extractCookie(regRes, "avana_session")!;
+    const csrfCookie = extractCookie(regRes, "avana_csrf")!;
 
     // Advance to Day 8 to trigger rolling renewal
     advanceTime(EIGHT_DAYS_MS);
@@ -556,8 +557,8 @@ describe("14-Day Session Persistence & Rolling Renewal", () => {
       method: "PATCH",
       url: "/v1/auth/profile",
       headers: {
-        cookie: `avana_session=${sessionCookie.value}`,
-        "x-csrf-token": sessionCookie.value,
+        cookie: `avana_session=${sessionCookie.value}; avana_csrf=${csrfCookie.value}`,
+        "x-csrf-token": csrfCookie.value,
       },
       payload: {
         name: "Updated Name",

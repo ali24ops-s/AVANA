@@ -709,4 +709,24 @@ describe("AdminCourseHubPage (/admin/courses/:courseId)", () => {
     expect(screen.queryByText("درس ۲: کولینرژیک‌ها و آنتی‌کولینرژیک‌ها")).not.toBeInTheDocument();
     expect(screen.queryByText("درس ۳: بتابلوکرها و مهارکننده‌های ACE")).not.toBeInTheDocument();
   });
+
+  it("Case 11: Header displays accurate quizQuestions count when course has multiple questions in 1 quiz", async () => {
+    const customCourse: OfficialCourse = {
+      ...mockOfficialCourseDraft,
+      id: "official-course-42q",
+      name: "دوره تستی سوالات تستی",
+      quizQuestionCount: 42,
+    };
+
+    setupFetchMock({ coursesList: [customCourse] });
+    renderCourseHub("/admin/courses/official-course-42q");
+
+    await waitFor(() => {
+      expect(screen.getByText("دوره تستی سوالات تستی")).toBeInTheDocument();
+    });
+
+    // Verify 42 is displayed for سؤال تستی, not 1
+    expect(screen.getByText("42")).toBeInTheDocument();
+    expect(screen.getByText("سؤال تستی")).toBeInTheDocument();
+  });
 });

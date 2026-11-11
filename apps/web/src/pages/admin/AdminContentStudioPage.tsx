@@ -25,10 +25,12 @@ import type {
   OfficialReviewWorkspace,
   ConsistencyValidationReport,
 } from "../../lib/api/admin.js";
+import { useAdmin } from "../../hooks/useAdmin.js";
 import { OfficialProductionWorkspace } from "../../components/admin/studio/OfficialProductionWorkspace.js";
 import { toPersianDigits, calculateCoursePricingBreakdown } from "@avana/domain";
 
 export function AdminContentStudioPage() {
+  const adminApi = useAdmin();
   const { courseId: routeCourseId } = useParams<{ courseId?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeCourseId = routeCourseId || searchParams.get("courseId");
@@ -62,9 +64,7 @@ export function AdminContentStudioPage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch("/v1/admin/content-studio/courses", { credentials: "include" });
-      if (!res.ok) throw new Error("دریافت دوره‌های رسمی با خطا مواجه شد.");
-      const data = await res.json();
+      const data = await adminApi.officialContentStudio.listOfficialCourses();
       setCourses(data.courses || []);
     } catch (err: unknown) {
       const e = err as Error;
@@ -72,7 +72,7 @@ export function AdminContentStudioPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [adminApi]);
 
   useEffect(() => {
     fetchCourses();
@@ -84,23 +84,12 @@ export function AdminContentStudioPage() {
 
     try {
       setCreating(true);
-      const res = await fetch("/v1/admin/content-studio/courses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          name: newCourseName.trim(),
-          subject: newCourseSubject.trim() || undefined,
-          description: newCourseDescription.trim() || undefined,
-        }),
+      const created = await adminApi.officialContentStudio.createOfficialCourse({
+        name: newCourseName.trim(),
+        subject: newCourseSubject.trim() || undefined,
+        description: newCourseDescription.trim() || undefined,
       });
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || "خطا در ایجاد دوره");
-      }
-
-      const created = await res.json();
       setIsCreateOpen(false);
       setNewCourseName("");
       setNewCourseSubject("");
@@ -123,9 +112,7 @@ export function AdminContentStudioPage() {
     try {
       setSelectedCourseForReview(courseId);
       setReviewLoading(true);
-      const res = await fetch(`/v1/admin/content-studio/courses/${courseId}/review`, { credentials: "include" });
-      if (!res.ok) throw new Error("خطا در بارگذاری پیش‌نویس‌های دوره");
-      const data = await res.json();
+      const data = await adminApi.officialContentStudio.getOfficialReviewWorkspace(courseId);
       setReviewWorkspace(data);
     } catch (err: unknown) {
       const e = err as Error;
@@ -140,15 +127,7 @@ export function AdminContentStudioPage() {
     if (!selectedCourseForReview) return;
     try {
       setApproving(true);
-      const res = await fetch(`/v1/admin/content-studio/courses/${selectedCourseForReview}/approve`, {
-        method: "POST",
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || "خطا در تایید دوره");
-      }
+      await adminApi.officialContentStudio.approveOfficialCourse(selectedCourseForReview);
 
       alert("دوره با موفقیت تایید شد و تمام ماژول‌ها، درس‌ها، فلش‌کارت‌ها و آزمون‌ها ثبت شدند.");
       setSelectedCourseForReview(null);
@@ -167,8 +146,7 @@ export function AdminContentStudioPage() {
     setPriceInput(course.product?.price || 499000);
     try {
       setValidating(true);
-      const res = await fetch(`/v1/admin/content-studio/courses/${course.id}/validate`, { credentials: "include" });
-      const report = await res.json();
+      const report = await adminApi.officialContentStudio.validateOfficialCourseConsistency(course.id);
       setConsistencyReport(report);
     } catch (err) {
       console.error(err);
@@ -181,21 +159,12 @@ export function AdminContentStudioPage() {
     if (!selectedCourseForPublish) return;
     try {
       setPricingLoading(true);
-      const res = await fetch(`/v1/admin/content-studio/courses/${selectedCourseForPublish.id}/pricing`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ price: priceInput }),
+      await adminApi.officialContentStudio.setOfficialCoursePricing(selectedCourseForPublish.id, {
+        price: priceInput,
       });
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || "خطا در ثبت قیمت");
-      }
-
       // Re-validate
-      const vRes = await fetch(`/v1/admin/content-studio/courses/${selectedCourseForPublish.id}/validate`, { credentials: "include" });
-      const report = await vRes.json();
+      const report = await adminApi.officialContentStudio.validateOfficialCourseConsistency(selectedCourseForPublish.id);
       setConsistencyReport(report);
       await fetchCourses();
     } catch (err: unknown) {
@@ -210,15 +179,7 @@ export function AdminContentStudioPage() {
     if (!selectedCourseForPublish) return;
     try {
       setPublishing(true);
-      const res = await fetch(`/v1/admin/content-studio/courses/${selectedCourseForPublish.id}/publish`, {
-        method: "POST",
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || "خطا در انتشار دوره");
-      }
+      await adminApi.officialContentStudio.publishOfficialCourse(selectedCourseForPublish.id);
 
       alert("محصول رسمی با موفقیت منتشر شد و در کاتالوگ فروش قرار گرفت.");
       setSelectedCourseForPublish(null);
@@ -234,11 +195,7 @@ export function AdminContentStudioPage() {
   const handleArchiveCourse = async (courseId: string) => {
     if (!confirm("آیا از آرشیو کردن این دوره رسمی و غیرفعال‌سازی فروش آن اطمینان دارید؟")) return;
     try {
-      const res = await fetch(`/v1/admin/content-studio/courses/${courseId}/archive`, {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("خطا در آرشیو دوره");
+      await adminApi.officialContentStudio.archiveOfficialCourse(courseId);
       await fetchCourses();
     } catch (err: unknown) {
       const e = err as Error;

@@ -28,10 +28,12 @@ import {
   type OrganizationId,
   type SubCourseGroupId,
   type ModuleId,
+  type DocumentId,
   type ExamScope,
   type ResourceContext,
   type ResourceType,
   type AuthAction,
+  type UserId,
   buildActor,
   scoreCourseRelevance,
   normalizeAcademicFields,
@@ -43,6 +45,8 @@ import type { GeneratedContentStore } from "../generation/generation-store.js";
 import type { QuizStore, FlashcardStore } from "../study/study-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { UserStore } from "../identity/user-store.js";
+import type { SourcePackStore } from "../source-packs/source-pack-store.js";
+import { assertDocumentAssociatedWithCourse } from "../documents/document-course-association.js";
 
 export type CourseUpdateInput = {
   title?: string;
@@ -50,6 +54,14 @@ export type CourseUpdateInput = {
   subject?: string | null;
   targetAcademicFields?: string[] | null;
   examAt?: string | null;
+  examScope?: ExamScope | null;
+};
+
+export type RegisterExamInput = {
+  courseId?: CourseId;
+  title?: string;
+  subject?: string | null;
+  examAt: string | null;
   examScope?: ExamScope | null;
 };
 
@@ -87,7 +99,12 @@ export class CourseService {
     _flashcardStore?: FlashcardStore,
     private readonly organizationStore?: OrganizationStore,
     private readonly userStore?: UserStore,
+    private sourcePackStore?: SourcePackStore,
   ) {}
+
+  setSourcePackStore(sourcePackStore: SourcePackStore): void {
+    this.sourcePackStore = sourcePackStore;
+  }
 
   private async resolveActorAndAuthorize(
     actor: Actor,
@@ -99,6 +116,7 @@ export class CourseService {
       courseId?: CourseId;
       isPublicPublication?: boolean;
       isPublicResource?: boolean;
+      isEnrolledMember?: boolean;
     },
   ): Promise<Actor> {
     const isSystemResource =
@@ -197,6 +215,8 @@ export class CourseService {
       targetAcademicFields: normalizeAcademicFields(targetAcademicFields),
       examDate: examAt ?? null,
       examScope: examScope ?? null,
+      officialExamDate: examAt ?? null,
+      officialExamScope: examScope ?? null,
       status: "draft",
       createdAt: now,
       updatedAt: now,
@@ -221,6 +241,11 @@ export class CourseService {
     return this.store.create({
       course,
       auditEvents,
+      creatorUserId: actor.userId,
+      initialExamSchedule: {
+        examDate: examAt ?? null,
+        examScope: examScope ?? null,
+      },
     });
   }
 
@@ -371,7 +396,20 @@ export class CourseService {
     });
 
     // Verify the course exists and is accessible
-    await this.getCourse(actor, organizationId, courseId);
+    const course = await this.getCourse(actor, organizationId, courseId);
+
+    const isOfficial =
+      course.isOfficial ||
+      (Boolean(this.systemOrganizationId) && course.organizationId === this.systemOrganizationId);
+
+    const isOwnOrgCourse = course.organizationId === organizationId;
+
+    if (!isOfficial && !isOwnOrgCourse && course.status !== "published") {
+      throw new DomainError(
+        "bad_request",
+        "این دوره در حال حاضر برای ثبت‌نام در دسترس نیست.",
+      );
+    }
 
     await this.store.addUserCourse(actor.userId, courseId);
   }
@@ -415,6 +453,91 @@ export class CourseService {
   }
 
   /**
+   * Authoritatively resolve ownership, edit, and enrollment permissions for a course.
+   * - Platform admins always have edit access.
+   * - Official courses are editable only by official course editors/admins.
+   * - Community / user courses are strictly editable ONLY by the original creator (creatorUserId).
+   *   Recipient organization admins NEVER acquire edit rights on another user's course.
+   */
+  async resolveCoursePermissions(
+    actor: Actor,
+    course: CourseRecord,
+    publication?: CoursePublicationRecord | null,
+  ): Promise<{
+    isOwner: boolean;
+    canEdit: boolean;
+    isEnrolled: boolean;
+    creatorUserId: UserId | null;
+  }> {
+    const isOfficialCourse =
+      course.isOfficial === true ||
+      (!!this.systemOrganizationId &&
+        course.organizationId === this.systemOrganizationId);
+
+    const isPlatformAdmin =
+      actor.globalRole === "platform_admin" ||
+      actor.role === "platform_admin";
+
+    const isEnrolled = this.store.isUserEnrolled
+      ? await this.store.isUserEnrolled(actor.userId, course.id)
+      : false;
+
+    if (isOfficialCourse) {
+      const systemOrgMembership = actor.memberships?.find(
+        (m) => !!this.systemOrganizationId && m.organizationId === this.systemOrganizationId,
+      );
+      const effectiveSystemRole = systemOrgMembership?.role ?? null;
+      const isOfficialEditor =
+        isPlatformAdmin ||
+        actor.globalRole === "course_editor" ||
+        actor.role === "course_editor" ||
+        (actor.globalRole === "content_worker" && !!this.systemOrganizationId && course.organizationId === this.systemOrganizationId) ||
+        effectiveSystemRole === "organization_admin" ||
+        effectiveSystemRole === "content_worker" ||
+        effectiveSystemRole === "course_editor";
+
+      return {
+        isOwner: false,
+        canEdit: isOfficialEditor,
+        isEnrolled,
+        creatorUserId: null,
+      };
+    }
+
+    let creatorUserId: UserId | null = publication?.creatorUserId ?? null;
+    if (!creatorUserId && this.coursePublicationStore) {
+      const latest = await this.coursePublicationStore.findLatestByCourse(course.id);
+      if (latest?.creatorUserId) {
+        creatorUserId = latest.creatorUserId;
+      }
+    }
+    if (!creatorUserId && this.store.getCourseCreatorUserId) {
+      creatorUserId = (await this.store.getCourseCreatorUserId(course.id)) ?? null;
+    }
+
+    const isOwner = Boolean(creatorUserId && actor.userId === creatorUserId);
+
+    let hasAuthoritativeOrgAdmin = false;
+    if (!creatorUserId) {
+      const orgMembership = actor.memberships?.find(
+        (m) => m.organizationId === course.organizationId,
+      );
+      if (orgMembership && (orgMembership.role === "organization_admin" || orgMembership.role === "course_editor")) {
+        hasAuthoritativeOrgAdmin = true;
+      }
+    }
+
+    const canEdit = isPlatformAdmin || isOwner || (!creatorUserId && hasAuthoritativeOrgAdmin);
+
+    return {
+      isOwner,
+      canEdit,
+      isEnrolled,
+      creatorUserId,
+    };
+  }
+
+  /**
    * Get a single course by ID, scoped to the actor's organization membership or system organization.
    * No course lookup by ID alone — always requires membership context.
    */
@@ -423,14 +546,24 @@ export class CourseService {
     organizationId: OrganizationId,
     courseId: CourseId,
   ): Promise<CourseRecord> {
-    const course = await this.store.findByIdForUser(
-      courseId,
-      actor.userId,
-      this.systemOrganizationId,
-    );
+    const isPlatformAdmin =
+      actor.globalRole === "platform_admin" ||
+      actor.role === "platform_admin";
+
+    const course = isPlatformAdmin
+      ? await this.store.findById(courseId)
+      : await this.store.findByIdForUser(
+          courseId,
+          actor.userId,
+          this.systemOrganizationId,
+        );
     if (!course) {
       throw new DomainError("not_found", "Course not found");
     }
+
+    const isEnrolled = this.store.isUserEnrolled
+      ? await this.store.isUserEnrolled(actor.userId, courseId)
+      : false;
 
     // Load course publication if available to determine public publication status
     const publishedPub = this.coursePublicationStore
@@ -443,13 +576,15 @@ export class CourseService {
       publishedPub?.status === "published";
 
     // Ensure the course belongs to the requesting organization or system organization (cross-tenant isolation),
-    // unless it is official or an approved public publication
+    // unless it is official, an approved public publication, the user is already enrolled, or actor is platform admin
     if (
+      !isPlatformAdmin &&
       course.organizationId !== organizationId &&
       (!this.systemOrganizationId ||
         course.organizationId !== this.systemOrganizationId) &&
       !course.isOfficial &&
-      !isPublicPublication
+      !isPublicPublication &&
+      !isEnrolled
     ) {
       throw new DomainError("not_found", "Course not found");
     }
@@ -463,8 +598,10 @@ export class CourseService {
         resourceId: course.id,
         courseId: course.id,
         isPublicPublication,
+        isEnrolledMember: isEnrolled,
         isPublicResource:
           isPublicPublication ||
+          isEnrolled ||
           Boolean(course.isOfficial) ||
           (!!this.systemOrganizationId &&
             course.organizationId === this.systemOrganizationId),
@@ -493,6 +630,18 @@ export class CourseService {
       !isPrivilegedAdmin
     ) {
       throw new DomainError("not_found", "Course not found");
+    }
+
+    // Community course: if unpublished, allow access only to enrolled students, the creator, or platform admin
+    if (
+      course.isOfficial !== true &&
+      course.status === "unpublished" &&
+      !isEnrolled
+    ) {
+      const permissions = await this.resolveCoursePermissions(actor, course, publishedPub);
+      if (!permissions.canEdit) {
+        throw new DomainError("not_found", "Course not found");
+      }
     }
 
     return course;
@@ -526,22 +675,78 @@ export class CourseService {
       throw new DomainError("not_found", "Course not found");
     }
 
+    const permissions = await this.resolveCoursePermissions(actor, course);
+    let hasUpdatePermission = permissions.canEdit;
+
+    if (hasUpdatePermission) {
+      try {
+        await this.resolveActorAndAuthorize(
+          actor,
+          course.organizationId as OrganizationId,
+          "course:update",
+          {
+            resourceType: "course",
+            resourceId: course.id,
+            courseId: course.id,
+          },
+        );
+      } catch {
+        if (!permissions.isOwner && actor.globalRole !== "platform_admin" && actor.role !== "platform_admin") {
+          hasUpdatePermission = false;
+        }
+      }
+    }
+
     const isOnlyExamSettings =
       (input.examAt !== undefined || input.examScope !== undefined) &&
       input.title === undefined &&
-      input.subject === undefined;
+      input.subject === undefined &&
+      input.targetAcademicFields === undefined;
 
-    await this.resolveActorAndAuthorize(
-      actor,
-      course.organizationId as OrganizationId,
-      isOnlyExamSettings ? "course:read" : "course:update",
-      {
-        resourceType: "course",
-        resourceId: course.id,
-        courseId: course.id,
-      },
-    );
+    // For personal courses without an official exam date, or for users without course:update,
+    // exam settings belong to user membership (personal schedule).
+    const isPersonalCourseWithoutOfficialExam =
+      !course.isOfficial &&
+      (course.officialExamDate === null || course.officialExamDate === undefined);
 
+    if (!hasUpdatePermission || isPersonalCourseWithoutOfficialExam) {
+      if (isOnlyExamSettings) {
+        if (!hasUpdatePermission) {
+          await this.resolveActorAndAuthorize(
+            actor,
+            course.organizationId as OrganizationId,
+            "course:read",
+            {
+              resourceType: "course",
+              resourceId: course.id,
+              courseId: course.id,
+              isEnrolledMember: permissions.isEnrolled,
+            },
+          );
+        }
+
+        if (course.deletedAt) {
+          throw new DomainError("bad_request", "Cannot update an archived course");
+        }
+
+        return this.store.setUserExamSchedule(
+          actor.userId,
+          courseId,
+          input.examAt ?? null,
+          input.examScope ?? null,
+        );
+      }
+
+      if (!hasUpdatePermission) {
+        // If non-creator attempts to update course metadata, trigger forbidden error
+        throw new DomainError(
+          "forbidden",
+          "Role does not permit course:update in this context",
+        );
+      }
+    }
+
+    // Authorized manager/editor: can update course metadata and official course exam settings
     if (course.deletedAt) {
       throw new DomainError("bad_request", "Cannot update an archived course");
     }
@@ -574,17 +779,25 @@ export class CourseService {
     if (input.targetAcademicFields !== undefined) {
       const normalized = normalizeAcademicFields(input.targetAcademicFields);
       course.targetAcademicFields = normalized;
-      changes.target_academic_fields = normalized as any;
+      changes.target_academic_fields = normalized as never;
     }
 
     if (input.examAt !== undefined) {
+      if (input.examAt !== null) {
+        const parsed = new Date(input.examAt);
+        if (isNaN(parsed.getTime())) {
+          throw new DomainError("bad_request", "Invalid exam date");
+        }
+      }
       course.examDate = input.examAt;
+      course.officialExamDate = input.examAt;
       changes.exam_at = input.examAt;
     }
 
     if (input.examScope !== undefined) {
       course.examScope = input.examScope;
-      changes.exam_scope = input.examScope as any;
+      course.officialExamScope = input.examScope;
+      changes.exam_scope = input.examScope as never;
     }
 
     course.updatedAt = new Date().toISOString();
@@ -603,6 +816,251 @@ export class CourseService {
     }
 
     return updated;
+  }
+
+  /**
+   * Set personal exam schedule for the authenticated user.
+   */
+  async setPersonalExamSchedule(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    examAt: string | null,
+    examScope?: ExamScope | null,
+  ): Promise<CourseRecord> {
+    const course = await this.store.findByIdForUser(
+      courseId,
+      actor.userId,
+      this.systemOrganizationId,
+    );
+    if (!course) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    if (
+      course.organizationId !== organizationId &&
+      (!this.systemOrganizationId ||
+        course.organizationId !== this.systemOrganizationId)
+    ) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    await this.resolveActorAndAuthorize(
+      actor,
+      course.organizationId as OrganizationId,
+      "course:read",
+      {
+        resourceType: "course",
+        resourceId: course.id,
+        courseId: course.id,
+      },
+    );
+
+    if (course.deletedAt) {
+      throw new DomainError("bad_request", "Cannot update an archived course");
+    }
+
+    if (examAt !== null) {
+      const parsed = new Date(examAt);
+      if (isNaN(parsed.getTime())) {
+        throw new DomainError("bad_request", "Invalid exam date");
+      }
+    }
+
+    if (examScope !== null && examScope !== undefined && typeof examScope !== "object") {
+      throw new DomainError("bad_request", "Invalid exam scope");
+    }
+
+    return this.store.setUserExamSchedule(
+      actor.userId,
+      courseId,
+      examAt,
+      examScope,
+    );
+  }
+
+  /**
+   * Delete personal exam schedule for the authenticated user.
+   */
+  async deletePersonalExamSchedule(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+  ): Promise<CourseRecord> {
+    const course = await this.store.findByIdForUser(
+      courseId,
+      actor.userId,
+      this.systemOrganizationId,
+    );
+    if (!course) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    if (
+      course.organizationId !== organizationId &&
+      (!this.systemOrganizationId ||
+        course.organizationId !== this.systemOrganizationId)
+    ) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    await this.resolveActorAndAuthorize(
+      actor,
+      course.organizationId as OrganizationId,
+      "course:read",
+      {
+        resourceType: "course",
+        resourceId: course.id,
+        courseId: course.id,
+      },
+    );
+
+    return this.store.deleteUserExamSchedule(actor.userId, courseId);
+  }
+
+  /**
+   * Unified exam registration:
+   * 1. If courseId is provided: updates personal exam schedule on course_memberships (existing course).
+   * 2. If title is provided:
+   *    - Reuses existing personal course if one exists in user's organization scope.
+   *    - Otherwise atomically creates new personal course and sets exam on membership.
+   */
+  async registerExam(
+    actor: Actor,
+    organizationId: OrganizationId,
+    input: RegisterExamInput,
+  ): Promise<CourseRecord> {
+    await this.resolveActorAndAuthorize(actor, organizationId, "course:read", {
+      resourceType: "course",
+    });
+
+    if (input.courseId) {
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          input.courseId,
+        )
+      ) {
+        throw new DomainError("bad_request", "Invalid course ID");
+      }
+      if (input.examAt === null) {
+        return this.deletePersonalExamSchedule(actor, organizationId, input.courseId);
+      }
+      return this.setPersonalExamSchedule(
+        actor,
+        organizationId,
+        input.courseId,
+        input.examAt,
+        input.examScope,
+      );
+    }
+
+    if (input.title !== undefined) {
+      if (this.systemOrganizationId && organizationId === this.systemOrganizationId) {
+        throw new DomainError(
+          "bad_request",
+          "Cannot create personal courses in the system organization",
+        );
+      }
+
+      const trimmedTitle = input.title.trim();
+      if (!trimmedTitle) {
+        throw new DomainError("bad_request", "Course title is required");
+      }
+      if (trimmedTitle.length > 200) {
+        throw new DomainError(
+          "bad_request",
+          "Course title must not exceed 200 characters",
+        );
+      }
+
+      // Check if user already has an existing personal course with this title
+      const existingPersonal = await this.store.findUserPersonalCourseByName(
+        actor.userId,
+        organizationId,
+        trimmedTitle,
+      );
+
+      if (existingPersonal) {
+        if (input.examAt === null) {
+          return this.deletePersonalExamSchedule(
+            actor,
+            organizationId,
+            existingPersonal.id,
+          );
+        }
+        return this.setPersonalExamSchedule(
+          actor,
+          organizationId,
+          existingPersonal.id,
+          input.examAt,
+          input.examScope,
+        );
+      }
+
+      if (input.examAt === null) {
+        throw new DomainError(
+          "bad_request",
+          "Exam date is required when registering exam for a new course",
+        );
+      }
+
+      const parsed = new Date(input.examAt);
+      if (isNaN(parsed.getTime())) {
+        throw new DomainError("bad_request", "Invalid exam date");
+      }
+
+      if (
+        input.examScope !== null &&
+        input.examScope !== undefined &&
+        typeof input.examScope !== "object"
+      ) {
+        throw new DomainError("bad_request", "Invalid exam scope");
+      }
+
+      const courseId = randomUUID() as CourseId;
+      const now = new Date().toISOString();
+
+      const newCourse: CourseRecord = {
+        id: courseId,
+        organizationId,
+        name: trimmedTitle,
+        subject: input.subject ?? null,
+        targetAcademicFields: [],
+        status: "draft",
+        isOfficial: false,
+        examDate: null,
+        examScope: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      };
+
+      const auditEvents = [
+        auditCourseCreated(
+          actor.userId,
+          organizationId,
+          courseId,
+          trimmedTitle,
+          input.subject ?? null,
+          null,
+        ),
+      ] as const;
+
+      return this.store.create({
+        course: newCourse,
+        auditEvents,
+        creatorUserId: actor.userId,
+        initialExamSchedule: {
+          examDate: input.examAt,
+          examScope: input.examScope,
+        },
+      });
+    }
+
+    throw new DomainError(
+      "bad_request",
+      "Either course_id or title must be provided to register an exam",
+    );
   }
 
   /**
@@ -677,6 +1135,11 @@ export class CourseService {
     }
 
     const course = await this.getCourse(actor, organizationId, courseId);
+    const permissions = await this.resolveCoursePermissions(actor, course);
+    if (!permissions.canEdit) {
+      throw new DomainError("forbidden", "فقط سازنده اصلی دوره یا مدیر سیستم امکان ویرایش سرفصل‌ها را دارد.");
+    }
+
     await this.resolveActorAndAuthorize(actor, course.organizationId as OrganizationId, "course:update", {
       resourceType: "course",
       courseId,
@@ -713,6 +1176,11 @@ export class CourseService {
     }
 
     const course = await this.getCourse(actor, organizationId, courseId);
+    const permissions = await this.resolveCoursePermissions(actor, course);
+    if (!permissions.canEdit) {
+      throw new DomainError("forbidden", "فقط سازنده اصلی دوره یا مدیر سیستم امکان ویرایش سرفصل‌ها را دارد.");
+    }
+
     await this.resolveActorAndAuthorize(actor, course.organizationId as OrganizationId, "course:update", {
       resourceType: "course",
       courseId,
@@ -744,6 +1212,11 @@ export class CourseService {
     }
 
     const course = await this.getCourse(actor, organizationId, courseId);
+    const permissions = await this.resolveCoursePermissions(actor, course);
+    if (!permissions.canEdit) {
+      throw new DomainError("forbidden", "فقط سازنده اصلی دوره یا مدیر سیستم امکان حذف سرفصل را دارد.");
+    }
+
     await this.resolveActorAndAuthorize(actor, course.organizationId as OrganizationId, "course:update", {
       resourceType: "course",
       courseId,
@@ -768,6 +1241,11 @@ export class CourseService {
     }
 
     const course = await this.getCourse(actor, organizationId, courseId);
+    const permissions = await this.resolveCoursePermissions(actor, course);
+    if (!permissions.canEdit) {
+      throw new DomainError("forbidden", "فقط سازنده اصلی دوره یا مدیر سیستم امکان تغییر ترتیب سرفصل‌ها را دارد.");
+    }
+
     await this.resolveActorAndAuthorize(actor, course.organizationId as OrganizationId, "course:update", {
       resourceType: "course",
       courseId,
@@ -805,6 +1283,11 @@ export class CourseService {
     }
 
     const course = await this.getCourse(actor, organizationId, courseId);
+    const permissions = await this.resolveCoursePermissions(actor, course);
+    if (!permissions.canEdit) {
+      throw new DomainError("forbidden", "فقط سازنده اصلی دوره یا مدیر سیستم امکان ایجاد درس را دارد.");
+    }
+
     await this.resolveActorAndAuthorize(actor, course.organizationId as OrganizationId, "course:update", {
       resourceType: "course",
       courseId,
@@ -821,25 +1304,15 @@ export class CourseService {
     }
 
     if (input.documentId && this.documentStore) {
-      const doc = await this.documentStore.findByIdForOrganization(
+      await assertDocumentAssociatedWithCourse(
+        {
+          documentStore: this.documentStore,
+          sourcePackStore: this.sourcePackStore,
+        },
         input.documentId,
+        courseId,
         organizationId,
       );
-      if (!doc || doc.deletedAt) {
-        throw new DomainError("not_found", "سند منبع یافت نشد.");
-      }
-      if (!doc.courseId) {
-        throw new DomainError(
-          "bad_request",
-          "این سند به دوره‌ای اختصاص نیافته است. لطفاً ابتدا سند را به دوره متصل کنید.",
-        );
-      }
-      if (doc.courseId !== courseId) {
-        throw new DomainError(
-          "bad_request",
-          "سند انتخاب‌شده متعلق به این دوره نیست.",
-        );
-      }
     }
 
     const existing = await this.moduleStore.listByCourse(courseId);
@@ -878,25 +1351,15 @@ export class CourseService {
     }
 
     if (input.documentId && this.documentStore) {
-      const doc = await this.documentStore.findByIdForOrganization(
+      await assertDocumentAssociatedWithCourse(
+        {
+          documentStore: this.documentStore,
+          sourcePackStore: this.sourcePackStore,
+        },
         input.documentId,
+        courseId,
         organizationId,
       );
-      if (!doc || doc.deletedAt) {
-        throw new DomainError("not_found", "سند منبع یافت نشد.");
-      }
-      if (!doc.courseId) {
-        throw new DomainError(
-          "bad_request",
-          "این سند به دوره‌ای اختصاص نیافته است. لطفاً ابتدا سند را به دوره متصل کنید.",
-        );
-      }
-      if (doc.courseId !== courseId) {
-        throw new DomainError(
-          "bad_request",
-          "سند انتخاب‌شده متعلق به این دوره نیست.",
-        );
-      }
     }
 
     // 1. Authoritative Module Lookup
@@ -913,6 +1376,14 @@ export class CourseService {
     const course = await this.store.findById(courseId);
     if (!course || course.deletedAt !== null) {
       throw new DomainError("not_found", "Course not found");
+    }
+
+    const permissions = await this.resolveCoursePermissions(actor, course);
+    if (!permissions.canEdit) {
+      throw new DomainError(
+        "forbidden",
+        "Role does not permit course updates",
+      );
     }
 
     // 3. Anti-spoofing Organization Match
@@ -1014,6 +1485,14 @@ export class CourseService {
       throw new DomainError("not_found", "Course not found");
     }
 
+    const permissions = await this.resolveCoursePermissions(actor, course);
+    if (!permissions.canEdit) {
+      throw new DomainError(
+        "forbidden",
+        "Role does not permit course updates",
+      );
+    }
+
     // 3. Anti-spoofing Organization Match
     const authoritativeOrgId = course.organizationId as OrganizationId;
     if (
@@ -1082,6 +1561,14 @@ export class CourseService {
     }
 
     const course = await this.getCourse(actor, organizationId, courseId);
+    const permissions = await this.resolveCoursePermissions(actor, course);
+    if (!permissions.canEdit) {
+      throw new DomainError(
+        "forbidden",
+        "Role does not permit course updates",
+      );
+    }
+
     await this.resolveActorAndAuthorize(
       actor,
       course.organizationId as OrganizationId,
@@ -1305,6 +1792,8 @@ export class CourseService {
       latestPublication = (await this.coursePublicationStore.findLatestByCourse(courseId)) ?? null;
     }
 
+    const permissions = await this.resolveCoursePermissions(actor, course, latestPublication);
+
     return {
       course: {
         id: course.id,
@@ -1316,6 +1805,12 @@ export class CourseService {
         examDate: course.examDate,
         createdAt: course.createdAt,
         updatedAt: course.updatedAt,
+        canEdit: permissions.canEdit,
+        can_edit: permissions.canEdit,
+        isOwner: permissions.isOwner,
+        is_owner: permissions.isOwner,
+        isEnrolled: permissions.isEnrolled,
+        is_enrolled: permissions.isEnrolled,
       },
       chapters: structuredChapters,
       unassignedModules,
@@ -1332,6 +1827,11 @@ export class CourseService {
             createdAt: latestPublication.createdAt,
           }
         : null,
+      permissions: {
+        canEdit: permissions.canEdit,
+        isOwner: permissions.isOwner,
+        isEnrolled: permissions.isEnrolled,
+      },
     };
   }
 
@@ -1350,15 +1850,6 @@ export class CourseService {
     }
 
     const course = await this.getCourse(actor, organizationId, courseId);
-    await this.resolveActorAndAuthorize(
-      actor,
-      course.organizationId as OrganizationId,
-      "course:update",
-      {
-        resourceType: "course",
-        courseId,
-      },
-    );
 
     const isOfficialCourse =
       course.isOfficial === true ||
@@ -1371,6 +1862,24 @@ export class CourseService {
         "دوره‌های رسمی آوانا از طریق پنل مدیریت منتشر می‌شوند و امکان ثبت درخواست انتشار کاربری برای آنها وجود ندارد.",
       );
     }
+
+    const permissions = await this.resolveCoursePermissions(actor, course);
+    if (!permissions.canEdit) {
+      throw new DomainError(
+        "forbidden",
+        "فقط سازنده اصلی دوره می‌تواند درخواست انتشار ثبت کند.",
+      );
+    }
+
+    await this.resolveActorAndAuthorize(
+      actor,
+      course.organizationId as OrganizationId,
+      "course:update",
+      {
+        resourceType: "course",
+        courseId,
+      },
+    );
 
     // Prevent duplicate pending submissions
     const existingPending = await this.coursePublicationStore.findLatestByCourse(courseId);
@@ -1454,7 +1963,7 @@ export class CourseService {
                 title: p.title || mod.title,
                 contentMarkdown: p.contentMarkdown,
                 sortOrder: 0,
-                estimatedMinutes: (p as any).estimatedMinutes || (p as any).estimated_minutes || 10,
+                estimatedMinutes: (p as { estimatedMinutes?: number; estimated_minutes?: number }).estimatedMinutes || (p as { estimatedMinutes?: number; estimated_minutes?: number }).estimated_minutes || 10,
               });
             }
           }
@@ -1465,9 +1974,10 @@ export class CourseService {
             const p = acceptedFlashcard.payload as FlashcardPayload;
             if (p.cards && Array.isArray(p.cards)) {
               for (const card of p.cards) {
+                const cardObj = card as { front?: string; question?: string; back?: string; answer?: string };
                 chapterFlashcards.push({
-                  front: (card as any).front ?? (card as any).question ?? "",
-                  back: (card as any).back ?? (card as any).answer ?? "",
+                  front: cardObj.front ?? cardObj.question ?? "",
+                  back: cardObj.back ?? cardObj.answer ?? "",
                   explanation: card.explanation ?? null,
                   difficulty: card.difficulty,
                 });
@@ -1482,10 +1992,10 @@ export class CourseService {
             if (p.questions && Array.isArray(p.questions)) {
               chapterQuiz = {
                 title: p.title || `آزمون ${mod.title}`,
-                questions: p.questions.map((q: any) => ({
+                questions: p.questions.map((q) => ({
                   question: q.question,
                   choices: q.choices || [],
-                  correctAnswer: String(q.correctAnswer ?? q.correct_answer ?? (q.choices && q.choices[0]) ?? ""),
+                  correctAnswer: String(q.correctAnswer ?? (q as { correct_answer?: unknown }).correct_answer ?? (q.choices && q.choices[0]) ?? ""),
                   explanation: q.explanation ?? null,
                   difficulty: q.difficulty,
                   category: q.category,
@@ -1501,7 +2011,7 @@ export class CourseService {
             chapterSummary = {
               title: p.title || `مرور جامع ${mod.title}`,
               overview: p.overview,
-              summary: (p as any).summary ?? p.overview ?? "",
+              summary: (p as { summary?: string }).summary ?? p.overview ?? "",
               estimatedReadingMinutes: p.estimatedReadingMinutes || 8,
               sections: p.sections?.map((s) => ({
                 title: s.title,
@@ -1512,10 +2022,12 @@ export class CourseService {
         }
       }
 
+      const chapterDocId = (ch as { documentId?: DocumentId | null }).documentId ?? chModules.find((m) => m.documentId)?.documentId ?? null;
       chapterSnapshots.push({
         id: ch.id,
         title: ch.title,
         description: null,
+        documentId: chapterDocId,
         sortOrder: ch.sortOrder ?? cIdx,
         lessons: chapterLessons,
         flashcards: chapterFlashcards.length > 0 ? chapterFlashcards : undefined,
@@ -1570,7 +2082,7 @@ export class CourseService {
                 title: p.title || mod.title,
                 contentMarkdown: p.contentMarkdown,
                 sortOrder: 0,
-                estimatedMinutes: (p as any).estimatedMinutes || (p as any).estimated_minutes || 10,
+                estimatedMinutes: (p as { estimatedMinutes?: number; estimated_minutes?: number }).estimatedMinutes || (p as { estimatedMinutes?: number; estimated_minutes?: number }).estimated_minutes || 10,
               });
             }
           }
@@ -1580,9 +2092,10 @@ export class CourseService {
             const p = acceptedFlashcard.payload as FlashcardPayload;
             if (p.cards && Array.isArray(p.cards)) {
               for (const card of p.cards) {
+                const cardObj = card as { front?: string; question?: string; back?: string; answer?: string };
                 fallbackFlashcards.push({
-                  front: (card as any).front ?? (card as any).question ?? "",
-                  back: (card as any).back ?? (card as any).answer ?? "",
+                  front: cardObj.front ?? cardObj.question ?? "",
+                  back: cardObj.back ?? cardObj.answer ?? "",
                   explanation: card.explanation ?? null,
                   difficulty: card.difficulty,
                 });
@@ -1596,10 +2109,10 @@ export class CourseService {
             if (p.questions && Array.isArray(p.questions)) {
               fallbackQuiz = {
                 title: p.title || `آزمون ${mod.title}`,
-                questions: p.questions.map((q: any) => ({
+                questions: p.questions.map((q) => ({
                   question: q.question,
                   choices: q.choices || [],
-                  correctAnswer: String(q.correctAnswer ?? q.correct_answer ?? (q.choices && q.choices[0]) ?? ""),
+                  correctAnswer: String(q.correctAnswer ?? (q as { correct_answer?: unknown }).correct_answer ?? (q.choices && q.choices[0]) ?? ""),
                   explanation: q.explanation ?? null,
                   difficulty: q.difficulty,
                   category: q.category,
@@ -1614,7 +2127,7 @@ export class CourseService {
             fallbackSummary = {
               title: p.title || `مرور جامع ${mod.title}`,
               overview: p.overview,
-              summary: (p as any).summary ?? p.overview ?? "",
+              summary: (p as { summary?: string }).summary ?? p.overview ?? "",
               estimatedReadingMinutes: p.estimatedReadingMinutes || 8,
               sections: p.sections?.map((s) => ({
                 title: s.title,
@@ -1625,10 +2138,12 @@ export class CourseService {
         }
       }
 
+      const fallbackDocId = modules.find((m) => m.documentId)?.documentId ?? null;
       chapterSnapshots.push({
         id: `chapter-main`,
         title: "سرفصل اصلی",
         description: null,
+        documentId: fallbackDocId,
         sortOrder: 0,
         lessons: fallbackLessons,
         flashcards: fallbackFlashcards.length > 0 ? fallbackFlashcards : undefined,
@@ -1650,13 +2165,20 @@ export class CourseService {
     const stats = computeCoursePublicationStats(chapterSnapshots);
 
     const publishedPub = await this.coursePublicationStore.findPublishedByCourse(courseId);
-    const isUpdate = Boolean(publishedPub);
-    const baseVersion = publishedPub ? publishedPub.version : undefined;
+    const latestPub = await this.coursePublicationStore.findLatestByCourse(courseId);
+    const isUpdate = Boolean(publishedPub || course.status === "unpublished" || (course.version && course.version > 0));
+    const baseVersion = publishedPub ? publishedPub.version : (course.version && course.version > 0 ? course.version : undefined);
     const basePublicationId = publishedPub ? publishedPub.id : undefined;
 
     const now = new Date().toISOString();
-    const version = (publishedPub?.version ?? 0) + 1;
+    const version =
+      Math.max(
+        course.version ?? 0,
+        latestPub?.version ?? 0,
+        publishedPub?.version ?? 0,
+      ) + 1;
     const pubId = asCoursePublicationId(randomUUID() as unknown as import("@avana/domain").UUID);
+    const creatorUserId = latestPub?.creatorUserId ?? actor.userId;
 
     const title = input?.title?.trim() || course.name;
     const description = (input?.description !== undefined ? input.description : course.description) ?? null;
@@ -1671,14 +2193,14 @@ export class CourseService {
       stats,
     };
 
-    const diffSummary = isUpdate && publishedPub
-      ? computePublicationDiff(publishedPub.snapshot, snapshot)
+    const diffSummary = (publishedPub ?? latestPub)
+      ? computePublicationDiff((publishedPub ?? latestPub)!.snapshot, snapshot)
       : computePublicationDiff(null, snapshot);
 
     const publicationRecord: CoursePublicationRecord = {
       id: pubId,
       courseId,
-      creatorUserId: actor.userId,
+      creatorUserId,
       organizationId,
       title,
       description,
@@ -1688,7 +2210,7 @@ export class CourseService {
       publishedAt: null,
       metadata: {
         stats,
-        accessType: publishedPub?.metadata?.accessType ?? "paid",
+        accessType: (publishedPub ?? latestPub)?.metadata?.accessType ?? "paid",
         rejectionReason: null,
         reviewedAt: null,
         reviewedByUserId: null,
@@ -1704,11 +2226,25 @@ export class CourseService {
       deletedAt: null,
     };
 
+    if (existingPending && existingPending.status === "changes_requested") {
+      await this.coursePublicationStore.updateStatus(
+        existingPending.id,
+        "superseded",
+        {
+          ...existingPending.metadata,
+          supersededAt: now,
+          supersededByUserId: actor.userId,
+          cancellationReason: "جایگزین شده با ارسال نسخه بازبینی‌شده جدید",
+        },
+      );
+    }
+
     const created = await this.coursePublicationStore.create(publicationRecord);
 
     // Invariant: If course is already published (update request), DO NOT set course.status to pending_review!
     // The live published course MUST remain accessible to enrolled students without interruption.
-    if (!isUpdate) {
+    // If course was previously unpublished, transition back to pending_review.
+    if (!publishedPub || course.status === "unpublished") {
       course.status = "pending_review";
       course.updatedAt = now;
       await this.store.update(course);
@@ -1738,6 +2274,175 @@ export class CourseService {
     return { publication: created };
   }
 
+  /**
+   * Unpublish a previously published community course.
+   * Only the course creator or platform admin can unpublish a course.
+   * Preserves all version history and snapshots without destruction.
+   */
+  async unpublishCourse(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+  ): Promise<{ course: CourseRecord; publication: CoursePublicationRecord }> {
+    if (!this.coursePublicationStore) {
+      throw new DomainError("internal_error", "CoursePublicationStore not configured");
+    }
+
+    const course = await this.getCourse(actor, organizationId, courseId);
+    const permissions = await this.resolveCoursePermissions(actor, course);
+    if (!permissions.canEdit) {
+      throw new DomainError(
+        "forbidden",
+        "فقط سازنده اصلی دوره یا مدیر سیستم امکان خارج کردن دوره از انتشار را دارد.",
+      );
+    }
+
+    const isOfficialCourse =
+      course.isOfficial === true ||
+      (!!this.systemOrganizationId &&
+        course.organizationId === this.systemOrganizationId);
+
+    if (isOfficialCourse) {
+      throw new DomainError(
+        "bad_request",
+        "دوره‌های رسمی از طریق پنل مدیریت آوانا مدیریت می‌شوند.",
+      );
+    }
+
+    const publishedPub = await this.coursePublicationStore.findPublishedByCourse(courseId);
+    if (!publishedPub && course.status !== "published") {
+      throw new DomainError(
+        "bad_request",
+        "این دوره در حال حاضر منتشر نشده است.",
+      );
+    }
+
+    const now = new Date().toISOString();
+    const unpublishReason = "خروج دوره از حالت انتشار توسط سازنده";
+    const cancellationReason = "لغو خودکار به دلیل خروج دوره از حالت انتشار (Unpublish)";
+
+    let updatedCourse: CourseRecord;
+    let updatedPublication: CoursePublicationRecord;
+    let supersededPublications: CoursePublicationRecord[] = [];
+
+    if (this.coursePublicationStore.unpublishCourseAtomic) {
+      const result = await this.coursePublicationStore.unpublishCourseAtomic({
+        courseId,
+        actorUserId: actor.userId,
+        now,
+        unpublishReason,
+        cancellationReason,
+      });
+      updatedCourse = result.course;
+      updatedPublication = result.publication;
+      supersededPublications = result.supersededPublications;
+    } else {
+      let currentPub = publishedPub;
+      // 1. Identify all publications for this course
+      const allCoursePubs = await this.coursePublicationStore.listAll({
+        courseId,
+        limit: 100,
+      });
+
+      // 2. Invalidate / supersede any pending review or changes requested submissions
+      const pendingPubs = allCoursePubs.items.filter(
+        (p) => p.status === "pending_review" || p.status === "changes_requested",
+      );
+      for (const pendingPub of pendingPubs) {
+        const superseded = await this.coursePublicationStore.updateStatus(
+          pendingPub.id,
+          "superseded",
+          {
+            ...pendingPub.metadata,
+            supersededAt: now,
+            cancellationReason,
+            supersededByUserId: actor.userId,
+          },
+        );
+        supersededPublications.push(superseded);
+      }
+
+      // 3. Mark active published publication as unpublished
+      if (publishedPub) {
+        currentPub = await this.coursePublicationStore.updateStatus(
+          publishedPub.id,
+          "unpublished",
+          {
+            ...publishedPub.metadata,
+            unpublishedAt: now,
+            unpublishedByUserId: actor.userId,
+            unpublishReason,
+          },
+        );
+      }
+
+      const candidatePublication = currentPub ?? publishedPub ?? pendingPubs[0];
+      if (!candidatePublication) {
+        throw new DomainError(
+          "bad_request",
+          "دوره در وضعیت انتشار عمومی قرار ندارد و هیچ رکورد انتشار معتبری برای آن یافت نشد.",
+        );
+      }
+
+      // 4. Update live course status
+      course.status = "unpublished";
+      course.updatedAt = now;
+      updatedCourse = await this.store.update(course);
+      updatedPublication = candidatePublication;
+    }
+
+    // 5. Emit audit trail for superseded publications and course unpublish only after successful commit
+    if (this.auditService) {
+      try {
+        for (const pendingPub of supersededPublications) {
+          await this.auditService.emit([
+            {
+              actorId: actor.userId,
+              organizationId,
+              action: "course_publication.superseded",
+              entityType: "course_publication",
+              entityId: pendingPub.id,
+              createdAt: now,
+              details: {
+                courseId,
+                version: pendingPub.version,
+                previousStatus: pendingPub.status,
+                reason: "superseded_by_unpublish",
+              },
+            },
+          ]);
+        }
+
+        await this.auditService.emit([
+          {
+            actorId: actor.userId,
+            organizationId,
+            action: "course.unpublished",
+            entityType: "course",
+            entityId: courseId,
+            createdAt: now,
+            details: {
+              publicationId: updatedPublication?.id ?? null,
+              version: updatedPublication?.version ?? null,
+              supersededPendingCount: supersededPublications.length,
+            },
+          },
+        ]);
+      } catch (auditErr) {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            message: "Failed to emit audit log after course unpublish; live state change succeeded",
+            courseId,
+            error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+          }),
+        );
+      }
+    }
+
+    return { course: updatedCourse, publication: updatedPublication };
+  }
+
   async getCoursePublicationStatus(
     actor: Actor,
     organizationId: OrganizationId,
@@ -1751,20 +2456,38 @@ export class CourseService {
         course.organizationId === this.systemOrganizationId);
 
     if (isOfficialCourse) {
-      return { publication: null, publishedPublication: null, isOfficial: true };
+      return {
+        publication: null,
+        publishedPublication: null,
+        isOfficial: true,
+        isOwner: false,
+        canEdit: false,
+        isEnrolled: false,
+      };
     }
 
     if (!this.coursePublicationStore) {
-      return { publication: null, publishedPublication: null, isOfficial: false };
+      return {
+        publication: null,
+        publishedPublication: null,
+        isOfficial: false,
+        isOwner: false,
+        canEdit: false,
+        isEnrolled: false,
+      };
     }
 
     const latest = await this.coursePublicationStore.findLatestByCourse(courseId);
     const published = await this.coursePublicationStore.findPublishedByCourse(courseId);
+    const permissions = await this.resolveCoursePermissions(actor, course, latest);
 
     return {
       publication: latest ?? null,
       publishedPublication: published ?? null,
       isOfficial: false,
+      isOwner: permissions.isOwner,
+      canEdit: permissions.canEdit,
+      isEnrolled: permissions.isEnrolled,
     };
   }
 }

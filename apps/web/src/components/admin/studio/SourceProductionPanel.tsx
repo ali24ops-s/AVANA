@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FileText,
@@ -15,10 +15,12 @@ import { createApiClient, getApiBaseUrl } from "../../../lib/api/client.js";
 import { createDocumentsApi } from "../../../lib/api/documents.js";
 import { createGenerationApi, type DocumentContentStatusResponse } from "../../../lib/api/generation.js";
 import type { OfficialCourse } from "../../../lib/api/admin.js";
+import { useAdmin } from "../../../hooks/useAdmin.js";
 import { DocumentUploader } from "../../documents/DocumentUploader.js";
 import { GenerateContentModal } from "../../documents/GenerateContentModal.js";
 import type { DocumentResource, DocumentStatus } from "@avana/contracts";
 import { formatPersianOf, toPersianDigits } from "@avana/domain";
+import { getUserFriendlyErrorMessage } from "../../../lib/api/error-mapper.js";
 
 export interface SourceProductionPanelProps {
   course: OfficialCourse;
@@ -43,32 +45,7 @@ function formatGenerationErrorMessage(errorMessage?: string | null): string {
   if (!errorMessage) {
     return "خطای ناشناخته در پردازش جاب. لطفاً دوباره تلاش کنید.";
   }
-  const lower = errorMessage.toLowerCase();
-  if (
-    lower.includes("quota") ||
-    lower.includes("quota_exhausted") ||
-    lower.includes("rate_limit_exceeded") ||
-    lower.includes("unavailable (key-") ||
-    lower.includes("resource_exhausted") ||
-    lower.includes("generaterequestsperday") ||
-    lower.includes("free_tier_requests") ||
-    lower.includes("سهمیه")
-  ) {
-    return "تولید محتوا انجام نشد. سهمیه سرویس هوش مصنوعی در حال حاضر به پایان رسیده است. لطفاً کمی بعد دوباره تلاش کنید.";
-  }
-  if (
-    lower.includes("fetch failed") ||
-    lower.includes("network error") ||
-    lower.includes("econnrefused") ||
-    lower.includes("timed out") ||
-    lower.includes("timeout")
-  ) {
-    return "خطا در برقراری ارتباط با سرویس هوش مصنوعی. لطفاً اتصال اینترنت را بررسی و مجدداً تلاش کنید.";
-  }
-  if (errorMessage.startsWith("خطا در تولید هوشمند:")) {
-    return errorMessage;
-  }
-  return `خطا در تولید هوشمند: ${errorMessage}`;
+  return getUserFriendlyErrorMessage(errorMessage, { scope: "generation" });
 }
 
 export function SourceProductionPanel({
@@ -77,6 +54,20 @@ export function SourceProductionPanel({
   onGenerationComplete,
   onNavigateToReview,
 }: SourceProductionPanelProps) {
+  const effectiveOrgId =
+    (organizationId && organizationId.trim().length > 0
+      ? organizationId.trim()
+      : course.organizationId) || "b4a0b464-16db-4087-92b7-163a1e6f6776";
+
+  const adminApi = useAdmin();
+
+  const [localDocs, setLocalDocs] = useState<DocumentResource[]>([]);
+
+  // Clear local docs when switching course
+  useEffect(() => {
+    setLocalDocs([]);
+  }, [course.id]);
+
   const [selectedDocForGeneration, setSelectedDocForGeneration] = useState<{
     doc: DocumentResource;
     contentStatus?: DocumentContentStatusResponse;
@@ -93,9 +84,9 @@ export function SourceProductionPanel({
 
   // List documents exclusively for this course
   const docsQuery = useQuery({
-    queryKey: ["course-documents", organizationId, course.id],
+    queryKey: ["course-documents", effectiveOrgId, course.id],
     queryFn: async () => {
-      const courseRes = await docsApi.listDocuments(organizationId, {
+      const courseRes = await docsApi.listDocuments(effectiveOrgId, {
         courseId: course.id,
         limit: 100,
       });
@@ -108,16 +99,30 @@ export function SourceProductionPanel({
     },
   });
 
-  const documents = docsQuery.data ?? [];
+  const serverDocs = docsQuery.data ?? [];
+  const documents = useMemo(() => {
+    const allDocsMap = new Map<string, DocumentResource>();
+    for (const doc of localDocs) {
+      if (!doc.course_id || doc.course_id === course.id) {
+        allDocsMap.set(doc.id, doc);
+      }
+    }
+    for (const doc of serverDocs) {
+      if (!doc.course_id || doc.course_id === course.id) {
+        allDocsMap.set(doc.id, doc);
+      }
+    }
+    return Array.from(allDocsMap.values());
+  }, [localDocs, serverDocs, course.id]);
 
   // Extract retry mutation
   const extractMutation = useMutation({
     mutationFn: (documentId: string) =>
-      docsApi.triggerExtraction(organizationId, documentId),
+      docsApi.triggerExtraction(effectiveOrgId, documentId),
     onSuccess: () => {
       setExtractError(null);
       void queryClient.invalidateQueries({
-        queryKey: ["course-documents", organizationId, course.id],
+        queryKey: ["course-documents", effectiveOrgId, course.id],
       });
       void queryClient.invalidateQueries({
         queryKey: ["document-content-status"],
@@ -131,11 +136,12 @@ export function SourceProductionPanel({
   // Delete document mutation
   const deleteMutation = useMutation({
     mutationFn: (documentId: string) =>
-      docsApi.deleteDocument(organizationId, documentId),
-    onSuccess: () => {
+      docsApi.deleteDocument(effectiveOrgId, documentId),
+    onSuccess: (_, documentId) => {
       setDeleteConfirmDocId(null);
+      setLocalDocs((prev) => prev.filter((d) => d.id !== documentId));
       void queryClient.invalidateQueries({
-        queryKey: ["course-documents", organizationId, course.id],
+        queryKey: ["course-documents", effectiveOrgId, course.id],
       });
       void queryClient.invalidateQueries({
         queryKey: ["official-review-workspace", course.id],
@@ -165,36 +171,17 @@ export function SourceProductionPanel({
       };
     }) => {
       setGenerateError(null);
-      const res = await fetch(
-        `/v1/admin/content-studio/courses/${course.id}/generate`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            documentId,
-            lesson: options.lesson,
-            flashcards: options.flashcards,
-            exam: options.exam,
-            review_summary: options.review_summary,
-            force: options.force,
-            questionPatternId: options.questionPatternId,
-            questionPatternVersion: options.questionPatternVersion,
-            questionPatternIds: options.questionPatternIds,
-          }),
-        },
-      );
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(
-          errData.error?.message ||
-            errData.message ||
-            "خطا در شروع پایپ‌لاین تولید هوشمند محتوا",
-        );
-      }
-
-      return res.json();
+      return adminApi.officialContentStudio.triggerOfficialGeneration(course.id, {
+        documentId,
+        lesson: options.lesson,
+        flashcards: options.flashcards,
+        exam: options.exam,
+        review_summary: options.review_summary,
+        force: options.force,
+        questionPatternId: options.questionPatternId,
+        questionPatternVersion: options.questionPatternVersion,
+        questionPatternIds: options.questionPatternIds,
+      });
     },
     onSuccess: () => {
       setSelectedDocForGeneration(null);
@@ -206,7 +193,7 @@ export function SourceProductionPanel({
         queryKey: ["official-review-workspace", course.id],
       });
       void queryClient.invalidateQueries({
-        queryKey: ["course-documents", organizationId, course.id],
+        queryKey: ["course-documents", effectiveOrgId, course.id],
       });
       void queryClient.invalidateQueries({
         queryKey: ["course-hierarchy", course.id],
@@ -219,7 +206,65 @@ export function SourceProductionPanel({
       });
       if (onGenerationComplete) onGenerationComplete();
     },
-    onError: (err: Error) => {
+    onError: async (err: Error & { status?: number }) => {
+      const isConflict =
+        err.status === 409 ||
+        Boolean(err.message && err.message.includes("در حال حاضر توسط پردازش فعال دیگری در حال اجراست"));
+      const isDefinitiveClientError =
+        err.status === 400 ||
+        err.status === 401 ||
+        err.status === 403 ||
+        err.status === 404;
+
+      if (isDefinitiveClientError && !isConflict) {
+        setGenerateError(formatGenerationErrorMessage(err.message));
+        return;
+      }
+
+      // Check authoritative status from course documents & course status before declaring failure
+      try {
+        const courseDocs = await docsApi.listDocuments(effectiveOrgId, {
+          courseId: course.id,
+          limit: 100,
+        }).catch(() => null);
+
+        const targetDoc = courseDocs?.items?.find(
+          (d) => d.id === selectedDocForGeneration?.doc?.id,
+        );
+
+        const isDocOrCourseGenerating =
+          course.status === "generating" ||
+          targetDoc?.status === "generating" ||
+          targetDoc?.status === "pending_generation";
+
+        if (isDocOrCourseGenerating) {
+          // Pipeline is confirmed active on server!
+          setGenerateError(null);
+          setSelectedDocForGeneration(null);
+          void queryClient.invalidateQueries({
+            queryKey: ["course-documents", organizationId, course.id],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["official-courses"],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["official-review-workspace", course.id],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["active-generations"],
+          });
+          if (onGenerationComplete) onGenerationComplete();
+          return;
+        }
+
+        if (isConflict) {
+          setGenerateError(err.message || "تولید محتوا برای این دوره هم‌اکنون توسط پردازش فعال دیگری در حال اجراست.");
+          return;
+        }
+      } catch {
+        // Fallback to error
+      }
+
       setGenerateError(formatGenerationErrorMessage(err.message));
     },
   });
@@ -264,14 +309,15 @@ export function SourceProductionPanel({
             </p>
           </div>
           <span className="text-xs font-semibold text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] px-3 py-1 rounded-full border border-[var(--color-border)] w-fit">
-            سازمان رسمی: {organizationId.slice(0, 8)}...
+            سازمان رسمی: {effectiveOrgId.slice(0, 8)}...
           </span>
         </div>
 
         <DocumentUploader
-          organizationId={organizationId}
+          organizationId={effectiveOrgId}
           courseId={course.id}
-          onUploaded={() => {
+          onUploaded={(newDoc) => {
+            setLocalDocs((prev) => [newDoc, ...prev.filter((d) => d.id !== newDoc.id)]);
             void docsQuery.refetch();
           }}
         />
@@ -345,7 +391,7 @@ export function SourceProductionPanel({
             <SourceDocumentCard
               key={doc.id}
               doc={doc}
-              organizationId={organizationId}
+              organizationId={effectiveOrgId}
               courseId={course.id}
               isGenerating={generateMutation.isPending && selectedDocForGeneration?.doc.id === doc.id}
               isCourseGenerating={course.status === "generating"}
@@ -372,7 +418,7 @@ export function SourceProductionPanel({
           onClose={() => setSelectedDocForGeneration(null)}
           documentName={selectedDocForGeneration.doc.original_name}
           documentId={selectedDocForGeneration.doc.id}
-          organizationId={organizationId}
+          organizationId={effectiveOrgId}
           courseId={course.id}
           contentStatus={selectedDocForGeneration.contentStatus}
           isGenerating={generateMutation.isPending}
@@ -499,7 +545,7 @@ function SourceDocumentCard({
           {isExtracting && (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
               <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600 dark:text-amber-400" />
-              <span>در حال استخراج متن</span>
+              <span>در حال آماده‌سازی منبع</span>
             </span>
           )}
           {isFailed && (
@@ -523,7 +569,7 @@ function SourceDocumentCard({
           {!isWaiting && !isExtracting && !isFailed && !hasAnyGenerated && isExtracted && (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>استخراج‌شده و آماده</span>
+              <span>آماده برای کارگاه تولید</span>
             </span>
           )}
 

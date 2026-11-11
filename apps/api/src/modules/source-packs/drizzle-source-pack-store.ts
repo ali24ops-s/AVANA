@@ -252,6 +252,9 @@ export class DrizzleSourcePackStore implements SourcePackStore {
       if (input.title !== undefined) {
         updateData.title = input.title;
       }
+      if (input.status !== undefined) {
+        updateData.status = input.status;
+      }
 
       const [updatedPack] = await tx
         .update(sourcePacks)

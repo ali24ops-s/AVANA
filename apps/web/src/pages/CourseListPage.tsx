@@ -78,17 +78,17 @@ function useAvailableCourses(organizationId: string | undefined) {
 /**
  * Hook to fetch the user's selected / personal courses ("My Courses").
  */
-function useMyCourses(organizationId: string | undefined) {
+function useMyCourses(organizationId: string | undefined, userId: string | undefined) {
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const courseApi = createCourseApi(apiClient);
 
   return useQuery({
-    queryKey: ["my-courses", organizationId],
+    queryKey: ["my-courses", organizationId, userId],
     queryFn: async () => {
       const res = await courseApi.listMyCourses(organizationId!);
       return res;
     },
-    enabled: !!organizationId,
+    enabled: !!organizationId && !!userId,
   });
 }
 
@@ -107,14 +107,14 @@ function useCourseProgress(courseId: string | undefined) {
 }
 
 export function CourseListPage() {
-  const { isLoading: isAuthLoading } = useAuth();
+  const { isLoading: isAuthLoading, user } = useAuth();
   const queryClient = useQueryClient();
 
   const orgQuery = useOrganization();
   const organization = orgQuery.data?.items?.[0] as
     OrganizationResource | undefined;
 
-  const myCoursesQuery = useMyCourses(organization?.id);
+  const myCoursesQuery = useMyCourses(organization?.id, user?.id);
   const availableCoursesQuery = useAvailableCourses(organization?.id);
 
   // Modal and Onboarding State

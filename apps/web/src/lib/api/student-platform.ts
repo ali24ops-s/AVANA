@@ -331,43 +331,7 @@ export function createStudentPlatformApi(client: ApiClient) {
       const formData = new FormData();
       formData.append("file", file, file.name);
 
-      const response = await fetch("/v1/student/assignments/attachments", {
-        method: "POST",
-        headers: {
-          "x-request-id": generateUUID(),
-        },
-        credentials: "include",
-        body: formData,
-      });
-
-      let data: unknown;
-      try {
-        if (typeof response.text === "function") {
-          const text = await response.text();
-          data = text ? JSON.parse(text) : undefined;
-        } else if (typeof response.json === "function") {
-          data = await response.json();
-        }
-      } catch {
-        data = null;
-      }
-
-      if (!response.ok) {
-        if (
-          data &&
-          typeof data === "object" &&
-          "error" in data &&
-          data.error &&
-          typeof (data as { error: unknown }).error === "object"
-        ) {
-          throw new ApiError(data as ErrorEnvelope);
-        }
-        throw new Error(
-          (data as { message?: string })?.message || "خطا در بارگذاری فایل پیوست.",
-        );
-      }
-
-      const resObj = data as {
+      const resObj = await client.postFormData<{
         attachment_url?: string;
         attachmentUrl?: string;
         attachment_name?: string;
@@ -376,7 +340,7 @@ export function createStudentPlatformApi(client: ApiClient) {
         attachmentSizeBytes?: number;
         storage_key?: string;
         storageKey?: string;
-      };
+      }>("/v1/student/assignments/attachments", formData);
 
       return {
         attachmentUrl: resObj.attachmentUrl || resObj.attachment_url || "",

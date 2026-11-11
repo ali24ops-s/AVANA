@@ -6,9 +6,10 @@
  */
 
 import type { ErrorEnvelope } from "@avana/contracts";
+import { getUserFriendlyErrorMessage } from "./error-mapper.js";
 
 export class ApiError extends Error {
-  public readonly code: ErrorEnvelope["error"]["code"];
+  public readonly code: ErrorEnvelope["error"]["code"] | "timeout" | "service_unavailable" | string;
   public readonly details?: ErrorEnvelope["error"]["details"];
   public readonly requestId: string;
 
@@ -22,6 +23,21 @@ export class ApiError extends Error {
 
     // Maintain prototype chain for instanceof checks
     Object.setPrototypeOf(this, ApiError.prototype);
+  }
+
+  /**
+   * Return a safe, respectful Persian error message suitable for direct UI display.
+   */
+  getUserMessage(): string {
+    return getUserFriendlyErrorMessage(this);
+  }
+
+  get isNetworkError(): boolean {
+    return this.code === "service_unavailable";
+  }
+
+  get isTimeout(): boolean {
+    return this.code === "timeout";
   }
 
   get status(): number {
@@ -38,10 +54,17 @@ export class ApiError extends Error {
         return 403;
       case "not_found":
         return 404;
+      case "timeout":
+        return 408;
       case "conflict":
         return 409;
       case "unprocessable":
         return 422;
+      case "too_many_requests":
+      case "rate_limit_exceeded":
+        return 429;
+      case "service_unavailable":
+        return 503;
       case "internal_error":
       default:
         return 500;

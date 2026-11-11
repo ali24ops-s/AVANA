@@ -358,11 +358,11 @@ const FORBIDDEN_CHOICE_REGEX =
 
 // Regex pattern for explanatory & justification markers in Persian options (using Unicode-safe word boundaries)
 const EXPLANATORY_MARKER_REGEX =
-  /(?:[،,;\-–—:\s]|^)(?:به دلیل|زیرا|چون|به علت|ناشی از|در نتیجه|که منجر به|به‌طوری‌که|به طوری که|به منظور|یعنی|به عبارت دیگر|از طریق)(?:[\s،,;\-–—:؛؟?!]|$|[()（）])/iu;
+  /(?:[،,;\-–—:\s]|^)(?:به دلیل|زیرا|چون|به علت|ناشی از|در نتیجه|که منجر به|به‌طوری‌که|به طوری که|به منظور|یعنی|به عبارت دیگر|از طریق\s+(?:مهار|تحریک|فعال‌سازی|افزایش|کاهش|مسدود|بلوک|اثر|تأثیر|ایجاد|تخریب|تولید|آزادسازی))(?:[\s،,;\-–—:؛؟?!]|$|[()（）])/iu;
 
 // Regex pattern for trailing explanatory tail (used for detection and safe repair)
 const TRAILING_EXPLANATION_REGEX =
-  /(?:[،,;\-–—:\s]+)(?:به دلیل|زیرا|چون|به علت|ناشی از|در نتیجه|که منجر به|به‌طوری‌که|به طوری که|به منظور|یعنی|به عبارت دیگر)[\s\S]*$/iu;
+  /(?:[،,;\-–—:\s]+)(?:به دلیل|زیرا|چون|به علت|ناشی از|در نتیجه|که منجر به|به‌طوری‌که|به طوری که|به منظور|یعنی|به عبارت دیگر|از طریق\s+(?:مهار|تحریک|فعال‌سازی|افزایش|کاهش|مسدود|بلوک|اثر|تأثیر|ایجاد|تخریب|تولید|آزادسازی))[\s\S]*$/iu;
 
 // Explanatory punctuation (dashes or colons with qualifying descriptions)
 const EXPLANATORY_PUNCTUATION_REGEX =
@@ -830,10 +830,15 @@ export function validateQuestionQuality(
   }
 
   // 6. Additional length warning if disparity is noticeable but not fatal
+  const isShortOptions = lengthMetrics.medianDistractorLength < 30;
+  const isNoticeableDisparity = isShortOptions
+    ? (lengthMetrics.absoluteLengthGap >= 15 && lengthMetrics.lengthRatio > 1.8)
+    : (lengthMetrics.absoluteLengthGap >= 18 && lengthMetrics.lengthRatio > 1.4);
+
   if (
     lengthMetrics.isCorrectStrictLongest &&
     !leakageReport.features.lengthAsymmetry &&
-    (lengthMetrics.lengthRatio > 1.4 || lengthMetrics.absoluteLengthGap > 18)
+    isNoticeableDisparity
   ) {
     warnings.push(
       `Noticeable length disparity between choices (ratio: ${lengthMetrics.lengthRatio.toFixed(1)}, gap: ${lengthMetrics.absoluteLengthGap} chars)`,
@@ -870,13 +875,48 @@ export function validateQuestionQuality(
 }
 
 /**
+ * Sanitizes typographical glitches and OCR/tokenization artifacts in medical/exam questions:
+ * 1. "انسارین" -> "انسولین" (isolated word)
+ * 2. "اکرام eGFR" -> "مقدار eGFR" (and lab metrics)
+ * 3. Glued "های" suffixes (e.g., "ویژگی‌هایارتباطی" -> "ویژگی‌های ارتباطی")
+ *
+ * Rules:
+ * - Does not perform blind global substring replacements that could alter legitimate Persian words.
+ * - Uses Unicode-safe word boundaries ([\p{L}\p{N}]).
+ */
+export function sanitizeQuestionTypographicalGlitch(text: string): string {
+  if (!text || typeof text !== "string") return text;
+
+  let cleaned = text;
+
+  // 1. "انسارین" -> "انسولین" (standalone word)
+  cleaned = cleaned.replace(/(^|[^\p{L}\p{N}])انسارین(?=[^\p{L}\p{N}]|$)/gu, "$1انسولین");
+
+  // 2. "اکرام" before medical/lab metrics -> "مقدار"
+  cleaned = cleaned.replace(
+    /(^|[^\p{L}\p{N}])اکرام(?=\s+(?:eGFR|کراتینین|فیلتراسیون|قند|A1c|هموگلوبین)\b)/giu,
+    "$1مقدار",
+  );
+
+  // 3. Glued plural suffixes (e.g. ویژگی‌هایارتباطی -> ویژگی‌های ارتباطی)
+  // Targets common medical/exam nouns ending with 'های' glued to the subsequent Persian word
+  cleaned = cleaned.replace(
+    /(ویژگی|بیماری|یافته|دارو|نشانه|روش|گونه|پروتکل|راهنما|داده|آزمایش|گروه|معیار)[\u200c‌]?های(?=[\p{L}])/giu,
+    "$1‌های ",
+  );
+
+  return cleaned;
+}
+
+/**
  * Option Normalization and Balancing.
  *
  * Invariant 1: Scientific integrity has absolute priority.
  * Normalizes cosmetic/redundant formatting ONLY:
- * 1. Safe redundant English parenthetical removal (when distractors have NO English and the Persian term is self-contained).
- * 2. Safe redundant Persian explanatory parenthetical removal (when distractors have NO parentheticals).
- * 3. Safe trailing explanation removal («، زیرا...», «، به دلیل...»).
+ * 1. Safe typographical glitch correction (انسارین, اکرام eGFR, glued های).
+ * 2. Safe redundant English parenthetical removal (when distractors have NO English and the Persian term is self-contained).
+ * 3. Safe redundant Persian explanatory parenthetical removal (when distractors have NO parentheticals).
+ * 4. Safe trailing explanation removal («، زیرا...», «، به دلیل...»).
  *
  * Invariant: If removing an element would reduce scientific specificity or alter meaning (e.g. receptor subtype Beta-1),
  * it is NOT stripped; the question is marked as un-normalizable so it can be safely rejected/regenerated.
@@ -884,25 +924,65 @@ export function validateQuestionQuality(
 export function normalizeQuestionOptions(
   question: QuestionOptionInput,
 ): QuestionNormalizationResult {
-  const initialValidation = validateQuestionQuality(question, { requireFourChoices: true });
+  const qSanitized =
+    typeof question.question === "string"
+      ? sanitizeQuestionTypographicalGlitch(question.question)
+      : question.question;
+  const explSanitized =
+    typeof question.explanation === "string"
+      ? sanitizeQuestionTypographicalGlitch(question.explanation)
+      : question.explanation;
+  const choicesSanitized = Array.isArray(question.choices)
+    ? question.choices.map((c) =>
+        typeof c === "string" ? sanitizeQuestionTypographicalGlitch(c) : c,
+      )
+    : question.choices;
+  const correctSanitized =
+    typeof question.correctAnswer === "string"
+      ? sanitizeQuestionTypographicalGlitch(question.correctAnswer)
+      : question.correctAnswer;
+
+  const hasTypoChanges =
+    qSanitized !== question.question ||
+    explSanitized !== question.explanation ||
+    correctSanitized !== question.correctAnswer ||
+    (Array.isArray(question.choices) &&
+      Array.isArray(choicesSanitized) &&
+      choicesSanitized.some((c, i) => c !== question.choices![i]));
+
+  const baseQuestion: QuestionOptionInput = hasTypoChanges
+    ? {
+        ...question,
+        question: qSanitized,
+        explanation: explSanitized,
+        choices: choicesSanitized,
+        correctAnswer: correctSanitized,
+      }
+    : question;
+
+  const initialValidation = validateQuestionQuality(baseQuestion, { requireFourChoices: true });
   if (initialValidation.valid) {
     return {
-      repaired: false,
+      repaired: hasTypoChanges,
       canBeRepaired: true,
-      question,
-      normalized: { ...question },
-      repairedFields: [],
+      question: baseQuestion,
+      normalized: { ...baseQuestion },
+      repairedFields: hasTypoChanges ? ["sanitized_typographical_glitches"] : [],
+      repairedCorrectAnswer:
+        hasTypoChanges && typeof baseQuestion.correctAnswer === "string"
+          ? baseQuestion.correctAnswer
+          : undefined,
     };
   }
 
-  const rawChoices = question.choices;
+  const rawChoices = baseQuestion.choices;
   if (!Array.isArray(rawChoices) || rawChoices.length < 2) {
     return {
       repaired: false,
       canBeRepaired: false,
       question: null,
-      normalized: { ...question },
-      repairedFields: [],
+      normalized: { ...baseQuestion },
+      repairedFields: hasTypoChanges ? ["sanitized_typographical_glitches"] : [],
       reason: "Invalid choices array",
     };
   }
@@ -910,7 +990,7 @@ export function normalizeQuestionOptions(
   const cleanedChoices = rawChoices.map((c) => String(c).trim()).filter(Boolean);
   const correctChoiceText = resolveCorrectChoiceText(
     cleanedChoices,
-    question.correctAnswer,
+    baseQuestion.correctAnswer,
     { strict: true },
   );
 
@@ -919,15 +999,15 @@ export function normalizeQuestionOptions(
       repaired: false,
       canBeRepaired: false,
       question: null,
-      normalized: { ...question },
-      repairedFields: [],
+      normalized: { ...baseQuestion },
+      repairedFields: hasTypoChanges ? ["sanitized_typographical_glitches"] : [],
       reason: "Correct answer could not be strictly resolved",
     };
   }
 
   const distractors = cleanedChoices.filter((c) => c !== correctChoiceText);
   let candidateCorrectText = correctChoiceText;
-  const repairedFields: string[] = [];
+  const repairedFields: string[] = hasTypoChanges ? ["sanitized_typographical_glitches"] : [];
 
   // Step 1: Trailing Explanation Removal
   if (TRAILING_EXPLANATION_REGEX.test(candidateCorrectText)) {
@@ -964,13 +1044,16 @@ export function normalizeQuestionOptions(
   }
 
   // If any safe normalization was applied, construct candidate and re-validate
-  if (repairedFields.length > 0 && candidateCorrectText !== correctChoiceText) {
+  if (
+    repairedFields.length > 0 &&
+    (candidateCorrectText !== correctChoiceText || hasTypoChanges)
+  ) {
     const candidateChoices = cleanedChoices.map((c) =>
       c === correctChoiceText ? candidateCorrectText : c,
     );
 
     const candidateQuestion: QuestionOptionInput = {
-      ...question,
+      ...baseQuestion,
       choices: candidateChoices,
       correctAnswer: candidateCorrectText,
     };
@@ -997,7 +1080,7 @@ export function normalizeQuestionOptions(
     repaired: false,
     canBeRepaired: false,
     question: null,
-    normalized: { ...question },
+    normalized: { ...baseQuestion },
     repairedFields,
     reason: "Cannot safely normalize without risking scientific integrity; regeneration required",
   };

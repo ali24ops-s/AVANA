@@ -67,7 +67,7 @@ export function AskAvanaSelectionDialog({
           </p>
         </div>
 
-        {/* Embedded StudyAssistantChat */}
+        {/* Embedded StudyAssistantChat without duplicate header */}
         <StudyAssistantChat
           contextType="lesson"
           lessonId={lessonId}
@@ -76,7 +76,8 @@ export function AskAvanaSelectionDialog({
           moduleTitle={moduleTitle}
           courseTitle={courseTitle}
           initialPrompt={`درباره این بخش از درس راهنمایی می‌خواهم:\n«${selectionData.selectedText}»\n`}
-          className="border border-[var(--color-border)] rounded-2xl min-h-[380px] max-h-[500px]"
+          hideHeader={true}
+          className="border border-[var(--color-border)] rounded-2xl min-h-[380px] max-h-[500px] shadow-none"
         />
       </DialogContent>
     </Dialog>

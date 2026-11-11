@@ -34,7 +34,7 @@ import type {
   ModuleStore,
   LessonStore,
 } from "../learning/learning-store.js";
-import type { CourseStore } from "../courses/course-store.js";
+import type { CourseStore, CoursePublicationStore } from "../courses/course-store.js";
 import type {
   OrganizationStore,
 } from "../organizations/organization-store.js";
@@ -45,6 +45,7 @@ import type { StorageProvider } from "../storage/storage-provider.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { DocumentProcessingService } from "./document-processing-service.js";
 import type { EntitlementService } from "../commerce/entitlement-service.js";
+import type { SourcePackStore } from "../source-packs/source-pack-store.js";
 import type {
   DocumentDetailResource,
   DocumentQualityLevel,
@@ -245,7 +246,13 @@ export class DocumentService {
     private readonly lessonStore?: LessonStore,
     private readonly entitlementService?: EntitlementService,
     private readonly systemOrganizationId?: OrganizationId,
+    private sourcePackStore?: SourcePackStore,
+    private readonly coursePublicationStore?: CoursePublicationStore,
   ) {}
+
+  setSourcePackStore(sourcePackStore: SourcePackStore): void {
+    this.sourcePackStore = sourcePackStore;
+  }
 
   /**
    * Resolve the actor's scoped role and authorize an action within an org.
@@ -265,6 +272,11 @@ export class DocumentService {
     actor: Actor,
     organizationId: OrganizationId,
     action: "document:upload" | "document:read",
+    options?: {
+      isPublicPublication?: boolean;
+      isPublicResource?: boolean;
+      courseId?: CourseId;
+    },
   ): Promise<Actor> {
     const org = await this.organizationStore.findById(organizationId);
     if (!org) {
@@ -298,6 +310,9 @@ export class DocumentService {
       organizationId,
       resourceType: "document",
       isSystemResource,
+      isPublicPublication: options?.isPublicPublication,
+      isPublicResource: options?.isPublicResource,
+      courseId: options?.courseId,
     };
 
     if (!this.policy.can(fullActor, action, resourceContext)) {
@@ -340,11 +355,143 @@ export class DocumentService {
     ) {
       return "content_worker";
     }
+    if (
+      (actor.role === "course_editor" ||
+        actor.globalRole === "course_editor") &&
+      this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId
+    ) {
+      return "course_editor";
+    }
     const membership = await this.organizationStore.findMembership(
       organizationId,
       actor.userId,
     );
     return membership?.role ?? null;
+  }
+
+  private isStaffRole(role: string | null | undefined): boolean {
+    return (
+      role === "organization_admin" ||
+      role === "course_editor" ||
+      role === "content_worker" ||
+      role === "teacher" ||
+      role === "platform_admin" ||
+      role === "support_agent"
+    );
+  }
+
+  private isStaffActor(actor: Actor, role: string | null | undefined): boolean {
+    if (
+      actor.globalRole === "platform_admin" ||
+      actor.role === "platform_admin" ||
+      actor.globalRole === "content_worker" ||
+      actor.globalRole === "course_editor"
+    ) {
+      return true;
+    }
+    return this.isStaffRole(role);
+  }
+
+  private async isOfficialDocument(doc: DocumentRecord): Promise<boolean> {
+    if (this.systemOrganizationId && doc.organizationId === this.systemOrganizationId) {
+      return true;
+    }
+    if (doc.courseId && this.courseStore) {
+      const course = await this.courseStore.findById(doc.courseId as CourseId);
+      if (course && isOfficialCourse(course, this.systemOrganizationId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Validate whether an actor has permission to access an existing document.
+   * Ensures duplicate reuse is strictly bounded by user access permissions and multi-tenancy.
+   */
+  async canActorAccessDocument(
+    actor: Actor,
+    organizationId: OrganizationId,
+    doc: DocumentRecord,
+  ): Promise<boolean> {
+    const isSystemResource =
+      !!this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId;
+
+    const memberships = this.organizationStore
+      ? await this.organizationStore.listMembershipsByUserId(actor.userId)
+      : (actor.memberships ?? []);
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole: actor.globalRole,
+      role: actor.role,
+      memberships,
+    });
+
+    const isOfficialDoc = await this.isOfficialDocument(doc);
+    const role = await this.getMembershipRole(actor, organizationId);
+    const isPrivileged = this.isStaffActor(actor, role);
+
+    // Regular users / students must NEVER access raw source documents of official courses (draft or published)
+    if (isOfficialDoc && !isPrivileged) {
+      return false;
+    }
+
+    let isPublicPublication = false;
+    if (doc.courseId && this.courseStore && !isOfficialDoc) {
+      const course = await this.courseStore.findByIdForUser(
+        doc.courseId as CourseId,
+        actor.userId,
+        this.systemOrganizationId,
+      );
+      if (course && !isOfficialCourse(course, this.systemOrganizationId)) {
+        if (this.coursePublicationStore) {
+          const pub = await this.coursePublicationStore.findPublishedByCourse(course.id);
+          if (pub && pub.status === "published" && pub.deletedAt === null) {
+            isPublicPublication = true;
+          }
+        }
+      }
+    }
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "document",
+      resourceId: doc.id,
+      courseId: doc.courseId ?? undefined,
+      isSystemResource,
+      isPublicPublication,
+      isPublicResource: isPublicPublication,
+    };
+
+    if (!this.policy.can(fullActor, "document:read", resourceContext)) {
+      return false;
+    }
+
+    if (isPrivileged || isPublicPublication) {
+      return true;
+    }
+
+    // Student ownership: user uploaded their own document in non-official course
+    if (doc.ownerUserId === actor.userId) {
+      return true;
+    }
+
+    // Student course access if attached to user's non-official course
+    if (doc.courseId && this.courseStore && !isOfficialDoc) {
+      const course = await this.courseStore.findByIdForUser(
+        doc.courseId as CourseId,
+        actor.userId,
+        this.systemOrganizationId,
+      );
+      if (course && !isOfficialCourse(course, this.systemOrganizationId)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -462,13 +609,76 @@ export class DocumentService {
       sha256,
     );
     if (existing) {
+      // Validate actor has permission to access this existing document
+      const canAccess = await this.canActorAccessDocument(
+        actor,
+        organizationId,
+        existing,
+      );
+      if (!canAccess) {
+        // Must not disclose file existence or details to unauthorized actor
+        throw new DomainError(
+          "forbidden",
+          "Role does not permit accessing this document",
+        );
+      }
+
+      // If document was unattached (courseId === null) and user now uploads into a course,
+      // associate it with that course.
+      if (!existing.courseId && inputCourseId) {
+        const updatedRecord: DocumentRecord = {
+          ...existing,
+          courseId: inputCourseId,
+          updatedAt: new Date().toISOString(),
+        };
+        await this.store.update(updatedRecord);
+        return { document: toDocumentResource(updatedRecord), duplicate: true };
+      }
+
+      // If document is already attached to this exact course:
       if (existing.courseId === inputCourseId) {
         return { document: toDocumentResource(existing), duplicate: true };
       }
-      throw new DomainError(
-        "conflict",
-        "این فایل قبلاً در دوره دیگری در این سازمان بارگذاری شده است. با توجه به ساختار سیستم، هر فایل تنها می‌تواند به یک دوره اختصاص یابد.",
-      );
+
+      // If document was already attached to a different course:
+      // Preserve existing course connection (do NOT overwrite existing.courseId)
+      // and link to target course's source pack if sourcePackStore is available.
+      if (inputCourseId && this.sourcePackStore) {
+        try {
+          const packs = await this.sourcePackStore.listByCourse(inputCourseId, organizationId);
+          let targetPack = packs.find((p) => p.status === "active");
+          if (!targetPack) {
+            targetPack = await this.sourcePackStore.create({
+              organizationId,
+              courseId: inputCourseId,
+              title: "منابع دوره",
+              documents: [],
+            });
+          }
+          const alreadyLinked = targetPack.documents.some((d) => d.documentId === existing.id);
+          if (!alreadyLinked) {
+            await this.sourcePackStore.update(targetPack.id, organizationId, {
+              documents: [
+                ...targetPack.documents.map((d) => ({
+                  documentId: d.documentId,
+                  role: d.role,
+                  orderIndex: d.orderIndex,
+                })),
+                {
+                  documentId: existing.id,
+                  role: "supplementary_reference",
+                  orderIndex: targetPack.documents.length,
+                },
+              ],
+            });
+          }
+        } catch {
+          // Gracefully continue if source pack linking fails
+        }
+      }
+
+      const contextualResource = toDocumentResource(existing);
+      return { document: contextualResource, duplicate: true };
     }
 
     const documentId = randomUUID() as DocumentId;
@@ -506,7 +716,13 @@ export class DocumentService {
       deletedAt: null,
     };
 
-    await this.store.create(record);
+    const createdRecord = await this.store.create(record);
+
+    // Concurrency race condition safety: if another concurrent request created the document first
+    if (createdRecord.id !== documentId) {
+      await this.storageProvider.delete(storageKey).catch(() => {});
+      return { document: toDocumentResource(createdRecord), duplicate: true };
+    }
 
     if (this.auditService) {
       await this.auditService.emit([
@@ -543,24 +759,76 @@ export class DocumentService {
     organizationId: OrganizationId,
     filters: DocumentListFilter | string = {},
   ): Promise<DocumentListPage> {
-    await this.authorize(actor, organizationId, "document:read");
-
     const parsedFilters: DocumentListFilter =
       typeof filters === "string" ? {} : (filters || {});
 
-    const role = await this.getMembershipRole(actor, organizationId);
-    const isPrivileged =
-      role === "organization_admin" ||
-      role === "course_editor" ||
-      role === "content_worker" ||
-      role === "teacher" ||
-      role === "platform_admin" ||
-      role === "support_agent";
+    const limit = Math.min(Math.max(parsedFilters.limit ?? 25, 1), 100);
+    const page = Math.max(parsedFilters.page ?? 1, 1);
 
-    // Fetch the full list — filtering will be applied in-memory for now.
-    const allDocs = isPrivileged
-      ? await this.store.listByOrganization(organizationId)
-      : await this.store.listByOwner(organizationId, actor.userId);
+    let targetOrgId = organizationId;
+    let isPublicPublication = false;
+
+    if (parsedFilters.courseId && this.courseStore) {
+      const course =
+        (await this.courseStore.findById(parsedFilters.courseId as CourseId)) ??
+        (await this.courseStore.findByIdForUser(
+          parsedFilters.courseId as CourseId,
+          actor.userId,
+          this.systemOrganizationId,
+        ));
+      if (!course) {
+        throw new DomainError("not_found", "Organization not found");
+      }
+      targetOrgId = course.organizationId as OrganizationId;
+      const isOfficial = isOfficialCourse(course, this.systemOrganizationId);
+
+      const role = await this.getMembershipRole(actor, targetOrgId);
+      const isStaff = this.isStaffActor(actor, role);
+
+      // Regular users / students must NEVER list source documents of official courses (draft or published)
+      if (isOfficial && !isStaff) {
+        return {
+          items: [],
+          total: 0,
+          page,
+          limit,
+          totalPages: 0,
+        };
+      }
+
+      if (this.coursePublicationStore) {
+        const pub = await this.coursePublicationStore.findPublishedByCourse(course.id);
+        if (pub && pub.status === "published" && pub.deletedAt === null) {
+          isPublicPublication = true;
+        }
+      }
+
+      if (!isStaff && !isPublicPublication) {
+        const hasAccess = await this.courseStore.findByIdForUser(
+          parsedFilters.courseId as CourseId,
+          actor.userId,
+          this.systemOrganizationId,
+        );
+        if (!hasAccess) {
+          throw new DomainError("not_found", "Organization not found");
+        }
+      }
+    }
+
+    await this.authorize(actor, targetOrgId, "document:read", {
+      isPublicPublication,
+      isPublicResource: isPublicPublication,
+      courseId: parsedFilters.courseId ? (parsedFilters.courseId as CourseId) : undefined,
+    });
+
+    const role = await this.getMembershipRole(actor, targetOrgId);
+    const isPrivileged = this.isStaffActor(actor, role);
+
+    // Fetch the full list — only privileged staff or enrolled public students can view published documents.
+    // Regular students/users can only see their own uploaded documents.
+    const allDocs = isPrivileged || isPublicPublication
+      ? await this.store.listByOrganization(targetOrgId)
+      : await this.store.listByOwner(targetOrgId, actor.userId);
 
     let docs = allDocs;
 
@@ -583,8 +851,26 @@ export class DocumentService {
       const typeLower = parsedFilters.type.toLowerCase();
       docs = docs.filter((d) => d.mimeType.toLowerCase().startsWith(typeLower));
     }
+    const linkedPackDocIds = new Set<string>();
     if (parsedFilters.courseId) {
-      docs = docs.filter((d) => d.courseId === parsedFilters.courseId);
+      if (this.sourcePackStore) {
+        try {
+          const packs = await this.sourcePackStore.listByCourse(
+            parsedFilters.courseId as CourseId,
+            targetOrgId,
+          );
+          for (const pack of packs) {
+            for (const item of pack.documents || []) {
+              linkedPackDocIds.add(item.documentId);
+            }
+          }
+        } catch {
+          // Gracefully continue with direct courseId filter if store throws
+        }
+      }
+      docs = docs.filter(
+        (d) => d.courseId === parsedFilters.courseId || linkedPackDocIds.has(d.id),
+      );
     }
     if (parsedFilters.used === "used") {
       docs = docs.filter((d) => d.courseId !== null);
@@ -614,20 +900,46 @@ export class DocumentService {
     });
 
     // --- pagination ---
-    const limit = Math.min(Math.max(parsedFilters.limit ?? 25, 1), 100);
-    const page = Math.max(parsedFilters.page ?? 1, 1);
     const total = docs.length;
     const totalPages = Math.ceil(total / limit) || 1;
     const start = (page - 1) * limit;
     const pageItems = docs.slice(start, start + limit);
 
     return {
-      items: pageItems.map(toDocumentResource),
+      items: pageItems.map((d) => {
+        const res = toDocumentResource(d);
+        if (parsedFilters.courseId && linkedPackDocIds.has(d.id)) {
+          res.course_id = parsedFilters.courseId as CourseId;
+        }
+        return res;
+      }),
       total,
       page,
       limit,
       totalPages,
     };
+  }
+
+  /**
+   * Check whether a document is associated with a course (either directly or via source packs).
+   */
+  async isDocumentAssociatedWithCourse(
+    documentId: DocumentId,
+    courseId: CourseId,
+    organizationId: OrganizationId,
+  ): Promise<boolean> {
+    const doc = await this.store.findByIdForOrganization(documentId, organizationId);
+    if (!doc) return false;
+    if (doc.courseId === courseId) return true;
+    if (this.sourcePackStore) {
+      try {
+        const packs = await this.sourcePackStore.listByCourse(courseId, organizationId);
+        return packs.some((p) => p.documents?.some((d) => d.documentId === documentId));
+      } catch {
+        return false;
+      }
+    }
+    return false;
   }
 
   /**
@@ -640,13 +952,7 @@ export class DocumentService {
     await this.authorize(actor, organizationId, "document:read");
 
     const role = await this.getMembershipRole(actor, organizationId);
-    const isPrivileged =
-      role === "organization_admin" ||
-      role === "course_editor" ||
-      role === "content_worker" ||
-      role === "teacher" ||
-      role === "platform_admin" ||
-      role === "support_agent";
+    const isPrivileged = this.isStaffActor(actor, role);
 
     const docs = isPrivileged
       ? await this.store.listByOrganization(organizationId)
@@ -679,31 +985,77 @@ export class DocumentService {
     organizationId: OrganizationId,
     documentId: DocumentId,
   ): Promise<{ data: Buffer; mimeType: string; originalName: string }> {
-    await this.authorize(actor, organizationId, "document:read");
-
-    const doc = await this.store.findByIdForOrganization(
-      documentId,
-      organizationId,
-    );
-    if (!doc) {
+    const doc = this.store.findById
+      ? await this.store.findById(documentId)
+      : await this.store.findByIdForOrganization(documentId, organizationId);
+    if (!doc || doc.deletedAt !== null) {
       throw new DomainError("not_found", "Document not found");
     }
 
-    const role = await this.getMembershipRole(actor, organizationId);
+    const authoritativeOrgId = doc.organizationId as OrganizationId;
+    let isPublicPublication = false;
+
+    if (doc.courseId && this.courseStore) {
+      const course = await this.courseStore.findByIdForUser(
+        doc.courseId as CourseId,
+        actor.userId,
+        this.systemOrganizationId,
+      );
+      if (course) {
+        const isOfficial = isOfficialCourse(course, this.systemOrganizationId);
+        if (isOfficial) {
+          isPublicPublication = true;
+        } else if (this.coursePublicationStore) {
+          const pub = await this.coursePublicationStore.findPublishedByCourse(course.id);
+          if (pub && pub.status === "published" && pub.deletedAt === null) {
+            isPublicPublication = true;
+          }
+        }
+      }
+    }
+
+    const role = await this.getMembershipRole(actor, authoritativeOrgId);
     const isStaff =
+      actor.globalRole === "platform_admin" ||
+      actor.role === "platform_admin" ||
+      actor.globalRole === "content_worker" ||
+      actor.globalRole === "course_editor" ||
       role === "organization_admin" ||
       role === "course_editor" ||
       role === "content_worker" ||
       role === "platform_admin";
+    const isOwner = doc.ownerUserId === actor.userId;
 
-    if (this.entitlementService && !isStaff) {
-      const access = await this.entitlementService.checkAccess(actor, {
-        userId: actor.userId,
-        resourceType: "document",
-        resourceId: documentId,
-        courseId: doc.courseId ?? undefined,
-      });
-      if (!access.granted) {
+    if (
+      !isPublicPublication &&
+      authoritativeOrgId !== organizationId &&
+      (!this.systemOrganizationId ||
+        authoritativeOrgId !== this.systemOrganizationId)
+    ) {
+      throw new DomainError("not_found", "Document not found");
+    }
+
+    await this.authorize(actor, authoritativeOrgId, "document:read", {
+      isPublicPublication,
+      isPublicResource: isPublicPublication,
+      courseId: doc.courseId ?? undefined,
+    });
+
+    if (!isStaff && !isOwner) {
+      if (this.entitlementService) {
+        const access = await this.entitlementService.checkAccess(actor, {
+          userId: actor.userId,
+          resourceType: "document",
+          resourceId: documentId,
+          courseId: doc.courseId ?? undefined,
+        });
+        if (!access.granted) {
+          throw new DomainError(
+            "forbidden",
+            "برای دانلود و مشاهده این سند، فعال‌سازی اشتراک آوانا پلاس یا خرید دوره مربوطه الزامی است.",
+          );
+        }
+      } else {
         throw new DomainError(
           "forbidden",
           "برای دانلود و مشاهده این سند، فعال‌سازی اشتراک آوانا پلاس یا خرید دوره مربوطه الزامی است.",
@@ -734,9 +1086,39 @@ export class DocumentService {
       throw new DomainError("not_found", "Document not found");
     }
 
-    // 2. Anti-spoofing organization check
+    // 2. Anti-spoofing organization check & official check
     const authoritativeOrgId = doc.organizationId as OrganizationId;
+    const isOfficialDoc = await this.isOfficialDocument(doc);
+    const role = await this.getMembershipRole(actor, authoritativeOrgId);
+    const isPrivileged = this.isStaffActor(actor, role);
+
+    // Regular users / students must NEVER access raw source documents of official courses (draft or published)
+    if (isOfficialDoc && !isPrivileged) {
+      throw new DomainError("not_found", "Document not found");
+    }
+
+    let isPublicPublication = false;
+    if (doc.courseId && this.courseStore) {
+      const course = await this.courseStore.findByIdForUser(
+        doc.courseId as CourseId,
+        actor.userId,
+        this.systemOrganizationId,
+      );
+      if (course) {
+        const isOfficial = isOfficialCourse(course, this.systemOrganizationId);
+        if (isOfficial) {
+          isPublicPublication = true;
+        } else if (this.coursePublicationStore) {
+          const pub = await this.coursePublicationStore.findPublishedByCourse(course.id);
+          if (pub && pub.status === "published" && pub.deletedAt === null) {
+            isPublicPublication = true;
+          }
+        }
+      }
+    }
+
     if (
+      !isPublicPublication &&
       authoritativeOrgId !== organizationId &&
       (!this.systemOrganizationId ||
         authoritativeOrgId !== this.systemOrganizationId)
@@ -767,6 +1149,8 @@ export class DocumentService {
       resourceId: doc.id,
       courseId: doc.courseId ?? undefined,
       isSystemResource,
+      isPublicPublication,
+      isPublicResource: isPublicPublication,
     };
 
     // 5. Policy Check (Action: "document:read")
@@ -783,12 +1167,29 @@ export class DocumentService {
       throw new DomainError("not_found", "Document not found");
     }
 
+    // For non-official documents: non-privileged users must own the document or have course access
+    if (!isPrivileged && !isPublicPublication && doc.ownerUserId !== actor.userId) {
+      if (doc.courseId && this.courseStore) {
+        const course = await this.courseStore.findByIdForUser(
+          doc.courseId as CourseId,
+          actor.userId,
+          this.systemOrganizationId,
+        );
+        if (!course) {
+          throw new DomainError("not_found", "Document not found");
+        }
+      } else {
+        throw new DomainError("not_found", "Document not found");
+      }
+    }
+
     // Resolve linked course information
     let courseInfo: { id: string; name: string } | null = null;
     if (doc.courseId && this.courseStore) {
       const course = await this.courseStore.findByIdForUser(
         doc.courseId as CourseId,
         actor.userId,
+        this.systemOrganizationId,
       );
       if (course) {
         courseInfo = { id: course.id, name: course.name };

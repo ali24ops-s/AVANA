@@ -12,6 +12,8 @@ import {
   Roles,
   asUserId,
   asCourseId,
+  asModuleId,
+  asLessonId,
   asOrganizationId,
   asDocumentId,
   asProductId,
@@ -32,6 +34,7 @@ import {
   buildActor,
   defaultPolicy,
   type ResourceContext,
+  buildPdfFilename,
 } from "@avana/domain";
 import type { DocumentProcessingService } from "../documents/document-processing-service.js";
 import type { DocumentService } from "../documents/document-service.js";
@@ -74,6 +77,7 @@ import type {
 import {
   DrizzleModuleStore,
   DrizzleSubCourseGroupStore,
+  DrizzleLessonStore,
 } from "../learning/drizzle-stores.js";
 import type { StudyService } from "../study/study-service.js";
 import type { SpecialExamAutomationService } from "../study/special-exam-automation-service.js";
@@ -101,9 +105,31 @@ import {
 import { writeErrorEnvelope } from "../../http/errorEnvelope.js";
 import { ContentRepairService } from "./content-repair-service.js";
 import { ContentRepairAuditService } from "./content-repair-audit-service.js";
+import {
+  PdfGenerationService,
+  defaultPdfGenerationService,
+} from "./pdf-generation-service.js";
+import type { ReviewSummaryPdfData } from "./pdf-template.js";
+import {
+  type ErrorMonitoringStore,
+  DrizzleErrorStore,
+  InMemoryErrorStore,
+  type ErrorMonitoringService,
+  type ErrorGroupStatus,
+  type ErrorSeverity,
+  type ErrorSource,
+} from "../../observability/index.js";
+import { crmRoutes } from "./crm/crm-routes.js";
+import { CrmService } from "./crm/crm-service.js";
+import { DrizzleCrmStore, InMemoryCrmStore, type CrmStore } from "./crm/crm-store.js";
 
 export interface AdminRouteOptions extends AuthMiddlewareDeps {
   adminStore: AdminStore;
+  crmStore?: CrmStore;
+  crmService?: CrmService;
+  crmCampaignQueue?: import("./crm/crm-campaign-queue.js").CrmCampaignQueue;
+  crmChannelAdapterRegistry?: import("./crm/crm-channel-adapter.js").CrmChannelAdapterRegistry;
+  pdfGenerationService?: PdfGenerationService;
   contentRepairService?: ContentRepairService;
   contentRepairAuditService?: ContentRepairAuditService;
   deviceService?: DeviceService;
@@ -138,6 +164,8 @@ export interface AdminRouteOptions extends AuthMiddlewareDeps {
   gateway?: import("../generation/gateway/index.js").ModelGateway;
   adminGateway?: import("../generation/gateway/index.js").ModelGateway;
   ga4Service?: import("../observability/ga4-measurement-protocol.js").Ga4MeasurementProtocolService;
+  errorStore?: ErrorMonitoringStore;
+  errorMonitoringService?: ErrorMonitoringService;
 }
 
 export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
@@ -150,6 +178,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   }
   const adminService = new AdminService(adminStore, walletService, commerceStore, notificationService, promotionService, referralService, studyService, ga4Service, opts.auditService);
   const { requireAuth, requireRole } = makeAuthMiddleware({ sessionService, userStore });
+  const pdfGenerationService = opts.pdfGenerationService ?? defaultPdfGenerationService;
 
 
   const contentRepairService =
@@ -180,6 +209,14 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       ? new DrizzleQuestionPatternStore((opts.adminStore as any).db)
       : new InMemoryQuestionPatternStore());
 
+  const errorStore: ErrorMonitoringStore =
+    opts.errorStore ??
+    opts.errorMonitoringService?.getStore() ??
+    (opts.adminStore as any)?.errorStore ??
+    ((opts.adminStore as any)?.db
+      ? new DrizzleErrorStore((opts.adminStore as any).db)
+      : new InMemoryErrorStore());
+
   // All routes here require platform_admin, EXCEPT authorized workspaces for support_agent, content_worker, course_editor, and organization_admin
   app.addHook("preHandler", requireAuth);
   app.addHook("preHandler", async (request, reply) => {
@@ -201,7 +238,11 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     if (isSupport) {
       const isSupportAllowed =
         rawPath.includes("/content-reports") ||
-        rawPath.includes("/content-repair");
+        rawPath.includes("/content-repair") ||
+        rawPath === "/crm" ||
+        rawPath.startsWith("/crm/") ||
+        rawPath === "/v1/admin/crm" ||
+        rawPath.startsWith("/v1/admin/crm/");
 
       if (isSupportAllowed) {
         return;
@@ -245,11 +286,92 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       ) {
         return;
       }
+
+      // Check if user is the genuine creator of the requested user/community course
+      if (rawPath.includes("/content-studio/courses/") && opts.courseStore) {
+        const match = rawPath.match(/\/content-studio\/courses\/([a-fA-F0-9-]+)/);
+        if (match && match[1]) {
+          try {
+            const cId = parseCourseId(match[1]);
+            const course = await opts.courseStore.findById(cId);
+            if (course && !course.deletedAt) {
+              const isOfficial =
+                course.isOfficial === true ||
+                !course.organizationId ||
+                (Boolean(opts.systemOrganizationId) && course.organizationId === opts.systemOrganizationId);
+              if (!isOfficial && course.creatorUserId && user.userId === course.creatorUserId) {
+                return;
+              }
+            }
+          } catch {
+            // Ignore parse errors and let standard guard handle
+          }
+        }
+      }
+
+      // Check if user is the genuine creator of the community course containing this lesson
+      if (rawPath.includes("/content/lessons/") && opts.adminStore && opts.courseStore) {
+        const match = rawPath.match(/\/content\/lessons\/([a-fA-F0-9-]+)/);
+        if (match && match[1]) {
+          try {
+            let existing: any = null;
+            if (typeof opts.adminStore.getLesson === "function") {
+              existing = await opts.adminStore.getLesson(match[1]);
+            }
+            if (!existing && (opts.adminStore as any).lessonStore) {
+              existing = await (opts.adminStore as any).lessonStore.findById(asLessonId(match[1] as any));
+            }
+            if (existing?.moduleId) {
+              let mod: any = null;
+              if (typeof (opts.adminStore as any).getModule === "function") {
+                mod = await (opts.adminStore as any).getModule(existing.moduleId);
+              } else if ((opts.adminStore as any).moduleStore) {
+                mod = await (opts.adminStore as any).moduleStore.findById(asModuleId(existing.moduleId as any));
+              }
+              if (mod?.courseId) {
+                const course = await opts.courseStore.findById(asCourseId(mod.courseId as any));
+                if (course && !course.deletedAt) {
+                  const isOfficial =
+                    course.isOfficial === true ||
+                    !course.organizationId ||
+                    (Boolean(opts.systemOrganizationId) && course.organizationId === opts.systemOrganizationId);
+                  if (!isOfficial && course.creatorUserId && user.userId === course.creatorUserId) {
+                    return;
+                  }
+                }
+              }
+            }
+          } catch {
+            // Ignore and fall through
+          }
+        }
+      }
+
       throw new DomainError("forbidden", "Access denied. Insufficient permissions.");
     }
 
     await requireRole(Roles.platform_admin)(request, reply);
   });
+
+  const crmStore: CrmStore =
+    opts.crmStore ??
+    ((opts.adminStore as any)?.db
+      ? new DrizzleCrmStore((opts.adminStore as any).db)
+      : new InMemoryCrmStore());
+
+  const crmService: CrmService =
+    opts.crmService ??
+    new CrmService(
+      crmStore,
+      opts.auditService,
+      opts.crmCampaignQueue,
+      opts.crmChannelAdapterRegistry,
+    );
+
+  await app.register(crmRoutes, { crmService, prefix: "/crm" });
+
+  const courseDraftService =
+    opts.courseDraftService ?? opts.officialContentService?.courseDraftService;
 
   app.get("/dashboard", async (_request, reply) => {
     const stats = await adminService.getDashboardStats();
@@ -502,6 +624,174 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       return reply.send(data);
     } catch (error) {
       request.log.error({ err: error }, "Failed to list logs");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  app.get("/system/errors/groups", async (request, reply) => {
+    try {
+      const query = request.query as {
+        page?: string;
+        pageSize?: string;
+        status?: string;
+        severity?: string;
+        source?: string;
+        feature?: string;
+        search?: string;
+        from?: string;
+        to?: string;
+      };
+
+      const rawPage = parseInt(query.page || "1", 10);
+      const rawPageSize = parseInt(query.pageSize || "20", 10);
+      const page = Math.max(1, isNaN(rawPage) ? 1 : rawPage);
+      const pageSize = Math.min(100, Math.max(1, isNaN(rawPageSize) ? 20 : rawPageSize));
+
+      const validStatuses = new Set(["unresolved", "investigating", "resolved", "ignored"]);
+      const validSeverities = new Set(["critical", "error", "warning", "info"]);
+      const validSources = new Set(["backend", "worker", "external", "frontend"]);
+
+      const status = query.status && validStatuses.has(query.status) ? (query.status as ErrorGroupStatus) : undefined;
+      const severity = query.severity && validSeverities.has(query.severity) ? (query.severity as ErrorSeverity) : undefined;
+      const source = query.source && validSources.has(query.source) ? (query.source as ErrorSource) : undefined;
+      const feature = typeof query.feature === "string" ? query.feature.trim() || undefined : undefined;
+      const search = typeof query.search === "string" ? query.search.trim() || undefined : undefined;
+      const from = typeof query.from === "string" ? query.from.trim() || undefined : undefined;
+      const to = typeof query.to === "string" ? query.to.trim() || undefined : undefined;
+
+      const data = await errorStore.listGroups({
+        page,
+        pageSize,
+        status,
+        severity,
+        source,
+        feature,
+        search,
+        from,
+        to,
+      });
+
+      reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
+      return reply.send(data);
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to list error groups");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  app.get("/system/errors/groups/:id", async (request, reply) => {
+    try {
+      const params = request.params as { id: string };
+      const group = await errorStore.findGroupById(params.id);
+      if (!group) {
+        return reply.status(404).send({ code: "not_found", message: "Error group not found" });
+      }
+      return reply.send(group);
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to get error group");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  app.get("/system/errors/groups/:id/events", async (request, reply) => {
+    try {
+      const params = request.params as { id: string };
+      const query = request.query as { page?: string; pageSize?: string };
+      const rawPage = parseInt(query.page || "1", 10);
+      const rawPageSize = parseInt(query.pageSize || "20", 10);
+      const page = Math.max(1, isNaN(rawPage) ? 1 : rawPage);
+      const pageSize = Math.min(100, Math.max(1, isNaN(rawPageSize) ? 20 : rawPageSize));
+
+      const group = await errorStore.findGroupById(params.id);
+      if (!group) {
+        return reply.status(404).send({ code: "not_found", message: "Error group not found" });
+      }
+
+      const data = await errorStore.listEvents({
+        groupId: params.id,
+        page,
+        pageSize,
+      });
+
+      reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
+      return reply.send(data);
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to list error events");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  app.patch("/system/errors/groups/:id/status", async (request, reply) => {
+    try {
+      const params = request.params as { id: string };
+      const body = request.body as { status?: string };
+      const validStatuses = new Set(["unresolved", "investigating", "resolved", "ignored"]);
+      if (!body?.status || !validStatuses.has(body.status)) {
+        return reply.status(400).send({ code: "bad_request", message: "Invalid error group status" });
+      }
+
+      const user = (request as unknown as { user?: { userId: string } }).user;
+      const updated = await errorStore.updateGroupStatus(
+        params.id,
+        body.status as ErrorGroupStatus,
+        user?.userId,
+      );
+
+      if (!updated) {
+        return reply.status(404).send({ code: "not_found", message: "Error group not found" });
+      }
+
+      return reply.send(updated);
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to update error group status");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  app.post("/system/errors/groups/:id/notes", async (request, reply) => {
+    try {
+      const params = request.params as { id: string };
+      const body = request.body as { note?: string; action?: string };
+      if (!body?.note || typeof body.note !== "string" || body.note.trim().length === 0) {
+        return reply.status(400).send({ code: "bad_request", message: "Note text is required" });
+      }
+
+      const group = await errorStore.findGroupById(params.id);
+      if (!group) {
+        return reply.status(404).send({ code: "not_found", message: "Error group not found" });
+      }
+
+      const user = (request as unknown as { user?: { userId: string } }).user;
+      if (!user?.userId) {
+        return reply.status(401).send({ code: "unauthorized" });
+      }
+
+      const note = await errorStore.addAdminNote({
+        groupId: params.id,
+        adminUserId: user.userId,
+        action: body.action || "comment",
+        note: body.note.slice(0, 2000).trim(),
+      });
+
+      return reply.status(201).send(note);
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to add admin note to error group");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  app.get("/system/errors/groups/:id/notes", async (request, reply) => {
+    try {
+      const params = request.params as { id: string };
+      const group = await errorStore.findGroupById(params.id);
+      if (!group) {
+        return reply.status(404).send({ code: "not_found", message: "Error group not found" });
+      }
+
+      const notes = await errorStore.listAdminNotes(params.id);
+      return reply.send({ notes });
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to list admin notes for error group");
       return reply.status(500).send({ code: "internal_error" });
     }
   });
@@ -914,6 +1204,494 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     }
   });
 
+  // =========================================================================
+  // PDF Generation Endpoints (Lessons & Review Summaries)
+  // =========================================================================
+
+  app.get<{
+    Params: { id: string };
+    Querystring: { submissionId?: string; courseId?: string };
+  }>("/content/lessons/:id/pdf", async (request, reply) => {
+    try {
+      const lessonId = request.params.id;
+      const { submissionId, courseId } = request.query;
+      const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
+
+      let lessonDetail: AdminLessonDetailRecord | null = null;
+      let snapshotPub: import("@avana/domain").CoursePublicationRecord | undefined;
+
+      // 1. Live database lookup via adminStore
+      if (typeof opts.adminStore.getLesson === "function") {
+        lessonDetail = await opts.adminStore.getLesson(lessonId);
+      }
+
+      // 2. Publication snapshot lookup for submitted courses
+      if (!lessonDetail && opts.coursePublicationStore) {
+        if (submissionId) {
+          snapshotPub = await opts.coursePublicationStore.findById(
+            asCoursePublicationId(submissionId as any),
+          );
+        } else if (courseId) {
+          snapshotPub = await opts.coursePublicationStore.findLatestByCourse(
+            asCourseId(courseId as any),
+          );
+        }
+
+        if (snapshotPub && snapshotPub.snapshot && Array.isArray(snapshotPub.snapshot.chapters)) {
+          for (const ch of snapshotPub.snapshot.chapters) {
+            const found = ch.lessons?.find((l) => l.id === lessonId);
+            if (found) {
+              lessonDetail = {
+                id: found.id,
+                title: found.title,
+                courseName: snapshotPub.snapshot.title || snapshotPub.title,
+                moduleTitle: ch.title,
+                moduleId: ch.id,
+                publicationStatus: snapshotPub.status,
+                contentMarkdown: found.contentMarkdown,
+                createdAt: snapshotPub.createdAt
+                  ? new Date(snapshotPub.createdAt).toISOString()
+                  : new Date().toISOString(),
+              };
+              break;
+            }
+          }
+        }
+      }
+
+      if (!lessonDetail) {
+        return reply.status(404).send({
+          code: "not_found",
+          message: "درس مورد نظر یافت نشد.",
+        });
+      }
+
+      if (!lessonDetail.contentMarkdown || !lessonDetail.contentMarkdown.trim()) {
+        return reply.status(400).send({
+          code: "empty_content",
+          message: "محتوای درسنامه خالی است و امکان تولید PDF وجود ندارد.",
+        });
+      }
+
+      // 3. Organization / tenant boundary check
+      const isPlatformAdmin =
+        user.globalRole === Roles.platform_admin || user.role === Roles.platform_admin;
+      if (!isPlatformAdmin && opts.organizationStore) {
+        let targetOrgId: string | undefined;
+
+        if (snapshotPub?.organizationId) {
+          targetOrgId = snapshotPub.organizationId;
+        } else if (lessonDetail.moduleId && opts.moduleStore && opts.courseStore) {
+          const mod = await opts.moduleStore.findById(parseModuleId(lessonDetail.moduleId));
+          if (mod) {
+            const course = await opts.courseStore.findById(mod.courseId);
+            if (course) {
+              targetOrgId = course.organizationId;
+            }
+          }
+        }
+
+        if (!targetOrgId) {
+          return reply.status(403).send({
+            code: "forbidden",
+            message: "دسترسی به این محتوا برای سازمان شما مجاز نیست.",
+          });
+        }
+
+        const userOrgs = await opts.organizationStore.listByUserId(asUserId(user.userId as any));
+        const userOrgIds = new Set(userOrgs.map((o) => o.id));
+        if (!userOrgIds.has(targetOrgId as any)) {
+          return reply.status(403).send({
+            code: "forbidden",
+            message: "دسترسی به این محتوا برای سازمان شما مجاز نیست.",
+          });
+        }
+      }
+
+      // 4. Generate PDF
+      const pdfBuffer = await pdfGenerationService.generateLessonPdf({
+        title: lessonDetail.title || "درسنامه بدون عنوان",
+        courseName: lessonDetail.courseName,
+        moduleTitle: lessonDetail.moduleTitle,
+        contentMarkdown: lessonDetail.contentMarkdown,
+        reference: lessonDetail.reference ?? undefined,
+        generationDate: new Date().toLocaleDateString("fa-IR"),
+      });
+
+      const safeAsciiFallback = `lesson-${lessonId.replace(/[^\w-]/g, "_")}.pdf`;
+      const finalFilename = buildPdfFilename("lesson", lessonDetail.title, lessonId);
+      const encodedFilename = encodeURIComponent(finalFilename);
+
+      return reply
+        .header("Content-Type", "application/pdf")
+        .header(
+          "Content-Disposition",
+          `attachment; filename="${safeAsciiFallback}"; filename*=UTF-8''${encodedFilename}`
+        )
+        .header("Content-Length", pdfBuffer.length)
+        .header("Cache-Control", "private, no-cache, no-store, must-revalidate")
+        .header("Pragma", "no-cache")
+        .send(pdfBuffer);
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to generate lesson PDF");
+      return reply.status(500).send({
+        code: "pdf_generation_failed",
+        message: "خطا در تولید فایل PDF درسنامه رخ داده است.",
+      });
+    }
+  });
+
+  app.get<{
+    Params: { id: string };
+    Querystring: { submissionId?: string; courseId?: string };
+  }>("/content/modules/:id/pdf", async (request, reply) => {
+    try {
+      const moduleId = request.params.id;
+      const { submissionId, courseId } = request.query;
+      const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
+
+      const activeModuleStore: ModuleStore =
+        opts.moduleStore ??
+        ((opts.adminStore as any)?.db
+          ? new DrizzleModuleStore((opts.adminStore as any).db)
+          : (opts.adminStore as any)?.learningStores?.moduleStore);
+
+      const activeLessonStore: import("../learning/learning-store.js").LessonStore | undefined =
+        opts.lessonStore ??
+        ((opts.adminStore as any)?.db
+          ? new DrizzleLessonStore((opts.adminStore as any).db)
+          : (opts.adminStore as any)?.learningStores?.lessonStore);
+
+      let chapterData: {
+        id: string;
+        title: string;
+        courseName: string;
+        organizationId?: string;
+        chapterReference?: string | null;
+        courseReference?: string | null;
+        sessions: Array<{
+          id: string;
+          title: string;
+          sortOrder: number;
+          contentMarkdown: string;
+          reference?: string | null;
+          estimatedMinutes?: number | null;
+        }>;
+      } | null = null;
+
+      // 1. Live database lookup
+      if (activeModuleStore) {
+        try {
+          const mod = await activeModuleStore.findById(parseModuleId(moduleId));
+          if (mod) {
+            let courseName = "دوره آموزشی";
+            let organizationId: string | undefined;
+            let courseReference: string | null = null;
+
+            if (opts.courseStore) {
+              const course = await opts.courseStore.findById(mod.courseId);
+              if (course) {
+                courseName = (course as any).title || course.name || courseName;
+                organizationId = course.organizationId;
+                courseReference = (course as any).reference ?? null;
+              }
+            } else if (typeof (opts.adminStore as any)?.getCourse === "function") {
+              const course = await (opts.adminStore as any).getCourse(mod.courseId);
+              if (course) {
+                courseName = (course as any).title || (course as any).name || courseName;
+                organizationId = (course as any).organizationId;
+                courseReference = (course as any).reference ?? null;
+              }
+            }
+
+            let sessions: Array<{
+              id: string;
+              title: string;
+              sortOrder: number;
+              contentMarkdown: string;
+              reference?: string | null;
+              estimatedMinutes?: number | null;
+            }> = [];
+
+            if (activeLessonStore) {
+              const rawLessons = await activeLessonStore.listByModule(mod.id);
+              sessions = rawLessons.map((l) => ({
+                id: l.id,
+                title: l.title,
+                sortOrder: l.sortOrder ?? 0,
+                contentMarkdown: l.contentMarkdown || "",
+                reference: (l as any).reference ?? null,
+                estimatedMinutes: (l as any).estimatedMinutes ?? null,
+              }));
+            }
+
+            chapterData = {
+              id: mod.id,
+              title: mod.title,
+              courseName,
+              organizationId,
+              chapterReference: (mod as any).reference ?? null,
+              courseReference,
+              sessions,
+            };
+          }
+        } catch {
+          // parseModuleId may throw if not valid UUID, continue to snapshot lookup
+        }
+      }
+
+      // 2. Publication snapshot lookup (if not found in live DB)
+      if (!chapterData && opts.coursePublicationStore) {
+        let snapshotPub: import("@avana/domain").CoursePublicationRecord | undefined;
+        if (submissionId) {
+          snapshotPub = await opts.coursePublicationStore.findById(
+            asCoursePublicationId(submissionId as any),
+          );
+        } else if (courseId) {
+          snapshotPub = await opts.coursePublicationStore.findLatestByCourse(
+            asCourseId(courseId as any),
+          );
+        }
+
+        if (snapshotPub && snapshotPub.snapshot && Array.isArray(snapshotPub.snapshot.chapters)) {
+          const foundChapter = snapshotPub.snapshot.chapters.find((ch) => ch.id === moduleId);
+          if (foundChapter) {
+            const rawLessons = foundChapter.lessons || [];
+            chapterData = {
+              id: foundChapter.id,
+              title: foundChapter.title,
+              courseName: snapshotPub.snapshot.title || snapshotPub.title,
+              organizationId: snapshotPub.organizationId ?? undefined,
+              chapterReference: (foundChapter as any).reference ?? null,
+              courseReference: (snapshotPub.snapshot as any).reference ?? null,
+              sessions: rawLessons.map((l, idx) => ({
+                id: l.id,
+                title: l.title,
+                sortOrder: (l as any).sortOrder ?? idx,
+                contentMarkdown: l.contentMarkdown || "",
+                reference: (l as any).reference ?? null,
+                estimatedMinutes: (l as any).estimatedMinutes ?? null,
+              })),
+            };
+          }
+        }
+      }
+
+      if (!chapterData) {
+        return reply.status(404).send({
+          code: "not_found",
+          message: "فصل مورد نظر یافت نشد.",
+        });
+      }
+
+      // 3. Organization / tenant boundary check
+      const isPlatformAdmin =
+        user.globalRole === Roles.platform_admin || user.role === Roles.platform_admin;
+      if (!isPlatformAdmin && opts.organizationStore) {
+        if (!chapterData.organizationId) {
+          return reply.status(403).send({
+            code: "forbidden",
+            message: "دسترسی به این محتوا برای سازمان شما مجاز نیست.",
+          });
+        }
+
+        const userOrgs = await opts.organizationStore.listByUserId(asUserId(user.userId as any));
+        const userOrgIds = new Set(userOrgs.map((o) => o.id));
+        if (!userOrgIds.has(chapterData.organizationId as any)) {
+          return reply.status(403).send({
+            code: "forbidden",
+            message: "دسترسی به این محتوا برای سازمان شما مجاز نیست.",
+          });
+        }
+      }
+
+      // 4. Validate that chapter has sessions with content
+      const sessionsWithContent = chapterData.sessions.filter(
+        (s) => s.contentMarkdown && s.contentMarkdown.trim().length > 0,
+      );
+
+      if (sessionsWithContent.length === 0) {
+        return reply.status(400).send({
+          code: "empty_content",
+          message: "این فصل فاقد درسنامه با محتوای قابل‌نمایش است.",
+        });
+      }
+
+      // Sort sessions by sortOrder ascending
+      sessionsWithContent.sort((a, b) => a.sortOrder - b.sortOrder);
+
+      // 5. Generate Chapter PDF
+      const pdfBuffer = await pdfGenerationService.generateChapterPdf({
+        chapterId: chapterData.id,
+        chapterTitle: chapterData.title || "فصل بدون عنوان",
+        courseName: chapterData.courseName,
+        chapterReference: chapterData.chapterReference ?? undefined,
+        courseReference: chapterData.courseReference ?? undefined,
+        sessions: sessionsWithContent,
+        generationDate: new Date().toLocaleDateString("fa-IR"),
+      });
+
+      const safeAsciiFallback = `chapter-${moduleId.replace(/[^\w-]/g, "_")}.pdf`;
+      const finalFilename = buildPdfFilename("chapter", chapterData.title, moduleId);
+      const encodedFilename = encodeURIComponent(finalFilename);
+
+      return reply
+        .header("Content-Type", "application/pdf")
+        .header(
+          "Content-Disposition",
+          `attachment; filename="${safeAsciiFallback}"; filename*=UTF-8''${encodedFilename}`
+        )
+        .header("Content-Length", pdfBuffer.length)
+        .header("Cache-Control", "private, no-cache, no-store, must-revalidate")
+        .header("Pragma", "no-cache")
+        .send(pdfBuffer);
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to generate chapter PDF");
+      return reply.status(500).send({
+        code: "pdf_generation_failed",
+        message: "خطا در تولید فایل PDF فصل رخ داده است.",
+      });
+    }
+  });
+
+  app.get<{
+    Params: { id: string };
+    Querystring: { courseId?: string; documentId?: string };
+  }>("/content/review-summaries/:id/pdf", async (request, reply) => {
+    try {
+      const summaryId = request.params.id;
+      const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
+      const genStore =
+        opts.generatedContentStore ?? (opts.adminStore as any)?.generationStores?.generatedContentStore;
+
+      let summaryRecord: import("../generation/generation-store.js").GeneratedContentRecord | undefined;
+      if (genStore) {
+        if (typeof genStore.findById === "function") {
+          summaryRecord = await genStore.findById(summaryId as any);
+        }
+        if (!summaryRecord && opts.systemOrganizationId && typeof genStore.findByIdForOrganization === "function") {
+          summaryRecord = await genStore.findByIdForOrganization(
+            summaryId as any,
+            opts.systemOrganizationId as any,
+          );
+        }
+        // Fallback: summaryId might be documentId
+        if (!summaryRecord && typeof genStore.listByDocument === "function") {
+          const docDrafts = await genStore.listByDocument(
+            summaryId as any,
+            (opts.systemOrganizationId ?? "") as any,
+          );
+          summaryRecord = docDrafts.find(
+            (d: import("../generation/generation-store.js").GeneratedContentRecord) =>
+              d.type === "review_summary" && !d.deletedAt && d.status !== "rejected",
+          );
+        }
+        // Fallback: summaryId might be courseId
+        if (!summaryRecord && typeof genStore.listByCourse === "function") {
+          const courseDrafts = await genStore.listByCourse(
+            summaryId as any,
+            (opts.systemOrganizationId ?? "") as any,
+          );
+          summaryRecord = courseDrafts.find(
+            (d: import("../generation/generation-store.js").GeneratedContentRecord) =>
+              d.type === "review_summary" && !d.deletedAt && d.status !== "rejected",
+          );
+        }
+      }
+
+      if (
+        !summaryRecord ||
+        summaryRecord.type !== "review_summary" ||
+        Boolean(summaryRecord.deletedAt) ||
+        summaryRecord.status === "rejected"
+      ) {
+        return reply.status(404).send({
+          code: "not_found",
+          message: "خلاصه مرور مورد نظر یافت نشد.",
+        });
+      }
+
+      // Organization / tenant boundary check
+      const isPlatformAdmin =
+        user.globalRole === Roles.platform_admin || user.role === Roles.platform_admin;
+      if (!isPlatformAdmin && opts.organizationStore) {
+        if (!summaryRecord.organizationId) {
+          return reply.status(403).send({
+            code: "forbidden",
+            message: "دسترسی به این محتوا برای سازمان شما مجاز نیست.",
+          });
+        }
+        const userOrgs = await opts.organizationStore.listByUserId(asUserId(user.userId as any));
+        const userOrgIds = new Set(userOrgs.map((o) => o.id));
+        if (!userOrgIds.has(summaryRecord.organizationId)) {
+          return reply.status(403).send({
+            code: "forbidden",
+            message: "دسترسی به این محتوا برای سازمان شما مجاز نیست.",
+          });
+        }
+      }
+
+      const payload = summaryRecord.payload as any;
+      if (!payload || typeof payload !== "object") {
+        return reply.status(400).send({
+          code: "empty_content",
+          message: "محتوای خلاصه مرور خالی یا نامعتبر است.",
+        });
+      }
+
+      const hasOverview = Boolean(payload.overview && typeof payload.overview === "string" && payload.overview.trim());
+      const hasSections = Array.isArray(payload.sections) && payload.sections.length > 0;
+      const hasTakeaways = Array.isArray(payload.finalTakeaways) && payload.finalTakeaways.length > 0;
+
+      if (!hasOverview && !hasSections && !hasTakeaways) {
+        return reply.status(400).send({
+          code: "empty_content",
+          message: "محتوای خلاصه مرور خالی یا ناقص است.",
+        });
+      }
+
+      let courseName: string | undefined;
+      let moduleTitle: string | undefined;
+      if (summaryRecord.courseId && opts.courseStore) {
+        const c = await opts.courseStore.findById(summaryRecord.courseId);
+        if (c) courseName = c.name;
+      }
+
+      const pdfData: ReviewSummaryPdfData = {
+        title: payload.title || "خلاصه مرور جامع",
+        courseName,
+        moduleTitle,
+        estimatedReadingMinutes: payload.estimatedReadingMinutes,
+        overview: payload.overview,
+        sections: payload.sections,
+        finalTakeaways: payload.finalTakeaways,
+        generationDate: new Date().toLocaleDateString("fa-IR"),
+      };
+
+      const pdfBuffer = await pdfGenerationService.generateReviewSummaryPdf(pdfData);
+      const safeAsciiFallback = `review-summary-${summaryRecord.id.replace(/[^\w-]/g, "_")}.pdf`;
+      const finalFilename = buildPdfFilename("review_summary", pdfData.title, summaryRecord.id);
+      const encodedFilename = encodeURIComponent(finalFilename);
+
+      return reply
+        .header("Content-Type", "application/pdf")
+        .header(
+          "Content-Disposition",
+          `attachment; filename="${safeAsciiFallback}"; filename*=UTF-8''${encodedFilename}`
+        )
+        .header("Content-Length", pdfBuffer.length)
+        .header("Cache-Control", "private, no-cache, no-store, must-revalidate")
+        .header("Pragma", "no-cache")
+        .send(pdfBuffer);
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to generate review summary PDF");
+      return reply.status(500).send({
+        code: "pdf_generation_failed",
+        message: "خطا در تولید فایل PDF خلاصه مرور رخ داده است.",
+      });
+    }
+  });
+
   app.patch<{
     Params: { id: string };
     Body: { reference?: string | null; title?: string; contentMarkdown?: string };
@@ -929,14 +1707,89 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       let existing = null;
       if (typeof opts.adminStore.getLesson === "function") {
         existing = await opts.adminStore.getLesson(lessonId);
-        if (!existing) {
-          return reply.status(404).send({
-            code: "not_found",
-            message: "درسنامه مورد نظر یافت نشد.",
-          });
+      }
+      if (!existing && typeof (opts.adminStore as any).learningStores?.lessonStore?.findById === "function") {
+        existing = await (opts.adminStore as any).learningStores.lessonStore.findById(lessonId);
+      }
+      if (!existing && (opts.adminStore as any).lessonStore) {
+        existing = await (opts.adminStore as any).lessonStore.findById(asLessonId(lessonId as any));
+      }
+
+      if (!existing) {
+        return reply.status(404).send({
+          code: "not_found",
+          message: "درسنامه مورد نظر یافت نشد.",
+        });
+      }
+
+      const user = (request as unknown as { user?: { userId: string; role: Role; globalRole?: Role | null } })?.user;
+      const actor = user
+        ? {
+            userId: asUserId(user.userId as unknown as import("@avana/domain").UUID),
+            role: user.role,
+            globalRole: (user.globalRole as Role) ?? null,
+          }
+        : {
+            userId: asUserId("00000000-0000-0000-0000-000000000000" as any),
+            role: "platform_admin" as Role,
+            globalRole: "platform_admin" as Role,
+          };
+
+      // Check whether this lesson belongs to an already published course
+      let course: import("../courses/course-store.js").CourseRecord | undefined;
+      const moduleId = existing.moduleId;
+      if (moduleId) {
+        let moduleRecord: any;
+        if (typeof (opts.adminStore as any).getModule === "function") {
+          moduleRecord = await (opts.adminStore as any).getModule(moduleId);
+        } else if ((opts.adminStore as any).moduleStore) {
+          moduleRecord = await (opts.adminStore as any).moduleStore.findById(asModuleId(moduleId as any));
+        }
+        if (moduleRecord?.courseId && opts.courseStore) {
+          course = await opts.courseStore.findById(asCourseId(moduleRecord.courseId as any));
         }
       }
 
+      // If the course is published and courseDraftService is active, stage the modification into a draft session
+      if (course && course.status === "published" && courseDraftService) {
+        const session = await courseDraftService.getOrCreateActiveSession(actor, course.id, {
+          source: "manual",
+          title: `ویرایش جلسه ${title || existing.title}`,
+        });
+
+        const change = await courseDraftService.recordChange(actor, session.id, {
+          entityType: "lesson",
+          entityId: lessonId,
+          action: "update",
+          parentId: existing.moduleId,
+          payload: {
+            before: {
+              title: existing.title,
+              contentMarkdown: existing.contentMarkdown,
+              reference: existing.reference ?? null,
+            },
+            after: {
+              ...(title !== undefined ? { title: title.trim() } : {}),
+              ...(contentMarkdown !== undefined ? { contentMarkdown } : {}),
+              ...(normalizedReference !== undefined ? { reference: normalizedReference } : {}),
+            },
+          },
+        });
+
+        return reply.send({
+          id: lessonId,
+          title: title !== undefined ? title.trim() : existing.title,
+          contentMarkdown: contentMarkdown !== undefined ? contentMarkdown : existing.contentMarkdown,
+          reference: normalizedReference !== undefined ? normalizedReference : (existing.reference ?? null),
+          moduleId: existing.moduleId,
+          stagedInDraft: true,
+          draftSessionId: session.id,
+          draftChangeId: change?.id,
+          success: true,
+        });
+      }
+
+      // Otherwise, perform direct update for draft / unpublished courses
       if (typeof opts.adminStore.updateLesson === "function") {
         await opts.adminStore.updateLesson(lessonId, {
           reference: normalizedReference,
@@ -1321,9 +2174,18 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       let targetOrgId = body.organizationId || query.organizationId;
       const targetCourseId = body.courseId || query.courseId;
 
-      if (!targetOrgId && targetCourseId && opts.courseStore) {
-        const foundCourse = await opts.courseStore.findById(targetCourseId as CourseId);
-        if (foundCourse?.organizationId) {
+      let foundCourse: Awaited<ReturnType<NonNullable<typeof opts.courseStore>["findById"]>> | null = null;
+      if (targetCourseId) {
+        if (opts.courseStore) {
+          foundCourse = await opts.courseStore.findById(targetCourseId as CourseId);
+        }
+        if (!foundCourse) {
+          return reply.status(404).send({
+            code: "not_found",
+            message: "دوره مورد نظر جهت خروجی یافت نشد.",
+          });
+        }
+        if (!targetOrgId && foundCourse.organizationId) {
           targetOrgId = foundCourse.organizationId;
         }
       }
@@ -1368,10 +2230,20 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         scope: body.scope,
       });
 
-      const filename = `avana-content-export-${Date.now()}.zip`;
+      // Filename construction according to RFC 5987 / RFC 6266
+      const safeAsciiFallback = `course-export-${Date.now()}.zip`;
+      const rawCourseName = foundCourse?.name
+        ? foundCourse.name.trim().replace(/[/\\:*?"<>|\x00-\x1f\x7f]/g, "_")
+        : "avana-content-export";
+      const utf8Filename = `${rawCourseName}-${Date.now()}.zip`;
+      const encodedFilename = encodeURIComponent(utf8Filename);
+
       return reply
         .header("Content-Type", "application/zip")
-        .header("Content-Disposition", `attachment; filename="${filename}"`)
+        .header(
+          "Content-Disposition",
+          `attachment; filename="${safeAsciiFallback}"; filename*=UTF-8''${encodedFilename}`
+        )
         .send(zipBuffer);
     } catch (err: unknown) {
       if (err instanceof DomainError) {
@@ -3010,6 +3882,8 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         force?: boolean;
         questionPatternId?: string | null;
         questionPatternVersion?: number | null;
+        questionPatternIds?: string[] | null;
+        question_pattern_ids?: string[] | null;
       };
     }>("/content-studio/courses/:id/generate", async (request, reply) => {
       const user = (request as unknown as { user: { userId: string; role: Role } }).user;
@@ -3019,11 +3893,32 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         return reply.status(400).send({ code: "bad_request", message: "documentId is required" });
       }
 
+      // Normalize pattern IDs from either camelCase or snake_case
+      const incomingPatternIds = body.questionPatternIds ?? body.question_pattern_ids;
+      const normalizedPatternIds: string[] = [];
+      if (Array.isArray(incomingPatternIds)) {
+        for (const pid of incomingPatternIds) {
+          if (typeof pid === "string" && pid.trim()) {
+            normalizedPatternIds.push(pid.trim());
+          }
+        }
+      }
+      if (typeof body.questionPatternId === "string" && body.questionPatternId.trim()) {
+        const singleId = body.questionPatternId.trim();
+        if (!normalizedPatternIds.includes(singleId)) {
+          normalizedPatternIds.push(singleId);
+        }
+      }
+
       const result = await officialContentService.triggerOfficialGeneration(
         { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role },
         id as CourseId,
         body.documentId,
-        body,
+        {
+          ...body,
+          questionPatternIds: normalizedPatternIds.length > 0 ? normalizedPatternIds : undefined,
+          questionPatternId: normalizedPatternIds.length > 0 ? normalizedPatternIds[0] : (body.questionPatternId ?? undefined),
+        },
       );
       return reply.send(result);
     });
@@ -3228,9 +4123,6 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     });
   }
 
-  const courseDraftService =
-    opts.courseDraftService ?? opts.officialContentService?.courseDraftService;
-
   if (courseDraftService) {
     // =========================================================================
     // Official Courses Draft, Preview, Validate, Publish & Release History
@@ -3346,23 +4238,31 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       Body?: { sessionId?: string };
     }>("/content-studio/courses/:id/publish-draft", async (request, reply) => {
       const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
-      if (
-        user.role !== Roles.platform_admin &&
-        user.globalRole !== Roles.platform_admin &&
-        user.role !== Roles.organization_admin
-      ) {
-        throw new DomainError("forbidden", "دسترسی مدیریت به انتشار نسخه رسمی دوره الزامی است.");
-      }
       const actor = {
         userId: asUserId(user.userId as unknown as import("@avana/domain").UUID),
         role: user.role,
         globalRole: (user.globalRole as Role) ?? null,
       };
       const courseId = parseCourseId(request.params.id);
+      const course = await opts.courseStore?.findById(courseId);
+      if (!course || course.deletedAt) {
+        throw new DomainError("not_found", "دوره یافت نشد.");
+      }
+
+      if (!courseDraftService.isAuthorizedToPublish(actor, course)) {
+        throw new DomainError("forbidden", "دسترسی مدیریت یا مالکیت دوره جهت انتشار الزامی است.");
+      }
+
       const session = request.body?.sessionId
         ? await courseDraftService.getSession(actor, asCourseDraftSessionId(request.body.sessionId as any))
         : await courseDraftService.getOrCreateActiveSession(actor, courseId);
       const result = await courseDraftService.publishDraftSession(actor, session.id);
+      if (studyService) {
+        const targetOrg = course.organizationId ?? (session as { organizationId?: OrganizationId }).organizationId;
+        if (targetOrg) {
+          studyService.invalidateTopicSummaryCache(targetOrg);
+        }
+      }
       return reply.send(result);
     });
 
@@ -3387,25 +4287,33 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       Body: { targetVersion: number; reason?: string };
     }>("/content-studio/courses/:id/rollback", async (request, reply) => {
       const user = (request as unknown as { user: { userId: string; role: Role; globalRole?: Role | null } }).user;
-      if (
-        user.role !== Roles.platform_admin &&
-        user.globalRole !== Roles.platform_admin &&
-        user.role !== Roles.organization_admin
-      ) {
-        throw new DomainError("forbidden", "دسترسی مدیریت به بازگردانی نسخه دوره الزامی است.");
-      }
       const actor = {
         userId: asUserId(user.userId as unknown as import("@avana/domain").UUID),
         role: user.role,
         globalRole: (user.globalRole as Role) ?? null,
       };
       const courseId = parseCourseId(request.params.id);
+      const course = await opts.courseStore?.findById(courseId);
+      if (!course || course.deletedAt) {
+        throw new DomainError("not_found", "دوره یافت نشد.");
+      }
+
+      if (!courseDraftService.isAuthorizedToPublish(actor, course)) {
+        throw new DomainError("forbidden", "دسترسی مدیریت یا مالکیت دوره جهت بازگردانی الزامی است.");
+      }
+
       const result = await courseDraftService.rollbackRelease(
         actor,
         courseId,
         request.body.targetVersion,
         request.body.reason,
       );
+      if (studyService) {
+        const course = await opts.courseStore?.findById(courseId);
+        if (course?.organizationId) {
+          studyService.invalidateTopicSummaryCache(course.organizationId);
+        }
+      }
       return reply.send(result);
     });
   }
@@ -4081,6 +4989,23 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       });
     }
 
+    if (pub.status !== "pending_review" && pub.status !== "published") {
+      return reply.status(400).send({
+        code: "bad_request",
+        message: `امکان بررسی و تأیید این درخواست وجود ندارد؛ وضعیت فعلی درخواست "${pub.status}" است.`,
+      });
+    }
+
+    if (opts.courseStore) {
+      const liveCourse = await opts.courseStore.findById(pub.courseId);
+      if (liveCourse && liveCourse.status === "unpublished") {
+        return reply.status(409).send({
+          code: "conflict",
+          message: "این دوره از حالت انتشار خارج شده است و درخواست‌های قبلی آن بی‌اعتبار هستند.",
+        });
+      }
+    }
+
     const isUpdate = Boolean(
       pub.metadata?.isUpdate ||
       (pub.metadata?.baseVersion && pub.metadata.baseVersion >= 1),
@@ -4332,6 +5257,13 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       });
     }
 
+    if (pub.status !== "pending_review") {
+      return reply.status(400).send({
+        code: "bad_request",
+        message: `امکان رد این درخواست وجود ندارد؛ وضعیت فعلی درخواست "${pub.status}" است.`,
+      });
+    }
+
     const isUpdate = Boolean(
       pub.metadata?.isUpdate ||
       (pub.metadata?.baseVersion && pub.metadata.baseVersion >= 1),
@@ -4461,11 +5393,10 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       });
     }
 
-    if (pub.status === "published") {
-      return reply.status(409).send({
-        code: "conflict",
-        message:
-          "دوره قبلاً تأیید و منتشر شده است و امکان درخواست اصلاح برای آن وجود ندارد.",
+    if (pub.status !== "pending_review") {
+      return reply.status(400).send({
+        code: "bad_request",
+        message: `امکان درخواست تغییرات برای این درخواست وجود ندارد؛ وضعیت فعلی درخواست "${pub.status}" است.`,
       });
     }
 

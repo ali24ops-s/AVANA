@@ -370,10 +370,16 @@ describe("Role Escalation Prevention & Security Hardening", () => {
       expect(OrganizationService.prototype.createOrganization.length).toBe(4);
 
       // 2. Static source verification to guard against code regression in CI
-      const serviceSourcePath = path.resolve(
+      const candidate1 = path.resolve(
         process.cwd(),
-        "apps/api/src/modules/organizations/organization-service.ts",
+        "src/modules/organizations/organization-service.ts",
       );
+      const serviceSourcePath = fs.existsSync(candidate1)
+        ? candidate1
+        : path.resolve(
+            process.cwd(),
+            "apps/api/src/modules/organizations/organization-service.ts",
+          );
       const sourceContent = fs.readFileSync(serviceSourcePath, "utf-8");
 
       // Verify that initialRole: Role = "organization_admin" does NOT exist

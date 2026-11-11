@@ -1573,10 +1573,10 @@ describe("Personal Courses and Course Publication Workflow E2E", () => {
     });
     expect(approveUpdateRes.statusCode).toBe(200);
 
-    // Direct Persistence Verification: Live course version updated to 2, status published
+    // Direct Persistence Verification: Live course version updated to 4 (strictly monotonic, preserving v2 changes_requested & v3 rejected in audit history)
     const finalLiveCourse = await courseStore.findById(courseId);
     expect(finalLiveCourse?.status).toBe("published");
-    expect(finalLiveCourse?.version).toBe(2);
+    expect(finalLiveCourse?.version).toBe(4);
     expect(finalLiveCourse?.name).toBe("دوره جامع فیزیک کوانتوم (تأییدیه دانشگاهی)");
 
     // DRAFT LESSON IS NOW MATERIALIZED / ACTIVATED TO PUBLISHED!

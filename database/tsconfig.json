@@ -10,6 +10,7 @@
     "client.ts",
     "schema/**/*.ts",
     "migrations/**/*.ts",
+    "tracker/**/*.ts",
     "seeds/**/*.ts",
     "tests/**/*.ts",
     "migrate.ts",

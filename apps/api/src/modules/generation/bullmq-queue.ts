@@ -117,6 +117,8 @@ export class BullMqGenerationQueue implements GenerationQueue {
     payload: GenerationJobPayload,
   ): Record<string, unknown> {
     return {
+      jobId: payload.jobId,
+      requestId: payload.requestId,
       actorUserId: payload.actorUserId,
       actorRole: payload.actorRole,
       organizationId: payload.organizationId,

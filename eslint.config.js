@@ -17,6 +17,7 @@ export default tseslint.config(
       "apps/api/*.mjs",
       "apps/api/scratch-*.ts",
       "test-quality*.ts",
+      "tools/tutorial-studio/**",
     ],
   },
   js.configs.recommended,

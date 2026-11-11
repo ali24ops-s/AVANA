@@ -692,43 +692,7 @@ export function createTeacherApi(client: ApiClient) {
       const formData = new FormData();
       formData.append("file", file, file.name);
 
-      const response = await fetch("/v1/teacher/contents/files", {
-        method: "POST",
-        headers: {
-          "x-request-id": generateUUID(),
-        },
-        credentials: "include",
-        body: formData,
-      });
-
-      let data: unknown;
-      try {
-        if (typeof response.text === "function") {
-          const text = await response.text();
-          data = text ? JSON.parse(text) : undefined;
-        } else if (typeof response.json === "function") {
-          data = await response.json();
-        }
-      } catch {
-        data = null;
-      }
-
-      if (!response.ok) {
-        if (
-          data &&
-          typeof data === "object" &&
-          "error" in data &&
-          data.error &&
-          typeof (data as { error: unknown }).error === "object"
-        ) {
-          throw new ApiError(data as ErrorEnvelope);
-        }
-        throw new Error(
-          (data as { message?: string })?.message || "خطا در بارگذاری فایل محتوا.",
-        );
-      }
-
-      const resObj = data as {
+      const resObj = await client.postFormData<{
         file_url?: string;
         fileUrl?: string;
         file_name?: string;
@@ -739,7 +703,7 @@ export function createTeacherApi(client: ApiClient) {
         fileMimeType?: string;
         storage_key?: string;
         storageKey?: string;
-      };
+      }>("/v1/teacher/contents/files", formData);
 
       return {
         fileUrl: resObj.fileUrl || resObj.file_url || "",

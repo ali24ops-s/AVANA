@@ -11,15 +11,22 @@ import type {
   UserId,
   CoursePublicationRecord,
 } from "@avana/domain";
+import { DomainError } from "@avana/domain";
 import type {
   CourseRecord,
   CourseStore,
   CoursePublicationStore,
+  CreateCourseRecords,
 } from "../course-store.js";
 
 export class InMemoryCourseStore implements CourseStore {
   private courses: Map<string, CourseRecord> = new Map();
   private userCourses: Map<string, Set<string>> = new Map(); // userId -> Set of courseIds
+  private userExamSchedules: Map<
+    string,
+    { examDate: string | null; examScope?: import("@avana/domain").ExamScope | null }
+  > = new Map(); // `${userId}:${courseId}` -> exam schedule
+  private creatorUserIds: Map<CourseId, UserId> = new Map();
   private auditEvents: AuditEvent[] = [];
 
   constructor(
@@ -36,10 +43,7 @@ export class InMemoryCourseStore implements CourseStore {
     this.publicationStore = publicationStore;
   }
 
-  async create(records: {
-    course: CourseRecord;
-    auditEvents: readonly AuditEvent[];
-  }): Promise<CourseRecord> {
+  async create(records: CreateCourseRecords): Promise<CourseRecord> {
     if (this.courses.has(records.course.id)) {
       throw new Error("Duplicate course record");
     }
@@ -47,12 +51,69 @@ export class InMemoryCourseStore implements CourseStore {
     const courseRecord: CourseRecord = {
       status: records.course.status ?? "published",
       ...records.course,
+      officialExamDate: records.course.officialExamDate ?? records.course.examDate ?? null,
+      officialExamScope: records.course.officialExamScope ?? records.course.examScope ?? null,
+      examDate: records.course.officialExamDate ?? records.course.examDate ?? null,
+      examScope: records.course.officialExamScope ?? records.course.examScope ?? null,
     };
     this.courses.set(records.course.id, courseRecord);
+    const creatorId = records.creatorUserId || (records.auditEvents?.[0]?.actorId as UserId | undefined);
+    if (creatorId) {
+      this.creatorUserIds.set(records.course.id, creatorId);
+    }
+    if (records.creatorUserId) {
+      let set = this.userCourses.get(records.creatorUserId);
+      if (!set) {
+        set = new Set();
+        this.userCourses.set(records.creatorUserId, set);
+      }
+      set.add(records.course.id);
+      const initialDate =
+        records.initialExamSchedule?.examDate ?? (records.course.examDate ?? null);
+      const initialScope =
+        records.initialExamSchedule?.examScope ?? (records.course.examScope ?? null);
+      if (initialDate !== null) {
+        this.userExamSchedules.set(
+          `${records.creatorUserId}:${records.course.id}`,
+          {
+            examDate: initialDate,
+            examScope: initialScope,
+          },
+        );
+      }
+    }
     if (records.auditEvents) {
       this.auditEvents.push(...records.auditEvents);
     }
-    return records.course;
+    const resultRecord = { ...records.course };
+    if (records.initialExamSchedule) {
+      resultRecord.examDate = records.initialExamSchedule.examDate ?? null;
+      resultRecord.examScope = records.initialExamSchedule.examScope ?? null;
+    }
+    return resultRecord;
+  }
+
+  async findUserPersonalCourseByName(
+    userId: UserId,
+    organizationId: OrganizationId,
+    name: string,
+  ): Promise<CourseRecord | undefined> {
+    const trimmed = name.trim().toLowerCase();
+    const enrolled = this.userCourses.get(userId);
+    if (!enrolled) return undefined;
+    for (const courseId of enrolled) {
+      const c = this.courses.get(courseId);
+      if (
+        c &&
+        c.organizationId === organizationId &&
+        !c.isOfficial &&
+        c.deletedAt === null &&
+        c.name.trim().toLowerCase() === trimmed
+      ) {
+        return this.enrichWithUserExam(c, userId);
+      }
+    }
+    return undefined;
   }
 
   async findById(courseId: CourseId): Promise<CourseRecord | undefined> {
@@ -68,34 +129,56 @@ export class InMemoryCourseStore implements CourseStore {
   ): Promise<CourseRecord | undefined> {
     const course = this.courses.get(courseId);
     if (!course || course.deletedAt !== null) return undefined;
+    let accessibleCourse: CourseRecord | undefined;
     if (
       systemOrganizationId &&
       course.organizationId === systemOrganizationId
     ) {
-      return { ...course };
-    }
-    if (course.isOfficial && course.status === "published") {
-      return { ...course };
-    }
-    if (course.status === "published" && this.publicationStore) {
+      accessibleCourse = { ...course };
+    } else if (course.isOfficial && course.status === "published") {
+      accessibleCourse = { ...course };
+    } else if (course.status === "published" && this.publicationStore) {
       const activePub = await this.publicationStore.findPublishedByCourse(courseId);
       if (activePub && activePub.status === "published" && activePub.deletedAt === null) {
-        return { ...course };
+        accessibleCourse = { ...course };
       }
     }
-    const userCourses = this.userCourses.get(userId);
-    if (userCourses && userCourses.has(courseId)) {
-      return { ...course };
+    if (!accessibleCourse) {
+      const userCourses = this.userCourses.get(userId);
+      if (userCourses && userCourses.has(courseId)) {
+        accessibleCourse = { ...course };
+      } else if (this.orgStore) {
+        const membership = await this.orgStore.findMembership(
+          course.organizationId,
+          userId,
+        );
+        if (membership) accessibleCourse = { ...course };
+      } else {
+        accessibleCourse = { ...course };
+      }
     }
-    if (this.orgStore) {
-      const membership = await this.orgStore.findMembership(
-        course.organizationId,
-        userId,
-      );
-      if (membership) return { ...course };
-      return undefined;
+    if (!accessibleCourse) return undefined;
+    return this.enrichWithUserExam(accessibleCourse, userId);
+  }
+
+  private enrichWithUserExam(course: CourseRecord, userId: UserId): CourseRecord {
+    const sched = this.userExamSchedules.get(`${userId}:${course.id}`);
+    if (sched !== undefined) {
+      return {
+        ...course,
+        officialExamDate: course.examDate,
+        officialExamScope: course.examScope,
+        examDate: sched.examDate,
+        examScope: sched.examScope ?? null,
+      };
     }
-    return { ...course };
+    return {
+      ...course,
+      officialExamDate: course.examDate,
+      officialExamScope: course.examScope,
+      examDate: null,
+      examScope: null,
+    };
   }
 
   private async isCoursePublicApproved(c: CourseRecord): Promise<boolean> {
@@ -131,11 +214,40 @@ export class InMemoryCourseStore implements CourseStore {
   }
 
   async update(course: CourseRecord): Promise<CourseRecord> {
-    if (!this.courses.has(course.id)) {
+    const existing = this.courses.get(course.id);
+    if (!existing) {
       throw new Error("Course not found");
     }
 
-    this.courses.set(course.id, { ...course });
+    const updatedBase: CourseRecord = {
+      ...existing,
+      name: course.name,
+      description: course.description ?? null,
+      subject: course.subject,
+      targetAcademicFields: course.targetAcademicFields ?? [],
+      status: course.status ?? existing.status,
+      isOfficial: course.isOfficial ?? existing.isOfficial,
+      version: course.version !== undefined ? course.version : existing.version,
+      officialExamDate:
+        course.officialExamDate !== undefined
+          ? course.officialExamDate
+          : (course.examDate !== undefined ? course.examDate : existing.officialExamDate),
+      officialExamScope:
+        course.officialExamScope !== undefined
+          ? course.officialExamScope
+          : (course.examScope !== undefined ? course.examScope : existing.officialExamScope),
+      updatedAt: course.updatedAt,
+      deletedAt: course.deletedAt !== undefined ? course.deletedAt : existing.deletedAt,
+      examDate:
+        course.officialExamDate !== undefined
+          ? course.officialExamDate
+          : (course.examDate !== undefined ? course.examDate : existing.examDate),
+      examScope:
+        course.officialExamScope !== undefined
+          ? course.officialExamScope
+          : (course.examScope !== undefined ? course.examScope : existing.examScope),
+    };
+    this.courses.set(course.id, updatedBase);
     return { ...course };
   }
 
@@ -163,7 +275,7 @@ export class InMemoryCourseStore implements CourseStore {
         (systemOrganizationId && c.organizationId === systemOrganizationId) ||
         isPublic;
       if (isMatch) {
-        list.push({ ...c });
+        list.push(this.enrichWithUserExam(c, userId));
       }
     }
     return list;
@@ -182,6 +294,27 @@ export class InMemoryCourseStore implements CourseStore {
     set.add(courseId);
   }
 
+  async isUserEnrolled(
+    userId: UserId,
+    courseId: CourseId,
+  ): Promise<boolean> {
+    const set = this.userCourses.get(userId);
+    return set ? set.has(courseId) : false;
+  }
+
+  async getCourseCreatorUserId(courseId: CourseId): Promise<UserId | undefined> {
+    if (this.creatorUserIds.has(courseId)) {
+      return this.creatorUserIds.get(courseId);
+    }
+    const audit = this.auditEvents.find(
+      (e) => e.entityType === "course" && e.entityId === courseId && e.action === "course.created",
+    );
+    if (audit?.actorId) {
+      return audit.actorId as UserId;
+    }
+    return undefined;
+  }
+
   async removeUserCourse(
     userId: UserId,
     courseId: CourseId,
@@ -190,6 +323,35 @@ export class InMemoryCourseStore implements CourseStore {
     if (set) {
       set.delete(courseId);
     }
+  }
+
+  async setUserExamSchedule(
+    userId: UserId,
+    courseId: CourseId,
+    examDate: string | null,
+    examScope?: import("@avana/domain").ExamScope | null,
+  ): Promise<CourseRecord> {
+    this.userExamSchedules.set(`${userId}:${courseId}`, {
+      examDate,
+      examScope: examScope ?? null,
+    });
+    await this.addUserCourse(userId, courseId);
+    const course = await this.findByIdForUser(courseId, userId);
+    if (!course) throw new Error("Course not found");
+    return course;
+  }
+
+  async deleteUserExamSchedule(
+    userId: UserId,
+    courseId: CourseId,
+  ): Promise<CourseRecord> {
+    this.userExamSchedules.set(`${userId}:${courseId}`, {
+      examDate: null,
+      examScope: null,
+    });
+    const course = await this.findByIdForUser(courseId, userId);
+    if (!course) throw new Error("Course not found");
+    return course;
   }
 
   private courseMetrics: Map<
@@ -208,7 +370,18 @@ export class InMemoryCourseStore implements CourseStore {
     userId: UserId,
     courseIds: CourseId[],
   ): Promise<void> {
-    this.userCourses.set(userId, new Set(courseIds));
+    const targetSet = new Set(courseIds);
+    this.userCourses.set(userId, targetSet);
+
+    // Clean up exam schedules for removed courses only; retained courses keep their exam schedules
+    for (const key of Array.from(this.userExamSchedules.keys())) {
+      if (key.startsWith(`${userId}:`)) {
+        const cId = key.slice(userId.length + 1);
+        if (!targetSet.has(cId as CourseId)) {
+          this.userExamSchedules.delete(key);
+        }
+      }
+    }
   }
 
   async listPopular(
@@ -262,7 +435,13 @@ export class InMemoryCourseStore implements CourseStore {
       return a.course.id.localeCompare(b.course.id);
     });
 
-    return scoredCourses.slice(0, limit).map((sc) => sc.course);
+    return scoredCourses.slice(0, limit).map((sc) => ({
+      ...sc.course,
+      examDate: null,
+      examScope: null,
+      officialExamDate: sc.course.examDate ?? sc.course.officialExamDate ?? null,
+      officialExamScope: sc.course.examScope ?? sc.course.officialExamScope ?? null,
+    }));
   }
 
   async delete(courseId: CourseId): Promise<void> {
@@ -277,6 +456,11 @@ export class InMemoryCourseStore implements CourseStore {
 export class InMemoryCoursePublicationStore implements CoursePublicationStore {
   private publications: Map<string, CoursePublicationRecord> = new Map();
   private creatorProfiles: Map<string, { id: string; name: string }> = new Map();
+  private courseStore?: CourseStore;
+
+  setCourseStore(store: CourseStore) {
+    this.courseStore = store;
+  }
 
   setCreatorProfile(userId: string, name: string) {
     this.creatorProfiles.set(userId, { id: userId, name });
@@ -285,6 +469,18 @@ export class InMemoryCoursePublicationStore implements CoursePublicationStore {
   async create(
     publication: CoursePublicationRecord,
   ): Promise<CoursePublicationRecord> {
+    const duplicate = Array.from(this.publications.values()).find(
+      (p) =>
+        p.courseId === publication.courseId &&
+        p.version === publication.version &&
+        p.deletedAt === null,
+    );
+    if (duplicate) {
+      throw new DomainError(
+        "conflict",
+        `یک درخواست انتشار با نسخه ${publication.version} قبلاً ثبت شده است. لطفاً مجدداً تلاش کنید.`,
+      );
+    }
     this.publications.set(publication.id, { ...publication });
     return { ...publication };
   }
@@ -316,6 +512,119 @@ export class InMemoryCoursePublicationStore implements CoursePublicationStore {
       .filter((p) => p.courseId === courseId && p.status === "published" && p.deletedAt === null)
       .sort((a, b) => b.version - a.version);
     return pubs[0] ? { ...pubs[0] } : undefined;
+  }
+
+  async findLatestApprovedByCourse(
+    courseId: import("@avana/domain").CourseId,
+  ): Promise<import("@avana/domain").CoursePublicationRecord | undefined> {
+    const pubs = Array.from(this.publications.values())
+      .filter(
+        (p) =>
+          p.courseId === courseId &&
+          (p.status === "published" || p.status === "unpublished") &&
+          p.publishedAt !== null &&
+          p.publishedAt !== undefined &&
+          p.deletedAt === null,
+      )
+      .sort((a, b) => {
+        if (b.version !== a.version) return b.version - a.version;
+        const bTime = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+        const aTime = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+        return bTime - aTime;
+      });
+    return pubs[0] ? { ...pubs[0] } : undefined;
+  }
+
+  async unpublishCourseAtomic(params: {
+    courseId: import("@avana/domain").CourseId;
+    actorUserId: import("@avana/domain").UserId;
+    now: string;
+    unpublishReason: string;
+    cancellationReason: string;
+  }): Promise<{
+    course: CourseRecord;
+    publication: import("@avana/domain").CoursePublicationRecord;
+    supersededPublications: import("@avana/domain").CoursePublicationRecord[];
+  }> {
+    if (!this.courseStore) {
+      throw new Error("Course store not configured in InMemoryCoursePublicationStore");
+    }
+    const course = await this.courseStore.findById(params.courseId);
+    if (!course) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    const publishedPub = await this.findPublishedByCourse(params.courseId);
+    if (!publishedPub && course.status !== "published") {
+      throw new DomainError(
+        "bad_request",
+        "این دوره در حال حاضر منتشر نشده است.",
+      );
+    }
+
+    // Invalidate/supersede any pending or changes_requested submissions
+    const pendingPubs = Array.from(this.publications.values()).filter(
+      (p) =>
+        p.courseId === params.courseId &&
+        (p.status === "pending_review" || p.status === "changes_requested") &&
+        p.deletedAt === null,
+    );
+
+    const supersededPublications: import("@avana/domain").CoursePublicationRecord[] = [];
+    for (const pending of pendingPubs) {
+      const updatedPending: import("@avana/domain").CoursePublicationRecord = {
+        ...pending,
+        status: "superseded",
+        metadata: {
+          ...pending.metadata,
+          supersededAt: params.now,
+          supersededByUserId: params.actorUserId,
+          cancellationReason: params.cancellationReason,
+        },
+        updatedAt: params.now,
+      };
+      this.publications.set(pending.id, updatedPending);
+      supersededPublications.push({ ...updatedPending });
+    }
+
+    // Unpublish active published publication
+    let updatedPub = publishedPub;
+    if (publishedPub) {
+      updatedPub = {
+        ...publishedPub,
+        status: "unpublished",
+        metadata: {
+          ...publishedPub.metadata,
+          unpublishedAt: params.now,
+          unpublishedByUserId: params.actorUserId,
+          unpublishReason: params.unpublishReason,
+        },
+        updatedAt: params.now,
+      };
+      this.publications.set(publishedPub.id, updatedPub);
+    }
+
+    const candidatePub = updatedPub ?? publishedPub ?? supersededPublications[0];
+    if (!candidatePub) {
+      throw new DomainError(
+        "bad_request",
+        "دوره در وضعیت انتشار عمومی قرار ندارد و هیچ رکورد انتشار معتبری برای آن یافت نشد.",
+      );
+    }
+
+    // Update course status
+    const updatedCourse: CourseRecord = {
+      ...course,
+      status: "unpublished",
+      updatedAt: params.now,
+    };
+    await this.courseStore.update(updatedCourse);
+
+    return {
+      course: updatedCourse,
+      publication: candidatePub,
+      supersededPublications,
+    };
   }
 
   async updateStatus(

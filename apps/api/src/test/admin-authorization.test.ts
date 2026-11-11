@@ -29,7 +29,7 @@ describe("Admin Authorization & Role Resolution", () => {
     // Helper to create a user with a specific role in an organization
     async function createUserWithRole(email: string, role: Role) {
       const user = await userStore.createUserWithPassword({ email, passwordHash: "x" });
-      if (role === Roles.platform_admin || role === Roles.content_worker) {
+      if (role === Roles.platform_admin || role === Roles.content_worker || role === Roles.support_agent) {
         user.globalRole = role;
         user.role = role;
         userStore.insert({ ...user });

@@ -36,6 +36,8 @@ import {
   sanitizePaymentText,
   calculateSpecialExamPrice,
   type SubscriptionCreditBonusesConfig,
+  normalizePersianDigits,
+  toPersianDigits,
 } from "@avana/domain";
 import type { CommerceStore } from "./commerce-store.js";
 import type { PaymentGateway } from "./gateway/types.js";
@@ -769,7 +771,8 @@ export class CommerceService {
       entitlementExpiresAt = null; // Lifetime Ownership
     } else if (product.type === "course") {
       entitlementResourceType = "course";
-      entitlementResourceId = product.targetId;
+      const actualCourseId = (product.metadata as any)?.courseId ?? product.targetId;
+      entitlementResourceId = actualCourseId;
       entitlementExpiresAt = null; // Lifetime Ownership
     } else if (product.type === "content") {
       entitlementResourceType = "content";
@@ -1045,8 +1048,9 @@ export class CommerceService {
     }
 
     // 4. Validate Tracking Number
-    const trackingNumber = input.trackingNumber
-      ? input.trackingNumber.trim()
+    const rawTrack = input.trackingNumber ? String(input.trackingNumber) : "";
+    const trackingNumber = rawTrack
+      ? normalizePersianDigits(rawTrack).trim()
       : "";
     if (!trackingNumber || trackingNumber.length < 3) {
       throw new DomainError(
@@ -1056,8 +1060,9 @@ export class CommerceService {
     }
 
     // 5. Validate Source Card Last 4 Digits
-    const sourceCardLast4 = input.sourceCardLast4
-      ? input.sourceCardLast4.trim()
+    const rawLast4 = input.sourceCardLast4 ? String(input.sourceCardLast4) : "";
+    const sourceCardLast4 = rawLast4
+      ? normalizePersianDigits(rawLast4).replace(/\D/g, "").slice(0, 4)
       : "";
     if (!/^\d{4}$/.test(sourceCardLast4)) {
       throw new DomainError(
@@ -1078,11 +1083,24 @@ export class CommerceService {
     }
 
     // 7. Anti-Fraud Rule #6: Composite Duplicate Detection
-    const duplicatePayment = await this.store.findDuplicateCardToCardPayment({
+    const trackingNumberPersian = toPersianDigits(trackingNumber);
+    const sourceCardLast4Persian = toPersianDigits(sourceCardLast4);
+
+    let duplicatePayment = await this.store.findDuplicateCardToCardPayment({
       trackingNumber,
       amount: input.amount,
       sourceCardLast4,
     });
+    if (
+      !duplicatePayment &&
+      (trackingNumber !== trackingNumberPersian || sourceCardLast4 !== sourceCardLast4Persian)
+    ) {
+      duplicatePayment = await this.store.findDuplicateCardToCardPayment({
+        trackingNumber: trackingNumberPersian,
+        amount: input.amount,
+        sourceCardLast4: sourceCardLast4Persian,
+      });
+    }
     if (duplicatePayment) {
       throw new DomainError(
         "conflict",
@@ -1090,9 +1108,13 @@ export class CommerceService {
       );
     }
 
-    // Global tracking number check for non-rejected payments
-    const existingByTracking =
+    // Global tracking number check for non-rejected payments (check both ASCII and Persian equivalents)
+    let existingByTracking =
       await this.store.findPaymentByTrackingNumber(trackingNumber);
+    if (!existingByTracking && trackingNumber !== trackingNumberPersian) {
+      existingByTracking =
+        await this.store.findPaymentByTrackingNumber(trackingNumberPersian);
+    }
     if (
       existingByTracking &&
       existingByTracking.status !== "admin_rejected" &&

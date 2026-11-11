@@ -7,11 +7,9 @@ import {
   BookOpen,
   Share2,
   Check,
-  ArrowRight,
   ArrowLeft,
   ChevronLeft,
   List,
-  AlertTriangle,
   Loader2,
 } from "lucide-react";
 import { usePublicBlogPost } from "../../hooks/useBlog.js";
@@ -20,6 +18,8 @@ import { BlogSEO } from "../../components/blog/BlogSEO.js";
 import { AboutNavbar } from "../../components/about/AboutNavbar.js";
 import { Footer } from "../../components/landing/Footer.js";
 import { toPersianDigits } from "@avana/domain";
+import { ErrorView } from "../../components/error/index.js";
+import { ApiError } from "../../lib/api/errors.js";
 
 interface TocItem {
   id: string;
@@ -31,7 +31,7 @@ export function BlogDetailPage() {
   const { slug } = useParams<{ slug: string }>();
   const [copied, setCopied] = useState(false);
 
-  const { data, isLoading, isError } = usePublicBlogPost(slug);
+  const { data, isLoading, isError, error, refetch } = usePublicBlogPost(slug);
   const post = data?.post;
 
   // Extract Table of Contents from Markdown headings
@@ -95,26 +95,63 @@ export function BlogDetailPage() {
   }
 
   if (isError || !post) {
+    const errorMsg = (error as Error)?.message ?? "";
+    const isNetwork =
+      error instanceof ApiError
+        ? error.isNetworkError || error.isTimeout
+        : typeof navigator !== "undefined" && !navigator.onLine;
+
+    const isNotFound =
+      (error instanceof ApiError && error.statusCode === 404) ||
+      errorMsg.includes("not_found") ||
+      errorMsg.includes("یافت نشد") ||
+      (!isLoading && !isError && !post);
+
     return (
       <div className="min-h-screen bg-[var(--color-bg-default)] text-[var(--color-text)] flex flex-col font-body" dir="rtl">
         <AboutNavbar />
-        <main className="flex-1 max-w-xl mx-auto pt-36 pb-20 px-4 text-center space-y-4">
-          <div className="p-8 rounded-[16px] bg-[var(--color-surface)] border border-red-200 shadow-xs space-y-4">
-            <AlertTriangle className="w-14 h-14 text-red-500 mx-auto" />
-            <h1 className="text-xl font-bold text-[var(--color-text)]">مقاله مورد نظر یافت نشد</h1>
-            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              این مقاله وجود ندارد یا ممکن است هنوز در وضعیت پیش‌نویس باشد و منتشر نشده باشد.
-            </p>
-            <div className="pt-2">
-              <Link
-                to="/blog"
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#008080] hover:bg-[#006666] active:bg-[#005050] text-white rounded-[10px] text-xs font-bold transition-all shadow-xs"
-              >
-                <ArrowRight className="w-4 h-4" />
-                <span>بازگشت به وبلاگ آوانا</span>
-              </Link>
-            </div>
-          </div>
+        <main className="flex-1 max-w-xl mx-auto pt-36 pb-20 px-4">
+          <ErrorView
+            compact={true}
+            type={isNotFound ? "404" : isNetwork ? "offline" : "500"}
+            statusCode={isNotFound ? "۴۰۴" : isNetwork ? undefined : "۵۰۰"}
+            title={
+              isNotFound
+                ? "مقاله مورد نظر یافت نشد"
+                : isNetwork
+                  ? "ارتباط با سرور برقرار نشد"
+                  : "خطا در دریافت مقاله"
+            }
+            description={
+              isNotFound
+                ? "این مقاله وجود ندارد یا ممکن است هنوز در وضعیت پیش‌نویس باشد و منتشر نشده باشد."
+                : isNetwork
+                  ? "لطفاً اتصال اینترنت خود را بررسی کرده و مجدداً تلاش کنید."
+                  : "در دریافت محتوای مقاله مشکلی رخ داده است. لطفاً دوباره تلاش کنید."
+            }
+            primaryAction={
+              isNotFound
+                ? {
+                    label: "بازگشت به وبلاگ آوانا",
+                    href: "/blog",
+                  }
+                : {
+                    label: "تلاش مجدد",
+                    onClick: () => void refetch(),
+                  }
+            }
+            secondaryAction={
+              isNotFound
+                ? {
+                    label: "صفحه اصلی",
+                    href: "/",
+                  }
+                : {
+                    label: "بازگشت به وبلاگ",
+                    href: "/blog",
+                  }
+            }
+          />
         </main>
         <Footer />
       </div>

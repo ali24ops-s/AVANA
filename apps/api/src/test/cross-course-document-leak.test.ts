@@ -323,7 +323,7 @@ describe("Cross-Course Document Isolation & Deduplication Tests", () => {
       expect(confirm2.document.course_id).toBe(courseAId);
     });
 
-    it("Uploading identical SHA256 in DIFFERENT course (Course B) throws HTTP 409 conflict and preserves Course A record", async () => {
+    it("Uploading identical SHA256 in DIFFERENT course (Course B) returns duplicate: true and preserves Course A record", async () => {
       // First upload to Course A
       const confirm1 = await docService.confirmUpload(
         adminActor,
@@ -336,27 +336,22 @@ describe("Cross-Course Document Isolation & Deduplication Tests", () => {
           courseId: courseAId,
         },
       );
+      expect(confirm1.duplicate).toBe(false);
 
-      // Second upload with same bytes to Course B -> Must be rejected with conflict (409)
-      await expect(
-        docService.confirmUpload(
-          adminActor,
-          orgId,
-          {
-            originalName: filename,
-            mimeType,
-            sizeBytes: fileBytes.length,
-            data: fileBytes,
-            courseId: courseBId,
-          },
-        ),
-      ).rejects.toSatisfy((err: unknown) => {
-        expect(err).toBeInstanceOf(DomainError);
-        const domErr = err as DomainError;
-        expect(domErr.code).toBe("conflict");
-        expect(domErr.message).toContain("دوره دیگری");
-        return true;
-      });
+      // Second upload with same bytes to Course B -> Reuses previous document (duplicate: true) without error
+      const confirm2 = await docService.confirmUpload(
+        adminActor,
+        orgId,
+        {
+          originalName: filename,
+          mimeType,
+          sizeBytes: fileBytes.length,
+          data: fileBytes,
+          courseId: courseBId,
+        },
+      );
+      expect(confirm2.duplicate).toBe(true);
+      expect(confirm2.document.id).toBe(confirm1.document.id);
 
       // Verify original document in Course A remains completely unmodified
       const originalDoc = await docStore.findByIdForOrganization(
@@ -366,9 +361,9 @@ describe("Cross-Course Document Isolation & Deduplication Tests", () => {
       expect(originalDoc?.courseId).toBe(courseAId);
     });
 
-    it("Uploading identical SHA256 without course when already bound to Course A throws conflict", async () => {
+    it("Uploading identical SHA256 without course when already bound to Course A returns duplicate: true and preserves Course A record", async () => {
       // Upload to Course A
-      await docService.confirmUpload(
+      const confirm1 = await docService.confirmUpload(
         adminActor,
         orgId,
         {
@@ -380,25 +375,26 @@ describe("Cross-Course Document Isolation & Deduplication Tests", () => {
         },
       );
 
-      // Attempt upload to general library (no course)
-      await expect(
-        docService.confirmUpload(
-          adminActor,
-          orgId,
-          {
-            originalName: filename,
-            mimeType,
-            sizeBytes: fileBytes.length,
-            data: fileBytes,
-            courseId: undefined,
-          },
-        ),
-      ).rejects.toSatisfy((err: unknown) => {
-        expect(err).toBeInstanceOf(DomainError);
-        const domErr = err as DomainError;
-        expect(domErr.code).toBe("conflict");
-        return true;
-      });
+      // Attempt upload to general library (no course) -> Reuses previous document gracefully
+      const confirm2 = await docService.confirmUpload(
+        adminActor,
+        orgId,
+        {
+          originalName: filename,
+          mimeType,
+          sizeBytes: fileBytes.length,
+          data: fileBytes,
+          courseId: undefined,
+        },
+      );
+      expect(confirm2.duplicate).toBe(true);
+      expect(confirm2.document.id).toBe(confirm1.document.id);
+
+      const originalDoc = await docStore.findByIdForOrganization(
+        confirm1.document.id,
+        orgId,
+      );
+      expect(originalDoc?.courseId).toBe(courseAId);
     });
 
     it("Uploading identical SHA256 without course when already in general library is idempotent", async () => {

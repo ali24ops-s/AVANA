@@ -472,6 +472,138 @@ describe("PR6-5: AI generation API (async)", () => {
     });
   });
 
+  describe("GET .../documents/:documentId/generate/jobs/:jobId (course-independent route)", () => {
+    it("returns 200 with job lifecycle for authorized user without course in URL", async () => {
+      const app = await buildApp();
+      const { token } = await signIn(app, "gen5c@example.com");
+      const organizationId = await createOrg(app, token, "Gen Org 5c");
+
+      const doc = await uploadAndExtract(app, token, organizationId);
+      const gen = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${organizationId}/courses/${courseId}/documents/${doc.id}/generate`,
+        cookies: { avana_session: token },
+        payload: {},
+      });
+      const genBody = JSON.parse(gen.body) as { job_id: string };
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${organizationId}/documents/${doc.id}/generate/jobs/${genBody.job_id}`,
+        cookies: { avana_session: token },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body) as {
+        job: { id: string; status: string; document_id: string; organization_id: string };
+      };
+      expect(body.job.id).toBe(genBody.job_id);
+      expect(body.job.document_id).toBe(doc.id);
+      expect(body.job.organization_id).toBe(organizationId);
+      expect(["queued", "running", "succeeded", "failed"]).toContain(body.job.status);
+      await app.close();
+    });
+
+    it("returns 404 for a job queried with mismatched documentId (non-disclosing)", async () => {
+      const app = await buildApp();
+      const { token } = await signIn(app, "gen5d@example.com");
+      const organizationId = await createOrg(app, token, "Gen Org 5d");
+
+      const doc = await uploadAndExtract(app, token, organizationId);
+      const gen = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${organizationId}/courses/${courseId}/documents/${doc.id}/generate`,
+        cookies: { avana_session: token },
+        payload: {},
+      });
+      const genBody = JSON.parse(gen.body) as { job_id: string };
+
+      const otherDocId = "22222222-2222-4222-8222-222222222222";
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${organizationId}/documents/${otherDocId}/generate/jobs/${genBody.job_id}`,
+        cookies: { avana_session: token },
+      });
+      expect(res.statusCode).toBe(404);
+      await app.close();
+    });
+
+    it("returns 404 for a job queried under the wrong organization (non-disclosing)", async () => {
+      const app = await buildApp();
+      const { token: token1 } = await signIn(app, "gen5e1@example.com");
+      const org1 = await createOrg(app, token1, "Gen Org 5e1");
+      const doc = await uploadAndExtract(app, token1, org1);
+
+      const gen = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${org1}/courses/${courseId}/documents/${doc.id}/generate`,
+        cookies: { avana_session: token1 },
+        payload: {},
+      });
+      const genBody = JSON.parse(gen.body) as { job_id: string };
+
+      const { token: token2 } = await signIn(app, "gen5e2@example.com");
+      const org2 = await createOrg(app, token2, "Gen Org 5e2");
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${org2}/documents/${doc.id}/generate/jobs/${genBody.job_id}`,
+        cookies: { avana_session: token2 },
+      });
+      expect(res.statusCode).toBe(404);
+      await app.close();
+    });
+
+    it("returns 404 or 403 for an unauthorized user from another organization", async () => {
+      const app = await buildApp();
+      const { token: tokenAdmin } = await signIn(app, "gen5f_admin@example.com");
+      const org = await createOrg(app, tokenAdmin, "Gen Org 5f");
+      const doc = await uploadAndExtract(app, tokenAdmin, org);
+
+      const gen = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${org}/courses/${courseId}/documents/${doc.id}/generate`,
+        cookies: { avana_session: tokenAdmin },
+        payload: {},
+      });
+      const genBody = JSON.parse(gen.body) as { job_id: string };
+
+      const { token: tokenOther } = await signIn(app, "gen5f_other@example.com");
+      await createOrg(app, tokenOther, "Other Org 5f");
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${org}/documents/${doc.id}/generate/jobs/${genBody.job_id}`,
+        cookies: { avana_session: tokenOther },
+      });
+      expect([403, 404]).toContain(res.statusCode);
+      await app.close();
+    });
+
+    it("returns 401 for an unauthenticated request without session cookie", async () => {
+      const app = await buildApp();
+      const { token } = await signIn(app, "gen5g@example.com");
+      const organizationId = await createOrg(app, token, "Gen Org 5g");
+      const doc = await uploadAndExtract(app, token, organizationId);
+
+      const gen = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${organizationId}/courses/${courseId}/documents/${doc.id}/generate`,
+        cookies: { avana_session: token },
+        payload: {},
+      });
+      const genBody = JSON.parse(gen.body) as { job_id: string };
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${organizationId}/documents/${doc.id}/generate/jobs/${genBody.job_id}`,
+      });
+      expect(res.statusCode).toBe(401);
+      await app.close();
+    });
+  });
+
+
   describe("GET .../documents/:documentId/generated (after worker)", () => {
     it("lists generated drafts for a document once the worker has run", async () => {
       const app = await buildApp();

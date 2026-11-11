@@ -60,4 +60,11 @@ export interface NotificationStore {
     type: NotificationType,
     since: string,
   ): Promise<NotificationRecord | null>;
+  updateMetadataByIdempotencyKey?(
+    idempotencyKey: string,
+    metadata: Record<string, unknown>,
+  ): Promise<NotificationRecord | null>;
+  findPendingSupportEmailNotifications?(
+    limit?: number,
+  ): Promise<NotificationRecord[]>;
 }

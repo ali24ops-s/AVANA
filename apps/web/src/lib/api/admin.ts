@@ -8,11 +8,12 @@ export type {
   ContentReportStatus,
   ContentReportCategory,
 } from "@avana/contracts";
-import type {
-  CoursePricingBreakdown,
-  ContentGenerationPricingConfig,
-  UpdateContentGenerationPricingInput,
-  SubscriptionCreditBonusesConfig,
+import {
+  type CoursePricingBreakdown,
+  type ContentGenerationPricingConfig,
+  type UpdateContentGenerationPricingInput,
+  type SubscriptionCreditBonusesConfig,
+  buildPdfFilename,
 } from "@avana/domain";
 export type {
   ContentGenerationPricingConfig,
@@ -164,6 +165,7 @@ export interface CourseCounts {
   lessons: number;
   flashcards: number;
   quizzes: number;
+  quizQuestions?: number;
 }
 
 export interface AdminCourseRecord {
@@ -661,6 +663,231 @@ export function createAdminApi(client: {
         `/v1/admin/content/lessons/${encodeURIComponent(lessonId)}`,
         updates,
       );
+    },
+
+    async downloadLessonPdf(
+      lessonId: string,
+      options?: { submissionId?: string; courseId?: string; fallbackName?: string },
+    ): Promise<void> {
+      const queryParams = new URLSearchParams();
+      if (options?.submissionId) queryParams.set("submissionId", options.submissionId);
+      if (options?.courseId) queryParams.set("courseId", options.courseId);
+      const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
+      const url = `${getApiBaseUrl()}/v1/admin/content/lessons/${encodeURIComponent(lessonId)}/pdf${qs}`;
+
+      const requestId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      const res = await fetch(url, {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          "x-request-id": requestId,
+        },
+      });
+
+      if (!res.ok) {
+        let errorMessage = "خطا در دریافت فایل PDF درسنامه";
+        try {
+          const contentType = res.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const errorData = await res.json();
+            if (errorData?.message) {
+              errorMessage = errorData.message;
+            } else if (errorData?.error?.message) {
+              errorMessage = errorData.error.message;
+            }
+          } else if (res.status === 404) {
+            errorMessage = "درس مورد نظر جهت تولید PDF یافت نشد.";
+          } else if (res.status === 400) {
+            errorMessage = "محتوای درسنامه خالی است و امکان تولید PDF وجود ندارد.";
+          } else if (res.status === 403) {
+            errorMessage = "شما دسترسی لازم برای دانلود PDF این محتوا را ندارید.";
+          }
+        } catch {
+          // fallback
+        }
+        throw new Error(errorMessage);
+      }
+
+      let filename = options?.fallbackName || buildPdfFilename("lesson", null, lessonId);
+      const disposition = res.headers.get("content-disposition");
+      if (disposition) {
+        const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match?.[1]) {
+          try {
+            filename = decodeURIComponent(utf8Match[1].trim());
+          } catch {
+            // fallback
+          }
+        } else {
+          const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+          if (asciiMatch?.[1]) {
+            filename = asciiMatch[1].trim();
+          }
+        }
+      }
+
+      const blob = await res.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const a = window.document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      window.document.body.appendChild(a);
+      a.click();
+      window.document.body.removeChild(a);
+      window.URL.revokeObjectURL(objectUrl);
+    },
+
+    async downloadChapterPdf(
+      moduleId: string,
+      options?: { submissionId?: string; courseId?: string; fallbackName?: string },
+    ): Promise<void> {
+      const queryParams = new URLSearchParams();
+      if (options?.submissionId) queryParams.set("submissionId", options.submissionId);
+      if (options?.courseId) queryParams.set("courseId", options.courseId);
+      const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
+      const url = `${getApiBaseUrl()}/v1/admin/content/modules/${encodeURIComponent(moduleId)}/pdf${qs}`;
+
+      const requestId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      const res = await fetch(url, {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          "x-request-id": requestId,
+        },
+      });
+
+      if (!res.ok) {
+        let errorMessage = "خطا در دریافت فایل PDF فصل";
+        try {
+          const contentType = res.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const errorData = await res.json();
+            if (errorData?.message) {
+              errorMessage = errorData.message;
+            } else if (errorData?.error?.message) {
+              errorMessage = errorData.error.message;
+            }
+          } else if (res.status === 404) {
+            errorMessage = "فصل مورد نظر جهت تولید PDF یافت نشد.";
+          } else if (res.status === 400) {
+            errorMessage = "این فصل فاقد درسنامه با محتوای قابل‌نمایش است.";
+          } else if (res.status === 403) {
+            errorMessage = "شما دسترسی لازم برای دانلود PDF این محتوا را ندارید.";
+          }
+        } catch {
+          // fallback
+        }
+        throw new Error(errorMessage);
+      }
+
+      let filename = options?.fallbackName || buildPdfFilename("chapter", null, moduleId);
+      const disposition = res.headers.get("content-disposition");
+      if (disposition) {
+        const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match?.[1]) {
+          try {
+            filename = decodeURIComponent(utf8Match[1].trim());
+          } catch {
+            // fallback
+          }
+        } else {
+          const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+          if (asciiMatch?.[1]) {
+            filename = asciiMatch[1].trim();
+          }
+        }
+      }
+
+      const blob = await res.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const a = window.document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      window.document.body.appendChild(a);
+      a.click();
+      window.document.body.removeChild(a);
+      window.URL.revokeObjectURL(objectUrl);
+    },
+
+    async downloadReviewSummaryPdf(
+      summaryId: string,
+      options?: { courseId?: string; documentId?: string; fallbackName?: string },
+    ): Promise<void> {
+      const queryParams = new URLSearchParams();
+      if (options?.courseId) queryParams.set("courseId", options.courseId);
+      if (options?.documentId) queryParams.set("documentId", options.documentId);
+      const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
+      const url = `${getApiBaseUrl()}/v1/admin/content/review-summaries/${encodeURIComponent(summaryId)}/pdf${qs}`;
+
+      const requestId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      const res = await fetch(url, {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          "x-request-id": requestId,
+        },
+      });
+
+      if (!res.ok) {
+        let errorMessage = "خطا در دریافت فایل PDF خلاصه مرور";
+        try {
+          const contentType = res.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const errorData = await res.json();
+            if (errorData?.message) {
+              errorMessage = errorData.message;
+            } else if (errorData?.error?.message) {
+              errorMessage = errorData.error.message;
+            }
+          } else if (res.status === 404) {
+            errorMessage = "خلاصه مرور مورد نظر جهت تولید PDF یافت نشد.";
+          } else if (res.status === 400) {
+            errorMessage = "محتوای خلاصه مرور خالی یا ناقص است.";
+          } else if (res.status === 403) {
+            errorMessage = "شما دسترسی لازم برای دانلود PDF این محتوا را ندارید.";
+          }
+        } catch {
+          // fallback
+        }
+        throw new Error(errorMessage);
+      }
+
+      let filename = options?.fallbackName || buildPdfFilename("review_summary", null, summaryId);
+      const disposition = res.headers.get("content-disposition");
+      if (disposition) {
+        const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match?.[1]) {
+          try {
+            filename = decodeURIComponent(utf8Match[1].trim());
+          } catch {
+            // fallback
+          }
+        } else {
+          const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+          if (asciiMatch?.[1]) {
+            filename = asciiMatch[1].trim();
+          }
+        }
+      }
+
+      const blob = await res.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const a = window.document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      window.document.body.appendChild(a);
+      a.click();
+      window.document.body.removeChild(a);
+      window.URL.revokeObjectURL(objectUrl);
     },
 
     async listCourseSubmissions(params?: {
@@ -1244,6 +1471,151 @@ export function createAdminApi(client: {
     // -------------------------------------------------------------------------
     // Official Content Studio
     // -------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // Official Content Studio
+    // -------------------------------------------------------------------------
+    officialContentStudio: {
+      async listOfficialCourses(): Promise<{ courses: OfficialCourse[] }> {
+        return client.get<{ courses: OfficialCourse[] }>("/v1/admin/content-studio/courses");
+      },
+
+      async createOfficialCourse(data: {
+        name: string;
+        subject?: string;
+        targetAcademicFields?: string[];
+        target_academic_fields?: string[];
+        description?: string;
+        examDate?: string;
+      }): Promise<{ success: boolean; course: OfficialCourse }> {
+        return client.post<{ success: boolean; course: OfficialCourse }>(
+          "/v1/admin/content-studio/courses",
+          data,
+        );
+      },
+
+      async triggerOfficialGeneration(
+        courseId: string,
+        data: {
+          documentId: string;
+          lesson?: boolean;
+          flashcards?: boolean;
+          exam?: boolean;
+          review_summary?: boolean;
+          force?: boolean;
+          questionPatternId?: string | null;
+          questionPatternVersion?: number | null;
+          questionPatternIds?: string[] | null;
+          question_pattern_ids?: string[] | null;
+        },
+      ): Promise<{ generationRunId: string; status: string }> {
+        return client.post<{ generationRunId: string; status: string }>(
+          `/v1/admin/content-studio/courses/${courseId}/generate`,
+          data,
+        );
+      },
+
+      async getOfficialReviewWorkspace(
+        courseId: string,
+      ): Promise<OfficialReviewWorkspace> {
+        return client.get<OfficialReviewWorkspace>(
+          `/v1/admin/content-studio/courses/${courseId}/review`,
+        );
+      },
+
+      async approveOfficialCourse(courseId: string): Promise<{
+        approved: boolean;
+        materialized: {
+          modules: number;
+          lessons: number;
+          flashcards: number;
+          quizzes: number;
+          questions: number;
+        };
+      }> {
+        return client.post(
+          `/v1/admin/content-studio/courses/${courseId}/approve`,
+        );
+      },
+
+      async setOfficialCoursePricing(
+        courseId: string,
+        data: { price: number; title?: string; description?: string },
+      ): Promise<{ success: boolean; product: OfficialCourseProduct }> {
+        return client.post(
+          `/v1/admin/content-studio/courses/${courseId}/pricing`,
+          data,
+        );
+      },
+
+      async getOfficialCoursePricingSuggestion(
+        courseId: string,
+      ): Promise<CoursePricingSuggestionResponse> {
+        return client.get<CoursePricingSuggestionResponse>(
+          `/v1/admin/content-studio/courses/${courseId}/pricing-suggestion`,
+        );
+      },
+
+      async setLessonPricing(
+        lessonId: string,
+        data: { price: number; title?: string; description?: string; active?: boolean },
+      ): Promise<{ success: boolean; product: unknown }> {
+        return client.post(
+          `/v1/admin/content-studio/lessons/${lessonId}/pricing`,
+          data,
+        );
+      },
+
+      async validateOfficialCourseConsistency(
+        courseId: string,
+      ): Promise<ConsistencyValidationReport> {
+        return client.get<ConsistencyValidationReport>(
+          `/v1/admin/content-studio/courses/${courseId}/validate`,
+        );
+      },
+
+      async publishOfficialCourse(
+        courseId: string,
+      ): Promise<{ success: boolean; courseStatus: string; productActive: boolean }> {
+        return client.post(
+          `/v1/admin/content-studio/courses/${courseId}/publish`,
+        );
+      },
+
+      async archiveOfficialCourse(
+        courseId: string,
+      ): Promise<{ success: boolean; courseStatus: string }> {
+        return client.post(
+          `/v1/admin/content-studio/courses/${courseId}/archive`,
+        );
+      },
+
+      async unpublishOfficialCourse(
+        courseId: string,
+      ): Promise<{ success: boolean; course: unknown }> {
+        return client.post(
+          `/v1/admin/content-studio/courses/${courseId}/unpublish`,
+        );
+      },
+
+      async unarchiveOfficialCourse(
+        courseId: string,
+      ): Promise<{ success: boolean; course: unknown }> {
+        return client.post(
+          `/v1/admin/content-studio/courses/${courseId}/unarchive`,
+        );
+      },
+
+      async deleteOfficialCourse(
+        courseId: string,
+        options: DeleteOfficialCourseOptions,
+      ): Promise<DeleteOfficialCourseResult> {
+        return client.delete<DeleteOfficialCourseResult>(
+          `/v1/admin/content-studio/courses/${courseId}`,
+          { body: options },
+        );
+      },
+    },
+
     async listOfficialCourses(): Promise<{ courses: OfficialCourse[] }> {
       return client.get<{ courses: OfficialCourse[] }>("/v1/admin/content-studio/courses");
     },
@@ -1273,6 +1645,8 @@ export function createAdminApi(client: {
         force?: boolean;
         questionPatternId?: string | null;
         questionPatternVersion?: number | null;
+        questionPatternIds?: string[] | null;
+        question_pattern_ids?: string[] | null;
       },
     ): Promise<{ generationRunId: string; status: string }> {
       return client.post<{ generationRunId: string; status: string }>(
@@ -1737,6 +2111,10 @@ export interface AdminCourseHierarchy {
   subject: string | null;
   groups?: AdminCourseHierarchyGroup[];
   modules: AdminCourseHierarchyModule[];
+  courseFlashcardCount?: number;
+  courseQuizCount?: number;
+  courseQuizQuestionCount?: number;
+  totalQuizQuestionCount?: number;
 }
 
 export interface AdminPromptRecord {
@@ -1754,7 +2132,7 @@ export interface AdminPromptRecord {
   status: "active" | "inactive";
 }
 
-import { createApiClient, getApiBaseUrl } from "./client.js";
+import { createApiClient, getApiBaseUrl, ensureCsrfToken, generateUUID } from "./client.js";
 const rawClient = createApiClient({ baseUrl: getApiBaseUrl() });
 
 export const api = {
@@ -1785,6 +2163,7 @@ export interface AdminExportOptions {
   moduleIds?: string[];
   lessonIds?: string[];
   scope?: AdminExportScope;
+  signal?: AbortSignal;
 }
 
 export interface AdminImportCountBreakdown {
@@ -1839,27 +2218,163 @@ export interface AdminImportExecutionResult {
   durationMs: number;
 }
 
+export function sanitizeDownloadedZipFilename(name: string): string {
+  let cleaned = name.replace(/[/\\:*?"<>|\x00-\x1f\x7f]/g, "").trim();
+  if (!cleaned || cleaned === "." || cleaned === "..") {
+    return "";
+  }
+  if (!cleaned.toLowerCase().endsWith(".zip")) {
+    cleaned += ".zip";
+  }
+  return cleaned;
+}
+
+export function extractContentDispositionFilename(
+  disposition: string | null | undefined,
+  fallbackName: string,
+): string {
+  if (!disposition) return fallbackName;
+
+  // Priority 1: RFC 5987 / RFC 6266 filename*=UTF-8''...
+  const utf8Match = disposition.match(/filename\*=(?:UTF-8|utf-8)''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      const decoded = decodeURIComponent(utf8Match[1].trim());
+      const clean = sanitizeDownloadedZipFilename(decoded);
+      if (clean) return clean;
+    } catch {
+      // Decode error, fallback to standard filename
+    }
+  }
+
+  // Priority 2: Standard filename="quoted" or filename=unquoted
+  const match = disposition.match(/filename="([^"]+)"/i) || disposition.match(/filename=([^;]+)/i);
+  if (match?.[1]) {
+    const raw = match[1].trim();
+    let decoded = raw;
+    try {
+      if (raw.includes("%")) {
+        decoded = decodeURIComponent(raw);
+      }
+    } catch {
+      decoded = raw;
+    }
+    const clean = sanitizeDownloadedZipFilename(decoded);
+    if (clean) return clean;
+  }
+
+  return fallbackName;
+}
+
+function sanitizeUserFacingErrorMessage(msg: string): string {
+  if (msg.includes("at ") && (msg.includes(".ts:") || msg.includes(".js:"))) {
+    return "خطای داخلی در پردازش درخواست خروجی محتوا.";
+  }
+  return msg.trim();
+}
+
+export async function parseExportErrorMessage(res: Response, fallbackMessage: string): Promise<string> {
+  try {
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const json = await res.json();
+      if (json && typeof json === "object") {
+        const errorProp = (json as Record<string, unknown>).error;
+        if (errorProp && typeof errorProp === "object" && typeof (errorProp as Record<string, unknown>).message === "string") {
+          return sanitizeUserFacingErrorMessage((errorProp as Record<string, unknown>).message as string);
+        }
+        if (typeof (json as Record<string, unknown>).message === "string") {
+          return sanitizeUserFacingErrorMessage((json as Record<string, unknown>).message as string);
+        }
+      }
+    } else {
+      const text = await res.text();
+      if (text && text.trim()) {
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed && typeof parsed === "object") {
+            const errorProp = (parsed as Record<string, unknown>).error;
+            if (errorProp && typeof errorProp === "object" && typeof (errorProp as Record<string, unknown>).message === "string") {
+              return sanitizeUserFacingErrorMessage((errorProp as Record<string, unknown>).message as string);
+            }
+            if (typeof (parsed as Record<string, unknown>).message === "string") {
+              return sanitizeUserFacingErrorMessage((parsed as Record<string, unknown>).message as string);
+            }
+          }
+        } catch {
+          const trimmed = text.trim();
+          if (trimmed.length < 200 && !trimmed.startsWith("<!DOCTYPE") && !trimmed.startsWith("<html")) {
+            return sanitizeUserFacingErrorMessage(trimmed);
+          }
+        }
+      }
+    }
+  } catch {
+    // Stream read error or body consumed
+  }
+
+  if (res.status === 403) {
+    return "شما دسترسی لازم برای دریافت بسته خروجی این دوره را ندارید.";
+  }
+  if (res.status === 404) {
+    return "دوره یا محتوای مورد نظر جهت خروجی یافت نشد.";
+  }
+  if (res.status === 503) {
+    return "سرویس خروجی محتوا در حال حاضر در دسترس نیست.";
+  }
+  if (res.statusText && res.statusText.trim()) {
+    return res.statusText;
+  }
+
+  return fallbackMessage;
+}
+
 export async function downloadContentExport(options: AdminExportOptions): Promise<void> {
   const baseUrl = getApiBaseUrl();
-  const res = await fetch(`${baseUrl}/v1/admin/content/export`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    credentials: "include",
-    body: JSON.stringify(options),
-  });
+  const activeCsrfToken = await ensureCsrfToken(baseUrl, options.signal);
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-request-id": generateUUID(),
+  };
+  if (activeCsrfToken) {
+    headers["x-csrf-token"] = activeCsrfToken;
+  }
+
+  const { signal, ...payloadOptions } = options;
+
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/v1/admin/content/export`, {
+      method: "POST",
+      headers,
+      credentials: "include",
+      body: JSON.stringify(payloadOptions),
+      signal,
+    });
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("درخواست لغو شد یا مهلت زمانی آن به پایان رسید.");
+    }
+    throw new Error("خطا در برقراری ارتباط با سرور. لطفاً اتصال اینترنت خود را بررسی کنید.");
+  }
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(err?.message || "خطا در دریافت فایل خروجی");
+    const errorMsg = await parseExportErrorMessage(res, "خطا در دریافت فایل خروجی");
+    throw new Error(errorMsg);
   }
+
+  const defaultFilename = `avana-content-export-${Date.now()}.zip`;
+  const filename = extractContentDispositionFilename(
+    res.headers.get("content-disposition"),
+    defaultFilename,
+  );
 
   const blob = await res.blob();
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `avana-content-export-${Date.now()}.zip`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   window.URL.revokeObjectURL(url);
@@ -1867,22 +2382,13 @@ export async function downloadContentExport(options: AdminExportOptions): Promis
 }
 
 export async function validateContentImport(file: File): Promise<AdminImportPlan> {
-  const baseUrl = getApiBaseUrl();
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await fetch(`${baseUrl}/v1/admin/content/import/validate`, {
-    method: "POST",
-    credentials: "include",
-    body: formData,
-  });
-
-  if (!res.ok) {
-    const errData = await res.json().catch(() => null);
-    throw new Error(errData?.message || "اعتبارسنجی بسته با خطا مواجه شد.");
-  }
-
-  const data = await res.json();
+  const data = await rawClient.postFormData<{ plan: AdminImportPlan }>(
+    "/v1/admin/content/import/validate",
+    formData,
+  );
   return data.plan;
 }
 
@@ -1891,22 +2397,10 @@ export async function executeContentImport(
   packageChecksum?: string,
   onConflict: "skip" | "error" = "skip",
 ): Promise<AdminImportExecutionResult> {
-  const baseUrl = getApiBaseUrl();
-  const res = await fetch(`${baseUrl}/v1/admin/content/import`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    credentials: "include",
-    body: JSON.stringify({ planId, packageChecksum, onConflict }),
-  });
-
-  if (!res.ok) {
-    const errData = await res.json().catch(() => null);
-    throw new Error(errData?.message || "اجرای ورود اطلاعات با خطا مواجه شد.");
-  }
-
-  return res.json();
+  return rawClient.post<AdminImportExecutionResult>(
+    "/v1/admin/content/import",
+    { planId, packageChecksum, onConflict },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -2326,6 +2820,9 @@ export interface AdminCourseSubmissionItem {
     | "approved"
     | "rejected"
     | "published"
+    | "unpublished"
+    | "superseded"
+    | "cancelled"
     | "draft";
   creator: {
     id: string;
@@ -2365,6 +2862,27 @@ export async function getLessonDetails(
   if (options?.courseId) queryParams.set("courseId", options.courseId);
   const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
   return api.get<AdminLessonDetail>(`/admin/content/lessons/${encodeURIComponent(lessonId)}${qs}`);
+}
+
+export async function downloadLessonPdf(
+  lessonId: string,
+  options?: { submissionId?: string; courseId?: string; fallbackName?: string },
+): Promise<void> {
+  return createAdminApi(rawClient).downloadLessonPdf(lessonId, options);
+}
+
+export async function downloadChapterPdf(
+  moduleId: string,
+  options?: { submissionId?: string; courseId?: string; fallbackName?: string },
+): Promise<void> {
+  return createAdminApi(rawClient).downloadChapterPdf(moduleId, options);
+}
+
+export async function downloadReviewSummaryPdf(
+  summaryId: string,
+  options?: { courseId?: string; documentId?: string; fallbackName?: string },
+): Promise<void> {
+  return createAdminApi(rawClient).downloadReviewSummaryPdf(summaryId, options);
 }
 
 export async function listCourseSubmissions(params?: {
@@ -2430,4 +2948,329 @@ export async function requestCourseSubmissionChanges(
   return api.post(`/admin/course-submissions/${encodeURIComponent(id)}/request-changes`, { notes });
 }
 
+// ---------------------------------------------------------------------------
+// CRM & Customer Club API (Phase 1)
+// ---------------------------------------------------------------------------
 
+export type {
+  CrmTagItem,
+  CreateCrmTagInput,
+  UpdateCrmTagInput,
+  CrmCustomerNoteItem,
+  CreateCrmCustomerNoteInput,
+  UpdateCrmCustomerNoteInput,
+  CrmCustomerListItem,
+  ListCrmCustomersParams,
+  ListCrmCustomersResponse,
+  CrmCustomerIdentitySummary,
+  CrmCustomerFinancialSummary,
+  CrmCustomerEducationalSummary,
+  CrmCustomer360Profile,
+} from "@avana/domain";
+
+export async function listCrmCustomers(
+  params?: import("@avana/domain").ListCrmCustomersParams,
+): Promise<import("@avana/domain").ListCrmCustomersResponse> {
+  const query = new URLSearchParams();
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.pageSize) query.set("pageSize", String(params.pageSize));
+  if (params?.search) query.set("search", params.search);
+  if (params?.verifiedStatus && params.verifiedStatus !== "all") {
+    query.set("verifiedStatus", params.verifiedStatus);
+  }
+  if (params?.hasPurchases && params.hasPurchases !== "all") {
+    query.set("hasPurchases", params.hasPurchases);
+  }
+  if (params?.minSpent !== undefined) query.set("minSpent", String(params.minSpent));
+  if (params?.maxSpent !== undefined) query.set("maxSpent", String(params.maxSpent));
+  if (params?.createdAfter) query.set("createdAfter", params.createdAfter);
+  if (params?.createdBefore) query.set("createdBefore", params.createdBefore);
+  if (params?.tagId) query.set("tagId", params.tagId);
+  if (params?.sortBy) query.set("sortBy", params.sortBy);
+  if (params?.sortOrder) query.set("sortOrder", params.sortOrder);
+
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return api.get<import("@avana/domain").ListCrmCustomersResponse>(`/admin/crm/customers${qs}`);
+}
+
+export async function getCrmCustomer360(
+  userId: string,
+): Promise<{ profile: import("@avana/domain").CrmCustomer360Profile }> {
+  return api.get<{ profile: import("@avana/domain").CrmCustomer360Profile }>(
+    `/admin/crm/customers/${encodeURIComponent(userId)}/360`,
+  );
+}
+
+export async function listCrmTags(): Promise<{ tags: import("@avana/domain").CrmTagItem[] }> {
+  return api.get<{ tags: import("@avana/domain").CrmTagItem[] }>("/admin/crm/tags");
+}
+
+export async function createCrmTag(
+  data: import("@avana/domain").CreateCrmTagInput,
+): Promise<{ tag: import("@avana/domain").CrmTagItem }> {
+  return api.post<{ tag: import("@avana/domain").CrmTagItem }>("/admin/crm/tags", data);
+}
+
+export async function updateCrmTag(
+  tagId: string,
+  data: import("@avana/domain").UpdateCrmTagInput,
+): Promise<{ tag: import("@avana/domain").CrmTagItem }> {
+  return api.patch<{ tag: import("@avana/domain").CrmTagItem }>(
+    `/admin/crm/tags/${encodeURIComponent(tagId)}`,
+    data,
+  );
+}
+
+export async function deleteCrmTag(tagId: string): Promise<{ ok: boolean }> {
+  return api.delete<{ ok: boolean }>(`/admin/crm/tags/${encodeURIComponent(tagId)}`);
+}
+
+export async function assignCrmCustomerTag(
+  userId: string,
+  tagId: string,
+): Promise<{ ok: boolean }> {
+  return api.post<{ ok: boolean }>(
+    `/admin/crm/customers/${encodeURIComponent(userId)}/tags`,
+    { tagId },
+  );
+}
+
+export async function removeCrmCustomerTag(
+  userId: string,
+  tagId: string,
+): Promise<{ ok: boolean }> {
+  return api.delete<{ ok: boolean }>(
+    `/admin/crm/customers/${encodeURIComponent(userId)}/tags/${encodeURIComponent(tagId)}`,
+  );
+}
+
+export async function listCrmCustomerNotes(
+  userId: string,
+): Promise<{ notes: import("@avana/domain").CrmCustomerNoteItem[] }> {
+  return api.get<{ notes: import("@avana/domain").CrmCustomerNoteItem[] }>(
+    `/admin/crm/customers/${encodeURIComponent(userId)}/notes`,
+  );
+}
+
+export async function createCrmCustomerNote(
+  userId: string,
+  data: import("@avana/domain").CreateCrmCustomerNoteInput,
+): Promise<{ note: import("@avana/domain").CrmCustomerNoteItem }> {
+  return api.post<{ note: import("@avana/domain").CrmCustomerNoteItem }>(
+    `/admin/crm/customers/${encodeURIComponent(userId)}/notes`,
+    data,
+  );
+}
+
+export async function updateCrmCustomerNote(
+  userId: string,
+  noteId: string,
+  data: import("@avana/domain").UpdateCrmCustomerNoteInput,
+): Promise<{ note: import("@avana/domain").CrmCustomerNoteItem }> {
+  return api.patch<{ note: import("@avana/domain").CrmCustomerNoteItem }>(
+    `/admin/crm/customers/${encodeURIComponent(userId)}/notes/${encodeURIComponent(noteId)}`,
+    data,
+  );
+}
+
+export async function deleteCrmCustomerNote(
+  userId: string,
+  noteId: string,
+): Promise<{ ok: boolean }> {
+  return api.delete<{ ok: boolean }>(
+    `/admin/crm/customers/${encodeURIComponent(userId)}/notes/${encodeURIComponent(noteId)}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CRM Dynamic Segmentation (Phase 2)
+// ---------------------------------------------------------------------------
+
+export async function listCrmSegments(
+  params?: import("@avana/domain").ListCrmSegmentsParams,
+): Promise<import("@avana/domain").ListCrmSegmentsResponse> {
+  const query = new URLSearchParams();
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.pageSize) query.set("pageSize", String(params.pageSize));
+  if (params?.search) query.set("search", params.search);
+  if (params?.isActive !== undefined) query.set("isActive", String(params.isActive));
+
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return api.get<import("@avana/domain").ListCrmSegmentsResponse>(`/admin/crm/segments${qs}`);
+}
+
+export async function getCrmSegment(
+  segmentId: string,
+): Promise<{ segment: import("@avana/domain").CrmSegmentItem }> {
+  return api.get<{ segment: import("@avana/domain").CrmSegmentItem }>(
+    `/admin/crm/segments/${encodeURIComponent(segmentId)}`,
+  );
+}
+
+export async function createCrmSegment(
+  data: import("@avana/domain").CreateCrmSegmentInput,
+): Promise<{ segment: import("@avana/domain").CrmSegmentItem }> {
+  return api.post<{ segment: import("@avana/domain").CrmSegmentItem }>("/admin/crm/segments", data);
+}
+
+export async function updateCrmSegment(
+  segmentId: string,
+  data: import("@avana/domain").UpdateCrmSegmentInput,
+): Promise<{ segment: import("@avana/domain").CrmSegmentItem }> {
+  return api.patch<{ segment: import("@avana/domain").CrmSegmentItem }>(
+    `/admin/crm/segments/${encodeURIComponent(segmentId)}`,
+    data,
+  );
+}
+
+export async function deleteCrmSegment(segmentId: string): Promise<{ ok: boolean }> {
+  return api.delete<{ ok: boolean }>(`/admin/crm/segments/${encodeURIComponent(segmentId)}`);
+}
+
+export async function previewCrmSegmentCount(
+  filterRules: import("@avana/domain").SegmentFilterRule[],
+  matchOperator?: import("@avana/domain").SegmentMatchOperator,
+): Promise<{ count: number }> {
+  return api.post<{ count: number }>("/admin/crm/segments/preview-count", {
+    filterRules,
+    matchOperator,
+  });
+}
+
+export async function getCrmSegmentMembers(
+  segmentId: string,
+  params?: Omit<import("@avana/domain").GetSegmentMembersParams, "segmentId">,
+): Promise<import("@avana/domain").ListCrmCustomersResponse> {
+  const query = new URLSearchParams();
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.pageSize) query.set("pageSize", String(params.pageSize));
+  if (params?.sortBy) query.set("sortBy", params.sortBy);
+  if (params?.sortOrder) query.set("sortOrder", params.sortOrder);
+
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return api.get<import("@avana/domain").ListCrmCustomersResponse>(
+    `/admin/crm/segments/${encodeURIComponent(segmentId)}/members${qs}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CRM Customer Campaign Management (Phase 3)
+// ---------------------------------------------------------------------------
+
+export type {
+  CrmCampaignItem,
+  CrmCampaignExecutionItem,
+  CrmCampaignRecipientItem,
+  CampaignStatus,
+  CampaignChannel,
+  CampaignExecutionStatus,
+  CampaignRecipientStatus,
+  CreateCrmCampaignInput,
+  UpdateCrmCampaignInput,
+  ListCrmCampaignsParams,
+  ListCrmCampaignsResponse,
+  ListCrmCampaignExecutionsResponse,
+  ListCrmCampaignRecipientsParams,
+  ListCrmCampaignRecipientsResponse,
+} from "@avana/domain";
+
+export async function listCrmCampaigns(
+  params?: import("@avana/domain").ListCrmCampaignsParams,
+): Promise<import("@avana/domain").ListCrmCampaignsResponse> {
+  const query = new URLSearchParams();
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.pageSize) query.set("pageSize", String(params.pageSize));
+  if (params?.status) query.set("status", params.status);
+  if (params?.channel) query.set("channel", params.channel);
+  if (params?.targetSegmentId) query.set("targetSegmentId", params.targetSegmentId);
+  if (params?.search) query.set("search", params.search);
+
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return api.get<import("@avana/domain").ListCrmCampaignsResponse>(`/admin/crm/campaigns${qs}`);
+}
+
+export async function getCrmCampaign(
+  campaignId: string,
+): Promise<{ campaign: import("@avana/domain").CrmCampaignItem }> {
+  return api.get<{ campaign: import("@avana/domain").CrmCampaignItem }>(
+    `/admin/crm/campaigns/${encodeURIComponent(campaignId)}`,
+  );
+}
+
+export async function createCrmCampaign(
+  data: import("@avana/domain").CreateCrmCampaignInput,
+): Promise<{ campaign: import("@avana/domain").CrmCampaignItem }> {
+  return api.post<{ campaign: import("@avana/domain").CrmCampaignItem }>("/admin/crm/campaigns", data);
+}
+
+export async function updateCrmCampaign(
+  campaignId: string,
+  data: import("@avana/domain").UpdateCrmCampaignInput,
+): Promise<{ campaign: import("@avana/domain").CrmCampaignItem }> {
+  return api.patch<{ campaign: import("@avana/domain").CrmCampaignItem }>(
+    `/admin/crm/campaigns/${encodeURIComponent(campaignId)}`,
+    data,
+  );
+}
+
+export async function deleteCrmCampaign(campaignId: string): Promise<{ ok: boolean }> {
+  return api.delete<{ ok: boolean }>(`/admin/crm/campaigns/${encodeURIComponent(campaignId)}`);
+}
+
+export async function executeCrmCampaign(
+  campaignId: string,
+): Promise<{ ok: boolean; execution: import("@avana/domain").CrmCampaignExecutionItem; recipientCount: number }> {
+  return api.post<{
+    ok: boolean;
+    execution: import("@avana/domain").CrmCampaignExecutionItem;
+    recipientCount: number;
+  }>(`/admin/crm/campaigns/${encodeURIComponent(campaignId)}/execute`);
+}
+
+export async function pauseCrmCampaign(
+  campaignId: string,
+): Promise<{ ok: boolean; campaign: import("@avana/domain").CrmCampaignItem }> {
+  return api.post<{ ok: boolean; campaign: import("@avana/domain").CrmCampaignItem }>(
+    `/admin/crm/campaigns/${encodeURIComponent(campaignId)}/pause`,
+  );
+}
+
+export async function resumeCrmCampaign(
+  campaignId: string,
+): Promise<{ ok: boolean; campaign: import("@avana/domain").CrmCampaignItem }> {
+  return api.post<{ ok: boolean; campaign: import("@avana/domain").CrmCampaignItem }>(
+    `/admin/crm/campaigns/${encodeURIComponent(campaignId)}/resume`,
+  );
+}
+
+export async function cancelCrmCampaign(
+  campaignId: string,
+): Promise<{ ok: boolean; campaign: import("@avana/domain").CrmCampaignItem }> {
+  return api.post<{ ok: boolean; campaign: import("@avana/domain").CrmCampaignItem }>(
+    `/admin/crm/campaigns/${encodeURIComponent(campaignId)}/cancel`,
+  );
+}
+
+export async function listCrmCampaignExecutions(
+  campaignId: string,
+): Promise<import("@avana/domain").ListCrmCampaignExecutionsResponse> {
+  return api.get<import("@avana/domain").ListCrmCampaignExecutionsResponse>(
+    `/admin/crm/campaigns/${encodeURIComponent(campaignId)}/executions`,
+  );
+}
+
+export async function listCrmCampaignRecipients(
+  campaignId: string,
+  params?: import("@avana/domain").ListCrmCampaignRecipientsParams,
+): Promise<import("@avana/domain").ListCrmCampaignRecipientsResponse> {
+  const query = new URLSearchParams();
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.pageSize) query.set("pageSize", String(params.pageSize));
+  if (params?.status) query.set("status", params.status);
+  if (params?.executionId) query.set("executionId", params.executionId);
+
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return api.get<import("@avana/domain").ListCrmCampaignRecipientsResponse>(
+    `/admin/crm/campaigns/${encodeURIComponent(campaignId)}/recipients${qs}`,
+  );
+}

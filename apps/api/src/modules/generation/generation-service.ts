@@ -163,6 +163,11 @@ import {
 } from "./services/generation-active-status-service.js";
 import { GenerationLifecycleService } from "./services/generation-lifecycle-service.js";
 import type { QuestionPatternStore } from "./question-patterns-store.js";
+import type { SourcePackStore } from "../source-packs/source-pack-store.js";
+import {
+  assertDocumentAssociatedWithCourse,
+  isDocumentAssociatedWithCourse,
+} from "../documents/document-course-association.js";
 
 // ---------------------------------------------------------------------------
 // Response contract types
@@ -466,6 +471,7 @@ export class GenerationService {
   private readonly referencePricingProvider?: () => Promise<ReferencePricingBaseline>;
   private readonly entitlementService?: EntitlementService;
   private questionPatternStore?: QuestionPatternStore;
+  private sourcePackStore?: SourcePackStore;
 
   constructor(
     private readonly generatedContentStore: GeneratedContentStore,
@@ -562,6 +568,10 @@ export class GenerationService {
 
   setQuestionPatternStore(store?: QuestionPatternStore): void {
     this.questionPatternStore = store;
+  }
+
+  setSourcePackStore(store?: SourcePackStore): void {
+    this.sourcePackStore = store;
   }
 
   /**
@@ -4434,13 +4444,102 @@ export class GenerationService {
     const generationKey = input.generationKey ?? undefined;
     const targetCourseId = input.courseId;
 
-    const doc = await this.requireDocument(organizationId, documentId);
+    // Resolve which generation types are requested and enabled
+    const requestedTypes =
+      input.types && input.types.length > 0
+        ? input.types
+        : (["lesson"] as GeneratedContentType[]);
+    const enabled = requestedTypes.filter((t): t is GeneratedContentType =>
+      isGenerationTypeEnabled(t),
+    );
 
-    if (targetCourseId && doc.courseId && doc.courseId !== targetCourseId) {
-      throw new DomainError(
-        "bad_request",
-        "Document belongs to a different course",
-      );
+    let doc: DocumentRecord;
+    try {
+      doc = await this.requireDocument(organizationId, documentId);
+    } catch (err) {
+      if (
+        requestedTypes.length === 1 &&
+        requestedTypes[0] === "review_summary" &&
+        err instanceof DomainError &&
+        err.code === "not_found"
+      ) {
+        // Fallback for Review Summary when DocumentRecord is missing in DB:
+        // Try to find an existing valid lesson for this document or course.
+        let existingLesson = (
+          await this.generatedContentStore.listByDocument(documentId, organizationId)
+        ).find(
+          (c) =>
+            c.type === "lesson" &&
+            c.deletedAt === null &&
+            c.status !== "rejected",
+        );
+        if (!existingLesson && targetCourseId) {
+          existingLesson = (
+            await this.generatedContentStore.listByCourse(targetCourseId, organizationId)
+          ).find(
+            (c) =>
+              c.type === "lesson" &&
+              c.deletedAt === null &&
+              c.status !== "rejected",
+          );
+        }
+        if (existingLesson) {
+          if (existingLesson.organizationId !== organizationId) {
+            throw new DomainError("forbidden", "Access denied to cross-organization content");
+          }
+          if (targetCourseId && existingLesson.courseId && existingLesson.courseId !== targetCourseId) {
+            throw new DomainError("bad_request", "Document belongs to a different course");
+          }
+          doc = {
+            id: documentId,
+            organizationId,
+            courseId: (targetCourseId || existingLesson.courseId) ?? null,
+            ownerUserId: actor.userId,
+            originalName:
+              (existingLesson.payload as { moduleTitle?: string; title?: string } | null)?.moduleTitle ||
+              (existingLesson.payload as { moduleTitle?: string; title?: string } | null)?.title ||
+              "Course Material",
+            mimeType: "text/plain",
+            sizeBytes: 0,
+            sha256: "fallback",
+            storageKey: `legacy/${documentId}`,
+            pageCount: null,
+            status: "ready",
+            errorCode: null,
+            retryCount: 0,
+            qualityScore: null,
+            qualityLevel: null,
+            qualityReport: null,
+            qualityAnalyzedAt: null,
+            deletedAt: null,
+            createdAt: existingLesson.createdAt,
+            updatedAt: existingLesson.updatedAt,
+          };
+        } else {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
+
+    if (targetCourseId) {
+      if (doc.sha256 !== "fallback") {
+        await assertDocumentAssociatedWithCourse(
+          {
+            documentStore: this.documentStore,
+            sourcePackStore: this.sourcePackStore,
+          },
+          documentId,
+          targetCourseId,
+          organizationId,
+        );
+      } else if (this.courseStore) {
+        const courseRecord = await this.courseStore.findById(targetCourseId);
+        if (!courseRecord || (courseRecord.organizationId !== organizationId && courseRecord.organizationId !== this.systemOrganizationId)) {
+          throw new DomainError("not_found", "Course not found");
+        }
+      }
     }
 
     // Start background heartbeat refresher for this active generation run if jobId is provided
@@ -4465,14 +4564,6 @@ export class GenerationService {
       }, 15_000);
     }
 
-    // Resolve which generation types are requested and enabled
-    const requestedTypes =
-      input.types && input.types.length > 0
-        ? input.types
-        : (["lesson"] as GeneratedContentType[]);
-    const enabled = requestedTypes.filter((t): t is GeneratedContentType =>
-      isGenerationTypeEnabled(t),
-    );
     if (enabled.length === 0) {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       throw new DomainError(
@@ -4509,12 +4600,26 @@ export class GenerationService {
     }
 
     // Server-side validation: check DB content status and prevent re-generating already-existing types
-    const contentStatus = await this.getDocumentContentStatus(
-      actor,
-      organizationId,
-      documentId,
-      targetCourseId,
-    );
+    let contentStatus: Awaited<ReturnType<typeof this.getDocumentContentStatus>> | null = null;
+    try {
+      contentStatus = await this.getDocumentContentStatus(
+        actor,
+        organizationId,
+        documentId,
+        targetCourseId,
+      );
+    } catch (err) {
+      if (
+        requestedTypes.length === 1 &&
+        requestedTypes[0] === "review_summary" &&
+        err instanceof DomainError &&
+        err.code === "not_found"
+      ) {
+        contentStatus = null;
+      } else {
+        throw err;
+      }
+    }
 
     const isRegen = Boolean(
       input.force || (generationKey && generationKey.includes(":regen:")),
@@ -4522,6 +4627,7 @@ export class GenerationService {
 
     const toGenerate = pendingCheckTypes.filter((t) => {
       if (isRegen && requestedTypes.includes(t)) return true;
+      if (!contentStatus) return true;
       if (t === "lesson" && contentStatus.lesson.generated) return false;
       if (t === "flashcard" && contentStatus.flashcards.generated) return false;
       if (t === "quiz" && contentStatus.exam.generated) return false;
@@ -4568,33 +4674,25 @@ export class GenerationService {
 
     // If the only type to generate is review_summary and lessons already exist in store
     // (such as during regeneration or when Stage 2 lessons were already generated),
-    // delegate directly to generateReviewSummaryDirect. This consumes the existing persisted Stage 1 planning
-    // and Stage 2 lessons from the database without regenerating them (preserving C2, Test E, and Test F).
+    // If the only type to generate is review_summary, delegate directly to generateReviewSummaryDirect.
+    // This consumes the existing persisted Stage 1 planning and Stage 2 lessons from the database
+    // without regenerating them (preserving C2, Test E, and Test F).
     if (toGenerate.length === 1 && toGenerate[0] === "review_summary") {
-      const existingContents = await this.generatedContentStore.listByDocument(
-        documentId,
+      const summaryResource = await this.generateReviewSummaryDirect(
+        actor,
         organizationId,
+        documentId,
+        {
+          force: isRegen || Boolean(input.force),
+          promptVersion,
+          courseId: targetCourseId,
+          generationKey,
+          sources: input.sources,
+        },
       );
-      const existingLesson = existingContents.find(
-        (c) =>
-          c.type === "lesson" &&
-          c.deletedAt === null &&
-          c.status !== "rejected",
-      );
-      if (existingLesson) {
-        const summaryResource = await this.generateReviewSummaryDirect(
-          actor,
-          organizationId,
-          documentId,
-          {
-            force: isRegen || Boolean(input.force),
-            promptVersion,
-            courseId: targetCourseId,
-            generationKey,
-            sources: input.sources,
-          },
-        );
-        let updatedDoc = await this.requireDocument(organizationId, documentId);
+      let updatedDocStatus = doc.status;
+      try {
+        const updatedDoc = await this.requireDocument(organizationId, documentId);
         if (
           updatedDoc.status === "generating" ||
           updatedDoc.status === "extracted" ||
@@ -4607,20 +4705,21 @@ export class GenerationService {
             errorCode: null,
             updatedAt: nowSuccess,
           });
-          updatedDoc = {
-            ...updatedDoc,
-            status: "review_pending",
-            updatedAt: nowSuccess,
-          };
+          updatedDocStatus = "review_pending";
+        } else {
+          updatedDocStatus = updatedDoc.status;
         }
-        return {
-          contents: [
-            ...(await Promise.all(contents.map((r) => this.toResource(r)))),
-            summaryResource,
-          ],
-          document_status: updatedDoc.status,
-        };
+      } catch {
+        // Fallback descriptor or legacy document
       }
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      return {
+        contents: [
+          ...(await Promise.all(contents.map((r) => this.toResource(r)))),
+          summaryResource,
+        ],
+        document_status: updatedDocStatus,
+      };
     }
 
     // Load source chunks
@@ -4798,7 +4897,8 @@ export class GenerationService {
             (c) =>
               c.type === "lesson" &&
               c.deletedAt === null &&
-              c.status !== "rejected",
+              c.status !== "rejected" &&
+              (!targetCourseId || c.courseId === targetCourseId),
           );
           if (
             lessonDraft?.payload &&
@@ -5538,18 +5638,132 @@ export class GenerationService {
       }
     }
 
-    const doc = await this.requireDocument(organizationId, documentId);
+    let doc: DocumentRecord;
+    try {
+      doc = await this.requireDocument(organizationId, documentId);
+    } catch (err) {
+      if (err instanceof DomainError && err.code === "not_found") {
+        // Document not found in documentStore. We will attempt resolution below via lesson.
+        const existingContents = await this.generatedContentStore.listByDocument(
+          documentId,
+          organizationId,
+        );
+        let existingLesson = existingContents.find(
+          (c) =>
+            c.type === "lesson" &&
+            c.deletedAt === null &&
+            c.status !== "rejected",
+        );
+        if (!existingLesson && options?.courseId) {
+          const courseContents = await this.generatedContentStore.listByCourse(
+            options.courseId,
+            organizationId,
+          );
+          existingLesson = courseContents.find(
+            (c) =>
+              c.type === "lesson" &&
+              c.deletedAt === null &&
+              c.status !== "rejected",
+          );
+        }
 
-    if (!options?.force) {
-      const existing = await this.generatedContentStore.listByDocument(
-        documentId,
+        if (!existingLesson) {
+          throw err;
+        }
+
+        doc = {
+          id: documentId,
+          organizationId,
+          courseId: (options?.courseId || existingLesson.courseId) ?? null,
+          ownerUserId: actor.userId,
+          originalName:
+            (existingLesson.payload as { moduleTitle?: string; title?: string } | null)?.moduleTitle ||
+            (existingLesson.payload as { moduleTitle?: string; title?: string } | null)?.title ||
+            "Course Material",
+          mimeType: "text/plain",
+          sizeBytes: 0,
+          sha256: "fallback",
+          storageKey: `legacy/${documentId}`,
+          pageCount: null,
+          status: "ready",
+          errorCode: null,
+          retryCount: 0,
+          qualityScore: null,
+          qualityLevel: null,
+          qualityReport: null,
+          qualityAnalyzedAt: null,
+          deletedAt: null,
+          createdAt: existingLesson.createdAt,
+          updatedAt: existingLesson.updatedAt,
+        };
+      } else {
+        throw err;
+      }
+    }
+
+    const existingContents = await this.generatedContentStore.listByDocument(
+      documentId,
+      organizationId,
+    );
+    let existingLesson = existingContents.find(
+      (c) =>
+        c.type === "lesson" &&
+        c.deletedAt === null &&
+        c.status !== "rejected" &&
+        (!options?.courseId || c.courseId === options.courseId),
+    );
+    if (!existingLesson && options?.courseId) {
+      const courseContents = await this.generatedContentStore.listByCourse(
+        options.courseId,
         organizationId,
       );
-      const existingSummary = existing.find(
+      existingLesson = courseContents.find(
+        (c) =>
+          c.type === "lesson" &&
+          c.deletedAt === null &&
+          c.status !== "rejected",
+      );
+    }
+
+    const targetCourseId = options?.courseId || doc.courseId;
+    if (targetCourseId) {
+      if (doc.sha256 !== "fallback") {
+        await assertDocumentAssociatedWithCourse(
+          {
+            documentStore: this.documentStore,
+            sourcePackStore: this.sourcePackStore,
+          },
+          documentId,
+          targetCourseId,
+          organizationId,
+        );
+      } else if (this.courseStore) {
+        const courseRecord = await this.courseStore.findById(targetCourseId);
+        if (!courseRecord || (courseRecord.organizationId !== organizationId && courseRecord.organizationId !== this.systemOrganizationId)) {
+          throw new DomainError("not_found", "Course not found");
+        }
+      }
+    }
+    if (existingLesson) {
+      if (existingLesson.organizationId !== organizationId) {
+        throw new DomainError("forbidden", "Access denied to cross-organization content");
+      }
+      if (targetCourseId && existingLesson.courseId && existingLesson.courseId !== targetCourseId) {
+        throw new DomainError(
+          "bad_request",
+          "Lesson belongs to a different course",
+        );
+      }
+    }
+
+    if (!options?.force) {
+      const existingSummary = existingContents.find(
         (c) =>
           c.type === "review_summary" &&
           c.deletedAt === null &&
-          c.status !== "rejected",
+          c.status !== "rejected" &&
+          c.status !== "regenerating" &&
+          (!targetCourseId || c.courseId === targetCourseId),
       );
       if (existingSummary) {
         return this.toResource(existingSummary);
@@ -5608,18 +5822,10 @@ export class GenerationService {
       }));
     }
 
-    if (chunks.length === 0) {
-      throw new DomainError(
-        "conflict",
-        "Document has no chunks available to cite. Please extract text first.",
-      );
-    }
-
     const promptVersion = options?.promptVersion ?? "v1";
     const now = new Date().toISOString();
     const correlationId = randomUUID();
 
-    const targetCourseId = options?.courseId || doc.courseId;
     const currentChunkSet = new Set(chunks.map((c) => c.id));
 
     const chunkKey = "review_summary";
@@ -5636,21 +5842,19 @@ export class GenerationService {
       const isStale =
         !claim.payload ||
         !Array.isArray((claim.payload as ReviewSummaryPayload).citationChunkIds) ||
-        (claim.payload as ReviewSummaryPayload).citationChunkIds.some(
-          (id) => !currentChunkSet.has(id),
-        );
+        (chunks.length > 0 &&
+          (claim.payload as ReviewSummaryPayload).citationChunkIds.some(
+            (id) => !currentChunkSet.has(id),
+          ));
 
       if (!isStale) {
-        const existingContents = await this.generatedContentStore.listByDocument(
-          documentId,
-          organizationId,
-        );
         const existingSummary = existingContents.find(
           (c) =>
             c.type === "review_summary" &&
             c.deletedAt === null &&
             c.status !== "rejected" &&
-            c.status !== "regenerating",
+            c.status !== "regenerating" &&
+            (!targetCourseId || c.courseId === targetCourseId),
         );
         if (existingSummary) {
           return this.toResource(existingSummary);
@@ -5662,267 +5866,106 @@ export class GenerationService {
     const nowChunk = existingSummaryChunk?.updatedAt || now;
 
     try {
-      // Check for existing Stage 1 Planning & Stage 2 Lessons
-      const existingContents = await this.generatedContentStore.listByDocument(
-        documentId,
-        organizationId,
-      );
-      const existingLesson = existingContents.find(
-        (c) =>
-          c.type === "lesson" &&
-          c.deletedAt === null &&
-          c.status !== "rejected",
-      );
-
+      // 1. Validate lesson existence and session quality
       if (!existingLesson) {
         throw new DomainError(
           "bad_request",
-          "STAGE5_MISSING_LESSONS: Stage 2 lessons must be generated before generating a review summary.",
+          "STAGE5_INSUFFICIENT_LESSONS: Valid Stage 2 lessons must exist before generating a review summary.",
         );
       }
 
-      let contentPlan: ContentPlan;
-      let generatedSessions: Array<{
-        title: string;
-        contentMarkdown: string;
-        citationChunkIds: string[];
-      }>;
+      const lessonPayload = existingLesson.payload as LessonPayload;
+      const lessonSessions = lessonPayload?.sessions;
+      if (
+        !Array.isArray(lessonSessions) ||
+        lessonSessions.length === 0 ||
+        !lessonSessions.some(
+          (s) =>
+            typeof s.contentMarkdown === "string" &&
+            s.contentMarkdown.trim().length > 0,
+        )
+      ) {
+        throw new DomainError(
+          "bad_request",
+          "STAGE5_INSUFFICIENT_LESSONS: Existing lesson has no valid sessions with markdown content.",
+        );
+      }
 
-      const isLessonCurrent = isLessonChunkSetCurrent(
-        existingLesson.payload,
-        currentChunkSet,
-      );
+      // 2. Determine mode: Full Grounded Mode vs Lesson-Based Mode
+      const isLessonCurrent =
+        chunks.length > 0 &&
+        isLessonChunkSetCurrent(existingLesson.payload, currentChunkSet);
+      const isFullGroundedMode = isLessonCurrent;
+      const effectiveChunks = isFullGroundedMode ? chunks : [];
 
-      if (isLessonCurrent) {
-        const lessonPayload = existingLesson.payload as LessonPayload;
-        const lessonSessions = lessonPayload.sessions || [];
-        if (lessonSessions.length === 0) {
-          throw new DomainError(
-            "bad_request",
-            "STAGE5_MISSING_LESSONS: Stage 2 lessons must be generated before generating a review summary.",
-          );
-        }
+      // 3. Reconstruct canonical ContentPlan from persisted lesson artifacts without modifying Stage 2
+      const coverageReport = lessonPayload.coverageReport;
+      const outline = lessonPayload.outline || [];
 
-        // Check for Stage 1 planning artifacts
-        const coverageReport = lessonPayload.coverageReport;
-        const outline = lessonPayload.outline || [];
-        if (!coverageReport && outline.length === 0) {
-          throw new DomainError(
-            "bad_request",
-            "STAGE5_MISSING_PLANNING: Stage 1 content planning must be completed before generating a review summary.",
-          );
-        }
-
-        // Reconstruct canonical ContentPlan from persisted lesson artifacts
-        const sourceTopics = (
-          coverageReport?.sourceTopicsIdentified ||
-          outline.map((o) => ({
+      let rawTopics = coverageReport?.sourceTopicsIdentified;
+      if (!rawTopics || rawTopics.length === 0) {
+        if (outline.length > 0) {
+          rawTopics = outline.map((o) => ({
             title: o.title,
             description: o.description || "",
-          }))
-        ).map((st, idx) => ({
-          id: `topic-${idx + 1}`,
-          title: st.title,
-          description: st.description || "",
-          category: (st as { category?: string }).category,
-          relevantChunkIds:
-            (st as { relevantChunkIds?: string[] }).relevantChunkIds ||
-            chunks.map((c) => c.id),
-        }));
-
-        const sessions: ContentPlan["sessions"] = lessonSessions.map((s, idx) => {
-          const audit = coverageReport?.sessionsAudit?.[idx];
-          const coreConcepts = audit?.keyConcepts || [];
-          const relevantChunkIds =
-            s.citationChunkIds && s.citationChunkIds.length > 0
-              ? s.citationChunkIds
-              : chunks.map((c) => c.id);
-          return {
-            index: idx,
-            title: s.title,
-            description: outline[idx]?.description || "",
-            coreConcepts,
-            relevantChunkIds,
-            targetFlashcardCount: 5,
-            targetQuizCount: 3,
-          };
-        });
-
-        contentPlan = {
-          moduleTitle: lessonPayload.moduleTitle || doc.originalName,
-          sourceTopics,
-          sessions,
-          highYieldFacts: [],
-        };
-
-        generatedSessions = lessonSessions.map((s) => ({
-          title: s.title,
-          contentMarkdown: s.contentMarkdown,
-          citationChunkIds: s.citationChunkIds || [],
-        }));
-      } else {
-        // Stale lesson detected! Rebuild upstream dependencies automatically:
-        process.stdout.write(
-          `[generation-service] Stale lesson detected for document ${documentId}. Regenerating planning and lessons using current chunk set.\n`,
-        );
-
-        // Invalidate/delete stale lesson draft for this document
-        await this.generatedContentStore.deleteDraftsByDocumentAndType(
-          documentId,
-          "lesson",
-          organizationId,
-        );
-
-        const budget = calculateGenerationBudget({
-          totalTokens: chunks.reduce((acc, c) => acc + (c.tokenEstimate || 500), 0),
-          totalCharacters: chunks.reduce((acc, c) => acc + c.content.length, 0),
-          chunkCount: chunks.length,
-        });
-
-        // Step 1: Planning (Stage 1) - automatically detects and evicts stale planning cache
-        const planningRes = await this.extractContentPlan(
-          doc,
-          chunks,
-          budget,
-          promptVersion,
-          correlationId,
-          organizationId,
-          documentId,
-          targetCourseId ?? undefined,
-        );
-        contentPlan = planningRes.contentPlan;
-
-        // Step 2: Lessons (Stage 2) - batched per session on current chunks
-        const sessionBatchRes = await this.generateSessionsBatched(
-          doc,
-          contentPlan.sessions,
-          chunks,
-          budget,
-          promptVersion,
-          correlationId,
-          organizationId,
-          documentId,
-          targetCourseId ?? undefined,
-        );
-        generatedSessions = sessionBatchRes.sessions;
-
-        // Step 3: Persist fresh regenerated lesson draft
-        const outlineListing = planningRes.outline
-          .map((item, idx) => `${idx + 1}. **${item.title}**: ${item.description}`)
-          .join("\n");
-        const cleanPlanTitle = cleanEducationalTitle(
-          planningRes.moduleTitle,
-          "درسنامه آموزشی جامع",
-        );
-        const masterMarkdown = [
-          `# ${cleanPlanTitle}`,
-          `## فهرست جلسات آموزشی`,
-          outlineListing,
-          `---`,
-          ...generatedSessions.map((s) => s.contentMarkdown),
-        ].join("\n\n");
-
-        const allSessionCitations = Array.from(
-          new Set(generatedSessions.flatMap((s) => s.citationChunkIds)),
-        );
-
-        const { coverageReport } = await this.auditAndBuildCoverageReport(
-          contentPlan,
-          generatedSessions,
-          new Map(),
-          new Map(),
-          chunks,
-          budget,
-        );
-
-        const newLessonPayload: GeneratedContentPayload = {
-          kind: "lesson",
-          moduleTitle: cleanPlanTitle,
-          title: cleanPlanTitle,
-          outline: planningRes.outline,
-          sessions: generatedSessions,
-          contentMarkdown: masterMarkdown,
-          citationChunkIds:
-            allSessionCitations.length > 0
-              ? allSessionCitations
-              : planningRes.citationChunkIds,
-          coverageReport,
-        };
-
-        const groundedLessonPayload = this.groundCitations(
-          newLessonPayload,
-          chunks.map((c) => c.id),
-        );
-
-        const newLessonRecord: GeneratedContentRecord = {
-          id: randomUUID() as GeneratedContentId,
-          organizationId,
-          documentId,
-          courseId: (targetCourseId || doc.courseId) as CourseId,
-          type: "lesson",
-          status: "draft",
-          payload: groundedLessonPayload,
-          materializedLessonId: null,
-          promptVersion,
-          model: planningRes.model,
-          tokenUsage: {
-            inputTokens: planningRes.usage.inputTokens + sessionBatchRes.usage.inputTokens,
-            outputTokens: planningRes.usage.outputTokens + sessionBatchRes.usage.outputTokens,
-          },
-          generationKey: options?.generationKey ?? null,
-          acceptedAt: null,
-          acceptedBy: null,
-          reviewedBy: null,
-          reviewedAt: null,
-          reviewReason: null,
-          editedBy: null,
-          editedAt: null,
-          previousPayload: null,
-          createdAt: now,
-          updatedAt: now,
-          deletedAt: null,
-        };
-
-        const existingActiveContents = await this.generatedContentStore.listByDocument(
-          documentId,
-          organizationId,
-        );
-        const currentValidLesson = existingActiveContents.find(
-          (c) =>
-            c.type === "lesson" &&
-            c.deletedAt === null &&
-            isLessonChunkSetCurrent(c.payload, currentChunkSet),
-        );
-
-        if (!currentValidLesson) {
-          // Delete any existing stale draft for lesson before persisting fresh one
-          await this.generatedContentStore.deleteDraftsByDocumentAndType(
-            documentId,
-            "lesson",
-            organizationId,
-          );
-
-          await this.generatedContentStore.create(newLessonRecord);
-          const lessonCitations = (groundedLessonPayload as { citationChunkIds?: string[] })?.citationChunkIds;
-          if (Array.isArray(lessonCitations) && lessonCitations.length > 0) {
-            await this.citationStore.createMany(
-              lessonCitations.map((chunkId) => ({
-                generatedContentId: newLessonRecord.id,
-                documentChunkId: chunkId as DocumentChunkId,
-              })),
-            );
-          }
+          }));
+        } else {
+          rawTopics = lessonSessions.map((s, idx) => ({
+            title: s.title || `Session ${idx + 1}`,
+            description: "",
+          }));
         }
       }
 
-      const totalTokens = chunks.reduce(
+      const sourceTopics = rawTopics.map((st, idx) => ({
+        id: `topic-${idx + 1}`,
+        title: st.title,
+        description: st.description || "",
+        category: (st as { category?: string }).category,
+        relevantChunkIds:
+          (st as { relevantChunkIds?: string[] }).relevantChunkIds ||
+          (isFullGroundedMode ? chunks.map((c) => c.id) : []),
+      }));
+
+      const sessions: ContentPlan["sessions"] = lessonSessions.map((s, idx) => {
+        const audit = coverageReport?.sessionsAudit?.[idx];
+        const coreConcepts = audit?.keyConcepts || [];
+        const relevantChunkIds =
+          isFullGroundedMode && s.citationChunkIds && s.citationChunkIds.length > 0
+            ? s.citationChunkIds
+            : (isFullGroundedMode ? chunks.map((c) => c.id) : []);
+        return {
+          index: idx,
+          title: s.title,
+          description: outline[idx]?.description || "",
+          coreConcepts,
+          relevantChunkIds,
+          targetFlashcardCount: 5,
+          targetQuizCount: 3,
+        };
+      });
+
+      const contentPlan: ContentPlan = {
+        moduleTitle: lessonPayload.moduleTitle || doc.originalName,
+        sourceTopics,
+        sessions,
+        highYieldFacts: [],
+      };
+
+      const generatedSessions = lessonSessions.map((s) => ({
+        title: s.title,
+        contentMarkdown: s.contentMarkdown,
+        citationChunkIds: isFullGroundedMode ? (s.citationChunkIds || []) : [],
+      }));
+
+      const totalTokens = effectiveChunks.reduce(
         (acc, c) => acc + (c.tokenEstimate || 500),
         0,
       );
 
       const summaryInput = this.buildReviewSummaryGenerationInput(
         doc,
-        chunks,
+        effectiveChunks,
         contentPlan,
         generatedSessions,
         totalTokens,
@@ -5935,7 +5978,7 @@ export class GenerationService {
       const prompt = buildReviewSummaryUserPrompt(summaryInput);
 
       process.stdout.write(
-        `[GENERATION] stage_started: documentId=${documentId} stage=review_summary correlationId=${correlationId}\n`,
+        `[GENERATION] stage_started: documentId=${documentId} stage=review_summary correlationId=${correlationId} mode=${isFullGroundedMode ? "full_grounded" : "lesson_based"}\n`,
       );
       process.stdout.write(
         `[GENERATION] provider_request_started: stage=review_summary correlationId=${correlationId}\n`,
@@ -5991,13 +6034,18 @@ export class GenerationService {
 
       const groundedPayload = this.groundCitations(
         fullPayload,
-        chunks.map((c) => c.id),
+        effectiveChunks.map((c) => c.id),
       );
 
-      await this.generatedContentStore.deleteDraftsByDocumentAndType(
-        documentId,
-        "review_summary",
-        organizationId,
+      // Snapshot existing unaccepted draft/regenerating review summaries for atomic cleanup after new draft succeeds
+      const existingSummaries = (
+        await this.generatedContentStore.listByDocument(documentId, organizationId)
+      ).filter(
+        (c) =>
+          c.type === "review_summary" &&
+          c.deletedAt === null &&
+          (c.status === "draft" || c.status === "regenerating" || c.status === "edited") &&
+          (!targetCourseId || c.courseId === targetCourseId),
       );
 
       const record: GeneratedContentRecord = {
@@ -6031,6 +6079,41 @@ export class GenerationService {
 
       await this.generatedContentStore.create(record);
 
+      try {
+        const citationChunkIds = (
+          groundedPayload as { citationChunkIds?: string[] }
+        )?.citationChunkIds || [];
+        if (citationChunkIds.length > 0) {
+          await this.citationStore.createMany(
+            citationChunkIds.map((chunkId) => ({
+              generatedContentId: record.id,
+              documentChunkId: chunkId as DocumentChunkId,
+            })),
+          );
+        }
+
+        // Clean up older unaccepted drafts/regenerating records now that new draft + citations persisted
+        for (const old of existingSummaries) {
+          if (old.id !== record.id) {
+            await this.generatedContentStore.update({
+              ...old,
+              deletedAt: new Date().toISOString(),
+            });
+          }
+        }
+      } catch (persistenceErr) {
+        // Rollback new record on citation failure
+        try {
+          await this.generatedContentStore.update({
+            ...record,
+            deletedAt: new Date().toISOString(),
+          });
+        } catch {
+          // ignore rollback failure
+        }
+        throw persistenceErr;
+      }
+
       process.stdout.write(
         `[GENERATION] draft_persisted: documentId=${documentId} type=review_summary contentId=${record.id}\n`,
       );
@@ -6058,18 +6141,6 @@ export class GenerationService {
 
       await this.progressService.completeStage(documentId, organizationId, "summary");
 
-      const citationChunkIds = (
-        groundedPayload as { citationChunkIds: string[] }
-      ).citationChunkIds;
-      if (citationChunkIds && citationChunkIds.length > 0) {
-        await this.citationStore.createMany(
-          citationChunkIds.map((chunkId) => ({
-            generatedContentId: record.id,
-            documentChunkId: chunkId as DocumentChunkId,
-          })),
-        );
-      }
-
       if (this.auditService) {
         await this.auditService.emit([
           auditContentGenerated(actor.userId, organizationId, record.id, {
@@ -6077,7 +6148,7 @@ export class GenerationService {
             type: "review_summary",
             model: record.model ?? "mock",
             promptVersion,
-            sourceChunkCount: chunks.length,
+            sourceChunkCount: effectiveChunks.length,
           }),
         ]);
       }
@@ -6105,7 +6176,7 @@ export class GenerationService {
         id: existingSummaryChunk?.id ?? randomUUID(),
         organizationId,
         documentId,
-        courseId: targetCourseId ?? doc.courseId,
+        courseId: targetCourseId ?? doc?.courseId,
         stage: "review_summary",
         chunkIndex: 0,
         chunkKey,
@@ -6132,15 +6203,45 @@ export class GenerationService {
     let targetOrgId = organizationId;
 
     if (courseId && this.courseStore) {
-      const course = await this.courseStore.findByIdForUser(
-        courseId,
-        actor.userId,
-        this.systemOrganizationId,
-      );
-      if (!course) {
+      const isPlatformAdmin =
+        actor.globalRole === "platform_admin" ||
+        actor.role === "platform_admin";
+
+      const course = isPlatformAdmin
+        ? await this.courseStore.findById(courseId)
+        : await this.courseStore.findByIdForUser(
+            courseId,
+            actor.userId,
+            this.systemOrganizationId,
+          );
+      if (!course || course.deletedAt !== null) {
         throw new DomainError("not_found", "Course not found");
       }
       targetOrgId = (course.organizationId || (course as { organization_id?: OrganizationId }).organization_id) as OrganizationId;
+
+      const isCreatorOrgMember = this.orgStore
+        ? Boolean(await this.orgStore.findMembership(targetOrgId, actor.userId))
+        : Boolean(actor.memberships?.some((m) => m.organizationId === targetOrgId));
+      const isPrivileged =
+        actor.globalRole === "platform_admin" ||
+        actor.role === "platform_admin" ||
+        isCreatorOrgMember;
+
+      if (!isPrivileged && course.status !== "published") {
+        throw new DomainError("not_found", "Course not found");
+      }
+
+      if (this.documentStore) {
+        const doc = await this.documentStore
+          .findByIdForOrganization(documentId, targetOrgId)
+          .catch(() => undefined);
+        if (!doc || doc.deletedAt !== null) {
+          throw new DomainError("not_found", "Document not found");
+        }
+        if (doc.courseId !== courseId) {
+          throw new DomainError("not_found", "Document not found in course");
+        }
+      }
 
       if (this.entitlementService) {
         const access = await this.entitlementService.checkAccess(actor, {
@@ -6198,7 +6299,8 @@ export class GenerationService {
       (c) =>
         c.type === "review_summary" &&
         c.deletedAt === null &&
-        c.status !== "rejected",
+        c.status !== "rejected" &&
+        (!courseId || c.courseId === courseId),
     );
 
     // Prefer newest active draft/revision for review/editing, followed by accepted
@@ -6220,9 +6322,20 @@ export class GenerationService {
     }
 
     // If no summary was found, ensure the document exists and belongs to the organization (or throw 404)
-    const doc = await this.requireDocument(targetOrgId, documentId);
-    if (courseId && doc.courseId && doc.courseId !== courseId) {
-      throw new DomainError("not_found", "Document not found in course");
+    await this.requireDocument(targetOrgId, documentId);
+    if (courseId) {
+      const assoc = await isDocumentAssociatedWithCourse(
+        {
+          documentStore: this.documentStore,
+          sourcePackStore: this.sourcePackStore,
+        },
+        documentId,
+        courseId,
+        targetOrgId,
+      );
+      if (!assoc.associated) {
+        throw new DomainError("not_found", "Document not found in course");
+      }
     }
 
     return undefined;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq, and, isNull, inArray } from "drizzle-orm";
+import { eq, and, isNull, inArray, desc, asc } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   courses,
@@ -10,6 +10,7 @@ import {
   quizQuestions,
   courseDraftSessions,
   courseReleases,
+  coursePublications,
 } from "@avana/database/schema";
 import {
   DomainError,
@@ -17,6 +18,7 @@ import {
   asCourseReleaseId,
   asCourseId,
   asUserId,
+  asCoursePublicationId,
   mergeDraftChange,
 } from "@avana/domain";
 import type {
@@ -37,8 +39,12 @@ import type {
   ReleaseManifest,
   AdminCourseHierarchyPreview,
   CourseHierarchyPreviewModule,
+  CoursePublicationSnapshot,
+  CoursePublicationChapterSnapshot,
+  OrganizationId,
+  UserId,
 } from "@avana/domain";
-import type { CourseStore, CourseRecord } from "./course-store.js";
+import type { CourseStore, CourseRecord, CoursePublicationStore } from "./course-store.js";
 import type {
   CourseDraftSessionStore,
   CourseDraftChangeStore,
@@ -61,6 +67,8 @@ export interface CourseDraftServiceDeps {
   draftSessionStore: CourseDraftSessionStore;
   draftChangeStore: CourseDraftChangeStore;
   releaseStore: CourseReleaseStore;
+  coursePublicationStore?: CoursePublicationStore;
+  systemOrganizationId?: OrganizationId;
   moduleStore?: ModuleStore;
   lessonStore?: LessonStore;
   flashcardStore?: FlashcardStore;
@@ -89,6 +97,10 @@ export class CourseDraftService {
     const course = await this.deps.courseStore.findById(courseId);
     if (!course || course.deletedAt) {
       throw new DomainError("not_found", "دوره یافت نشد.");
+    }
+
+    if (!this.isAuthorizedToPublish(actor, course)) {
+      throw new DomainError("forbidden", "تنها مدیران مجاز یا مالک دوره امکان ایجاد یا دریافت پیش‌نویس دوره را دارند.");
     }
 
     const existingActive = await this.deps.draftSessionStore.findActiveByCourse(courseId);
@@ -158,6 +170,18 @@ export class CourseDraftService {
       );
     }
 
+    const course = await this.deps.courseStore.findById(session.courseId);
+    if (!course || course.deletedAt) {
+      throw new DomainError("not_found", "دوره یافت نشد.");
+    }
+
+    if (session.baseCourseVersion !== (course.version ?? 1)) {
+      throw new DomainError(
+        "conflict",
+        `تضاد نسخه: دوره از زمان ایجاد این پیش‌نویس به‌روزرسانی شده است (نسخه فعلی دوره: ${course.version ?? 1}، نسخه مبنای پیش‌نویس: ${session.baseCourseVersion}). لطفاً پیش‌نویس جدید ایجاد کنید.`,
+      );
+    }
+
     this.validateDraftPayload(incoming.entityType, incoming.action, incoming.payload);
 
     // 1. Fetch existing change if any
@@ -219,7 +243,7 @@ export class CourseDraftService {
    * 6. Discard an entire draft session.
    */
   async discardSession(
-    _actor: Actor,
+    actor: Actor,
     sessionId: CourseDraftSessionId,
   ): Promise<void> {
     const session = await this.deps.draftSessionStore.findById(sessionId);
@@ -229,6 +253,15 @@ export class CourseDraftService {
 
     if (session.status === "published") {
       throw new DomainError("conflict", "پیش‌نویسی که منتشر شده است قابل لغو نیست.");
+    }
+
+    const course = await this.deps.courseStore.findById(session.courseId);
+    if (!course || course.deletedAt) {
+      throw new DomainError("not_found", "دوره یافت نشد.");
+    }
+
+    if (!this.isAuthorizedToPublish(actor, course)) {
+      throw new DomainError("forbidden", "تنها مدیران مجاز یا مالک دوره امکان لغو پیش‌نویس دوره را دارند.");
     }
 
     await this.deps.draftSessionStore.updateStatus(sessionId, "discarded");
@@ -573,14 +606,13 @@ export class CourseDraftService {
       throw new DomainError("conflict", "این پیش‌نویس لغو شده است و قابل انتشار نیست.");
     }
 
-    if (
-      actor.role !== "platform_admin" &&
-      actor.globalRole !== "platform_admin" &&
-      actor.role !== "organization_admin" &&
-      actor.role !== "course_editor" &&
-      actor.globalRole !== "course_editor"
-    ) {
-      throw new DomainError("forbidden", "تنها مدیران یا ویرایشگران دوره امکان انتشار نسخه پیش‌نویس دوره را دارند.");
+    const course = await this.deps.courseStore.findById(session.courseId);
+    if (!course || course.deletedAt) {
+      throw new DomainError("not_found", "دوره یافت نشد.");
+    }
+
+    if (!this.isAuthorizedToPublish(actor, course)) {
+      throw new DomainError("forbidden", "تنها مدیران یا ویرایشگران مجاز امکان انتشار نسخه پیش‌نویس دوره را دارند.");
     }
 
     // 1. Prevalidate outside transaction
@@ -590,11 +622,6 @@ export class CourseDraftService {
         "bad_request",
         `امکان انتشار پیش‌نویس وجود ندارد:\n• ${validation.errors.join("\n• ")}`,
       );
-    }
-
-    const course = await this.deps.courseStore.findById(session.courseId);
-    if (!course || course.deletedAt) {
-      throw new DomainError("not_found", "دوره یافت نشد.");
     }
 
     if (session.baseCourseVersion !== (course.version ?? 1)) {
@@ -669,6 +696,8 @@ export class CourseDraftService {
           updatedAt: now,
         };
 
+        await this.syncPublicationSnapshotDb(tx, updatedCourse, changes, nextVersion, actor.userId);
+
         const releaseRecord: CourseReleaseRecord = {
           id: asCourseReleaseId(releaseRow.id as any),
           courseId: asCourseId(releaseRow.courseId as any),
@@ -709,6 +738,8 @@ export class CourseDraftService {
 
       await this.deps.draftSessionStore.updateStatus(sessionId, "published");
 
+      await this.syncPublicationSnapshotStore(course, changes, nextVersion, actor.userId);
+
       return { release: releaseRecord, course };
     }
   }
@@ -723,19 +754,13 @@ export class CourseDraftService {
     targetVersion: number,
     reason?: string,
   ): Promise<{ release: CourseReleaseRecord; course: CourseRecord }> {
-    if (
-      actor.role !== "platform_admin" &&
-      actor.globalRole !== "platform_admin" &&
-      actor.role !== "organization_admin" &&
-      actor.role !== "course_editor" &&
-      actor.globalRole !== "course_editor"
-    ) {
-      throw new DomainError("forbidden", "تنها مدیران یا ویرایشگران دوره امکان بازگردانی نسخه دوره را دارند.");
-    }
-
     const course = await this.deps.courseStore.findById(courseId);
     if (!course || course.deletedAt) {
       throw new DomainError("not_found", "دوره یافت نشد.");
+    }
+
+    if (!this.isAuthorizedToPublish(actor, course)) {
+      throw new DomainError("forbidden", "تنها مدیران مجاز یا مالک دوره امکان بازگردانی نسخه دوره را دارند.");
     }
 
     const targetRelease = await this.deps.releaseStore.findByCourseAndVersion(
@@ -796,6 +821,8 @@ export class CourseDraftService {
           updatedAt: now,
         };
 
+        await this.syncRollbackPublicationSnapshotDb(tx, updatedCourse, targetVersion, nextVersion, actor.userId);
+
         const releaseRecord: CourseReleaseRecord = {
           id: asCourseReleaseId(releaseRow.id as any),
           courseId: asCourseId(releaseRow.courseId as any),
@@ -834,6 +861,8 @@ export class CourseDraftService {
         manifest: targetRelease.manifest,
         publishedBy: actor.userId,
       });
+
+      await this.syncRollbackPublicationSnapshotStore(course, targetVersion, nextVersion, actor.userId);
 
       return { release: releaseRecord, course };
     }
@@ -1840,5 +1869,450 @@ export class CourseDraftService {
       }
     }
     return summary;
+  }
+
+  /**
+   * Helper to verify if actor has authority to create, edit, publish, or rollback draft sessions.
+   * Universal for platform admin.
+   * Org admin or course editor within org.
+   * Genuine creator (creatorUserId) on user/community courses only (never bypass official course governance).
+   */
+  isAuthorizedToPublish(actor: Actor, course: CourseRecord): boolean {
+    if (
+      actor.role === "platform_admin" ||
+      actor.globalRole === "platform_admin" ||
+      (actor.role as string) === "admin"
+    ) {
+      return true;
+    }
+
+    const actorOrgId = (actor as any).organizationId;
+    if (
+      actor.role === "organization_admin" &&
+      course.organizationId &&
+      actorOrgId === course.organizationId
+    ) {
+      return true;
+    }
+
+    if (
+      (actor.role === "course_editor" || actor.globalRole === "course_editor") &&
+      (!course.organizationId || actorOrgId === course.organizationId)
+    ) {
+      return true;
+    }
+
+    const isOfficial =
+      course.isOfficial === true ||
+      !course.organizationId ||
+      (Boolean(this.deps.systemOrganizationId) && course.organizationId === this.deps.systemOrganizationId);
+
+    if (!isOfficial && course.creatorUserId && actor.userId === course.creatorUserId) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private applyChangesToSnapshot(
+    baseSnapshot: CoursePublicationSnapshot,
+    changes: CourseDraftChangeRecord[],
+    course: CourseRecord,
+  ): CoursePublicationSnapshot {
+    const chapters: CoursePublicationChapterSnapshot[] = JSON.parse(
+      JSON.stringify(baseSnapshot.chapters ?? []),
+    );
+
+    for (const c of changes) {
+      if (c.entityType === "lesson") {
+        if (c.action === "update") {
+          for (const ch of chapters) {
+            const lesson = ch.lessons?.find((l) => l.id === c.entityId);
+            if (lesson) {
+              if (c.payload.after?.title !== undefined) {
+                lesson.title = c.payload.after.title as string;
+              }
+              if (c.payload.after?.contentMarkdown !== undefined) {
+                lesson.contentMarkdown = c.payload.after.contentMarkdown as string;
+              }
+              if (c.payload.after?.sortOrder !== undefined) {
+                lesson.sortOrder = c.payload.after.sortOrder as number;
+              }
+              if (c.payload.after?.estimatedMinutes !== undefined) {
+                lesson.estimatedMinutes = c.payload.after.estimatedMinutes as number;
+              }
+            }
+          }
+        } else if (c.action === "create") {
+          let targetChapter = chapters.find((ch) => ch.id === c.parentId);
+          if (!targetChapter && chapters.length > 0) {
+            targetChapter = chapters[0];
+          }
+          if (targetChapter) {
+            if (!targetChapter.lessons) targetChapter.lessons = [];
+            targetChapter.lessons.push({
+              id: c.entityId,
+              title: (c.payload.after?.title as string) || "درس جدید",
+              contentMarkdown: (c.payload.after?.contentMarkdown as string) || "",
+              sortOrder: c.sortOrder ?? (c.payload.after?.sortOrder as number) ?? targetChapter.lessons.length,
+              estimatedMinutes: (c.payload.after?.estimatedMinutes as number) ?? null,
+            });
+            targetChapter.lessons.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+          }
+        } else if (c.action === "delete") {
+          for (const ch of chapters) {
+            if (ch.lessons) {
+              ch.lessons = ch.lessons.filter((l) => l.id !== c.entityId);
+            }
+          }
+        }
+      } else if (c.entityType === "module" || c.entityType === "sub_course_group") {
+        if (c.action === "update") {
+          const ch = chapters.find((x) => x.id === c.entityId);
+          if (ch) {
+            if (c.payload.after?.title !== undefined) ch.title = c.payload.after.title as string;
+            if (c.payload.after?.description !== undefined) ch.description = c.payload.after.description as string;
+            if (c.payload.after?.sortOrder !== undefined) ch.sortOrder = c.payload.after.sortOrder as number;
+          }
+        } else if (c.action === "create") {
+          const exists = chapters.some((x) => x.id === c.entityId);
+          if (!exists) {
+            chapters.push({
+              id: c.entityId,
+              title: (c.payload.after?.title as string) || "فصل جدید",
+              description: (c.payload.after?.description as string) ?? null,
+              documentId: (c.payload.after?.documentId as string) ?? null,
+              sortOrder: c.sortOrder ?? chapters.length,
+              lessons: [],
+            });
+          }
+        } else if (c.action === "delete") {
+          const idx = chapters.findIndex((x) => x.id === c.entityId);
+          if (idx !== -1) {
+            chapters.splice(idx, 1);
+          }
+        }
+      } else if (c.entityType === "flashcard") {
+        if (c.action === "create" || c.action === "update") {
+          const cardData = {
+            front: (c.payload.after?.question as string) || (c.payload.after?.front as string) || "",
+            back: (c.payload.after?.answer as string) || (c.payload.after?.back as string) || "",
+            explanation: (c.payload.after?.explanation as string) ?? null,
+            difficulty: (c.payload.after?.difficulty as string) ?? "medium",
+          };
+          if (chapters.length > 0) {
+            const ch = chapters[0];
+            if (!ch.flashcards) ch.flashcards = [];
+            ch.flashcards.push(cardData);
+          }
+        }
+      } else if (c.entityType === "quiz_question") {
+        if (c.action === "create" || c.action === "update") {
+          const qData = {
+            question: (c.payload.after?.question as string) || "",
+            choices: (c.payload.after?.choices as string[]) || [],
+            correctAnswer: (c.payload.after?.correctAnswer as string) || "",
+            explanation: (c.payload.after?.explanation as string) ?? null,
+            difficulty: (c.payload.after?.difficulty as string) ?? "medium",
+          };
+          if (chapters.length > 0) {
+            const ch = chapters[0];
+            if (!ch.quiz) {
+              ch.quiz = { title: "آزمون دوره", questions: [] };
+            }
+            ch.quiz.questions.push(qData);
+          }
+        }
+      }
+    }
+
+    const lessonCount = chapters.reduce((sum, ch) => sum + (ch.lessons?.length || 0), 0);
+    const flashcardCount = chapters.reduce((sum, ch) => sum + (ch.flashcards?.length || 0), 0);
+    const quizQuestionCount = chapters.reduce((sum, ch) => sum + (ch.quiz?.questions?.length || 0), 0);
+    const estimatedReadingMinutes = chapters.reduce(
+      (sum, ch) => sum + (ch.lessons?.reduce((lSum, l) => lSum + (l.estimatedMinutes || 10), 0) || 0),
+      0,
+    );
+
+    return {
+      courseId: course.id,
+      title: course.title || baseSnapshot.title || "دوره",
+      description: course.description ?? baseSnapshot.description ?? null,
+      subject: course.subject ?? baseSnapshot.subject ?? null,
+      chapters,
+      stats: {
+        chapterCount: chapters.length,
+        lessonCount,
+        flashcardCount,
+        quizQuestionCount,
+        estimatedReadingMinutes,
+      },
+    };
+  }
+
+  private async buildSnapshotFromLiveDb(
+    tx: any,
+    course: CourseRecord,
+  ): Promise<CoursePublicationSnapshot> {
+    const liveModules = await tx
+      .select()
+      .from(modules)
+      .where(and(eq(modules.courseId, course.id), isNull(modules.deletedAt)))
+      .orderBy(asc(modules.sortOrder), asc(modules.createdAt));
+
+    const moduleIds = liveModules.map((m: any) => m.id);
+    const liveLessons =
+      moduleIds.length > 0
+        ? await tx
+            .select()
+            .from(lessons)
+            .where(and(inArray(lessons.moduleId, moduleIds), isNull(lessons.deletedAt)))
+            .orderBy(asc(lessons.sortOrder), asc(lessons.createdAt))
+        : [];
+
+    const lessonsByModule = new Map<string, any[]>();
+    for (const l of liveLessons) {
+      const arr = lessonsByModule.get(l.moduleId) ?? [];
+      arr.push(l);
+      lessonsByModule.set(l.moduleId, arr);
+    }
+
+    const chapters: CoursePublicationChapterSnapshot[] = liveModules.map((m: any, idx: number) => ({
+      id: m.id,
+      title: m.title,
+      description: m.description,
+      documentId: m.documentId,
+      sortOrder: m.sortOrder ?? idx,
+      lessons: (lessonsByModule.get(m.id) ?? []).map((l: any) => ({
+        id: l.id,
+        title: l.title,
+        contentMarkdown: l.contentMarkdown,
+        sortOrder: l.sortOrder,
+        estimatedMinutes: l.estimatedMinutes,
+      })),
+    }));
+
+    return {
+      courseId: course.id,
+      title: course.title || "دوره",
+      description: course.description ?? null,
+      subject: course.subject ?? null,
+      chapters,
+      stats: {
+        chapterCount: chapters.length,
+        lessonCount: liveLessons.length,
+        flashcardCount: 0,
+        quizQuestionCount: 0,
+        estimatedReadingMinutes: liveLessons.reduce((sum: number, l: any) => sum + (l.estimatedMinutes || 10), 0),
+      },
+    };
+  }
+
+  private async buildSnapshotFromStores(
+    course: CourseRecord,
+  ): Promise<CoursePublicationSnapshot> {
+    const liveModules = this.deps.moduleStore
+      ? await this.deps.moduleStore.listByCourse(course.id)
+      : [];
+    const moduleIds = liveModules.map((m) => m.id);
+    const liveLessons =
+      this.deps.lessonStore && moduleIds.length > 0
+        ? await this.deps.lessonStore.listByModules(moduleIds)
+        : [];
+
+    const lessonsByModule = new Map<string, typeof liveLessons>();
+    for (const l of liveLessons) {
+      const arr = lessonsByModule.get(l.moduleId) ?? [];
+      arr.push(l);
+      lessonsByModule.set(l.moduleId, arr);
+    }
+
+    const chapters: CoursePublicationChapterSnapshot[] = liveModules.map((m, idx) => ({
+      id: m.id,
+      title: m.title,
+      description: m.description ?? null,
+      documentId: m.documentId ?? null,
+      sortOrder: m.sortOrder ?? idx,
+      lessons: (lessonsByModule.get(m.id) ?? []).map((l) => ({
+        id: l.id,
+        title: l.title,
+        contentMarkdown: l.contentMarkdown,
+        sortOrder: l.sortOrder,
+        estimatedMinutes: l.estimatedMinutes ?? null,
+      })),
+    }));
+
+    return {
+      courseId: course.id,
+      title: course.title || "دوره",
+      description: course.description ?? null,
+      subject: course.subject ?? null,
+      chapters,
+      stats: {
+        chapterCount: chapters.length,
+        lessonCount: liveLessons.length,
+        flashcardCount: 0,
+        quizQuestionCount: 0,
+        estimatedReadingMinutes: liveLessons.reduce((sum, l) => sum + (l.estimatedMinutes || 10), 0),
+      },
+    };
+  }
+
+  private async syncPublicationSnapshotDb(
+    tx: any,
+    course: CourseRecord,
+    changes: CourseDraftChangeRecord[],
+    nextVersion: number,
+    actorUserId: UserId,
+  ): Promise<void> {
+    const existingPubRows = await tx
+      .select()
+      .from(coursePublications)
+      .where(and(eq(coursePublications.courseId, course.id), isNull(coursePublications.deletedAt)))
+      .orderBy(desc(coursePublications.version), desc(coursePublications.createdAt))
+      .limit(1);
+
+    const existingPub = existingPubRows[0];
+
+    let snapshot: CoursePublicationSnapshot;
+    if (existingPub && existingPub.snapshot && (existingPub.snapshot as any).chapters) {
+      snapshot = this.applyChangesToSnapshot(existingPub.snapshot as CoursePublicationSnapshot, changes, course);
+    } else {
+      snapshot = await this.buildSnapshotFromLiveDb(tx, course);
+    }
+
+    const pubId = asCoursePublicationId(randomUUID() as any);
+    await tx.insert(coursePublications).values({
+      id: pubId,
+      courseId: course.id,
+      creatorUserId: course.creatorUserId ?? actorUserId,
+      organizationId: course.organizationId,
+      title: course.title || course.name,
+      description: course.description ?? null,
+      subject: course.subject,
+      version: nextVersion,
+      status: "published",
+      publishedAt: new Date(),
+      metadata: existingPub?.metadata ?? {},
+      snapshot,
+    });
+  }
+
+  private async syncPublicationSnapshotStore(
+    course: CourseRecord,
+    changes: CourseDraftChangeRecord[],
+    nextVersion: number,
+    actorUserId: UserId,
+  ): Promise<void> {
+    if (!this.deps.coursePublicationStore) return;
+
+    const existingPub = await this.deps.coursePublicationStore.findLatestByCourse(course.id);
+    let snapshot: CoursePublicationSnapshot;
+
+    if (existingPub && existingPub.snapshot && existingPub.snapshot.chapters) {
+      snapshot = this.applyChangesToSnapshot(existingPub.snapshot, changes, course);
+    } else {
+      snapshot = await this.buildSnapshotFromStores(course);
+    }
+
+    const pubId = asCoursePublicationId(randomUUID() as any);
+    await this.deps.coursePublicationStore.create({
+      id: pubId,
+      courseId: course.id,
+      creatorUserId: course.creatorUserId ?? actorUserId,
+      organizationId: course.organizationId ?? null,
+      title: course.title || course.name,
+      description: course.description ?? null,
+      subject: course.subject,
+      version: nextVersion,
+      status: "published",
+      publishedAt: new Date().toISOString(),
+      metadata: existingPub?.metadata ?? {},
+      snapshot,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+  }
+
+  private async syncRollbackPublicationSnapshotDb(
+    tx: any,
+    course: CourseRecord,
+    targetVersion: number,
+    nextVersion: number,
+    actorUserId: UserId,
+  ): Promise<void> {
+    const targetPubRows = await tx
+      .select()
+      .from(coursePublications)
+      .where(
+        and(
+          eq(coursePublications.courseId, course.id),
+          eq(coursePublications.version, targetVersion),
+          isNull(coursePublications.deletedAt),
+        ),
+      )
+      .limit(1);
+
+    const targetPub = targetPubRows[0];
+    let restoredSnapshot: CoursePublicationSnapshot;
+    if (targetPub && targetPub.snapshot && (targetPub.snapshot as any).chapters) {
+      restoredSnapshot = targetPub.snapshot as CoursePublicationSnapshot;
+    } else {
+      restoredSnapshot = await this.buildSnapshotFromLiveDb(tx, course);
+    }
+
+    const pubId = asCoursePublicationId(randomUUID() as any);
+    await tx.insert(coursePublications).values({
+      id: pubId,
+      courseId: course.id,
+      creatorUserId: course.creatorUserId ?? actorUserId,
+      organizationId: course.organizationId,
+      title: course.title || course.name,
+      description: course.description ?? null,
+      subject: course.subject,
+      version: nextVersion,
+      status: "published",
+      publishedAt: new Date(),
+      metadata: targetPub?.metadata ?? {},
+      snapshot: restoredSnapshot,
+    });
+  }
+
+  private async syncRollbackPublicationSnapshotStore(
+    course: CourseRecord,
+    targetVersion: number,
+    nextVersion: number,
+    actorUserId: UserId,
+  ): Promise<void> {
+    if (!this.deps.coursePublicationStore) return;
+
+    const allPubs = await this.deps.coursePublicationStore.listAll({ courseId: course.id, limit: 100 });
+    const targetPub = allPubs.items.find((p) => p.version === targetVersion);
+    let restoredSnapshot: CoursePublicationSnapshot;
+    if (targetPub && targetPub.snapshot && targetPub.snapshot.chapters) {
+      restoredSnapshot = targetPub.snapshot;
+    } else {
+      restoredSnapshot = await this.buildSnapshotFromStores(course);
+    }
+
+    const pubId = asCoursePublicationId(randomUUID() as any);
+    await this.deps.coursePublicationStore.create({
+      id: pubId,
+      courseId: course.id,
+      creatorUserId: course.creatorUserId ?? actorUserId,
+      organizationId: course.organizationId ?? null,
+      title: course.title || course.name,
+      description: course.description ?? null,
+      subject: course.subject,
+      version: nextVersion,
+      status: "published",
+      publishedAt: new Date().toISOString(),
+      metadata: targetPub?.metadata ?? {},
+      snapshot: restoredSnapshot,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
   }
 }

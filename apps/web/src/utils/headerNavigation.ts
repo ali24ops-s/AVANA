@@ -13,11 +13,116 @@
  */
 
 import type { ComponentType } from "react";
-import { ShieldCheck, BookOpen, GraduationCap, LifeBuoy } from "lucide-react";
+import {
+  ShieldCheck,
+  BookOpen,
+  GraduationCap,
+  LifeBuoy,
+  Home,
+  Library as LibraryIcon,
+  HelpCircle,
+  Layers,
+  FolderOpen,
+} from "lucide-react";
 import type { Role, UserMembership, UserResource } from "@avana/contracts";
 import { isUserAdmin } from "./adminPermissions.js";
 import { canManageCourseContent } from "./coursePermissions.js";
 import { isTeacherOrAdmin } from "../components/teacher/TeacherRouteGuard.js";
+
+export type HeaderNavId =
+  | "home"
+  | "courses"
+  | "classrooms"
+  | "library"
+  | "exams"
+  | "flashcards"
+  | "files";
+
+export interface HeaderNavItem {
+  id: HeaderNavId;
+  to: string;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+  iconDrawerClassName?: string;
+  dataTour?: string;
+  isActive: (pathname: string) => boolean;
+}
+
+/**
+ * Returns the primary header navigation items in the exact expected visual order:
+ * From right to left (RTL):
+ * 1. خانه (/home)
+ * 2. دوره‌ها (/courses)
+ * 3. کلاس‌های من (/classrooms)
+ * 4. کتابخانه (/library)
+ * 5. آزمون‌ها (/exams)
+ * 6. فلش‌کارت‌ها (/flashcards)
+ * (followed by conditional files if enabled)
+ */
+export function getHeaderNavItems(filesEnabled = false): HeaderNavItem[] {
+  const items: HeaderNavItem[] = [
+    {
+      id: "home",
+      to: "/home",
+      label: "خانه",
+      icon: Home,
+      isActive: (pathname) => pathname === "/" || pathname === "/home",
+    },
+    {
+      id: "courses",
+      to: "/courses",
+      label: "دوره‌ها",
+      icon: BookOpen,
+      dataTour: "nav-courses",
+      isActive: (pathname) => pathname.startsWith("/courses"),
+    },
+    {
+      id: "classrooms",
+      to: "/classrooms",
+      label: "کلاس‌های من",
+      icon: GraduationCap,
+      iconDrawerClassName: "text-[#008080]",
+      dataTour: "nav-my-classes",
+      isActive: (pathname) => pathname.startsWith("/classrooms"),
+    },
+    {
+      id: "library",
+      to: "/library",
+      label: "کتابخانه",
+      icon: LibraryIcon,
+      dataTour: "nav-library",
+      isActive: (pathname) => pathname.startsWith("/library"),
+    },
+    {
+      id: "exams",
+      to: "/exams",
+      label: "آزمون‌ها",
+      icon: HelpCircle,
+      dataTour: "nav-exams",
+      isActive: (pathname) => pathname.startsWith("/exams"),
+    },
+    {
+      id: "flashcards",
+      to: "/flashcards",
+      label: "فلش‌کارت‌ها",
+      icon: Layers,
+      dataTour: "nav-flashcards",
+      isActive: (pathname) => pathname.startsWith("/flashcards"),
+    },
+  ];
+
+  if (filesEnabled) {
+    items.push({
+      id: "files",
+      to: "/files",
+      label: "فایل‌ها",
+      icon: FolderOpen,
+      isActive: (pathname) => pathname.startsWith("/files"),
+    });
+  }
+
+  return items;
+}
 
 export type HeaderManagementActionId = "admin" | "course_management" | "teacher" | "support";
 

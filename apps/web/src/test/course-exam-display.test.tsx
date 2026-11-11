@@ -275,10 +275,110 @@ describe("HomePage AddExamModal - Create Mode vs Edit Mode", () => {
     // Delete button IS visible in edit mode
     expect(screen.getByRole("button", { name: /حذف تاریخ امتحان/i })).toBeInTheDocument();
 
-    // Course select is disabled / locked to the course being edited
-    const selectEl = screen.getByLabelText("انتخاب درس / دوره") as HTMLSelectElement;
-    expect(selectEl.value).toBe(courseWithUpcomingExam);
-    expect(selectEl).toBeDisabled();
+    // Time input must NOT be present in edit mode
+    expect(screen.queryByLabelText(/ساعت/i)).not.toBeInTheDocument();
+  });
+
+  it("Create & Edit Modes: exam form has no time input and submits cleanly with only date", async () => {
+    let capturedPayload: any = null;
+    vi.spyOn(globalThis, "fetch").mockImplementation((url, init) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-me",
+              user: { id: "user-1", email: "student@avana.ir", role: "student" },
+              memberships: [{ organization_id: orgId, role: "student" }],
+            }),
+        } as Response);
+      }
+      if (urlStr.includes(`/v1/organizations/${orgId}/courses/exam`) && init?.method === "POST") {
+        capturedPayload = JSON.parse(String(init.body));
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-saved",
+              course: {
+                id: courseWithUpcomingExam,
+                title: "دوره دارای آزمون پیش رو",
+                exam_at: capturedPayload.exam_at,
+              },
+            }),
+        } as Response);
+      }
+      if (urlStr.includes(`/v1/organizations/${orgId}/courses`)) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-courses",
+              items: [
+                {
+                  id: courseWithUpcomingExam,
+                  organization_id: orgId,
+                  title: "دوره دارای آزمون پیش رو",
+                  exam_at: "2026-11-20T10:30:00.000Z", // Legacy exam with time
+                },
+              ],
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/organizations")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-orgs",
+              items: [{ id: orgId, name: "دانشگاه آوانا" }],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/home"]}>
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("دوره دارای آزمون پیش رو")).toBeInTheDocument();
+    });
+
+    // Open edit modal
+    const editBtn = screen.getByRole("button", { name: "ویرایش امتحان دوره دارای آزمون پیش رو" });
+    fireEvent.click(editBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+
+    // Confirm that time input and any time labels do not exist
+    expect(screen.queryByLabelText(/ساعت/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ساعت برگزاری/i)).not.toBeInTheDocument();
+
+    // Submit the form
+    const submitBtn = screen.getByRole("button", { name: "ثبت تغییرات" });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(capturedPayload).not.toBeNull();
+      // Exam must be saved without any time offset / legacy time
+      expect(capturedPayload.exam_at).toContain("00:00:00.000Z");
+    });
   });
 });
 

@@ -400,7 +400,7 @@ export function AdminContentReportsPanel({
       {/* Detail & Status Change Dialog */}
       {selectedReport && (
         <Dialog
-          isOpen={Boolean(selectedReport)}
+          isOpen={Boolean(selectedReport) && !repairPreview}
           onClose={() => setSelectedReport(null)}
           maxWidth="lg"
           ariaLabel="جزئیات و تعیین وضعیت گزارش مشکل"

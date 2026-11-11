@@ -952,6 +952,96 @@ mark.avana-highlight:hover {
   background-color: var(--avana-highlight-hover);
 }
 
+/* 5 Distinct Highlight Color Variations */
+mark.avana-highlight[data-color="yellow"] {
+  background-color: rgba(250, 204, 21, 0.35);
+  border-bottom-color: #eab308;
+}
+mark.avana-highlight[data-color="yellow"]:hover {
+  background-color: rgba(250, 204, 21, 0.48);
+}
+
+mark.avana-highlight[data-color="teal"],
+mark.avana-highlight[data-color="default"],
+mark.avana-highlight:not([data-color]) {
+  background-color: var(--avana-highlight-bg);
+  border-bottom-color: var(--avana-highlight-border);
+}
+mark.avana-highlight[data-color="teal"]:hover,
+mark.avana-highlight[data-color="default"]:hover,
+mark.avana-highlight:not([data-color]):hover {
+  background-color: var(--avana-highlight-hover);
+}
+
+mark.avana-highlight[data-color="purple"] {
+  background-color: rgba(167, 139, 250, 0.24);
+  border-bottom-color: #a78bfa;
+}
+mark.avana-highlight[data-color="purple"]:hover {
+  background-color: rgba(167, 139, 250, 0.36);
+}
+
+mark.avana-highlight[data-color="green"] {
+  background-color: rgba(16, 185, 129, 0.24);
+  border-bottom-color: #10b981;
+}
+mark.avana-highlight[data-color="green"]:hover {
+  background-color: rgba(16, 185, 129, 0.36);
+}
+
+mark.avana-highlight[data-color="blue"] {
+  background-color: rgba(14, 165, 233, 0.24);
+  border-bottom-color: #0ea5e9;
+}
+mark.avana-highlight[data-color="blue"]:hover {
+  background-color: rgba(14, 165, 233, 0.36);
+}
+
+mark.avana-highlight[data-color="rose"] {
+  background-color: rgba(244, 63, 94, 0.22);
+  border-bottom-color: #f43f5e;
+}
+mark.avana-highlight[data-color="rose"]:hover {
+  background-color: rgba(244, 63, 94, 0.34);
+}
+
+/* Dark mode overrides for highlight colors */
+.dark mark.avana-highlight[data-color="yellow"] {
+  background-color: rgba(250, 204, 21, 0.28);
+  border-bottom-color: #facc15;
+}
+.dark mark.avana-highlight[data-color="yellow"]:hover {
+  background-color: rgba(250, 204, 21, 0.40);
+}
+.dark mark.avana-highlight[data-color="purple"] {
+  background-color: rgba(167, 139, 250, 0.28);
+  border-bottom-color: #a78bfa;
+}
+.dark mark.avana-highlight[data-color="purple"]:hover {
+  background-color: rgba(167, 139, 250, 0.40);
+}
+.dark mark.avana-highlight[data-color="green"] {
+  background-color: rgba(52, 211, 153, 0.28);
+  border-bottom-color: #34d399;
+}
+.dark mark.avana-highlight[data-color="green"]:hover {
+  background-color: rgba(52, 211, 153, 0.40);
+}
+.dark mark.avana-highlight[data-color="blue"] {
+  background-color: rgba(56, 189, 248, 0.28);
+  border-bottom-color: #38bdf8;
+}
+.dark mark.avana-highlight[data-color="blue"]:hover {
+  background-color: rgba(56, 189, 248, 0.40);
+}
+.dark mark.avana-highlight[data-color="rose"] {
+  background-color: rgba(251, 113, 133, 0.28);
+  border-bottom-color: #fb7185;
+}
+.dark mark.avana-highlight[data-color="rose"]:hover {
+  background-color: rgba(251, 113, 133, 0.40);
+}
+
 mark.avana-note {
   background-color: var(--avana-note-bg);
   color: inherit;
@@ -968,6 +1058,11 @@ mark.avana-note {
 
 mark.avana-note:hover {
   background-color: rgba(91, 160, 196, 0.38);
+}
+
+mark.avana-note:focus-visible {
+  outline: 2px solid var(--avana-note-border);
+  outline-offset: 2px;
 }
 
 /* Multi-segment continuity rules for highlights & notes crossing HTML/Markdown nodes */

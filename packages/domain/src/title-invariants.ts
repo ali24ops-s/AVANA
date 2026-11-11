@@ -330,3 +330,208 @@ export function cleanQuizChapterTitle(title: string | null | undefined): string 
     .trim();
   return cleaned.length > 0 ? cleaned : trimmed;
 }
+
+/**
+ * Single source of truth for PDF filenames across Avana (Backend & Frontend).
+ * Guarantees:
+ * - Single source of truth for PDF filenames.
+ * - Never duplicates prefixes or titles (e.g. "فصل - فصل اول", "فصل اول - فصل اول").
+ * - Sanitizes illegal filesystem characters.
+ * - Ensures clean ".pdf" extension.
+ */
+export function buildPdfFilename(
+  type: "chapter" | "lesson" | "review_summary",
+  rawTitle: string | null | undefined,
+  fallbackId?: string | null,
+): string {
+  const safeFallbackId = fallbackId
+    ? fallbackId.replace(/[^\w-]/g, "_")
+    : "document";
+
+  const defaultFallback =
+    type === "chapter"
+      ? `chapter-${safeFallbackId}`
+      : type === "lesson"
+      ? `lesson-${safeFallbackId}`
+      : `review-summary-${safeFallbackId}`;
+
+  if (!rawTitle || typeof rawTitle !== "string") {
+    return `${defaultFallback}.pdf`;
+  }
+
+  let cleaned = rawTitle.trim();
+  if (cleaned.length === 0) {
+    return `${defaultFallback}.pdf`;
+  }
+
+  // Remove existing .pdf extension if user/input included it
+  cleaned = cleaned.replace(/\.pdf$/i, "").trim();
+
+  // Remove surrounding quotes
+  cleaned = cleaned.replace(/^["'«“]+|["'»”]+$/g, "").trim();
+
+  // Deduplicate exact duplicated segments separated by hyphen, en-dash, em-dash, or colon
+  // Example: "فصل اول - فصل اول" -> "فصل اول"
+  // Example: "فصل اول: فصل اول" -> "فصل اول"
+  const exactDuplicateMatch = cleaned.match(/^(.+?)\s*[-–—:]\s*\1$/u);
+  if (exactDuplicateMatch && exactDuplicateMatch[1]) {
+    cleaned = exactDuplicateMatch[1].trim();
+  }
+
+  // Helper to sanitize illegal filesystem characters: replace / \ : * ? " < > | with dash
+  const sanitizeChars = (str: string) => {
+    let s = str
+      .replace(/[/\\:*?"<>|]/g, " - ")
+      .replace(/\s*[-–—]\s*/g, " - ")
+      .replace(/\s+/g, " ")
+      .trim();
+    // Trim leading/trailing hyphens
+    s = s.replace(/^(?:\s*[-–—]\s*)+|(?:\s*[-–—]\s*)+$/g, "").trim();
+    return s;
+  };
+
+  // Type-specific deduplication and formatting
+  if (type === "chapter") {
+    // Deduplicate "فصل - فصل..." or "فصل: فصل..."
+    cleaned = cleaned.replace(/^فصل\s*[-:–—]\s*فصل(?:\s|[:\-_–—]|$)/u, "فصل ").trim();
+    // Deduplicate repeated ordinal patterns: e.g. "فصل اول - فصل اول ..."
+    cleaned = cleaned.replace(
+      /^(فصل\s*(?:[0-9\u06F0-\u06F9]+|اول|دوم|سوم|چهارم|پنجم|ششم|هفتم|هشتم|نهم|دهم|یازدهم|دوازدهم|سیزدهم|چهاردهم|پانزدهم|شانزدهم|هفدهم|هجدهم|نوزدهم|بیستم)?)\s*[-:–—]\s*\1(?:\s|[:\-_–—]|$)/u,
+      "$1",
+    ).trim();
+
+    const safe = sanitizeChars(cleaned);
+
+    // If the title already starts with "فصل", do not prepend redundant "فصل - "
+    if (/^فصل(?:\s|[:\-_–—]|$)/u.test(safe)) {
+      return `${safe}.pdf`;
+    }
+    return `فصل - ${safe}.pdf`;
+  }
+
+  if (type === "lesson") {
+    cleaned = cleaned.replace(/^درسنامه\s*[-:–—]\s*درسنامه(?:\s|[:\-_–—]|$)/u, "درسنامه ").trim();
+    const safe = sanitizeChars(cleaned);
+
+    if (/^درسنامه(?:\s|[:\-_–—]|$)/u.test(safe)) {
+      return `${safe}.pdf`;
+    }
+    return `درسنامه - ${safe}.pdf`;
+  }
+
+  if (type === "review_summary") {
+    cleaned = cleaned.replace(/^خلاصه\s*مرور(?:ی)?\s*[-:–—]\s*خلاصه\s*مرور(?:ی)?(?:\s|[:\-_–—]|$)/u, "خلاصه مرور ").trim();
+    const safe = sanitizeChars(cleaned);
+
+    if (/^خلاصه\s*مرور/u.test(safe)) {
+      return `${safe}.pdf`;
+    }
+    return `خلاصه مرور - ${safe}.pdf`;
+  }
+
+  const safe = sanitizeChars(cleaned);
+  return `${safe}.pdf`;
+}
+
+export const PERSIAN_ORDINALS_MAP: Record<string, number> = {
+  "اول": 1,
+  "نخست": 1,
+  "دوم": 2,
+  "سوم": 3,
+  "چهارم": 4,
+  "پنجم": 5,
+  "ششم": 6,
+  "هفتم": 7,
+  "هشتم": 8,
+  "نهم": 9,
+  "دهم": 10,
+  "یازدهم": 11,
+  "دوازدهم": 12,
+  "سیزدهم": 13,
+  "چهاردهم": 14,
+  "پانزدهم": 15,
+  "شانزدهم": 16,
+  "هفدهم": 17,
+  "هجدهم": 18,
+  "نوزدهم": 19,
+  "بیستم": 20,
+};
+
+/**
+ * Extracts a candidate session number from a title if present.
+ * Looks for patterns like "جلسه ۱", "جلسه 2", "جلسه اول", "جلسه دوم", "درس اول", etc.
+ */
+export function extractSessionNumberFromTitle(title: string | null | undefined): number | null {
+  if (!title || typeof title !== "string") return null;
+  const trimmed = title.trim();
+
+  // 1. Matches "(جلسه|درس|قسمت|بخش) N" where N is digits (Persian or Latin)
+  const digitMatch = trimmed.match(/^(?:جلسه|درس|قسمت|بخش)\s*([0-9\u06F0-\u06F9]+)/u);
+  if (digitMatch && digitMatch[1]) {
+    const latinDigits = digitMatch[1].replace(/[\u06F0-\u06F9]/g, (d) =>
+      String(d.charCodeAt(0) - 0x06f0),
+    );
+    const num = parseInt(latinDigits, 10);
+    if (!isNaN(num) && num > 0) return num;
+  }
+
+  // 2. Matches "(جلسه|درس|قسمت|بخش) (اول|نخست|دوم...)"
+  const ordinalMatch = trimmed.match(
+    /^(?:جلسه|درس|قسمت|بخش)\s*(اول|نخست|دوم|سوم|چهارم|پنجم|ششم|هفتم|هشتم|نهم|دهم|یازدهم|دوازدهم|سیزدهم|چهاردهم|پانزدهم|شانزدهم|هفدهم|هجدهم|نوزدهم|بیستم)(?:\s|[:\-_–—]|$)/u,
+  );
+  if (ordinalMatch && ordinalMatch[1]) {
+    const num = PERSIAN_ORDINALS_MAP[ordinalMatch[1]];
+    if (num) return num;
+  }
+
+  return null;
+}
+
+/**
+ * Resolves session badge display numbers for an entire ordered list of sessions in a chapter.
+ * Rules:
+ * 1. Independent per chapter: numbering always starts fresh (from 1) for each chapter.
+ * 2. If a session has a valid explicit session number or title-extracted number, it is considered.
+ * 3. Crucial guarantee: extracted numbers must NEVER cause duplicate numbers or out-of-order jumps.
+ *    If an extracted number conflicts or is duplicated, sequential index in chapter (idx + 1) is the definitive fallback.
+ * 4. NEVER use global sortOrder (which could be 0-based or shared across chapters).
+ */
+export function resolveChapterSessionNumbers<
+  T extends { title?: string | null; sessionNumber?: number | null }
+>(sessions: T[]): number[] {
+  const count = sessions.length;
+  if (count === 0) return [];
+
+  // Step 1: Collect candidates (explicit sessionNumber takes precedence over title extraction)
+  const candidates: (number | null)[] = sessions.map((s) => {
+    if (typeof s.sessionNumber === "number" && s.sessionNumber > 0 && Number.isInteger(s.sessionNumber)) {
+      return s.sessionNumber;
+    }
+    return extractSessionNumberFromTitle(s.title);
+  });
+
+  // Step 2: Validate the candidates against duplicate, disordered, or out-of-range anomalies
+  const nonNulls = candidates.filter((c): c is number => c !== null);
+  const hasDuplicates = new Set(nonNulls).size !== nonNulls.length;
+
+  let isMonotonic = true;
+  for (let i = 1; i < nonNulls.length; i++) {
+    if (nonNulls[i] <= nonNulls[i - 1]) {
+      isMonotonic = false;
+      break;
+    }
+  }
+
+  // If first session has candidate > 1, or any candidate > count, or if duplicates/disordered:
+  // Fall back to clean sequential 1..N order.
+  const startsPastOne = candidates[0] !== null && candidates[0] > 1;
+  const anyExceedsCount = nonNulls.some((n) => n > count);
+
+  if (hasDuplicates || !isMonotonic || startsPastOne || anyExceedsCount) {
+    return sessions.map((_, idx) => idx + 1);
+  }
+
+  // Step 3: Clean candidates resolved sequentially
+  return sessions.map((_, idx) => candidates[idx] ?? idx + 1);
+}
+

@@ -10,6 +10,7 @@ import {
   LifeBuoy,
   GraduationCap,
   Sparkles,
+  UserCheck,
 } from "lucide-react";
 
 export interface AdminNavItem {
@@ -109,6 +110,14 @@ export const PLATFORM_ADMIN_NAV_ITEMS: AdminNavItem[] = [
     description: "مدیریت اساتید، کلاس‌ها، آزمون‌ها و آمار آموزشی",
     matchPrefixes: ["/admin/teachers"],
   },
+  {
+    id: "crm",
+    name: "باشگاه مشتریان و CRM",
+    href: "/admin/crm/customers",
+    icon: UserCheck,
+    description: "نمایه ۳۶۰ درجه، برچسب‌ها، یادداشت‌ها و رفتار کاربران",
+    matchPrefixes: ["/admin/crm"],
+  },
 ];
 
 /**
@@ -186,6 +195,14 @@ export const SUPPORT_AGENT_NAV_ITEMS: AdminNavItem[] = [
     icon: LifeBuoy,
     description: "تیکت‌ها، بازخوردها و گزارش‌های مشکل محتوا",
     matchPrefixes: ["/admin/support"],
+  },
+  {
+    id: "crm",
+    name: "باشگاه مشتریان و CRM",
+    href: "/admin/crm/customers",
+    icon: UserCheck,
+    description: "نمایه ۳۶۰ درجه، برچسب‌ها، یادداشت‌ها و رفتار کاربران",
+    matchPrefixes: ["/admin/crm"],
   },
 ];
 
@@ -448,6 +465,45 @@ export function getAdminPageInfo(currentPathname: string): {
         rootCrumb,
         { label: "کاربران و دسترسی‌ها", href: "/admin/users" },
         { label: "پروفایل کاربر", isCurrent: true },
+      ],
+    };
+  }
+
+
+  // CRM & Customer Club
+  if (currentPathname === "/admin/crm" || currentPathname === "/admin/crm/customers") {
+    return {
+      title: "باشگاه مشتریان و CRM",
+      breadcrumbs: [rootCrumb, { label: "باشگاه مشتریان و CRM", isCurrent: true }],
+    };
+  }
+  if (currentPathname === "/admin/crm/segments") {
+    return {
+      title: "سگمنت‌های مشتریان",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "باشگاه مشتریان و CRM", href: "/admin/crm/customers" },
+        { label: "سگمنت‌های پویا", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname === "/admin/crm/campaigns") {
+    return {
+      title: "کمپین‌های مشتریان",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "باشگاه مشتریان و CRM", href: "/admin/crm/customers" },
+        { label: "کمپین‌های مشتریان", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname.startsWith("/admin/crm/customers/")) {
+    return {
+      title: "نمایه ۳۶۰ درجه مشتری",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "باشگاه مشتریان و CRM", href: "/admin/crm/customers" },
+        { label: "نمایه ۳۶۰ درجه مشتری", isCurrent: true },
       ],
     };
   }

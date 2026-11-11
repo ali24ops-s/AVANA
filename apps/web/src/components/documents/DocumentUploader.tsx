@@ -39,8 +39,8 @@ export function DocumentUploader({
       let targetOrgId = organizationId;
       let targetCourseId = courseId;
 
-      // Ensure valid organization exists in backend for current user
-      if (!targetOrgId || targetOrgId === "00000000-0000-0000-0000-000000000010") {
+      // Ensure valid organization exists in backend for current user only if missing
+      if (!targetOrgId || targetOrgId.trim().length === 0 || targetOrgId === "00000000-0000-0000-0000-000000000010") {
         try {
           const orgList = await orgApi.listOrganizations();
           if (orgList.items && orgList.items.length > 0) {

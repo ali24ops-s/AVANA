@@ -400,7 +400,10 @@ describe("GenerationService", () => {
 
       // Supplementary reference chunks (2, 3, 4)
       const refDocId = randomUUID() as DocumentId;
-      const refDoc = makeDocument({ id: refDocId, originalName: "reference.pdf" }, organizationId);
+      const refDoc = makeDocument(
+        { id: refDocId, originalName: "reference.pdf", sha256: "b".repeat(64) },
+        organizationId,
+      );
       await documentStore.create(refDoc);
       const suppChunks = makeChunks(refDocId, organizationId, 3);
       await chunkStore.createMany(suppChunks);

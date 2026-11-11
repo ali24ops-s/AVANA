@@ -289,7 +289,20 @@ export class GenerationActiveStatusService {
       let res = this.progressService.toResource(record, doc.status, doc.errorCode);
 
       // A document is only in active generation phase if it is in queued, planning, generating, stopping, or deleting.
-      // Reviewing, validating, publishing, ready, and completed are post-generation or completed phases and are NOT active generation.
+      // Reviewing, validating, publishing, ready, completed, and document extraction/analysis are NOT active generation.
+      const isExtractionPhase =
+        res.stage === "analysis" ||
+        ((doc.status === "extracting" ||
+          doc.status === "uploaded" ||
+          doc.status === "pending_extraction" ||
+          doc.status === "pending_validation" ||
+          doc.status === "pending_chunking" ||
+          doc.status === "chunking" ||
+          doc.status === "validating" ||
+          (doc.status === "extracted" && res.status !== "stopped" && res.status !== "failed")) &&
+          res.status !== "generating" &&
+          res.status !== "stopping");
+
       const isPostGenerationOrCompleted =
         res.status === "reviewing" ||
         res.status === "completed" ||
@@ -300,6 +313,7 @@ export class GenerationActiveStatusService {
         doc.status === "ready";
 
       let isActive =
+        !isExtractionPhase &&
         !isPostGenerationOrCompleted &&
         (res.status === "queued" ||
           res.status === "planning" ||
@@ -398,9 +412,13 @@ export class GenerationActiveStatusService {
         }
       }
 
-      const isStopped = !isPostGenerationOrCompleted && res.status === "stopped";
-      // Include failed within recent window so client indicator can show the failure state
+      const isStopped =
+        !isExtractionPhase &&
+        !isPostGenerationOrCompleted &&
+        res.status === "stopped";
+      // Include failed within recent window so client indicator can show the failure state (only for generation failures, not extraction failures)
       const isRecent =
+        !isExtractionPhase &&
         !isPostGenerationOrCompleted &&
         res.status === "failed" &&
         ((res.lastActivityAt && now - new Date(res.lastActivityAt).getTime() < THREE_MINUTES_MS) ||

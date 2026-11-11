@@ -26,6 +26,7 @@
     "secrets": "secretlint \"**/*\"",
     "db:generate": "drizzle-kit generate --config=database/drizzle.config.ts",
     "db:migrate": "tsx database/migrate.ts",
+    "db:migrate:prod": "node database/dist/migrate.js",
     "db:seed": "tsx database/seeds/seed.ts",
     "db:seed:blog": "tsx database/seeds/seed-blog.ts",
     "db:seed:charts": "tsx database/seeds/seed-charts.ts",
@@ -37,7 +38,8 @@
     "worker:status": "tsx tools/worker/worker-status.ts",
     "worker:reset": "tsx tools/worker/worker-reset.ts",
     "content:export": "tsx scripts/export-course-package.ts",
-    "content:import": "tsx scripts/import-course-package.ts"
+    "content:import": "tsx scripts/import-course-package.ts",
+    "build:artifact": "tsx scripts/package-production-artifact.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

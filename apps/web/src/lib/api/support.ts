@@ -378,44 +378,10 @@ export function createSupportApi(client: ApiClient): SupportApi {
       const formData = new FormData();
       formData.append("file", file, file.name);
 
-      const url = `${getApiBaseUrl()}/v1/support/attachments`;
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "x-request-id": generateUUID(),
-        },
-        credentials: "include",
-        body: formData,
-      });
-
-      let data: unknown;
-      try {
-        if (typeof response.text === "function") {
-          const text = await response.text();
-          data = text ? JSON.parse(text) : undefined;
-        } else if (typeof response.json === "function") {
-          data = await response.json();
-        }
-      } catch {
-        data = null;
-      }
-
-      if (!response.ok) {
-        const errorData = data as { error?: { code?: string; message?: string } };
-        throw new ApiError({
-          request_id: response.headers.get("x-request-id") || generateUUID(),
-          error: {
-            code:
-              (errorData?.error?.code as ErrorEnvelope["error"]["code"]) ||
-              "internal_error",
-            message:
-              errorData?.error?.message ||
-              "بارگذاری فایل ضمیمه با خطا مواجه شد.",
-          },
-        });
-      }
-
-      return data as UploadAttachmentResponse;
+      return client.postFormData<UploadAttachmentResponse>(
+        "/v1/support/attachments",
+        formData,
+      );
     },
 
     async downloadAttachment(attachmentUrl, options) {

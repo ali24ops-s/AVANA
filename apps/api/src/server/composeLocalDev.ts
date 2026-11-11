@@ -67,7 +67,16 @@ import { InMemoryCommerceStore } from "../modules/commerce/index.js";
 import { InMemoryWalletStore } from "../modules/wallet/index.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
+import { InMemoryErrorStore } from "../observability/in-memory-error-store.js";
+import { ErrorMonitoringService } from "../observability/error-monitoring-service.js";
 import { InMemoryAdminStore } from "../modules/admin/index.js";
+import { InMemoryCrmStore } from "../modules/admin/crm/crm-store.js";
+import {
+  InMemoryPersonalSummaryStore,
+  PersonalSummaryService,
+  MindMapService,
+} from "../modules/study/index.js";
+import { WalletService } from "../modules/wallet/index.js";
 import {
   InMemoryContentPackStore,
   InMemoryContentPackUsageStore,
@@ -79,6 +88,7 @@ import {
 import {
   InMemorySupportStore,
   SupportService,
+  InMemorySupportNotificationQueue,
 } from "../modules/support/index.js";
 import {
   InMemoryClassroomStore,
@@ -100,6 +110,8 @@ export interface ComposeLocalDevOptions {
 export interface LocalDevDependencies {
   v1Options: V1RouteOptions;
   auditService: AuditService;
+  errorStore?: InMemoryErrorStore;
+  errorMonitoringService?: ErrorMonitoringService;
 }
 
 /**
@@ -272,10 +284,52 @@ export async function composeLocalDev(
   const notificationService = new NotificationService(notificationStore);
   // Support store & service
   const supportStore = new InMemorySupportStore(userStore);
+  const supportNotificationQueue = new InMemorySupportNotificationQueue({
+    emailService,
+    notificationStore,
+    userStore,
+    appUrl: config.appUrl,
+  });
   const supportService = new SupportService(
     supportStore,
     notificationService,
     auditService,
+    supportNotificationQueue,
+    userStore,
+  );
+
+  const errorStore = new InMemoryErrorStore();
+  const errorMonitoringService = new ErrorMonitoringService({
+    store: errorStore,
+    environment: config.nodeEnv,
+  });
+
+  const commerceStore = new InMemoryCommerceStore();
+  const walletStore = new InMemoryWalletStore();
+  const walletService = new WalletService(walletStore, auditService, commerceStore);
+  const personalSummaryStore = new InMemoryPersonalSummaryStore();
+  const personalSummaryService = new PersonalSummaryService(
+    personalSummaryStore,
+    walletService,
+    userGateway,
+    moduleStore,
+    lessonStore,
+    courseStore,
+    organizationStore,
+    defaultPolicy,
+    config.systemOrganizationId as OrganizationId,
+  );
+  const mindMapService = new MindMapService(
+    personalSummaryStore,
+    userGateway,
+    moduleStore,
+    lessonStore,
+    courseStore,
+    documentChunkStore,
+    documentStore,
+    organizationStore,
+    defaultPolicy,
+    config.systemOrganizationId as OrganizationId,
   );
 
   const v1Options: V1RouteOptions = {
@@ -325,8 +379,8 @@ export async function composeLocalDev(
     adminStore,
     contentPackStore,
     contentPackUsageStore,
-    commerceStore: new InMemoryCommerceStore(),
-    walletStore: new InMemoryWalletStore(),
+    commerceStore,
+    walletStore,
     classroomStore,
     classroomMemberStore,
     teacherExamStore,
@@ -335,6 +389,12 @@ export async function composeLocalDev(
     teacherExamAttemptAnswerStore,
     questionPatternStore: new InMemoryQuestionPatternStore(),
     sourcePackStore: new InMemorySourcePackStore(),
+    errorStore,
+    errorMonitoringService,
+    crmStore: new InMemoryCrmStore(),
+    personalSummaryStore,
+    personalSummaryService,
+    mindMapService,
   };
 
   // Seed demo data for local development — awaited before routes register
@@ -357,5 +417,5 @@ export async function composeLocalDev(
     );
   }
 
-  return { v1Options, auditService };
+  return { v1Options, auditService, errorStore, errorMonitoringService };
 }

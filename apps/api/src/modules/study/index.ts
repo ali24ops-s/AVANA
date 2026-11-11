@@ -70,3 +70,42 @@ export {
 } from "./study-planner-service.js";
 export type { DailyStudyPlanStore } from "./study-store.js";
 export { DrizzleDailyStudyPlanStore } from "./drizzle-stores.js";
+export {
+  PersonalSummaryService,
+  PERSONAL_SUMMARY_COST_TOMAN,
+} from "./personal-summary-service.js";
+export type {
+  PersonalSummaryStore,
+  PersonalSummaryRecord,
+  CreatePersonalSummaryRecordParams,
+} from "./personal-summary-store.js";
+export {
+  DrizzlePersonalSummaryStore,
+  InMemoryPersonalSummaryStore,
+} from "./personal-summary-store.js";
+export {
+  startPersonalSummaryReconciler,
+  type PersonalSummaryReconcilerOptions,
+  type PersonalSummaryReconcilerHandle,
+} from "./personal-summary-reconciler.js";
+export type {
+  PersonalSummaryRecoveryCycleStats,
+} from "./personal-summary-service.js";
+export {
+  MindMapService,
+  PERSONAL_MINDMAP_LEASE_DURATION_MS,
+  MINDMAP_HEARTBEAT_INTERVAL_MS,
+} from "./mind-map-service.js";
+export {
+  enrichMindMapAiBaseChemicals,
+  enrichMindMapChemicalsWithReport,
+  classifyMindMapNodeChemicalNeed,
+  findMatchingReferenceCompound,
+  validateEnrichmentStructure,
+  type ChemicalNeedLevel,
+  type NodeChemicalClassification,
+  type MindMapChemicalEnrichmentResult,
+} from "./mind-map-chemical-enricher.js";
+
+
+

@@ -11,6 +11,7 @@ import {
   renderEmailButton,
   renderEmailCodeBox,
   renderEmailDivider,
+  resolvePublicAppUrl,
 } from "./email-layout.js";
 
 /**
@@ -19,6 +20,7 @@ import {
 export function renderVerificationEmailHtml(
   code: string,
   appUrl?: string,
+  logoUrl?: string,
 ): string {
   const content = `<h2 style="margin: 0 0 14px 0; font-family: ${emailTokens.typography.fontFamily}; font-size: ${emailTokens.typography.fontSizeHeading}; font-weight: 700; color: ${emailTokens.colors.text}; line-height: ${emailTokens.typography.lineHeightHeading};">تأیید نشانی ایمیل</h2>
 <p style="margin: 0 0 16px 0; font-family: ${emailTokens.typography.fontFamily}; font-size: ${emailTokens.typography.fontSizeBody}; color: ${emailTokens.colors.textSecondary}; line-height: ${emailTokens.typography.lineHeightBody};">
@@ -36,6 +38,7 @@ ${renderEmailDivider()}
     previewText: "کد تأیید نشانی ایمیل شما در سامانه هوشمند آوانا",
     content,
     appUrl,
+    logoUrl,
   });
 }
 
@@ -62,6 +65,7 @@ ${code.trim()}
 export function renderPasswordResetHtml(
   resetUrl: string,
   appUrl?: string,
+  logoUrl?: string,
 ): string {
   const safeResetUrl = sanitizeUrl(resetUrl.trim());
   const escapedResetUrl = escapeHtml(resetUrl.trim());
@@ -93,6 +97,7 @@ ${renderEmailDivider()}
     previewText: "درخواست بازیابی رمز عبور حساب کاربری آوانا",
     content,
     appUrl,
+    logoUrl,
   });
 }
 
@@ -112,4 +117,65 @@ ${resetUrl.trim()}
 اگر این درخواست توسط شما انجام نشده است، لطفاً این پیام را نادیده بگیرید؛ رمز عبور فعلی شما تغییری نخواهد کرد.
 
 آوانا - سامانه هوشمند آموزش و یادگیری`;
+}
+
+/**
+ * Renders the HTML body for the Support Ticket Reply notification email.
+ */
+export function renderTicketReplyEmailHtml(
+  ticketId: string,
+  ticketTitle: string,
+  appUrl?: string,
+  logoUrl?: string,
+): string {
+  const resolvedAppUrl = resolvePublicAppUrl(appUrl);
+  const ticketUrl = `${resolvedAppUrl}/account/support?tab=my_requests&ticketId=${encodeURIComponent(ticketId.trim())}`;
+  const escapedTitle = escapeHtml(ticketTitle.trim());
+
+  const content = `<h2 style="margin: 0 0 14px 0; font-family: ${emailTokens.typography.fontFamily}; font-size: ${emailTokens.typography.fontSizeHeading}; font-weight: 700; color: ${emailTokens.colors.text}; line-height: ${emailTokens.typography.lineHeightHeading};">پاسخ جدید تیم پشتیبانی آوانا</h2>
+<p style="margin: 0 0 16px 0; font-family: ${emailTokens.typography.fontFamily}; font-size: ${emailTokens.typography.fontSizeBody}; color: ${emailTokens.colors.textSecondary}; line-height: ${emailTokens.typography.lineHeightBody};">
+  سلام،<br>
+  تیم پشتیبانی آوانا به درخواست شما («${escapedTitle}») پاسخ داده است.
+</p>
+<p style="margin: 0 0 20px 0; font-family: ${emailTokens.typography.fontFamily}; font-size: ${emailTokens.typography.fontSizeBody}; color: ${emailTokens.colors.textSecondary}; line-height: ${emailTokens.typography.lineHeightBody};">
+  برای مشاهده پاسخ و ادامه گفتگو، روی دکمه زیر کلیک کنید:
+</p>
+${renderEmailButton({ text: "مشاهده پاسخ پشتیبانی", href: ticketUrl })}
+${renderEmailDivider()}
+<p style="margin: 0; font-family: ${emailTokens.typography.fontFamily}; font-size: ${emailTokens.typography.fontSizeSmall}; color: ${emailTokens.colors.textMuted}; line-height: 22px; text-align: center;">
+  تیم پشتیبانی آوانا
+</p>`;
+
+  return renderEmailLayout({
+    title: "پاسخ جدید تیم پشتیبانی آوانا",
+    previewText: `پاسخ جدید تیم پشتیبانی آوانا به تیکت: ${ticketTitle}`,
+    content,
+    appUrl,
+    logoUrl,
+  });
+}
+
+/**
+ * Renders the plain text alternative for the Support Ticket Reply email.
+ */
+export function renderTicketReplyEmailText(
+  ticketId: string,
+  ticketTitle: string,
+  appUrl?: string,
+): string {
+  const resolvedAppUrl = resolvePublicAppUrl(appUrl);
+  const ticketUrl = `${resolvedAppUrl}/account/support?tab=my_requests&ticketId=${encodeURIComponent(ticketId.trim())}`;
+  const trimmedTitle = ticketTitle.trim();
+  const titleContext = trimmedTitle ? ` («${trimmedTitle}»)` : "";
+
+  return `سلام،
+
+تیم پشتیبانی آوانا به درخواست شما${titleContext} پاسخ داده است.
+
+برای مشاهده پاسخ و ادامه گفتگو، روی پیوند زیر کلیک کنید:
+${ticketUrl}
+
+مشاهده پاسخ پشتیبانی
+
+تیم پشتیبانی آوانا`;
 }

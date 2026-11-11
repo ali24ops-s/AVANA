@@ -348,13 +348,33 @@ describe("Source Packs API & Domain Invariants", () => {
     expect(body.error.message).toContain("Duplicate document detected in source pack");
   });
 
-  it("rejects documents from a different course (cross-course leakage guard)", async () => {
-    const res = await app.inject({
+  it("allows attaching a document from another course within the same org, and rejects non-existent/cross-org documents", async () => {
+    // 1. Cross-org / non-existent document must be rejected
+    const nonExistentDocId = "00000000-0000-0000-0000-000000000999";
+    const rejectRes = await app.inject({
       method: "POST",
       url: `/v1/organizations/${orgId}/courses/${courseId}/source-packs`,
       headers: { authorization: `Bearer ${sessionCookie}` },
       payload: {
-        title: "پک با سند خارج از درس",
+        title: "پک با سند نامعتبر",
+        documents: [
+          { document_id: doc1Id, role: "primary" },
+          { document_id: nonExistentDocId, role: "supplementary" },
+        ],
+      },
+    });
+
+    expect(rejectRes.statusCode).toBe(404);
+    const rejectBody = JSON.parse(rejectRes.body);
+    expect(rejectBody.error.message).toContain("not found");
+
+    // 2. Document from another course in same organization CAN be attached
+    const successRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/courses/${courseId}/source-packs`,
+      headers: { authorization: `Bearer ${sessionCookie}` },
+      payload: {
+        title: "پک با سند مشترک از درس دیگر",
         documents: [
           { document_id: doc1Id, role: "primary" },
           { document_id: foreignDocId, role: "supplementary" },
@@ -362,9 +382,14 @@ describe("Source Packs API & Domain Invariants", () => {
       },
     });
 
-    expect(res.statusCode).toBe(400);
-    const body = JSON.parse(res.body);
-    expect(body.error.message).toContain("does not belong to this course");
+    expect(successRes.statusCode).toBe(201);
+    const successBody = JSON.parse(successRes.body);
+    expect(successBody.source_pack.documents).toHaveLength(2);
+    expect(successBody.source_pack.documents.some((d: { document_id: string }) => d.document_id === foreignDocId)).toBe(true);
+
+    // 3. Verify original document's courseId is preserved in store
+    const originalDoc = await mockDocumentStore.findByIdForOrganization(foreignDocId, orgId);
+    expect(originalDoc?.courseId).toBe(otherCourseId);
   });
 
   it("allows updating a pack: changing title and promoting another document to PRIMARY", async () => {
@@ -665,5 +690,70 @@ describe("Source Packs API & Domain Invariants", () => {
       },
     });
     expect(dupRef.statusCode).toBe(400);
+  });
+
+  it("enforces target course access control on createPack and updatePack", async () => {
+    const unaccessibleCourseId = asCourseId("00000000-0000-0000-0000-000000000077");
+    const otherOrgId = asOrganizationId("00000000-0000-0000-0000-000000000078");
+
+    // 1. Non-existent course -> 404
+    const notFoundRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/courses/${unaccessibleCourseId}/source-packs`,
+      headers: { authorization: `Bearer ${sessionCookie}` },
+      payload: {
+        title: "Pack in non-existent course",
+        documents: [{ document_id: doc1Id, role: "primary" }],
+      },
+    });
+    expect(notFoundRes.statusCode).toBe(404);
+
+    // 2. Course belonging to different organization -> 403 Forbidden
+    mockCourses.set(unaccessibleCourseId, {
+      id: unaccessibleCourseId,
+      organizationId: otherOrgId,
+      name: "Different Org Course",
+      subject: null,
+      examDate: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    const diffOrgRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/courses/${unaccessibleCourseId}/source-packs`,
+      headers: { authorization: `Bearer ${sessionCookie}` },
+      payload: {
+        title: "Pack in cross-org course",
+        documents: [{ document_id: doc1Id, role: "primary" }],
+      },
+    });
+    expect(diffOrgRes.statusCode).toBe(403);
+
+    // 3. Official course with student actor -> 403 Forbidden
+    const officialCourseId = asCourseId("00000000-0000-0000-0000-000000000079");
+    mockCourses.set(officialCourseId, {
+      id: officialCourseId,
+      organizationId: orgId,
+      isOfficial: true,
+      name: "Official Avana Course",
+      subject: null,
+      examDate: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    const officialRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/courses/${officialCourseId}/source-packs`,
+      headers: { authorization: `Bearer ${sessionCookie}` },
+      payload: {
+        title: "Pack in official course",
+        documents: [{ document_id: doc1Id, role: "primary" }],
+      },
+    });
+    expect(officialRes.statusCode).toBe(403);
   });
 });

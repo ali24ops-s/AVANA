@@ -42,6 +42,10 @@ import { InMemoryAdminStore } from "../modules/admin/in-memory-stores.js";
 import { InMemoryUserStore } from "../modules/identity/test/in-memory-stores.js";
 import type { StorageProvider } from "../modules/storage/storage-provider.js";
 import type { GenerationQueue } from "../modules/generation/generation-queue.js";
+import type { DbClient } from "@avana/database/client";
+import type { GenerationService } from "../modules/generation/generation-service.js";
+import type { CourseRecord } from "../modules/courses/course-store.js";
+import type { DocumentRecord } from "../modules/learning/learning-store.js";
 
 class FakeStorageProvider implements StorageProvider {
   private files = new Map<string, Buffer>();
@@ -75,8 +79,8 @@ class FakeStorageProvider implements StorageProvider {
 }
 
 class FakeGenerationQueue implements GenerationQueue {
-  public jobs: any[] = [];
-  async enqueue(item: any): Promise<string> {
+  public jobs: Record<string, unknown>[] = [];
+  async enqueue(item: Record<string, unknown>): Promise<string> {
     const jobId = `job_${randomUUID()}`;
     this.jobs.push({ id: jobId, ...item });
     return jobId;
@@ -329,7 +333,7 @@ describe("Content Admin & Super Admin Access Matrix Audit (Scenarios A through H
     );
 
     officialContentService = new OfficialContentService(
-      undefined as any,
+      undefined as unknown as DbClient,
       courseStore,
       moduleStore,
       lessonStore,
@@ -338,14 +342,14 @@ describe("Content Admin & Super Admin Access Matrix Audit (Scenarios A through H
       quizQuestionStore,
       documentStore,
       genContentStore,
-      undefined as any,
+      undefined as unknown as GenerationService,
       reviewService,
       adminStore,
       systemOrgId,
     );
   });
 
-  function createCourse(course: any) {
+  function createCourse(course: CourseRecord) {
     return courseStore.create({ course, auditEvents: [] });
   }
 
@@ -649,7 +653,7 @@ describe("Content Admin & Super Admin Access Matrix Audit (Scenarios A through H
       isOfficial: true,
       status: "draft",
       visibility: "draft",
-      creatorUserId: null as any,
+      creatorUserId: null as unknown as string,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
@@ -860,8 +864,8 @@ describe("Content Admin & Super Admin Access Matrix Audit (Scenarios A through H
   // Scenario J: Detailed 6-State Matrix of Membership and GlobalRole
   // -------------------------------------------------------------------------
   describe("Scenario J: 6-State Matrix of Membership and GlobalRole", () => {
-    let testDoc: any;
-    let testCourse: any;
+    let testDoc: DocumentRecord;
+    let testCourse: CourseRecord;
 
     beforeEach(async () => {
       testCourse = await createCourse({
@@ -1026,6 +1030,184 @@ describe("Content Admin & Super Admin Access Matrix Audit (Scenarios A through H
       await expect(
         documentService.getDocument(contentWorkerActor, otherOrgId, foreignDoc.id),
       ).rejects.toThrowError(/Organization not found|Document not found/);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Scenario K: Published Official Course Source Document Isolation & Deduplication
+  // ---------------------------------------------------------------------------
+  describe("Scenario K: Published Official Course Source Document Isolation & SHA256 Deduplication", () => {
+    it("strictly denies students from listing, getting, or downloading official course source documents even when published", async () => {
+      const publishedOfficialCourse = await createCourse({
+        id: randomUUID() as CourseId,
+        organizationId: systemOrgId,
+        name: "Published Official Anatomy",
+        description: "Official published course",
+        isOfficial: true,
+        status: "published",
+        visibility: "public",
+        creatorUserId: superAdminUserId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      const sourceDoc = await documentStore.create({
+        id: randomUUID() as DocumentId,
+        organizationId: systemOrgId,
+        courseId: publishedOfficialCourse.id,
+        ownerUserId: superAdminUserId,
+        filename: "anatomy_source.pdf",
+        originalName: "Anatomy Source.pdf",
+        mimeType: "application/pdf",
+        byteSize: 5000,
+        storageKey: `docs/${systemOrgId}/anatomy.pdf`,
+        status: "ready",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      storageProvider.files.set(sourceDoc.storageKey, Buffer.from("anatomy-pdf-data"));
+
+      // 1. Student listDocuments: gets 0 items (never sees administrative source documents)
+      const studentDocList = await documentService.listDocuments(
+        studentActor,
+        systemOrgId,
+        { courseId: publishedOfficialCourse.id },
+      );
+      expect(studentDocList.items).toHaveLength(0);
+
+      // 2. Student getDocument: non-disclosing 404
+      await expect(
+        documentService.getDocument(studentActor, systemOrgId, sourceDoc.id),
+      ).rejects.toThrowError(/Document not found/);
+
+      // 3. Student downloadDocument: forbidden
+      await expect(
+        documentService.downloadDocument(studentActor, systemOrgId, sourceDoc.id),
+      ).rejects.toThrowError(/برای دانلود و مشاهده این سند/);
+
+      // 4. Privileged staff (content_worker, super_admin) can access the document
+      const adminGet = await documentService.getDocument(
+        contentWorkerActor,
+        systemOrgId,
+        sourceDoc.id,
+      );
+      expect(adminGet.id).toBe(sourceDoc.id);
+
+      const adminDownload = await documentService.downloadDocument(
+        contentWorkerActor,
+        systemOrgId,
+        sourceDoc.id,
+      );
+      expect(adminDownload.originalName).toBe("Anatomy Source.pdf");
+      expect(adminDownload.data).toBeDefined();
+
+      const adminList = await documentService.listDocuments(
+        contentWorkerActor,
+        systemOrgId,
+        { courseId: publishedOfficialCourse.id },
+      );
+      expect(adminList.items.some((d) => d.id === sourceDoc.id)).toBe(true);
+    });
+
+    it("InMemoryDocumentStore deduplicates by sha256 only when a valid hash exists", async () => {
+      const orgId = randomUUID() as OrganizationId;
+
+      // Two documents with no sha256 -> must NOT deduplicate
+      const noSha1 = await documentStore.create({
+        id: randomUUID() as DocumentId,
+        organizationId: orgId,
+        courseId: null,
+        ownerUserId: superAdminUserId,
+        filename: "file1.pdf",
+        originalName: "File 1.pdf",
+        mimeType: "application/pdf",
+        byteSize: 100,
+        storageKey: `docs/${orgId}/file1.pdf`,
+        status: "ready",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      const noSha2 = await documentStore.create({
+        id: randomUUID() as DocumentId,
+        organizationId: orgId,
+        courseId: null,
+        ownerUserId: superAdminUserId,
+        filename: "file2.pdf",
+        originalName: "File 2.pdf",
+        mimeType: "application/pdf",
+        byteSize: 200,
+        storageKey: `docs/${orgId}/file2.pdf`,
+        status: "ready",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      expect(noSha1.id).not.toBe(noSha2.id);
+
+      // Two documents with same sha256 -> must deduplicate
+      const hash = "1".repeat(64);
+      const dup1 = await documentStore.create({
+        id: randomUUID() as DocumentId,
+        organizationId: orgId,
+        courseId: null,
+        ownerUserId: superAdminUserId,
+        filename: "dup1.pdf",
+        originalName: "Dup 1.pdf",
+        mimeType: "application/pdf",
+        byteSize: 500,
+        sha256: hash,
+        storageKey: `docs/${orgId}/dup1.pdf`,
+        status: "ready",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      const dup2 = await documentStore.create({
+        id: randomUUID() as DocumentId,
+        organizationId: orgId,
+        courseId: null,
+        ownerUserId: superAdminUserId,
+        filename: "dup2.pdf",
+        originalName: "Dup 2.pdf",
+        mimeType: "application/pdf",
+        byteSize: 500,
+        sha256: hash,
+        storageKey: `docs/${orgId}/dup2.pdf`,
+        status: "ready",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      expect(dup2.id).toBe(dup1.id);
+
+      // Two documents with different sha256 -> must NOT deduplicate
+      const diffHash = "0".repeat(64);
+      const diffDoc = await documentStore.create({
+        id: randomUUID() as DocumentId,
+        organizationId: orgId,
+        courseId: null,
+        ownerUserId: superAdminUserId,
+        filename: "diff.pdf",
+        originalName: "Diff.pdf",
+        mimeType: "application/pdf",
+        byteSize: 600,
+        sha256: diffHash,
+        storageKey: `docs/${orgId}/diff.pdf`,
+        status: "ready",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      expect(diffDoc.id).not.toBe(dup1.id);
     });
   });
 });

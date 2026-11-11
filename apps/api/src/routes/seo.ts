@@ -10,7 +10,7 @@ import {
   asCourseId,
 } from "@avana/domain";
 import type { BlogStore } from "../modules/blog/blog-store.js";
-import type { CourseStore } from "../modules/courses/course-store.js";
+import type { CourseStore, CoursePublicationStore } from "../modules/courses/course-store.js";
 import {
   renderCourseShareCard,
   defaultCourseCardCache,
@@ -20,6 +20,7 @@ import {
 export interface SeoRouteOptions {
   blogStore?: BlogStore;
   courseStore?: CourseStore;
+  coursePublicationStore?: CoursePublicationStore;
   appUrl?: string;
 }
 
@@ -121,8 +122,15 @@ function isSocialCrawler(userAgent?: string): boolean {
   );
 }
 
+interface CourseShareable {
+  id: string;
+  name: string;
+  coverImage?: string | null;
+  coverUrl?: string | null;
+}
+
 function resolveCourseShareImage(
-  course: any,
+  course: CourseShareable,
   isPubliclyDisclosable: boolean,
   appBaseUrl: string,
 ): ResolvedShareImage {
@@ -244,10 +252,16 @@ function resolveCourseShareImage(
     }
 
     // Security invariant:
-    // Only published official courses allow public disclosure of title, description, and cover.
+    // Only published official courses or approved published publications allow public disclosure of title, description, and cover.
     // Personal, private, or draft courses MUST render neutral metadata to avoid leaking sensitive contents.
-    const isPubliclyDisclosable =
+    let isPubliclyDisclosable =
       course.isOfficial === true && course.status === "published";
+    if (!isPubliclyDisclosable && course.status === "published" && opts.coursePublicationStore) {
+      const pub = await opts.coursePublicationStore.findPublishedByCourse(course.id);
+      if (pub && pub.status === "published" && pub.deletedAt === null) {
+        isPubliclyDisclosable = true;
+      }
+    }
 
     const destinationUrl = `${appBaseUrl}/courses/${encodeURIComponent(course.id)}`;
 
@@ -266,10 +280,16 @@ function resolveCourseShareImage(
     const userAgent = (request.headers["user-agent"] as string) || "";
     const isCrawler = isSocialCrawler(userAgent);
 
+    const reqRawUrl = request.raw.url || request.url || "";
+    const reqPath = reqRawUrl.split("?")[0].split("#")[0].replace(/\/+$/, "");
+    const targetPath = `/courses/${encodeURIComponent(course.id)}`;
+    const isSelfRequest = reqPath === targetPath || reqPath === `/courses/${course.id}`;
+    // Anti-loop defense: never redirect a request to the URL it is already requesting!
+    const shouldRedirect = !isCrawler && !isSelfRequest;
+
     const escapedTitle = escapeHtml(title);
     const escapedDesc = escapeHtml(description);
     const escapedDestUrl = escapeHtml(destinationUrl);
-    const escapedImageUrl = escapeHtml(image.url);
     const escapedSecureImageUrl = escapeHtml(image.secureUrl);
     const escapedImageType = escapeHtml(image.type);
     const escapedImageAlt = escapeHtml(image.alt);
@@ -290,7 +310,7 @@ function resolveCourseShareImage(
   <meta property="og:title" content="${escapedTitle}">
   <meta property="og:description" content="${escapedDesc}">
   <meta property="og:url" content="${escapedDestUrl}">
-  <meta property="og:image" content="${escapedImageUrl}">
+  <meta property="og:image" content="${escapedSecureImageUrl}">
   <meta property="og:image:secure_url" content="${escapedSecureImageUrl}">
   <meta property="og:image:type" content="${escapedImageType}">
   <meta property="og:image:width" content="${image.width}">
@@ -302,11 +322,11 @@ function resolveCourseShareImage(
   <meta name="twitter:site" content="@aavana_ir">
   <meta name="twitter:title" content="${escapedTitle}">
   <meta name="twitter:description" content="${escapedDesc}">
-  <meta name="twitter:image" content="${escapedImageUrl}">
+  <meta name="twitter:image" content="${escapedSecureImageUrl}">
   <meta name="twitter:image:alt" content="${escapedImageAlt}">
 
   ${
-    !isCrawler
+    shouldRedirect
       ? `<!-- Browser Auto-Redirect: sends humans to the SPA route immediately -->
   <meta http-equiv="refresh" content="0;url=${escapedDestUrl}">
   <script>
@@ -314,13 +334,13 @@ function resolveCourseShareImage(
       window.location.replace(${JSON.stringify(destinationUrl)});
     }
   </script>`
-      : `<!-- Social Crawler Mode: Do not redirect crawlers so they reliably parse Open Graph tags -->`
+      : `<!-- Direct Route / Crawler Mode: Do not redirect crawlers or self-target paths to avoid loops -->`
   }
 </head>
 <body style="font-family: system-ui, -apple-system, sans-serif; text-align: center; padding: 48px 16px; background-color: #F7F9FA; color: #1a2226;">
   <div style="max-width: 480px; margin: 0 auto; background: #fff; padding: 32px; border-radius: 16px; border: 1px solid #E2E7EA;">
-    <h2 style="margin-top: 0; color: #008080;">در حال انتقال به دوره...</h2>
-    <p style="color: #5B6268; font-size: 14px; line-height: 1.6;">${escapedTitle}</p>
+    <h2 style="margin-top: 0; color: #008080;">${shouldRedirect ? "در حال انتقال به دوره..." : escapedTitle}</h2>
+    <p style="color: #5B6268; font-size: 14px; line-height: 1.6;">${escapedDesc}</p>
     <a href="${escapedDestUrl}" style="display: inline-block; margin-top: 16px; padding: 10px 20px; background: #008080; color: #fff; text-decoration: none; border-radius: 8px; font-size: 13px;">ورود به دوره</a>
   </div>
 </body>
@@ -388,6 +408,11 @@ function resolveCourseShareImage(
     return handleCourseSharePreview(params.courseId, request, reply);
   });
 
+  app.get("/courses/:courseId/", async (request, reply) => {
+    const params = request.params as { courseId: string };
+    return handleCourseSharePreview(params.courseId, request, reply);
+  });
+
   /**
    * Helper: Serve or render dedicated 1200x630 Open Graph course share card.
    */
@@ -430,7 +455,13 @@ function resolveCourseShareImage(
 
     // Privacy & Access Invariant:
     // Personal, private, or draft courses MUST NOT disclose title or metadata in public image!
-    const isPublic = course.isOfficial === true && course.status === "published";
+    let isPublic = course.isOfficial === true && course.status === "published";
+    if (!isPublic && course.status === "published" && opts.coursePublicationStore) {
+      const pub = await opts.coursePublicationStore.findPublishedByCourse(course.id);
+      if (pub && pub.status === "published" && pub.deletedAt === null) {
+        isPublic = true;
+      }
+    }
     if (!isPublic) {
       const fallback = await loadFallbackShareCard();
       return reply
@@ -546,7 +577,13 @@ function resolveCourseShareImage(
       return reply.status(404).send({ error: "Course not found", code: "not_found" });
     }
 
-    const isPublic = course.isOfficial === true && course.status === "published";
+    let isPublic = course.isOfficial === true && course.status === "published";
+    if (!isPublic && course.status === "published" && opts.coursePublicationStore) {
+      const pub = await opts.coursePublicationStore.findPublishedByCourse(course.id);
+      if (pub && pub.status === "published" && pub.deletedAt === null) {
+        isPublic = true;
+      }
+    }
     const shareUrl = `${appBaseUrl}/courses/${encodeURIComponent(course.id)}`;
     const imageInfo = resolveCourseShareImage(course, isPublic, appBaseUrl);
 

@@ -111,6 +111,72 @@ export function createCourseApi(client: ApiClient) {
     },
 
     /**
+     * PUT /v1/organizations/:organizationId/courses/:courseId/exam-schedule — Set personal exam schedule.
+     */
+    setExamSchedule(
+      organizationId: string,
+      courseId: string,
+      payload: {
+        exam_at: string | null;
+        exam_scope?: {
+          moduleIds?: string[];
+          lessonIds?: string[];
+        } | null;
+      },
+    ): Promise<CourseResponse> {
+      return client.put<CourseResponse>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/exam-schedule`,
+        payload,
+      );
+    },
+
+    /**
+     * POST /v1/organizations/:organizationId/courses/exam — Register or update personal exam (for existing course or new subject).
+     */
+    registerExam(
+      organizationId: string,
+      payload: {
+        course_id?: string;
+        title?: string;
+        subject?: string | null;
+        exam_at: string | null;
+        exam_scope?: {
+          moduleIds?: string[];
+          lessonIds?: string[];
+        } | null;
+      },
+    ): Promise<CourseResponse> {
+      return client.post<CourseResponse>(
+        `/v1/organizations/${organizationId}/courses/exam`,
+        payload,
+      );
+    },
+
+    /**
+     * DELETE /v1/organizations/:organizationId/courses/:courseId/exam — Cancel personal exam registration.
+     */
+    deleteExam(
+      organizationId: string,
+      courseId: string,
+    ): Promise<CourseResponse> {
+      return client.delete<CourseResponse>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/exam`,
+      );
+    },
+
+    /**
+     * DELETE /v1/organizations/:organizationId/courses/:courseId/exam-schedule — Remove personal exam schedule.
+     */
+    deleteExamSchedule(
+      organizationId: string,
+      courseId: string,
+    ): Promise<CourseResponse> {
+      return client.delete<CourseResponse>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/exam-schedule`,
+      );
+    },
+
+    /**
      * POST /v1/organizations/:organizationId/courses — Create a new personal course.
      */
     createCourse(
@@ -163,6 +229,17 @@ export function createCourseApi(client: ApiClient) {
         examDate?: string | null;
         createdAt: string;
         updatedAt: string;
+        canEdit?: boolean;
+        can_edit?: boolean;
+        isOwner?: boolean;
+        is_owner?: boolean;
+        isEnrolled?: boolean;
+        is_enrolled?: boolean;
+      };
+      permissions?: {
+        canEdit: boolean;
+        isOwner: boolean;
+        isEnrolled: boolean;
       };
       chapters: Array<{
         id: string;
@@ -378,6 +455,23 @@ export function createCourseApi(client: ApiClient) {
     },
 
     /**
+     * POST /v1/organizations/:organizationId/courses/:courseId/unpublish — Unpublish course from library.
+     */
+    unpublishCourse(
+      organizationId: string,
+      courseId: string,
+    ): Promise<{
+      request_id: string;
+      course: CourseResponse["course"];
+      publication: any;
+    }> {
+      return client.post(
+        `/v1/organizations/${organizationId}/courses/${courseId}/unpublish`,
+        {},
+      );
+    },
+
+    /**
      * GET /v1/organizations/:organizationId/courses/:courseId/publication-status — Get publication status.
      */
     getCoursePublicationStatus(
@@ -409,6 +503,9 @@ export function createCourseApi(client: ApiClient) {
         stats: any;
       } | null;
       isOfficial?: boolean;
+      isOwner?: boolean;
+      canEdit?: boolean;
+      isEnrolled?: boolean;
       history?: any[];
     }> {
       return client.get(

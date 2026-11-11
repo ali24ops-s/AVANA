@@ -117,4 +117,23 @@ describe("CourseStructurePanel - Groups and Chapter Reordering UI", () => {
     expect(screen.getByText("ایجاد گروه سرفصل جدید")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("عنوان گروه را وارد کنید...")).toBeInTheDocument();
   });
+
+  it("renders 'دریافت PDF فصل' button for each chapter with proper disabled state for empty chapters", async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <CourseStructurePanel courseId="course-123" />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      const chapterPdfButtons = screen.getAllByRole("button", { name: /دریافت PDF فصل/i });
+      expect(chapterPdfButtons.length).toBe(2);
+      // mod-1 has lessons, so enabled
+      expect(chapterPdfButtons[0]).not.toBeDisabled();
+      // mod-2 has no lessons, so disabled
+      expect(chapterPdfButtons[1]).toBeDisabled();
+    });
+  });
 });

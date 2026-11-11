@@ -45,6 +45,9 @@ export function writeErrorEnvelope(
   details?: DomainErrorDetails,
 ) {
   const requestId = getRequestId(request);
+  if (requestId && requestId !== "(missing-request-id)" && !reply.hasHeader("x-request-id")) {
+    void reply.header("x-request-id", requestId);
+  }
 
   const envelope: ErrorEnvelope = {
     request_id: requestId,

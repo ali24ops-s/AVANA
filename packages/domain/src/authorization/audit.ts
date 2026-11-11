@@ -40,6 +40,7 @@ export type AuditAction =
   | "membership.removed"
   | "course.created"
   | "course.updated"
+  | "course.unpublished"
   | "course.archived"
   | "module.created"
   | "module.updated"
@@ -75,6 +76,8 @@ export type AuditAction =
   | "course_publication.approved"
   | "course_publication.rejected"
   | "course_publication.changes_requested"
+  | "course_publication.superseded"
+  | "course_publication.cancelled"
   | "admin.reset_user_devices"
   | "admin.delete_user"
   | "user_device.revoked"
@@ -89,7 +92,25 @@ export type AuditAction =
   | "referral.qualified"
   | "referral.rewarded"
   | "referral.abuse_rejected"
-  | "content_report.status_changed";
+  | "content_report.status_changed"
+  | "crm.tag.created"
+  | "crm.tag.updated"
+  | "crm.tag.deleted"
+  | "crm.customer_tag.attached"
+  | "crm.customer_tag.detached"
+  | "crm.customer_note.created"
+  | "crm.customer_note.updated"
+  | "crm.customer_note.deleted"
+  | "crm.segment.created"
+  | "crm.segment.updated"
+  | "crm.segment.deleted"
+  | "crm.campaign.created"
+  | "crm.campaign.updated"
+  | "crm.campaign.deleted"
+  | "crm.campaign.executed"
+  | "crm.campaign.paused"
+  | "crm.campaign.resumed"
+  | "crm.campaign.cancelled";
 
 export type AuditEntityType =
   | "organization"
@@ -120,7 +141,13 @@ export type AuditEntityType =
   | "referral"
   | "support_ticket"
   | "feedback"
-  | "content_report";
+  | "content_report"
+  | "crm_tag"
+  | "crm_customer_tag"
+  | "crm_customer_note"
+  | "crm_segment"
+  | "crm_campaign"
+  | "crm_campaign_execution";
 
 /**
  * Structured audit event payload.

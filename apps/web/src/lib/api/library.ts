@@ -61,6 +61,12 @@ export interface LibraryCourseItem {
   purchase?: ResourcePurchaseSummary;
   preview?: import("@avana/domain").ContentPreviewMetadata;
   packages?: import("@avana/domain").ChapterPackageItem[];
+  isOfficial?: boolean;
+  is_official?: boolean;
+  isUserPublished?: boolean;
+  is_user_published?: boolean;
+  publisherName?: string | null;
+  publisher_name?: string | null;
   href: string;
   created_at: string;
   updated_at: string;

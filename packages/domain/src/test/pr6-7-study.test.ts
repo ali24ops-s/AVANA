@@ -245,8 +245,8 @@ describe("Flashcard Session Graduation Logic (isFlashcardGraduatedInSession)", (
     expect(isFlashcardGraduatedInSession(["hard", "hard", "hard", "again"])).toBe(false);
   });
 
-  it("handles Hard ratings (Scenario 1-4: exactly 4 evaluations required to graduate)", () => {
-    // 1st Hard -> Not completed
+  it("handles Hard ratings on new cards (interval 0: 4 evaluations required to graduate)", () => {
+    // 1st Hard on new card -> Not completed
     expect(isFlashcardGraduatedInSession(["hard"])).toBe(false);
     // 2nd Hard -> Not completed
     expect(isFlashcardGraduatedInSession(["hard", "hard"])).toBe(false);
@@ -258,20 +258,42 @@ describe("Flashcard Session Graduation Logic (isFlashcardGraduatedInSession)", (
     expect(isFlashcardGraduatedInSession(["hard", "hard", "hard", "hard", "hard"])).toBe(true);
   });
 
-  it("handles Good ratings (Scenario 5: 1st Good is NOT completed, 2nd Good graduates)", () => {
-    // 1st Good -> Not completed, stays in session
-    expect(isFlashcardGraduatedInSession(["good"])).toBe(false);
-    // 2nd Good -> Completed!
-    expect(isFlashcardGraduatedInSession(["good", "good"])).toBe(true);
-    // Again followed by Good -> 2 evaluations, completes!
-    expect(isFlashcardGraduatedInSession(["again", "good"])).toBe(true);
-    // Hard followed by Good -> 2 evaluations, completes!
-    expect(isFlashcardGraduatedInSession(["hard", "good"])).toBe(true);
+  it("handles Hard ratings on reviewed cards (interval >= 1: graduates immediately on 1st evaluation)", () => {
+    const reviewedCard = { intervalDays: 3, easeFactor: 2.5 };
+    // Hard on reviewed card yields interval >= 1 day -> graduates immediately
+    expect(isFlashcardGraduatedInSession(["hard"], reviewedCard)).toBe(true);
   });
 
-  it("handles Easy ratings (graduates immediately on 1st evaluation)", () => {
-    expect(isFlashcardGraduatedInSession(["easy"])).toBe(true);
-    expect(isFlashcardGraduatedInSession(["again", "easy"])).toBe(true);
-    expect(isFlashcardGraduatedInSession(["hard", "easy"])).toBe(true);
+  it("handles Good ratings on New cards (requires 2 Good evaluations to graduate)", () => {
+    const newCard = { intervalDays: 0, easeFactor: 2.5 };
+    // 1st Good on New card -> Not completed
+    expect(isFlashcardGraduatedInSession(["good"], newCard)).toBe(false);
+    // 2nd Good on New card -> Completed!
+    expect(isFlashcardGraduatedInSession(["good", "good"], newCard)).toBe(true);
+    // Again resets learning: 1st Good after Again -> Not completed
+    expect(isFlashcardGraduatedInSession(["again", "good"], newCard)).toBe(false);
+    // 2nd Good after Again -> Completed!
+    expect(isFlashcardGraduatedInSession(["again", "good", "good"], newCard)).toBe(true);
+    // Good then Again then Good -> Not completed
+    expect(isFlashcardGraduatedInSession(["good", "again", "good"], newCard)).toBe(false);
+    // Good then Again then 2 Goods -> Completed!
+    expect(isFlashcardGraduatedInSession(["good", "again", "good", "good"], newCard)).toBe(true);
+  });
+
+  it("handles Good ratings on Review cards (graduates immediately on 1st evaluation)", () => {
+    const reviewCard = { intervalDays: 1, easeFactor: 2.5 };
+    // 1st Good on Review card -> Completed immediately!
+    expect(isFlashcardGraduatedInSession(["good"], reviewCard)).toBe(true);
+    // Good after Again on Review card -> Completed!
+    expect(isFlashcardGraduatedInSession(["again", "good"], reviewCard)).toBe(true);
+  });
+
+  it("handles Easy ratings (graduates immediately on 1st evaluation for both New and Review cards)", () => {
+    const newCard = { intervalDays: 0, easeFactor: 2.5 };
+    const reviewCard = { intervalDays: 3, easeFactor: 2.5 };
+    expect(isFlashcardGraduatedInSession(["easy"], newCard)).toBe(true);
+    expect(isFlashcardGraduatedInSession(["easy"], reviewCard)).toBe(true);
+    expect(isFlashcardGraduatedInSession(["again", "easy"], newCard)).toBe(true);
+    expect(isFlashcardGraduatedInSession(["hard", "easy"], newCard)).toBe(true);
   });
 });

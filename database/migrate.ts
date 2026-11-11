@@ -1,90 +1,13 @@
 /* eslint-disable no-console */
 import { loadMonorepoEnv } from "@avana/config";
-import { createDbClient } from "./client.js";
-import { up as up0001 } from "./migrations/0001_init.js";
-import { up as up0002 } from "./migrations/0002_auth.js";
-import { up as up0003 } from "./migrations/0003_learning_core.js";
-import { up as up0004 } from "./migrations/0004_lesson_publication.js";
-import { up as up0005 } from "./migrations/0005_ai_learning_engine.js";
-import { up as up0006 } from "./migrations/0006_generation_idempotency.js";
-import { up as up0007 } from "./migrations/0007_generation_jobs.js";
-import { up as up0008 } from "./migrations/0008_content_review.js";
-import { up as up0009 } from "./migrations/0009_study_consumption.js";
-import { up as up0010 } from "./migrations/0010_user_flashcard_schedules.js";
-import { up as up0011 } from "./migrations/0011_exams_configuration.js";
-import { up as up0012 } from "./migrations/0012_taxonomy_lesson_relations.js";
-import { up as up0013 } from "./migrations/0013_document_module_invariant.js";
-import { up as up0014 } from "./migrations/0014_email_verification.js";
-import { up as up0015 } from "./migrations/0015_study_conversations.js";
-import { up as up0016 } from "./migrations/0016_study_sessions.js";
-import { up as up0017 } from "./migrations/0017_flashcard_study_sessions.js";
-import { up as up0018 } from "./migrations/0018_flashcard_session_reaction_ms.js";
-import { up as up0019 } from "./migrations/0019_user_global_role.js";
-import { up as up0020 } from "./migrations/0020_document_quality.js";
-import { up as up0021 } from "./migrations/0021_content_packs.js";
-import { up as up0022 } from "./migrations/0022_decouple_document_content.js";
-import { up as up0023 } from "./migrations/0023_monetization_and_entitlements.js";
-import { up as up0024 } from "./migrations/0024_official_courses_and_products.js";
-import { up as up0025 } from "./migrations/0025_content_pack_review_workflow.js";
-import { up as up0026 } from "./migrations/0026_migrate_legacy_content_packs_to_pending_review.js";
-import { up as up0027 } from "./migrations/0027_blog_system.js";
-import { up as up0028 } from "./migrations/0028_card_to_card_payments.js";
-import { up as up0029 } from "./migrations/0029_device_and_single_session_security.js";
-import { up as up0030 } from "./migrations/0030_content_export_import.js";
-import { up as up0031 } from "./migrations/0031_widen_generation_keys.js";
-import { up as up0032 } from "./migrations/0032_resumable_generation_chunks.js";
-import { up as up0033 } from "./migrations/0033_widen_quiz_attempts_topic.js";
-import { up as up0034 } from "./migrations/0034_generation_lease_infrastructure.js";
-import { up as up0035 } from "./migrations/0035_content_pricing_and_entitlements.js";
-import { up as up0036 } from "./migrations/0036_backfill_content_products.js";
-import { up as up0037 } from "./migrations/0037_backfill_canonical_content_pricing.js";
-import { up as up0038 } from "./migrations/0038_document_generation_progress.js";
-import { up as up0039 } from "./migrations/0039_phone_verification.js";
-import { up as up0040 } from "./migrations/0040_quiz_attempts_snapshot_and_metrics.js";
-import { up as up0041 } from "./migrations/0041_module_preview_lesson_id.js";
-import { up as up0042 } from "./migrations/0042_special_exam_entitlements.js";
-import { up as up0043 } from "./migrations/0043_notifications.js";
-import { up as up0044 } from "./migrations/0044_lesson_annotations_and_reports.js";
-import { up as up0045 } from "./migrations/0045_sub_course_groups_and_module_ordering.js";
-import { up as up0046 } from "./migrations/0046_system_configurations.js";
-import { up as up0047 } from "./migrations/0047_wallet_system.js";
-import { up as up0048 } from "./migrations/0048_subscription_credit_bonuses_config.js";
-import { up as up0049 } from "./migrations/0049_wallet_topup_product.js";
-import { up as up0050 } from "./migrations/0050_course_publications.js";
-import { up as up0051 } from "./migrations/0051_promotions_and_coupons.js";
-import { up as up0052 } from "./migrations/0052_referral_system.js";
-import { up as up0053 } from "./migrations/0053_daily_study_planner.js";
-import { up as up0054 } from "./migrations/0054_course_exam_scope.js";
-import { up as up0055 } from "./migrations/0055_support_and_feedback.js";
-import { up as up0056 } from "./migrations/0056_course_drafts_and_releases.js";
-import { up as up0057 } from "./migrations/0057_teacher_platform_core.js";
-import { up as up0058 } from "./migrations/0058_password_reset_tokens.js";
-import { up as up0059 } from "./migrations/0059_allow_back_navigation.js";
-import { up as up0060 } from "./migrations/0060_per_question_time_seconds.js";
-import { up as up0061 } from "./migrations/0061_descriptive_exam_questions.js";
-import { up as up0062 } from "./migrations/0062_optional_exam_duration_and_passing_score.js";
-import { up as up0063 } from "./migrations/0063_classroom_assignments.js";
-import { up as up0064 } from "./migrations/0064_teacher_approval_status.js";
-import { up as up0065 } from "./migrations/0065_user_major_and_course_academic_fields.js";
-import { up as up0066 } from "./migrations/0066_descriptive_answer_integrity.js";
-import { up as up0067 } from "./migrations/0067_assignment_submission_attachments.js";
-import { up as up0068 } from "./migrations/0068_teacher_academic_profile.js";
-import { up as up0069 } from "./migrations/0069_classroom_educational_contents.js";
-import { up as up0070 } from "./migrations/0070_teacher_student_messaging.js";
-import { up as up0071 } from "./migrations/0071_repair_legacy_registration_org_admins.js";
-import { up as up0072 } from "./migrations/0072_teacher_exam_attempt_integrity.js";
-import { up as up0075 } from "./migrations/0075_question_patterns.js";
-import { up as up0077 } from "./migrations/0077_question_pattern_skills_and_cognitive_levels.js";
-import { up as up0078 } from "./migrations/0078_telegram_outbox.js";
-import { up as up0079 } from "./migrations/0079_telegram_outbox_lease_index.js";
-import { up as up0080 } from "./migrations/0080_source_packs_and_generation_sources.js";
-import { up as up0081 } from "./migrations/0081_question_pattern_categories_and_defaults.js";
-import { up as up0082 } from "./migrations/0082_user_welcome_gifts.js";
-import { up as up0083 } from "./migrations/0083_nullable_promotion_redemption_order.js";
-import { up as up0084 } from "./migrations/0084_support_message_read_receipt.js";
-import { up as up0085 } from "./migrations/0085_platform_admin_multi_session.js";
-import { up as up0086 } from "./migrations/0086_user_onboarding.js";
-import { up as up0087 } from "./migrations/0087_lesson_reference.js";
+import pg from "pg";
+import { ALL_MIGRATIONS } from "./tracker/registry.js";
+import { executeStatefulMigrations } from "./tracker/runner.js";
+import { runEvidenceBaseline } from "./tracker/baseline.js";
+import { evaluateMigrationEvidence } from "./tracker/evidence-manifest.js";
+import { resolveBuildManifest } from "./tracker/checksum.js";
+
+const { Client } = pg;
 
 function localConnectionString(): string {
   const user = "avana";
@@ -98,187 +21,133 @@ function localConnectionString(): string {
 loadMonorepoEnv();
 const connectionString = process.env.DATABASE_URL ?? localConnectionString();
 
-async function runMigrations() {
-  console.log("Running AVANA database migrations...");
-  const { db, close } = createDbClient(connectionString);
+interface CliArgs {
+  isBaseline: boolean;
+  isVerify: boolean;
+  isDryRun: boolean;
+  operator?: string;
+  markNotApplicable0071: boolean;
+  reason?: string;
+}
 
+function parseCliArgs(argv: string[]): CliArgs {
+  let isBaseline = false;
+  let isVerify = false;
+  let isDryRun = false;
+  let operator: string | undefined;
+  let markNotApplicable0071 = false;
+  let reason: string | undefined;
+
+  for (let i = 2; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--baseline") {
+      isBaseline = true;
+    } else if (arg === "--verify") {
+      isVerify = true;
+    } else if (arg === "--dry-run") {
+      isDryRun = true;
+    } else if (arg === "--operator" && i + 1 < argv.length) {
+      operator = argv[++i];
+    } else if (arg === "--mark-not-applicable-0071") {
+      markNotApplicable0071 = true;
+    } else if (arg === "--reason" && i + 1 < argv.length) {
+      reason = argv[++i];
+    }
+  }
+
+  return {
+    isBaseline,
+    isVerify,
+    isDryRun,
+    operator,
+    markNotApplicable0071,
+    reason,
+  };
+}
+
+async function main() {
+  const args = parseCliArgs(process.argv);
+
+  if (args.isVerify) {
+    console.log("=== AVANA Database Migration Verification ===");
+    const client = new Client({ connectionString });
+    await client.connect();
+    try {
+      const manifest = resolveBuildManifest(process.cwd());
+      console.log(`Auditing evidence across ${manifest.migrations.length} registered migrations...`);
+
+      let provenCount = 0;
+      let missingCount = 0;
+      let insufficientCount = 0;
+
+      for (const m of manifest.migrations) {
+        const { status, description } = await evaluateMigrationEvidence(client, m.id);
+        if (status === "proven") provenCount++;
+        else if (status === "missing") missingCount++;
+        else insufficientCount++;
+
+        console.log(`[${status.toUpperCase()}] ${m.id}: ${description}`);
+      }
+
+      console.log("\nSummary:");
+      console.log(`- Proven: ${provenCount}`);
+      console.log(`- Missing: ${missingCount}`);
+      console.log(`- Insufficient Evidence: ${insufficientCount}`);
+    } finally {
+      await client.end().catch(() => {});
+    }
+    return;
+  }
+
+  if (args.isBaseline) {
+    console.log("=== Running AVANA Evidence-Based Migration Baseline ===");
+    if (args.markNotApplicable0071 && !args.operator) {
+      console.error("[ERROR] --operator <name> is strictly required when marking 0071 as not_applicable.");
+      process.exit(1);
+    }
+
+    const client = new Client({ connectionString });
+    await client.connect();
+    try {
+      const report = await runEvidenceBaseline(client, {
+        operator: args.operator,
+        markNotApplicable0071: args.markNotApplicable0071,
+        notApplicableReason: args.reason,
+        dryRun: args.isDryRun,
+      });
+
+      console.log("\nBaseline Execution Report:");
+      console.log(`- Successfully Baselined: ${report.baselined.length}`);
+      report.baselined.forEach((b) => console.log(`  ✓ ${b}`));
+      console.log(`- Already Recorded / Skipped: ${report.skipped.length}`);
+      console.log(`- Not Applicable (Signed Off): ${report.notApplicable.length}`);
+      report.notApplicable.forEach((na) => console.log(`  ⊘ ${na}`));
+      console.log(`- Insufficient Evidence (Requires Operator Audit): ${report.insufficient.length}`);
+      report.insufficient.forEach((ins) => console.log(`  ⚠ ${ins}`));
+    } finally {
+      await client.end().catch(() => {});
+    }
+    return;
+  }
+
+  console.log("Running AVANA stateful database migrations...");
   try {
-    console.log("Applying 0001_init...");
-    await up0001(db);
-    console.log("Applying 0002_auth...");
-    await up0002(db);
-    console.log("Applying 0003_learning_core...");
-    await up0003(db);
-    console.log("Applying 0004_lesson_publication...");
-    await up0004(db);
-    console.log("Applying 0005_ai_learning_engine...");
-    await up0005(db);
-    console.log("Applying 0006_generation_idempotency...");
-    await up0006(db);
-    console.log("Applying 0007_generation_jobs...");
-    await up0007(db);
-    console.log("Applying 0008_content_review...");
-    await up0008(db);
-    console.log("Applying 0009_study_consumption...");
-    await up0009(db);
-    console.log("Applying 0010_user_flashcard_schedules...");
-    await up0010(db);
-    console.log("Applying 0011_exams_configuration...");
-    await up0011(db);
-    console.log("Applying 0012_taxonomy_lesson_relations...");
-    await up0012(db);
-    console.log("Applying 0013_document_module_invariant...");
-    await up0013(db);
-    console.log("Applying 0014_email_verification...");
-    await up0014(db);
-    console.log("Applying 0015_study_conversations...");
-    await up0015(db);
-    console.log("Applying 0016_study_sessions...");
-    await up0016(db);
-    console.log("Applying 0017_flashcard_study_sessions...");
-    await up0017(db);
-    console.log("Applying 0018_flashcard_session_reaction_ms...");
-    await up0018(db);
-    console.log("Applying 0019_user_global_role...");
-    await up0019(db);
-    console.log("Applying 0020_document_quality...");
-    await up0020(db);
-    console.log("Applying 0021_content_packs...");
-    await up0021(db);
-    console.log("Applying 0022_decouple_document_content...");
-    await up0022(db);
-    console.log("Applying 0023_monetization_and_entitlements...");
-    await up0023(db);
-    console.log("Applying 0024_official_courses_and_products...");
-    await up0024(db);
-    console.log("Applying 0025_content_pack_review_workflow...");
-    await up0025(db);
-    console.log("Applying 0026_migrate_legacy_content_packs_to_pending_review...");
-    await up0026(db);
-    console.log("Applying 0027_blog_system...");
-    await up0027(db);
-    console.log("Applying 0028_card_to_card_payments...");
-    await up0028(db);
-    console.log("Applying 0029_device_and_single_session_security...");
-    await up0029(db);
-    console.log("Applying 0030_content_export_import...");
-    await up0030(db);
-    console.log("Applying 0031_widen_generation_keys...");
-    await up0031(db);
-    console.log("Applying 0032_resumable_generation_chunks...");
-    await up0032(db);
-    console.log("Applying 0033_widen_quiz_attempts_topic...");
-    await up0033(db);
-    console.log("Applying 0034_generation_lease_infrastructure...");
-    await up0034(db);
-    console.log("Applying 0035_content_pricing_and_entitlements...");
-    await up0035(db);
-    console.log("Applying 0036_backfill_content_products...");
-    await up0036(db);
-    console.log("Applying 0037_backfill_canonical_content_pricing...");
-    await up0037(db);
-    console.log("Applying 0038_document_generation_progress...");
-    await up0038(db);
-    console.log("Applying 0039_phone_verification...");
-    await up0039(db);
-    console.log("Applying 0040_quiz_attempts_snapshot_and_metrics...");
-    await up0040(db);
-    console.log("Applying 0041_module_preview_lesson_id...");
-    await up0041(db);
-    console.log("Applying 0042_special_exam_entitlements...");
-    await up0042(db);
-    console.log("Applying 0043_notifications...");
-    await up0043(db);
-    console.log("Applying 0044_lesson_annotations_and_reports...");
-    await up0044(db);
-    console.log("Applying 0045_sub_course_groups_and_module_ordering...");
-    await up0045(db);
-    console.log("Applying 0046_system_configurations...");
-    await up0046(db);
-    console.log("Applying 0047_wallet_system...");
-    await up0047(db);
-    console.log("Applying 0048_subscription_credit_bonuses_config...");
-    await up0048(db);
-    console.log("Applying 0049_wallet_topup_product...");
-    await up0049(db);
-    console.log("Applying 0050_course_publications...");
-    await up0050(db);
-    console.log("Applying 0051_promotions_and_coupons...");
-    await up0051(db);
-    console.log("Applying 0052_referral_system...");
-    await up0052(db);
-    console.log("Applying 0053_daily_study_planner...");
-    await up0053(db);
-    console.log("Applying 0054_course_exam_scope...");
-    await up0054(db);
-    console.log("Applying 0055_support_and_feedback...");
-    await up0055(db);
-    console.log("Applying 0056_course_drafts_and_releases...");
-    await up0056(db);
-    console.log("Applying 0057_teacher_platform_core...");
-    await up0057(db);
-    console.log("Applying 0058_password_reset_tokens...");
-    await up0058(db);
-    console.log("Applying 0059_allow_back_navigation...");
-    await up0059(db);
-    console.log("Applying 0060_per_question_time_seconds...");
-    await up0060(db);
-    console.log("Applying 0061_descriptive_exam_questions...");
-    await up0061(db);
-    console.log("Applying 0062_optional_exam_duration_and_passing_score...");
-    await up0062(db);
-    console.log("Applying 0063_classroom_assignments...");
-    await up0063(db);
-    console.log("Applying 0064_teacher_approval_status...");
-    await up0064(db);
-    console.log("Applying 0065_user_major_and_course_academic_fields...");
-    await up0065(db);
-    console.log("Applying 0066_descriptive_answer_integrity...");
-    await up0066(db);
-    console.log("Applying 0067_assignment_submission_attachments...");
-    await up0067(db);
-    console.log("Applying 0068_teacher_academic_profile...");
-    await up0068(db);
-    console.log("Applying 0069_classroom_educational_contents...");
-    await up0069(db);
-    console.log("Applying 0070_teacher_student_messaging...");
-    await up0070(db);
-    console.log("Applying 0071_repair_legacy_registration_org_admins...");
-    await up0071(db);
-    console.log("Applying 0072_teacher_exam_attempt_integrity...");
-    await up0072(db);
-    console.log("Applying 0075_question_patterns...");
-    await up0075(db);
-    console.log("Applying 0077_question_pattern_skills_and_cognitive_levels...");
-    await up0077(db);
-    console.log("Applying 0078_telegram_outbox...");
-    await up0078(db);
-    console.log("Applying 0079_telegram_outbox_lease_index...");
-    await up0079(db);
-    console.log("Applying 0080_source_packs_and_generation_sources...");
-    await up0080(db);
-    console.log("Applying 0081_question_pattern_categories_and_defaults...");
-    await up0081(db);
-    console.log("Applying 0082_user_welcome_gifts...");
-    await up0082(db);
-    console.log("Applying 0083_nullable_promotion_redemption_order...");
-    await up0083(db);
-    console.log("Applying 0084_support_message_read_receipt...");
-    await up0084(db);
-    console.log("Applying 0085_platform_admin_multi_session...");
-    await up0085(db);
-    console.log("Applying 0086_user_onboarding...");
-    await up0086(db);
-    console.log("Applying 0087_lesson_reference...");
-    await up0087(db);
+    const res = await executeStatefulMigrations(ALL_MIGRATIONS, {
+      connectionString,
+      dryRun: args.isDryRun,
+    });
 
-    console.log("All database migrations applied successfully.");
+    console.log(`\nStateful Migration Execution Finished:`);
+    console.log(`- Applied: ${res.applied.length}`);
+    console.log(`- Skipped (Already applied/baselined): ${res.skipped.length}`);
+    if (res.failed) {
+      console.error(`- Failed: ${res.failed}`);
+      process.exit(1);
+    }
   } catch (error) {
-    console.error("Migration failed:", error);
+    console.error("Migration execution failed:", error);
     process.exit(1);
-  } finally {
-    await close();
   }
 }
 
-await runMigrations();
+await main();

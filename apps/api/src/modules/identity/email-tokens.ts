@@ -59,6 +59,16 @@ export const emailTokens = {
     logoWidth: "120px",
     logoHeight: "81px",
   },
+  assets: {
+    /**
+     * Canonical, high-availability public CDN URL for AVANA brand logo in transactional emails.
+     * Pinned to immutable commit SHA (98bb57f54dc101f3290f88a3e5e3553d709a6829) via Cloudflare/jsDelivr
+     * to eliminate risks of unvetted asset changes, while guaranteeing 100% deliverability and compatibility
+     * with Google Image Proxy (ggpht.com / Gmail), Apple Mail, and Outlook without timeouts.
+     */
+    canonicalLogoUrl:
+      "https://cdn.jsdelivr.net/gh/ali24ops-s/AVANA@98bb57f54dc101f3290f88a3e5e3553d709a6829/apps/web/public/brand/avana-logo.png",
+  },
 } as const;
 
 export type EmailTokens = typeof emailTokens;

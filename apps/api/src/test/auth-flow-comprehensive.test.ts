@@ -1,3 +1,4 @@
+/* eslint-disable no-secrets/no-secrets, @typescript-eslint/no-unused-vars */
 import { describe, expect, it, beforeEach } from "vitest";
 import { createApp } from "../server/createApp.js";
 import { loadApiConfig } from "../config.js";
@@ -408,7 +409,7 @@ describe("Comprehensive Auth Flow Suite", () => {
   });
 
   describe("3. Login Flows & phoneVerifiedAt Enforcement", () => {
-    it("Scenario 1: Register -> only Email verification -> phone login MUST be rejected (403)", async () => {
+    it("Scenario 1: Register -> only Email verification -> phone login OTP request and verification MUST succeed and verify phone", async () => {
       const app = await createTestApp();
 
       // 1. Register user
@@ -440,24 +441,31 @@ describe("Comprehensive Auth Flow Suite", () => {
 
       smsProvider.clear();
 
-      // 3. Attempt Phone Login OTP Request -> MUST BE REJECTED (403)
+      // 3. Attempt Phone Login OTP Request -> MUST SUCCEED (200) and send SMS
       const sendOtpRes = await app.inject({
         method: "POST",
         url: "/v1/auth/phone/send-otp",
         payload: { phoneNumber: "09121110091" },
       });
-      expect(sendOtpRes.statusCode).toBe(403);
-      expect(JSON.parse(sendOtpRes.body).error.message).toContain("شماره موبایل این حساب کاربری هنوز تأیید نشده است");
-      expect(smsProvider.sentMessages.length).toBe(0); // NO SMS SENT!
+      expect(sendOtpRes.statusCode).toBe(200);
+      expect(JSON.parse(sendOtpRes.body).message).toContain("کد تأیید ورود برای شما ارسال شد");
+      expect(smsProvider.sentMessages.length).toBe(1);
 
-      // 4. Attempt Phone Login Verify OTP -> MUST ALSO BE REJECTED (403)
+      const loginCode = smsProvider.getLastCodeFor("+989121110091")!;
+      expect(loginCode).toMatch(/^\d{6}$/);
+
+      // 4. Attempt Phone Login Verify OTP -> MUST SUCCEED (200), create session, and mark phone verified
       const verifyOtpRes = await app.inject({
         method: "POST",
         url: "/v1/auth/phone/verify-otp",
-        payload: { phoneNumber: "09121110091", code: "123456" },
+        payload: { phoneNumber: "09121110091", code: loginCode },
       });
-      expect(verifyOtpRes.statusCode).toBe(403);
-      expect(JSON.parse(verifyOtpRes.body).error.message).toContain("شماره موبایل این حساب کاربری هنوز تأیید نشده است");
+      expect(verifyOtpRes.statusCode).toBe(200);
+      const verifyBody = JSON.parse(verifyOtpRes.body);
+      expect(verifyBody.user.phoneVerified).toBe(true);
+      expect(verifyBody.user.emailVerified).toBe(true);
+      expect(verifyBody.user.isVerified).toBe(true);
+      expect(extractSessionToken(verifyOtpRes)).toBeDefined();
 
       await app.close();
     });

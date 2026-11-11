@@ -5,6 +5,7 @@ import {
   normalizeCognitiveLevel,
   mapLegacyCognitiveLevelToSkill,
   STANDARD_QUESTION_PATTERNS,
+  STANDARD_QUESTION_PATTERN_EXAMPLES,
   type UUID,
   type QuestionPatternId,
   type QuestionPatternExampleId,
@@ -91,6 +92,22 @@ export class InMemoryQuestionPatternStore implements QuestionPatternStore {
           createdAt: now,
           updatedAt: now,
           deletedAt: null,
+        });
+      }
+    }
+    for (const ex of STANDARD_QUESTION_PATTERN_EXAMPLES) {
+      if (!this.examples.has(ex.id)) {
+        this.examples.set(ex.id, {
+          id: ex.id,
+          questionPatternId: ex.questionPatternId,
+          sourceQuizQuestionId: null,
+          question: ex.question,
+          choices: [...ex.choices],
+          correctAnswer: ex.correctAnswer,
+          explanation: ex.explanation ?? null,
+          clinicalContext: ex.clinicalContext ?? null,
+          sortOrder: ex.sortOrder,
+          createdAt: now,
         });
       }
     }

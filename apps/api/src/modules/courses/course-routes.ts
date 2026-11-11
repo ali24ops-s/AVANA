@@ -19,6 +19,8 @@ import {
   type CourseId,
   type OrganizationId,
   type Role,
+  type ExamScope,
+  type UUID,
 } from "@avana/domain";
 import { CourseService } from "./course-service.js";
 import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
@@ -34,6 +36,7 @@ import type {
 import type { GeneratedContentStore } from "../generation/generation-store.js";
 import type { QuizStore, FlashcardStore } from "../study/study-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import type { SourcePackStore } from "../source-packs/source-pack-store.js";
 
 export interface CourseRouteOptions {
   sessionService: AuthMiddlewareDeps["sessionService"];
@@ -50,6 +53,7 @@ export interface CourseRouteOptions {
   coursePublicationStore?: CoursePublicationStore;
   quizStore?: QuizStore;
   flashcardStore?: FlashcardStore;
+  sourcePackStore?: SourcePackStore;
 }
 
 export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
@@ -130,6 +134,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
     flashcardStore,
     organizationStore,
     userStore,
+    opts.sourcePackStore,
   );
 
   /**
@@ -190,6 +195,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
     const isOfficial =
       course.isOfficial ??
       (!!systemOrganizationId && course.organizationId === systemOrganizationId);
+    const isUserPublished = !isOfficial && course.status === "published";
     return {
       id: course.id,
       title: course.name,
@@ -198,11 +204,24 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
       targetAcademicFields: course.targetAcademicFields ?? [],
       exam_at: course.examDate,
       exam_scope: course.examScope ?? null,
+      official_exam_at: course.officialExamDate ?? null,
+      official_exam_scope: course.officialExamScope ?? null,
       created_at: course.createdAt,
       updated_at: course.updatedAt,
       archived: course.deletedAt !== null,
       isOfficial,
       is_official: isOfficial,
+      isUserPublished,
+      is_user_published: isUserPublished,
+      status: course.status ?? "published",
+      can_edit: (course as { canEdit?: boolean; can_edit?: boolean }).canEdit ?? (course as { canEdit?: boolean; can_edit?: boolean }).can_edit,
+      canEdit: (course as { canEdit?: boolean; can_edit?: boolean }).canEdit ?? (course as { canEdit?: boolean; can_edit?: boolean }).can_edit,
+      is_owner: (course as { isOwner?: boolean; is_owner?: boolean }).isOwner ?? (course as { isOwner?: boolean; is_owner?: boolean }).is_owner,
+      isOwner: (course as { isOwner?: boolean; is_owner?: boolean }).isOwner ?? (course as { isOwner?: boolean; is_owner?: boolean }).is_owner,
+      is_enrolled: (course as { isEnrolled?: boolean; is_enrolled?: boolean }).isEnrolled ?? (course as { isEnrolled?: boolean; is_enrolled?: boolean }).is_enrolled,
+      isEnrolled: (course as { isEnrolled?: boolean; is_enrolled?: boolean }).isEnrolled ?? (course as { isEnrolled?: boolean; is_enrolled?: boolean }).is_enrolled,
+      publisherName: (course as { publisherName?: string | null; publisher_name?: string | null }).publisherName ?? (course as { publisherName?: string | null; publisher_name?: string | null }).publisher_name ?? null,
+      publisher_name: (course as { publisherName?: string | null; publisher_name?: string | null }).publisherName ?? (course as { publisherName?: string | null; publisher_name?: string | null }).publisher_name ?? null,
     };
   }
 
@@ -460,10 +479,19 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
         organizationId,
         courseId,
       );
+      const permissions = await courseService.resolveCoursePermissions(actor, course);
 
       return {
         request_id: request.id,
-        course: toCoursePayload(course),
+        course: {
+          ...toCoursePayload(course),
+          can_edit: permissions.canEdit,
+          canEdit: permissions.canEdit,
+          is_owner: permissions.isOwner,
+          isOwner: permissions.isOwner,
+          is_enrolled: permissions.isEnrolled,
+          isEnrolled: permissions.isEnrolled,
+        },
       };
     },
   );
@@ -510,6 +538,149 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
           examAt: body.exam_at !== undefined ? body.exam_at : undefined,
           examScope: body.exam_scope !== undefined ? body.exam_scope : undefined,
         },
+      );
+
+      return {
+        request_id: request.id,
+        course: toCoursePayload(course),
+      };
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/courses/exam — Register or update personal exam
+  // ---------------------------------------------------------------------------
+  app.post(
+    "/v1/organizations/:organizationId/courses/exam",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const actor = getActor(request);
+      const params = request.params as { organizationId: string };
+      const organizationId = getOrganizationId(params);
+      const body = (request.body as {
+        course_id?: string;
+        courseId?: string;
+        title?: string;
+        subject?: string | null;
+        exam_at?: string | null;
+        examScope?: ExamScope | null;
+        exam_scope?: ExamScope | null;
+      }) ?? {};
+
+      const rawCourseId = body.course_id ?? body.courseId;
+      if (
+        rawCourseId &&
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          rawCourseId,
+        )
+      ) {
+        throw new DomainError("bad_request", "Invalid course ID");
+      }
+      const courseId = rawCourseId ? (rawCourseId as CourseId) : undefined;
+      const examAt = body.exam_at !== undefined ? body.exam_at : null;
+      const examScope =
+        body.exam_scope !== undefined ? body.exam_scope : body.examScope;
+
+      const course = await courseService.registerExam(actor, organizationId, {
+        courseId,
+        title: body.title,
+        subject: body.subject,
+        examAt,
+        examScope,
+      });
+
+      reply.code(200);
+      return {
+        request_id: request.id,
+        course: toCoursePayload(course),
+      };
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // DELETE /v1/organizations/:organizationId/courses/:courseId/exam — Cancel personal exam
+  // ---------------------------------------------------------------------------
+  app.delete(
+    "/v1/organizations/:organizationId/courses/:courseId/exam",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        courseId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const courseId = getCourseId(params);
+
+      const course = await courseService.deletePersonalExamSchedule(
+        actor,
+        organizationId,
+        courseId,
+      );
+
+      return {
+        request_id: request.id,
+        course: toCoursePayload(course),
+      };
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // PUT /v1/organizations/:organizationId/courses/:courseId/exam-schedule — Set personal exam
+  // ---------------------------------------------------------------------------
+  app.put(
+    "/v1/organizations/:organizationId/courses/:courseId/exam-schedule",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        courseId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const courseId = getCourseId(params);
+      const body = (request.body as {
+        exam_at?: string | null;
+        exam_scope?: {
+          moduleIds?: string[];
+          lessonIds?: string[];
+        } | null;
+      }) ?? {};
+
+      const course = await courseService.setPersonalExamSchedule(
+        actor,
+        organizationId,
+        courseId,
+        body.exam_at ?? null,
+        body.exam_scope ?? null,
+      );
+
+      return {
+        request_id: request.id,
+        course: toCoursePayload(course),
+      };
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // DELETE /v1/organizations/:organizationId/courses/:courseId/exam-schedule — Remove personal exam
+  // ---------------------------------------------------------------------------
+  app.delete(
+    "/v1/organizations/:organizationId/courses/:courseId/exam-schedule",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        courseId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const courseId = getCourseId(params);
+
+      const course = await courseService.deletePersonalExamSchedule(
+        actor,
+        organizationId,
+        courseId,
       );
 
       return {
@@ -742,8 +913,8 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
         {
           title: body.title,
           description: body.description,
-          subCourseGroupId: rawChapterId ? asSubCourseGroupId(rawChapterId as any) : null,
-          documentId: rawDocId ? asDocumentId(rawDocId as any) : null,
+          subCourseGroupId: rawChapterId ? asSubCourseGroupId(rawChapterId as unknown as UUID) : null,
+          documentId: rawDocId ? asDocumentId(rawDocId as unknown as UUID) : null,
         },
       );
 
@@ -788,7 +959,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
           title: body.title,
           description: body.description,
           subCourseGroupId: rawChapterId !== undefined
-            ? (rawChapterId ? asSubCourseGroupId(rawChapterId as any) : null)
+            ? (rawChapterId ? asSubCourseGroupId(rawChapterId as unknown as UUID) : null)
             : undefined,
           sortOrder: body.sort_order ?? body.sortOrder,
         },
@@ -852,7 +1023,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
         id: parseModuleId(it.id),
         sortOrder: it.sort_order ?? it.sortOrder ?? 0,
         subCourseGroupId: (it.chapter_id ?? it.chapterId)
-          ? asSubCourseGroupId((it.chapter_id ?? it.chapterId) as any)
+          ? asSubCourseGroupId((it.chapter_id ?? it.chapterId) as unknown as UUID)
           : null,
       }));
 
@@ -910,6 +1081,32 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
     },
   );
 
+  app.post(
+    "/v1/organizations/:organizationId/courses/:courseId/unpublish",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        courseId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const courseId = getCourseId(params);
+
+      const result = await courseService.unpublishCourse(
+        actor,
+        organizationId,
+        courseId,
+      );
+
+      return {
+        request_id: request.id,
+        course: toCoursePayload(result.course),
+        publication: result.publication,
+      };
+    },
+  );
+
   app.get(
     "/v1/organizations/:organizationId/courses/:courseId/publication-status",
     { preHandler: [requireAuth] },
@@ -942,6 +1139,9 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
           : null,
         publishedPublication: result.publishedPublication,
         isOfficial: result.isOfficial,
+        isOwner: result.isOwner,
+        canEdit: result.canEdit,
+        isEnrolled: result.isEnrolled,
       };
     },
   );

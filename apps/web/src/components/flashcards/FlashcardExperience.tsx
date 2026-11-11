@@ -50,24 +50,20 @@ interface ReviewResult {
   reactionMs: number;
 }
 
-function getIntervalHint(
-  rating: FlashcardRating,
-  card?: {
-    interval_days?: number;
-    intervalDays?: number;
-    ease_factor?: number | string;
-    easeFactor?: number | string;
-  },
-): string {
-  if (!card) return "";
+function getCardScheduleState(card?: any): { intervalDays: number; easeFactor: number } {
+  if (!card) return { intervalDays: 0, easeFactor: 2.5 };
   const prevInterval = card.interval_days ?? card.intervalDays ?? 0;
   const rawEase = card.ease_factor ?? card.easeFactor;
   const prevEase = rawEase ? Number(rawEase) : 2.5;
+  return { intervalDays: prevInterval, easeFactor: prevEase };
+}
 
-  return formatReviewIntervalHint(rating, {
-    intervalDays: prevInterval,
-    easeFactor: prevEase,
-  });
+function getIntervalHint(
+  rating: FlashcardRating,
+  card?: any,
+): string {
+  if (!card) return "";
+  return formatReviewIntervalHint(rating, getCardScheduleState(card));
 }
 
 export function FlashcardExperience({
@@ -205,11 +201,12 @@ export function FlashcardExperience({
     enabled: Boolean(organizationId && !sessionId && mode !== "normal"),
   });
 
-  // Fetch summary to get total counts
+  // Fetch summary to get total counts (cached for 5 min, disabled in active session)
   const summaryQuery = useQuery({
     queryKey: ["flashcard-summary", organizationId],
     queryFn: () => studyApi.getFlashcardSummary(organizationId),
-    enabled: !!organizationId,
+    enabled: Boolean(organizationId && !sessionId),
+    staleTime: 5 * 60 * 1000,
   });
 
   const scopedSummary = useMemo(() => {
@@ -356,12 +353,30 @@ export function FlashcardExperience({
       setCurrentIndex(targetIdx);
       setHasInitializedSession(true);
 
+      const allGraduated =
+        sessionCards &&
+        sessionCards.length > 0 &&
+        sessionCards.every((c: FlashcardResource) =>
+          initialEvaluations[c.id] &&
+          isFlashcardGraduatedInSession(initialEvaluations[c.id], getCardScheduleState(c)),
+        );
+
       if (
         session.status === "completed" ||
         (session.total_cards > 0 && session.completed_cards >= session.total_cards) ||
-        (sessionCards && targetIdx >= sessionCards.length && sessionCards.length > 0)
+        allGraduated
       ) {
         setIsCompleted(true);
+      } else if (sessionCards && targetIdx >= sessionCards.length) {
+        const ungraduated = sessionCards.filter(
+          (c: FlashcardResource) =>
+            !initialEvaluations[c.id] ||
+            !isFlashcardGraduatedInSession(initialEvaluations[c.id], getCardScheduleState(c)),
+        );
+        if (ungraduated.length > 0) {
+          setActiveQueue(ungraduated);
+          setCurrentIndex(0);
+        }
       }
     }
   }, [sessionId, sessionQuery.data, sessionCards, hasInitializedSession]);
@@ -507,31 +522,29 @@ export function FlashcardExperience({
       });
     },
     onSuccess: () => {
-      const targetCourseId = effectiveCourseIds[0] || courseId;
-      if (targetCourseId) {
+      void queryClient.invalidateQueries({
+        queryKey: ["flashcards-queue"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["flashcard-summary"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["flashcards"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["study-analytics"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["study-recommendations"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["flashcard-sessions"],
+      });
+      if (sessionId) {
         void queryClient.invalidateQueries({
-          queryKey: ["flashcards", organizationId, targetCourseId],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["flashcards-queue", organizationId, targetCourseId],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["study-analytics", organizationId, targetCourseId],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["study-recommendations", organizationId, targetCourseId],
-        });
-      } else {
-        void queryClient.invalidateQueries({
-          queryKey: ["flashcards", organizationId],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["flashcards-queue", organizationId],
+          queryKey: ["flashcard-study-session", organizationId, sessionId],
         });
       }
-      void queryClient.invalidateQueries({
-        queryKey: ["flashcard-summary", organizationId],
-      });
     },
   });
 
@@ -587,7 +600,10 @@ export function FlashcardExperience({
               [currentCard.id]: newRatings,
             }));
 
-            const isGraduated = isFlashcardGraduatedInSession(newRatings);
+            const isGraduated = isFlashcardGraduatedInSession(
+              newRatings,
+              getCardScheduleState(currentCard),
+            );
 
             let currentList = activeQueue.length > 0 ? activeQueue : dueCards;
             if (!isGraduated) {
@@ -608,7 +624,10 @@ export function FlashcardExperience({
             const updatedFinishedCount = dueCards.filter(
               (c) =>
                 updatedEvaluations[c.id] &&
-                isFlashcardGraduatedInSession(updatedEvaluations[c.id]),
+                isFlashcardGraduatedInSession(
+                  updatedEvaluations[c.id],
+                  getCardScheduleState(c),
+                ),
             ).length;
 
             if (sessionId) {
@@ -632,7 +651,19 @@ export function FlashcardExperience({
                 completeSessionMutation.mutate();
               }
               void queryClient.invalidateQueries({
-                queryKey: ["flashcards-queue", organizationId],
+                queryKey: ["flashcards-queue"],
+              });
+              void queryClient.invalidateQueries({
+                queryKey: ["flashcard-summary"],
+              });
+              void queryClient.invalidateQueries({
+                queryKey: ["study-analytics"],
+              });
+              void queryClient.invalidateQueries({
+                queryKey: ["study-recommendations"],
+              });
+              void queryClient.invalidateQueries({
+                queryKey: ["flashcard-sessions"],
               });
             }
           },
@@ -787,14 +818,22 @@ export function FlashcardExperience({
     : dueCards.length;
 
   const finishedCount = dueCards.filter(
-    (c) => cardEvaluations[c.id] && isFlashcardGraduatedInSession(cardEvaluations[c.id]),
+    (c) =>
+      cardEvaluations[c.id] &&
+      isFlashcardGraduatedInSession(
+        cardEvaluations[c.id],
+        getCardScheduleState(c),
+      ),
   ).length;
 
   const reviewCount = dueCards.filter(
     (c) =>
       cardEvaluations[c.id] &&
       cardEvaluations[c.id].length > 0 &&
-      !isFlashcardGraduatedInSession(cardEvaluations[c.id]),
+      !isFlashcardGraduatedInSession(
+        cardEvaluations[c.id],
+        getCardScheduleState(c),
+      ),
   ).length;
 
   const unseenCount = Math.max(0, totalSessionCards - finishedCount - reviewCount);

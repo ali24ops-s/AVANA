@@ -30,6 +30,9 @@ export type CoursePublicationStatus =
   | "approved"
   | "published"
   | "rejected"
+  | "unpublished"
+  | "superseded"
+  | "cancelled"
   | "archived";
 
 export const COURSE_PUBLICATION_STATUSES: readonly CoursePublicationStatus[] = [
@@ -38,6 +41,9 @@ export const COURSE_PUBLICATION_STATUSES: readonly CoursePublicationStatus[] = [
   "approved",
   "published",
   "rejected",
+  "unpublished",
+  "superseded",
+  "cancelled",
   "archived",
 ];
 
@@ -106,6 +112,7 @@ export interface CoursePublicationChapterSnapshot {
   id: string;
   title: string;
   description?: string | null;
+  documentId?: string | null;
   sortOrder: number;
   lessons: CoursePublicationLessonSnapshot[];
   flashcards?: CoursePublicationFlashcardSnapshot[];

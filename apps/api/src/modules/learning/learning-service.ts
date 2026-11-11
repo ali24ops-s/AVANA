@@ -24,6 +24,7 @@ import {
   defaultPolicy,
   DomainError,
   auditLessonCompleted,
+  type CoursePublicationRecord,
 } from "@avana/domain";
 import type { CourseStore, CoursePublicationStore } from "../courses/course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
@@ -182,6 +183,26 @@ export class LearningService {
       !!this.systemOrganizationId &&
       organizationId === this.systemOrganizationId;
 
+    // Load course publication if available to determine public publication status and isolate snapshots
+    const publishedPub = this.coursePublicationStore
+      ? await this.coursePublicationStore.findPublishedByCourse(courseId)
+      : undefined;
+
+    const latestPub = this.coursePublicationStore
+      ? await this.coursePublicationStore.findLatestByCourse(courseId)
+      : undefined;
+
+    const isEnrolled =
+      (course.status === "published" || course.status === "unpublished") &&
+      this.courseStore.isUserEnrolled
+        ? await this.courseStore.isUserEnrolled(actor.userId, courseId)
+        : false;
+
+    const isPublicPublication =
+      Boolean(publishedPub) &&
+      course.status === "published" &&
+      publishedPub?.status === "published";
+
     // 2. Build full actor with user memberships and evaluate context-aware authorization
     const memberships = await this.organizationStore.listMembershipsByUserId(
       actor.userId,
@@ -200,6 +221,9 @@ export class LearningService {
       resourceId: course.id,
       courseId: course.id,
       isSystemResource: isSystemCourse,
+      isPublicPublication,
+      isEnrolledMember: isEnrolled,
+      isPublicResource: isPublicPublication || isSystemCourse || isEnrolled,
     };
 
     if (!this.policy.can(fullActor, "learning:read", resourceContext)) {
@@ -227,17 +251,51 @@ export class LearningService {
       throw new DomainError("not_found", "Course not found");
     }
 
-    // 4. Load course content: If course has an approved published publication,
-    // isolate enrolled learners strictly to approved snapshot content.
-    const publishedPub = this.coursePublicationStore
-      ? await this.coursePublicationStore.findPublishedByCourse(courseId)
+    // Community course: if unpublished, allow access only to enrolled students, creator, or platform admin
+    const courseCreatorUserId = this.courseStore.getCourseCreatorUserId
+      ? await this.courseStore.getCourseCreatorUserId(courseId)
       : undefined;
+    const isCourseCreator = Boolean(
+      (courseCreatorUserId && actor.userId === courseCreatorUserId) ||
+      (publishedPub?.creatorUserId && actor.userId === publishedPub.creatorUserId) ||
+      (latestPub?.creatorUserId && actor.userId === latestPub.creatorUserId)
+    );
+    if (
+      course.isOfficial !== true &&
+      course.status === "unpublished" &&
+      !isEnrolled &&
+      !isCourseCreator &&
+      fullActor.globalRole !== "platform_admin" &&
+      fullActor.role !== "platform_admin"
+    ) {
+      throw new DomainError("not_found", "Course not found");
+    }
 
+    // 4. Load course content:
+    // If user is course creator or privileged admin editing the course, load live draft content.
+    // For learners / enrolled members:
+    // - Always isolate to approved snapshot content (published or historical approved snapshot after unpublish).
+    // - NEVER expose live draft or unapproved submissions to enrolled students.
+    // - If course is unpublished and no approved snapshot exists, fail securely with 404 not_found.
     let activeModules: any[];
     let activeLessons: LessonRecord[];
 
-    if (publishedPub && !isPrivilegedAdmin) {
-      const snapChapters = publishedPub.snapshot?.chapters ?? [];
+    const canEditContent = isPrivilegedAdmin || isCourseCreator;
+
+    let pubForContent: CoursePublicationRecord | undefined;
+    if (this.coursePublicationStore) {
+      if (publishedPub && publishedPub.status === "published") {
+        pubForContent = publishedPub;
+      } else if (this.coursePublicationStore.findLatestApprovedByCourse) {
+        pubForContent = await this.coursePublicationStore.findLatestApprovedByCourse(courseId);
+      }
+    }
+
+    if (pubForContent && !canEditContent) {
+      const snapChapters =
+        pubForContent.snapshot?.chapters ??
+        (pubForContent.metadata as any)?.chapters ??
+        [];
       let filteredChapters = snapChapters;
       if (options?.moduleId) {
         filteredChapters = snapChapters.filter((c) => c.id === options.moduleId);
@@ -246,17 +304,27 @@ export class LearningService {
         }
       }
 
-      activeModules = filteredChapters.map((c) => ({
-        id: c.id,
-        courseId,
-        title: c.title,
-        description: c.description ?? null,
-        sortOrder: c.sortOrder ?? 0,
-        subCourseGroupId: null,
-        deletedAt: null,
-        createdAt: publishedPub.publishedAt ?? publishedPub.createdAt,
-        updatedAt: publishedPub.updatedAt,
-      }));
+      // Load live modules to recover documentId for older snapshots without documentId
+      const liveCourseModules = await this.moduleStore.listByCourse(courseId).catch(() => []);
+      const liveModulesById = new Map(liveCourseModules.map((m) => [m.id, m]));
+      const firstDocIdFromCourse = liveCourseModules.find((m) => m.documentId)?.documentId ?? null;
+
+      activeModules = filteredChapters.map((c) => {
+        const liveMod = liveModulesById.get(c.id);
+        const resolvedDocId = c.documentId ?? liveMod?.documentId ?? (filteredChapters.length === 1 ? firstDocIdFromCourse : null);
+        return {
+          id: c.id,
+          courseId,
+          title: c.title,
+          description: c.description ?? null,
+          documentId: resolvedDocId,
+          sortOrder: c.sortOrder ?? 0,
+          subCourseGroupId: null,
+          deletedAt: null,
+          createdAt: pubForContent.publishedAt ?? pubForContent.createdAt,
+          updatedAt: pubForContent.updatedAt,
+        };
+      });
 
       activeLessons = filteredChapters.flatMap((c) =>
         (c.lessons ?? []).map((l) => ({
@@ -271,11 +339,36 @@ export class LearningService {
           publicationStatus: "published",
           reference: null,
           deletedAt: null,
-          createdAt: publishedPub.publishedAt ?? publishedPub.createdAt,
-          updatedAt: publishedPub.updatedAt,
+          createdAt: pubForContent.publishedAt ?? pubForContent.createdAt,
+          updatedAt: pubForContent.updatedAt,
         } as unknown as LessonRecord)),
       );
+    } else if (!canEditContent) {
+      // Learner accessing course without an approved publication snapshot
+      if (course.status === "unpublished" || (!course.isOfficial && !isSystemCourse)) {
+        throw new DomainError("not_found", "محتوای منتشرشده‌ای برای این دوره یافت نشد.");
+      }
+
+      // Official system courses without a publication record: load from module/lesson stores
+      const modules = await this.moduleStore.listByCourse(courseId);
+      let loadedModules = modules.filter((m) => m.deletedAt === null);
+
+      if (options?.moduleId) {
+        const targetModule = loadedModules.find((m) => m.id === options.moduleId);
+        if (!targetModule) {
+          throw new DomainError("not_found", "Module not found in this course");
+        }
+        loadedModules = [targetModule];
+      }
+      activeModules = loadedModules;
+
+      const moduleIds = activeModules.map((m) => m.id);
+      const allLessons = await this.lessonStore.listByModules(moduleIds);
+      activeLessons = allLessons.filter(
+        (l) => l.deletedAt === null && l.publicationStatus === "published",
+      );
     } else {
+      // Course creator or privileged admin editing the course: loads live draft modules and lessons
       const modules = await this.moduleStore.listByCourse(courseId);
       let loadedModules = modules.filter((m) => m.deletedAt === null);
 
@@ -293,7 +386,7 @@ export class LearningService {
       activeLessons = allLessons.filter(
         (l) =>
           l.deletedAt === null &&
-          (l.publicationStatus === "published" || isPrivilegedAdmin),
+          (l.publicationStatus === "published" || canEditContent),
       );
     }
 
@@ -506,19 +599,35 @@ export class LearningService {
       }
     }
 
+    const isOwner = Boolean(
+      (publishedPub?.creatorUserId && actor.userId === publishedPub.creatorUserId) ||
+      (latestPub?.creatorUserId && actor.userId === latestPub.creatorUserId)
+    );
+    const isPlatformAdmin =
+      fullActor.globalRole === "platform_admin" || fullActor.role === "platform_admin";
+    const canEdit = isPlatformAdmin || isOwner || (isOfficialCourse && isPrivilegedAdmin);
+
     return {
       request_id: requestId,
       course: {
         id: course.id,
         organization_id: course.organizationId,
-        title: (publishedPub && !isPrivilegedAdmin ? publishedPub.snapshot?.title : null) || course.name,
-        subject: (publishedPub && !isPrivilegedAdmin ? publishedPub.snapshot?.subject : null) ?? course.subject,
+        title: (pubForContent && !canEditContent ? pubForContent.snapshot?.title : null) || course.name,
+        subject: (pubForContent && !canEditContent ? pubForContent.snapshot?.subject : null) ?? course.subject,
         exam_at: course.examDate,
+        official_exam_at: course.officialExamDate ?? null,
         locked: isCourseLocked,
         access_reason: isCourseLocked ? "locked" : (accessResult?.reason ?? "free"),
         isOfficial: isOfficialCourse,
         is_official: isOfficialCourse,
-        version: (publishedPub && !isPrivilegedAdmin ? publishedPub.version : null) ?? course.version ?? 1,
+        status: course.status ?? "published",
+        can_edit: canEdit,
+        canEdit,
+        is_owner: isOwner,
+        isOwner,
+        is_enrolled: isEnrolled,
+        isEnrolled,
+        version: (pubForContent && !canEditContent ? pubForContent.version : null) ?? course.version ?? 1,
       } as any,
       groups: activeGroups.map((g) => ({
         id: g.id,
@@ -623,6 +732,25 @@ export class LearningService {
       !!this.systemOrganizationId &&
       organizationId === this.systemOrganizationId;
 
+    const publishedPub = this.coursePublicationStore
+      ? await this.coursePublicationStore.findPublishedByCourse(courseId)
+      : undefined;
+
+    const latestPub = this.coursePublicationStore
+      ? await this.coursePublicationStore.findLatestByCourse(courseId)
+      : undefined;
+
+    const isEnrolled =
+      (course.status === "published" || course.status === "unpublished") &&
+      this.courseStore.isUserEnrolled
+        ? await this.courseStore.isUserEnrolled(actor.userId, courseId)
+        : false;
+
+    const isPublicPublication =
+      Boolean(publishedPub) &&
+      course.status === "published" &&
+      publishedPub?.status === "published";
+
     const memberships = await this.organizationStore.listMembershipsByUserId(
       actor.userId,
     );
@@ -640,6 +768,9 @@ export class LearningService {
       resourceId: lessonId,
       courseId,
       isSystemResource: isSystemCourse,
+      isPublicPublication,
+      isEnrolledMember: isEnrolled,
+      isPublicResource: isPublicPublication || isSystemCourse || isEnrolled,
     };
 
     if (!this.policy.can(fullActor, "progress:write", resourceContext)) {
@@ -658,12 +789,16 @@ export class LearningService {
       courseMembership?.role === "content_worker";
 
     if (this.coursePublicationStore) {
-      const publishedPub = await this.coursePublicationStore.findPublishedByCourse(courseId);
-      if (publishedPub && !isPrivilegedAdmin) {
+      const pubForValidation = publishedPub ?? (isEnrolled ? latestPub : undefined);
+      if (pubForValidation && !isPrivilegedAdmin) {
+        const snapChapters =
+          pubForValidation.snapshot?.chapters ??
+          (pubForValidation.metadata as any)?.chapters ??
+          [];
         const snapLessonIds = new Set(
-          publishedPub.snapshot?.chapters?.flatMap((ch) => ch.lessons.map((l) => l.id)) ?? [],
+          snapChapters.flatMap((ch: any) => (ch.lessons ?? []).map((l: any) => l.id)),
         );
-        if (!snapLessonIds.has(lessonId)) {
+        if (snapLessonIds.size > 0 && !snapLessonIds.has(lessonId)) {
           throw new DomainError("not_found", "Lesson not found");
         }
       }
@@ -756,6 +891,15 @@ export class LearningService {
       !!this.systemOrganizationId &&
       organizationId === this.systemOrganizationId;
 
+    const publishedPub = this.coursePublicationStore
+      ? await this.coursePublicationStore.findPublishedByCourse(courseId)
+      : undefined;
+
+    const isPublicPublication =
+      Boolean(publishedPub) &&
+      course.status === "published" &&
+      publishedPub?.status === "published";
+
     const memberships = await this.organizationStore.listMembershipsByUserId(
       actor.userId,
     );
@@ -773,6 +917,8 @@ export class LearningService {
       resourceId: courseId,
       courseId,
       isSystemResource: isSystemCourse,
+      isPublicPublication,
+      isPublicResource: isPublicPublication || isSystemCourse,
     };
 
     if (!this.policy.can(fullActor, "progress:read", resourceContext)) {
@@ -791,10 +937,6 @@ export class LearningService {
       courseMembership?.role === "content_worker";
 
     // 4. Load lessons: if course has published publication and actor is learner, count strictly from snapshot
-    const publishedPub = this.coursePublicationStore
-      ? await this.coursePublicationStore.findPublishedByCourse(courseId)
-      : undefined;
-
     let activeLessons: Array<{ id: string }>;
     if (publishedPub && !isPrivilegedAdmin) {
       activeLessons =

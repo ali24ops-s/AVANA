@@ -190,6 +190,31 @@ export function CourseStructureManager({
     );
   }
 
+  const canEdit =
+    structure?.permissions?.canEdit !== undefined
+      ? structure.permissions.canEdit
+      : (course?.canEdit !== undefined ? course.canEdit : true);
+
+  if (!canEdit) {
+    return (
+      <div
+        className="p-8 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl text-center space-y-3"
+        dir="rtl"
+        data-testid="structure-read-only-notice"
+      >
+        <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-600 flex items-center justify-center mx-auto">
+          <AlertCircle className="w-6 h-6" />
+        </div>
+        <h3 className="text-base font-bold text-[var(--color-text)]">
+          دسترسی فقط خواندنی
+        </h3>
+        <p className="text-xs text-[var(--color-text-muted)] max-w-md mx-auto">
+          شما دسترسی ویرایش این دوره را ندارید. فقط سازنده اصلی دوره یا مدیر کل سیستم اجازه تغییر ساختار سرفصل‌ها، درس‌ها و ارسال درخواست انتشار را دارد.
+        </p>
+      </div>
+    );
+  }
+
   const isOfficial = Boolean(
     course?.isOfficial || (course as unknown as { is_official?: boolean })?.is_official
   );

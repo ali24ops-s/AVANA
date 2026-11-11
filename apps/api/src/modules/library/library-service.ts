@@ -1237,6 +1237,8 @@ export class LibraryService {
           description: c.description,
           subject: c.subject,
           isOfficial: c.isOfficial,
+          isUserPublished: !c.isOfficial,
+          publisherName: (c as any).publisherName ?? (c as any).publisher_name ?? null,
           totalPackages: packagesWithAccess.length,
           packages: packagesWithAccess,
           access: {

@@ -98,7 +98,7 @@ describe("Support and Feedback System E2E & Integration", () => {
         passwordHash: "password_hash_xyz",
         name: email.split("@")[0],
       });
-      if (role === Roles.platform_admin || role === Roles.content_worker) {
+      if (role === Roles.platform_admin || role === Roles.content_worker || role === Roles.support_agent) {
         user.globalRole = role;
         user.role = role;
         userStore.insert({ ...user });

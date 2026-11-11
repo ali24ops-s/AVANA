@@ -277,6 +277,8 @@ export type CourseWithChapterPackages = {
   description: string | null;
   subject: string | null;
   isOfficial: boolean;
+  isUserPublished?: boolean;
+  publisherName?: string | null;
   totalPackages: number;
   packages: ChapterPackageItem[];
   access?: import("./commerce.js").ResourceAccessSummary;

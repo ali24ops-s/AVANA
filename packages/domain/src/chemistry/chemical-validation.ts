@@ -15,6 +15,7 @@ import type {
   ChemicalSarHighlight,
   ChemicalStructure,
   ChemicalValidationResult,
+  MindMapChemicalValidationResult,
   ChemicalReaction,
   ChemicalReactionStep,
   ChemicalReactionParticipant,
@@ -28,6 +29,9 @@ import type {
   BondRef,
   MechanismArrowType,
 } from "./types.js";
+import type { MindMapChemicalStructure } from "@avana/contracts";
+import { verifyAuthoritativeCompound } from "./reference-compounds.js";
+
 
 
 
@@ -178,7 +182,7 @@ export function parseSmilesStructure(smiles: string): {
         inBracket = false;
         // Parse bracket content e.g. "NH+", "O-", "Fe+2", "13CH4", "nH", "CH2", "Cl-", "Na+"
         const bracketMatch = bracketContent.match(
-          /^(\d+)?(Cl|Br|Na|Mg|Al|Si|Ca|Fe|Zn|Cu|Ag|Au|Pt|Se|As|Li|se|as|[BCNOPSFIKcbnopsA-Z])(@+)?(H\d*)?([+-]\d*|\d*[+-])?$/,
+          /^(\d+)?(Cl|Br|Na|Mg|Al|Si|Ca|Fe|Zn|Cu|Ag|Au|Pt|Se|As|Li|se|as|[BCNOPSFIKcbnopsA-Z])(@{1,2}|@[A-Za-z]{2,}\d*|@{3,})?(H\d*)?([+-]\d*|\d*[+-])?$/,
         );
         if (!bracketMatch) {
           errors.push(`Malformed bracket atom syntax '[${bracketContent}]'`);
@@ -297,8 +301,11 @@ export interface ChemicalGraphAtom {
   isAromatic: boolean;
   charge: number;
   hydrogens: number;
+  chirality?: string;
+  unsupportedStereo?: string;
   isotope?: number;
   rawToken: string;
+  neighborOrder?: number[];
 }
 
 export interface ChemicalGraphBond {
@@ -314,6 +321,7 @@ export interface ChemicalGraph {
   bonds: ChemicalGraphBond[];
   valid: boolean;
   errors: string[];
+  unsupportedStereo?: string[];
 }
 
 /**
@@ -324,6 +332,7 @@ export function parseSmilesToGraph(smiles: string): ChemicalGraph {
   const atoms: ChemicalGraphAtom[] = [];
   const bonds: ChemicalGraphBond[] = [];
   const errors: string[] = [];
+  const unsupportedStereoList: string[] = [];
 
   if (!smiles || typeof smiles !== "string" || smiles.trim().length === 0) {
     return { smiles: "", atoms, bonds, valid: false, errors: ["Empty SMILES"] };
@@ -332,7 +341,7 @@ export function parseSmilesToGraph(smiles: string): ChemicalGraph {
   const s = smiles.trim();
   let currentAtomIndex: number | null = null;
   const branchStack: number[] = [];
-  const openRings: Map<string, { atomIndex: number; bondType: string; bondOrder: number }> = new Map();
+  const openRings: Map<string, { atomIndex: number; bondType: string; bondOrder: number; hasExplicitBond: boolean; slotIndex: number }> = new Map();
   let pendingBond: { bondType: string; bondOrder: number } | null = null;
 
   let i = 0;
@@ -398,21 +407,32 @@ export function parseSmilesToGraph(smiles: string): ChemicalGraph {
       if (currentAtomIndex !== null) {
         if (openRings.has(ringId)) {
           const prev = openRings.get(ringId)!;
-          const order = pendingBond ? pendingBond.bondOrder : prev.bondOrder;
-          const type = pendingBond ? pendingBond.bondType : prev.bondType;
+          const bothAromatic = atoms[prev.atomIndex].isAromatic && atoms[currentAtomIndex].isAromatic;
+          const defaultOrder = bothAromatic ? 1.5 : 1;
+          const defaultType = bothAromatic ? ":" : "-";
+          const order = pendingBond ? pendingBond.bondOrder : (prev.hasExplicitBond ? prev.bondOrder : defaultOrder);
+          const type = pendingBond ? pendingBond.bondType : (prev.hasExplicitBond ? prev.bondType : defaultType);
           bonds.push({
             atom1: prev.atomIndex,
             atom2: currentAtomIndex,
             order,
             type,
           });
+          if (atoms[prev.atomIndex].neighborOrder && prev.slotIndex !== undefined) {
+            atoms[prev.atomIndex].neighborOrder![prev.slotIndex] = currentAtomIndex;
+          }
+          atoms[currentAtomIndex].neighborOrder?.push(prev.atomIndex);
           openRings.delete(ringId);
           pendingBond = null;
         } else {
+          const slotIndex = atoms[currentAtomIndex].neighborOrder ? atoms[currentAtomIndex].neighborOrder!.length : 0;
+          atoms[currentAtomIndex].neighborOrder?.push(-999);
           openRings.set(ringId, {
             atomIndex: currentAtomIndex,
             bondType: pendingBond ? pendingBond.bondType : "-",
             bondOrder: pendingBond ? pendingBond.bondOrder : 1,
+            hasExplicitBond: !!pendingBond,
+            slotIndex,
           });
           pendingBond = null;
         }
@@ -431,18 +451,29 @@ export function parseSmilesToGraph(smiles: string): ChemicalGraph {
       i = closeIdx + 1;
 
       const bracketMatch = bracketContent.match(
-        /^(\d+)?(Cl|Br|Na|Mg|Al|Si|Ca|Fe|Zn|Cu|Ag|Au|Pt|Se|As|Li|se|as|[BCNOPSFIKcb단nopsA-Z])(@+)?(H\d*)?([+-]\d*|\d*[+-])?$/,
+        /^(\d+)?(Cl|Br|Na|Mg|Al|Si|Ca|Fe|Zn|Cu|Ag|Au|Pt|Se|As|Li|se|as|[BCNOPSFIKcbnopsA-Z])(@{1,2}|@[A-Za-z]{2,}\d*|@{3,})?(H\d*)?([+-]\d*|\d*[+-])?$/,
       );
 
       let element = "C";
       let charge = 0;
       let hydrogens = 0;
       let isAromatic = false;
+      let chirality: string | undefined;
+      let unsupportedStereo: string | undefined;
       let isotope: number | undefined;
 
       if (bracketMatch) {
         if (bracketMatch[1]) isotope = parseInt(bracketMatch[1], 10);
         const rawEl = bracketMatch[2];
+        if (bracketMatch[3]) {
+          const st = bracketMatch[3];
+          if (st === "@" || st === "@@") {
+            chirality = st;
+          } else {
+            unsupportedStereo = st;
+            unsupportedStereoList.push(st);
+          }
+        }
         isAromatic = /^[bcnops]$/.test(rawEl);
         element =
           rawEl.length === 1
@@ -464,17 +495,32 @@ export function parseSmilesToGraph(smiles: string): ChemicalGraph {
         }
       } else {
         element = bracketContent;
+        if (bracketContent.includes("@")) {
+          unsupportedStereoList.push(bracketContent);
+        }
       }
 
       const newAtomIndex = atoms.length;
+      const neighborOrder: number[] = [];
+      if (currentAtomIndex !== null) {
+        neighborOrder.push(currentAtomIndex);
+        atoms[currentAtomIndex].neighborOrder?.push(newAtomIndex);
+      }
+      if (hydrogens > 0) {
+        neighborOrder.push(-1); // implicit hydrogen sentinel for tetrahedral stereocenter
+      }
+
       atoms.push({
         index: newAtomIndex,
         element,
         isAromatic,
         charge,
         hydrogens,
+        chirality,
+        unsupportedStereo,
         isotope,
         rawToken: `[${bracketContent}]`,
+        neighborOrder,
       });
 
       if (currentAtomIndex !== null) {
@@ -496,6 +542,11 @@ export function parseSmilesToGraph(smiles: string): ChemicalGraph {
     // Two-letter organic subset outside brackets: Cl, Br
     if (char === "C" && s[i + 1] === "l") {
       const newAtomIndex = atoms.length;
+      const neighborOrder: number[] = [];
+      if (currentAtomIndex !== null) {
+        neighborOrder.push(currentAtomIndex);
+        atoms[currentAtomIndex].neighborOrder?.push(newAtomIndex);
+      }
       atoms.push({
         index: newAtomIndex,
         element: "Cl",
@@ -503,6 +554,7 @@ export function parseSmilesToGraph(smiles: string): ChemicalGraph {
         charge: 0,
         hydrogens: 0,
         rawToken: "Cl",
+        neighborOrder,
       });
       if (currentAtomIndex !== null) {
         const order = pendingBond ? pendingBond.bondOrder : 1;
@@ -516,6 +568,11 @@ export function parseSmilesToGraph(smiles: string): ChemicalGraph {
 
     if (char === "B" && s[i + 1] === "r") {
       const newAtomIndex = atoms.length;
+      const neighborOrder: number[] = [];
+      if (currentAtomIndex !== null) {
+        neighborOrder.push(currentAtomIndex);
+        atoms[currentAtomIndex].neighborOrder?.push(newAtomIndex);
+      }
       atoms.push({
         index: newAtomIndex,
         element: "Br",
@@ -523,6 +580,7 @@ export function parseSmilesToGraph(smiles: string): ChemicalGraph {
         charge: 0,
         hydrogens: 0,
         rawToken: "Br",
+        neighborOrder,
       });
       if (currentAtomIndex !== null) {
         const order = pendingBond ? pendingBond.bondOrder : 1;
@@ -539,6 +597,11 @@ export function parseSmilesToGraph(smiles: string): ChemicalGraph {
       const isAromatic = /^[bcnops]$/.test(char);
       const element = char.toUpperCase();
       const newAtomIndex = atoms.length;
+      const neighborOrder: number[] = [];
+      if (currentAtomIndex !== null) {
+        neighborOrder.push(currentAtomIndex);
+        atoms[currentAtomIndex].neighborOrder?.push(newAtomIndex);
+      }
       atoms.push({
         index: newAtomIndex,
         element,
@@ -546,6 +609,7 @@ export function parseSmilesToGraph(smiles: string): ChemicalGraph {
         charge: 0,
         hydrogens: 0,
         rawToken: char,
+        neighborOrder,
       });
 
       if (currentAtomIndex !== null) {
@@ -575,6 +639,274 @@ export function parseSmilesToGraph(smiles: string): ChemicalGraph {
     bonds,
     valid: errors.length === 0,
     errors,
+    ...(unsupportedStereoList.length > 0 ? { unsupportedStereo: unsupportedStereoList } : {}),
+  };
+}
+
+/**
+ * Validates atomic valence constraints across the parsed molecular graph.
+ * Detects chemically impossible valences (e.g. pentavalent carbon, hypervalent neutral oxygen, etc.).
+ */
+export function validateMolecularGraphValence(graph: ChemicalGraph): {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+} {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (!graph || !graph.valid || !Array.isArray(graph.atoms) || !Array.isArray(graph.bonds)) {
+    return { valid: false, errors: graph?.errors || ["Invalid molecular graph"], warnings: [] };
+  }
+
+  // Calculate sum of bond orders connected to each atom
+  const atomBondSums: number[] = new Array(graph.atoms.length).fill(0);
+  for (const bond of graph.bonds) {
+    if (bond.atom1 >= 0 && bond.atom1 < atomBondSums.length) {
+      atomBondSums[bond.atom1] += bond.order;
+    }
+    if (bond.atom2 >= 0 && bond.atom2 < atomBondSums.length) {
+      atomBondSums[bond.atom2] += bond.order;
+    }
+  }
+
+  for (let i = 0; i < graph.atoms.length; i++) {
+    const atom = graph.atoms[i];
+    const bondedOrder = atomBondSums[i];
+    const el = atom.element;
+    const charge = atom.charge || 0;
+
+    // 1. Carbon (C): Standard valence is 4. Cannot exceed 4 bonds.
+    if (el === "C") {
+      if (bondedOrder > 4.0) {
+        errors.push(
+          `نقض ظرفیت شیمیایی: پیوندهای متصل به اتم کربن در موقعیت ${i} (${bondedOrder}) بیش از حداکثر ظرفیت مجاز ۴ (کربن پنج‌ظرفیتی غیرممکن) است.`,
+        );
+      }
+    }
+
+    // 2. Oxygen (O): Neutral max is 2; positive ion [O+] max is 3.
+    else if (el === "O") {
+      if (charge === 0 && bondedOrder > 2.0) {
+        errors.push(
+          `نقض ظرفیت شیمیایی: پیوندهای متصل به اتم اکسیژن خنثی در موقعیت ${i} (${bondedOrder}) بیش از ظرفیت مجاز ۲ است.`,
+        );
+      } else if (charge > 0 && bondedOrder > 3.0) {
+        errors.push(
+          `نقض ظرفیت شیمیایی: پیوندهای متصل به اتم اکسیژن باردار در موقعیت ${i} (${bondedOrder}) بیش از حد مجاز ۳ است.`,
+        );
+      }
+    }
+
+    // 3. Nitrogen (N): Neutral standard is 3 (max 4 with resonance/nitro); quaternary [N+] max is 4.
+    else if (el === "N") {
+      if (charge === 0 && bondedOrder > 4.0) {
+        errors.push(
+          `نقض ظرفیت شیمیایی: پیوندهای متصل به نیتروژن خنثی در موقعیت ${i} (${bondedOrder}) بیش از حد مجاز ۴ است.`,
+        );
+      } else if (charge > 0 && bondedOrder > 4.0) {
+        errors.push(
+          `نقض ظرفیت شیمیایی: پیوندهای متصل به نیتروژن کاتیونی در موقعیت ${i} (${bondedOrder}) بیش از حد مجاز ۴ است.`,
+        );
+      }
+    }
+
+    // 4. Hydrogen (H): Strictly 1 bond.
+    else if (el === "H") {
+      if (bondedOrder > 1.0) {
+        errors.push(
+          `نقض ظرفیت شیمیایی: پیوندهای متصل به هیدروژن در موقعیت ${i} (${bondedOrder}) بیش از ظرفیت مجاز ۱ است.`,
+        );
+      }
+    }
+
+    // 5. Halogens (F, Cl, Br, I): Outside hypervalent brackets, neutral halogens have max valence 1.
+    else if ((el === "F" || el === "Cl" || el === "Br" || el === "I") && charge === 0 && !atom.rawToken.includes("[")) {
+      if (bondedOrder > 1.0) {
+        errors.push(
+          `نقض ظرفیت شیمیایی: پیوندهای متصل به هالوژن ${el} در موقعیت ${i} (${bondedOrder}) بیش از ظرفیت مجاز ۱ است.`,
+        );
+      }
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+/**
+ * Comprehensive 4-level validation for Mind Map chemical structures:
+ * 1. Syntax Validity: SMILES grammar, bracket matching, ring closure evenness, character validity.
+ * 2. Molecular Graph & Valence Validity: Topological graph connectivity, atomic valence limits (no pentavalent carbon).
+ * 3. Molecular Formula Consistency: Heavy atom counts between formula and SMILES.
+ * 4. Authoritative Identity Verification: Verification against reference database (PubChem/DrugBank benchmarks).
+ *
+ * Guaranteed: Invalid structures will have valid === false and will NOT be marked as verified.
+ */
+export function validateMindMapChemicalStructure(
+  structure: MindMapChemicalStructure,
+): MindMapChemicalValidationResult {
+  if (!structure || typeof structure !== "object") {
+    return {
+      valid: false,
+      needsReview: true,
+      confidence: "low",
+      syntaxValid: false,
+      graphValid: false,
+      formulaConsistent: false,
+      identityVerified: false,
+      errors: ["ساختار شیمیایی ارائه نشده یا نامعتبر است."],
+      warnings: [],
+    };
+  }
+
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  const compoundName = typeof structure.compoundName === "string" ? structure.compoundName.trim() : "";
+  const rawSmiles = typeof structure.smiles === "string" ? structure.smiles.trim() : "";
+
+  if (!compoundName) {
+    warnings.push("نام ترکیب شیمیایی مشخص نشده است.");
+  }
+
+  if (!rawSmiles) {
+    return {
+      valid: false,
+      needsReview: true,
+      confidence: "low",
+      syntaxValid: false,
+      graphValid: false,
+      formulaConsistent: false,
+      identityVerified: false,
+      errors: ["رشته SMILES ساختار شیمیایی خالی است."],
+      warnings,
+    };
+  }
+
+  // 1. SMILES Syntax check
+  const structAnalysis = parseSmilesStructure(rawSmiles);
+  const syntaxValid = structAnalysis.valid;
+  if (!syntaxValid) {
+    errors.push(...structAnalysis.errors);
+  }
+
+  // 2. Molecular Graph & Valence check
+  let graphValid = false;
+  if (syntaxValid) {
+    const graph = parseSmilesToGraph(rawSmiles);
+    if (!graph.valid) {
+      errors.push(...graph.errors);
+    } else {
+      const valenceCheck = validateMolecularGraphValence(graph);
+      if (!valenceCheck.valid) {
+        errors.push(...valenceCheck.errors);
+      } else {
+        graphValid = true;
+      }
+      warnings.push(...valenceCheck.warnings);
+    }
+  }
+
+  // 3. Formula consistency check
+  let formulaConsistent = true;
+  let extractedFormula: string | undefined;
+  let estimatedMolecularWeight: number | undefined;
+
+  if (structure.formula && structure.formula.trim().length > 0) {
+    const parsedFormula = parseMolecularFormula(structure.formula);
+    if (!parsedFormula) {
+      formulaConsistent = false;
+      warnings.push(`فرمول شیمیایی «${structure.formula}» دارای نگارش نامعتبر است.`);
+    } else {
+      extractedFormula = structure.formula.trim();
+      estimatedMolecularWeight = parsedFormula.molecularWeight;
+
+      if (syntaxValid) {
+        for (const [el, formulaCount] of Object.entries(parsedFormula.counts)) {
+          if (el === "H") continue; // Implicit hydrogens in SMILES can vary by protonation
+          const smilesCount = structAnalysis.atomCounts[el] || 0;
+          if (smilesCount !== formulaCount) {
+            formulaConsistent = false;
+            errors.push(
+              `عدم تطابق تعداد اتم‌های ${el}: در فرمول مولکولی ${formulaCount} اتم ولی در ساختار SMILES تعداد ${smilesCount} اتم مشخص شده است.`,
+            );
+          }
+        }
+        for (const [el, smilesCount] of Object.entries(structAnalysis.atomCounts)) {
+          if (el === "H") continue;
+          const formulaCount = parsedFormula.counts[el] || 0;
+          if (formulaCount === 0 && smilesCount > 0) {
+            formulaConsistent = false;
+            errors.push(
+              `عنصر ${el} در ساختار SMILES (${smilesCount}) حضور دارد اما در فرمول مولکولی ذکر نشده است.`,
+            );
+          }
+        }
+      }
+    }
+  } else {
+    // Formula omitted: not an error, but formula consistency is unverified
+    formulaConsistent = true;
+  }
+
+  // Cross-check molecular weight if specified
+  if (
+    typeof structure.molecularWeight === "number" &&
+    !isNaN(structure.molecularWeight) &&
+    structure.molecularWeight > 0 &&
+    estimatedMolecularWeight !== undefined
+  ) {
+    const diff = Math.abs(structure.molecularWeight - estimatedMolecularWeight);
+    if (diff > 3.0) {
+      warnings.push(
+        `وزن مولکولی اعلام‌شده (${structure.molecularWeight}) با وزن حاصل از فرمول (~${estimatedMolecularWeight}) اختلاف دارد.`,
+      );
+    }
+  }
+
+  // 4. Authoritative Identity Verification
+  let identityVerified = false;
+  if (compoundName && syntaxValid && graphValid) {
+    const idCheck = verifyAuthoritativeCompound(compoundName, rawSmiles);
+    if (idCheck.matched) {
+      if (idCheck.verified) {
+        identityVerified = true;
+      } else if (idCheck.error) {
+        errors.push(idCheck.error);
+      }
+      if (idCheck.warning) {
+        warnings.push(idCheck.warning);
+      }
+    } else if (idCheck.warning) {
+      warnings.push(idCheck.warning);
+    }
+  }
+
+  const valid = syntaxValid && graphValid && formulaConsistent && errors.length === 0;
+  const confidence: ChemicalConfidence = !valid
+    ? "low"
+    : identityVerified
+      ? "high"
+      : "medium";
+
+  const needsReview = !valid || !identityVerified || warnings.length > 0;
+
+  return {
+    valid,
+    needsReview,
+    confidence,
+    syntaxValid,
+    graphValid,
+    formulaConsistent,
+    identityVerified,
+    errors,
+    warnings,
+    extractedFormula,
+    estimatedMolecularWeight,
   };
 }
 

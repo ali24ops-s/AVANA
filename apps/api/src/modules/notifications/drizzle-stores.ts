@@ -230,6 +230,42 @@ export class DrizzleNotificationStore implements NotificationStore {
 
     return rows[0] ? toRecord(rows[0]) : null;
   }
+
+  async updateMetadataByIdempotencyKey(
+    idempotencyKey: string,
+    metadata: Record<string, unknown>,
+  ): Promise<NotificationRecord | null> {
+    const now = new Date();
+    const rows = await this.db
+      .update(notifications)
+      .set({
+        metadata,
+        updatedAt: now,
+      })
+      .where(eq(notifications.idempotencyKey, idempotencyKey))
+      .returning();
+
+    return rows[0] ? toRecord(rows[0]) : null;
+  }
+
+  async findPendingSupportEmailNotifications(
+    limit = 50,
+  ): Promise<NotificationRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.type, "support_ticket_replied"),
+          sql`(${notifications.metadata}->'channels'->'email'->>'status') = 'pending'`,
+          gte(notifications.createdAt, sql`NOW() - INTERVAL '24 hours'`),
+        ),
+      )
+      .orderBy(desc(notifications.createdAt))
+      .limit(limit);
+
+    return rows.map(toRecord);
+  }
 }
 
 export class InMemoryNotificationStore implements NotificationStore {
@@ -387,5 +423,36 @@ export class InMemoryNotificationStore implements NotificationStore {
       );
 
     return matching[0] ?? null;
+  }
+
+  async updateMetadataByIdempotencyKey(
+    idempotencyKey: string,
+    metadata: Record<string, unknown>,
+  ): Promise<NotificationRecord | null> {
+    const record = await this.findByIdempotencyKey(idempotencyKey);
+    if (!record) return null;
+    const updated: NotificationRecord = {
+      ...record,
+      metadata: { ...(record.metadata ?? {}), ...metadata },
+      updatedAt: new Date().toISOString(),
+    };
+    this.records.set(record.id, updated);
+    return updated;
+  }
+
+  async findPendingSupportEmailNotifications(
+    limit = 50,
+  ): Promise<NotificationRecord[]> {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    return Array.from(this.records.values())
+      .filter((r) => {
+        if (r.type !== "support_ticket_replied") return false;
+        if (new Date(r.createdAt).getTime() < cutoff) return false;
+        const channels = (r.metadata as Record<string, unknown> | null)?.channels as
+          | Record<string, { status?: string }>
+          | undefined;
+        return channels?.email?.status === "pending";
+      })
+      .slice(0, limit);
   }
 }

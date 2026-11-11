@@ -381,19 +381,26 @@ describe("Exam Days Remaining (Timezone-Safe Date Arithmetic)", () => {
     expect(calculateExamDaysRemaining("invalid-date", ref)).toBeNull();
   });
 
-  it("handles exact timestamp expiry during the same day in Asia/Tehran", () => {
-    // 2026-09-18T10:00:00Z in UTC = 13:30:00 in Asia/Tehran (+3:30)
+  it("keeps exams on the same day valid until end of day in Asia/Tehran regardless of previous timestamps", () => {
+    // 2026-09-18T10:30:00Z in UTC = 14:00:00 in Asia/Tehran (+3:30)
     const refTehran1400 = new Date("2026-09-18T10:30:00Z"); // 14:00 Tehran
-    const pastTimeExam = "2026-09-18T09:30:00Z"; // 13:00 Tehran (has passed)
-    const futureTimeExam = "2026-09-18T11:30:00Z"; // 15:00 Tehran (upcoming)
+    const legacyTimeExamEarlierToday = "2026-09-18T09:30:00Z"; // 13:00 Tehran (same day)
+    const legacyTimeExamLaterToday = "2026-09-18T11:30:00Z"; // 15:00 Tehran (same day)
+    const legacyTimeExamYesterday = "2026-09-17T09:30:00Z"; // Yesterday
 
-    expect(calculateExamDaysRemaining(pastTimeExam, refTehran1400)).toBe(-1);
-    expect(isExamUpcoming(pastTimeExam, refTehran1400)).toBe(false);
-    expect(isExamPast(pastTimeExam, refTehran1400)).toBe(true);
+    // Both legacy exams on the same day remain active/upcoming throughout the day
+    expect(calculateExamDaysRemaining(legacyTimeExamEarlierToday, refTehran1400)).toBe(0);
+    expect(isExamUpcoming(legacyTimeExamEarlierToday, refTehran1400)).toBe(true);
+    expect(isExamPast(legacyTimeExamEarlierToday, refTehran1400)).toBe(false);
 
-    expect(calculateExamDaysRemaining(futureTimeExam, refTehran1400)).toBe(0);
-    expect(isExamUpcoming(futureTimeExam, refTehran1400)).toBe(true);
-    expect(isExamPast(futureTimeExam, refTehran1400)).toBe(false);
+    expect(calculateExamDaysRemaining(legacyTimeExamLaterToday, refTehran1400)).toBe(0);
+    expect(isExamUpcoming(legacyTimeExamLaterToday, refTehran1400)).toBe(true);
+    expect(isExamPast(legacyTimeExamLaterToday, refTehran1400)).toBe(false);
+
+    // Exam on yesterday is correctly detected as past
+    expect(calculateExamDaysRemaining(legacyTimeExamYesterday, refTehran1400)).toBe(-1);
+    expect(isExamUpcoming(legacyTimeExamYesterday, refTehran1400)).toBe(false);
+    expect(isExamPast(legacyTimeExamYesterday, refTehran1400)).toBe(true);
   });
 
   it("keeps date-only exams valid until end of day in Asia/Tehran", () => {

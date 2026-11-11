@@ -127,10 +127,23 @@ describe("AuthenticatedShell", () => {
     await waitFor(() => {
       expect(screen.getByText("دوره‌ها")).toBeInTheDocument();
       expect(screen.getByText("خانه")).toBeInTheDocument();
+      expect(screen.getByText("کلاس‌های من")).toBeInTheDocument();
       expect(screen.getByText("فلش‌کارت‌ها")).toBeInTheDocument();
       expect(screen.getByText("آزمون‌ها")).toBeInTheDocument();
       expect(screen.getByText("کتابخانه")).toBeInTheDocument();
     });
+
+    // Verify desktop header navigation links appear in exact expected order (RTL: right to left)
+    const mainNav = screen.getByRole("navigation", { name: "منوی اصلی" });
+    const navLinks = within(mainNav).getAllByRole("link");
+    expect(navLinks.map((l) => l.textContent?.trim())).toEqual([
+      "خانه",
+      "دوره‌ها",
+      "کلاس‌های من",
+      "کتابخانه",
+      "آزمون‌ها",
+      "فلش‌کارت‌ها",
+    ]);
 
     // Files link must NOT be rendered when feature is disabled
     expect(screen.queryByText("فایل‌ها")).not.toBeInTheDocument();
@@ -563,13 +576,23 @@ describe("AuthenticatedShell", () => {
 
     const drawerNav = screen.getByRole("navigation", { name: "منوی ناوبری موبایل" });
 
-    // Verify general navigation items ARE rendered in the mobile drawer
-    expect(within(drawerNav).getByText("صفحه اصلی")).toBeInTheDocument();
+    // Verify general navigation items ARE rendered in the mobile drawer in exact expected order
+    expect(within(drawerNav).getByText("خانه")).toBeInTheDocument();
     expect(within(drawerNav).getByText("دوره‌ها")).toBeInTheDocument();
-    expect(within(drawerNav).getByText("فلش‌کارت‌ها")).toBeInTheDocument();
     expect(within(drawerNav).getByText("کلاس‌های من")).toBeInTheDocument();
-    expect(within(drawerNav).getByText("آزمون‌ها")).toBeInTheDocument();
     expect(within(drawerNav).getByText("کتابخانه")).toBeInTheDocument();
+    expect(within(drawerNav).getByText("آزمون‌ها")).toBeInTheDocument();
+    expect(within(drawerNav).getByText("فلش‌کارت‌ها")).toBeInTheDocument();
+
+    const drawerLinks = within(drawerNav).getAllByRole("link");
+    expect(drawerLinks.map((l) => l.textContent?.trim())).toEqual([
+      "خانه",
+      "دوره‌ها",
+      "کلاس‌های من",
+      "کتابخانه",
+      "آزمون‌ها",
+      "فلش‌کارت‌ها",
+    ]);
 
     // Verify personal account options are NOT rendered in the mobile drawer
     expect(within(drawerNav).queryByText(/اشتراک/i)).not.toBeInTheDocument();

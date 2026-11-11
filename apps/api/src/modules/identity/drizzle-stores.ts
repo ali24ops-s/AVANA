@@ -9,7 +9,7 @@
  * on read to match the domain shape expected by in-memory stores.
  */
 
-import { eq, and, desc, sql, isNull, gt, ne } from "drizzle-orm";
+import { eq, and, desc, sql, isNull, gt, ne, inArray } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   users,
@@ -40,6 +40,8 @@ import type {
 } from "./password-reset-store.js";
 import {
   resolveEffectiveRole,
+  DomainError,
+  getPhoneLookupVariants,
   type Role,
   type UserId,
   type VerifiedIdentity,
@@ -654,7 +656,9 @@ export class DrizzleUserStore implements UserStore {
   }
 
   async findByPhoneNumber(phoneNumber: string): Promise<UserRecord | undefined> {
-    const norm = phoneNumber.trim();
+    const variants = getPhoneLookupVariants(phoneNumber);
+    if (variants.length === 0) return undefined;
+
     const rows = await this.db
       .select({
         user: users,
@@ -665,15 +669,65 @@ export class DrizzleUserStore implements UserStore {
         organizationMemberships,
         eq(organizationMemberships.userId, users.id),
       )
-      .where(eq(users.phoneNumber, norm));
+      .where(inArray(users.phoneNumber, variants));
 
     if (rows.length === 0) return undefined;
+
+    // Security requirement: If multiple distinct accounts match different variants of a number,
+    // detect the conflict securely instead of randomly picking the first match.
+    const distinctUserIds = Array.from(new Set(rows.map((r) => r.user.id)));
+    if (distinctUserIds.length > 1) {
+      throw new DomainError(
+        "conflict",
+        "تعارض در حساب‌های کاربری با این شماره موبایل شناسایی شد. لطفاً با نشانی ایمیل و رمز عبور وارد شوید.",
+      );
+    }
+
     const userRow = rows[0].user;
     const roles = rows
       .map((r) => r.role)
       .filter((r): r is Role => r != null);
     const effectiveRole = resolveEffectiveRole(userRow.globalRole, roles);
     return toUserRecord(userRow, effectiveRole);
+  }
+
+  async findWithPasswordByPhoneNumber(
+    phoneNumber: string,
+  ): Promise<(UserRecord & { passwordHash?: string | null }) | undefined> {
+    const variants = getPhoneLookupVariants(phoneNumber);
+    if (variants.length === 0) return undefined;
+
+    const rows = await this.db
+      .select({
+        user: users,
+        role: organizationMemberships.role,
+      })
+      .from(users)
+      .leftJoin(
+        organizationMemberships,
+        eq(organizationMemberships.userId, users.id),
+      )
+      .where(inArray(users.phoneNumber, variants));
+
+    if (rows.length === 0) return undefined;
+
+    const distinctUserIds = Array.from(new Set(rows.map((r) => r.user.id)));
+    if (distinctUserIds.length > 1) {
+      throw new DomainError(
+        "conflict",
+        "تعارض در حساب‌های کاربری با این شماره موبایل شناسایی شد. لطفاً با نشانی ایمیل و رمز عبور وارد شوید.",
+      );
+    }
+
+    const userRow = rows[0].user;
+    const roles = rows
+      .map((r) => r.role)
+      .filter((r): r is Role => r != null);
+    const effectiveRole = resolveEffectiveRole(userRow.globalRole, roles);
+    return {
+      ...toUserRecord(userRow, effectiveRole),
+      passwordHash: userRow.passwordHash ?? null,
+    };
   }
 
   async findWithPasswordByEmail(
@@ -846,6 +900,8 @@ export class DrizzleUserStore implements UserStore {
       university?: string | null;
       faculty?: string | null;
       department?: string | null;
+      phoneNumber?: string | null;
+      email?: string;
     },
   ): Promise<void> {
     const updateData: Record<string, unknown> = {
@@ -866,6 +922,14 @@ export class DrizzleUserStore implements UserStore {
     if (fields.department !== undefined) {
       updateData.department = fields.department ? fields.department.trim() : null;
     }
+    if (fields.phoneNumber !== undefined) {
+      updateData.phoneNumber = fields.phoneNumber ? fields.phoneNumber.trim() : null;
+      updateData.phoneVerifiedAt = null;
+    }
+    if (fields.email !== undefined) {
+      updateData.email = fields.email.trim().toLowerCase();
+      updateData.emailVerifiedAt = null;
+    }
 
     await this.db
       .update(users)
@@ -879,6 +943,17 @@ export class DrizzleUserStore implements UserStore {
       .set({
         phoneNumber,
         phoneVerifiedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+  }
+
+  async updateEmail(userId: UserId, email: string): Promise<void> {
+    await this.db
+      .update(users)
+      .set({
+        email: email.trim().toLowerCase(),
+        emailVerifiedAt: null,
         updatedAt: new Date(),
       })
       .where(eq(users.id, userId));

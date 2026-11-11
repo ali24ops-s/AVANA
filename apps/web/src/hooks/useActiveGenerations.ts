@@ -36,7 +36,8 @@ export function useActiveGenerations(overrideOrgId?: string) {
             item.status === "stopping" ||
             item.status === "deleting") &&
           item.stage !== "review" &&
-          item.stage !== "publishing",
+          item.stage !== "publishing" &&
+          item.stage !== "analysis",
       );
       return hasActive ? 3000 : 8000;
     },
@@ -48,15 +49,17 @@ export function useActiveGenerations(overrideOrgId?: string) {
       item.status !== "reviewing" &&
       item.status !== "completed" &&
       item.stage !== "review" &&
-      item.stage !== "publishing",
+      item.stage !== "publishing" &&
+      item.stage !== "analysis",
   );
   const activeItems = items.filter(
     (item) =>
-      item.status === "queued" ||
-      item.status === "planning" ||
-      item.status === "generating" ||
-      item.status === "stopping" ||
-      item.status === "deleting",
+      (item.status === "queued" ||
+        item.status === "planning" ||
+        item.status === "generating" ||
+        item.status === "stopping" ||
+        item.status === "deleting") &&
+      item.stage !== "analysis",
   );
   const completedItems = items.filter((item) => item.status === "completed");
   const failedItems = items.filter((item) => item.status === "failed");

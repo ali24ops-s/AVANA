@@ -38,7 +38,7 @@ export function StudyAssistantModal({
     <Dialog
       isOpen={isOpen}
       onClose={onClose}
-      hideHeader
+      isCompound={true}
       className="p-0 border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_8px_40px_rgba(0,0,0,0.16)] max-w-[480px] h-[90vh] sm:h-[640px] max-h-[calc(100vh-2.5rem)] rounded-dialog overflow-hidden flex flex-col"
       containerClassName="z-[9999]"
       ariaLabel="دستیار هوشمند آوانا"

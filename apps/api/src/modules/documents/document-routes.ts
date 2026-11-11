@@ -43,7 +43,7 @@ import type {
   ModuleStore,
   LessonStore,
 } from "../learning/learning-store.js";
-import type { CourseStore } from "../courses/course-store.js";
+import type { CourseStore, CoursePublicationStore } from "../courses/course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { GeneratedContentStore } from "../generation/generation-store.js";
 import type { GenerationJobStore } from "../generation/generation-jobs-store.js";
@@ -74,6 +74,8 @@ export interface DocumentRouteOptions {
   auditService?: AuditService;
   entitlementService?: EntitlementService;
   systemOrganizationId?: OrganizationId;
+  sourcePackStore?: import("../source-packs/source-pack-store.js").SourcePackStore;
+  coursePublicationStore?: CoursePublicationStore;
 }
 
 const UUID_RE =
@@ -102,6 +104,8 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
     auditService,
     entitlementService,
     systemOrganizationId,
+    sourcePackStore,
+    coursePublicationStore,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
@@ -121,6 +125,8 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
     lessonStore,
     entitlementService,
     systemOrganizationId,
+    sourcePackStore,
+    coursePublicationStore,
   );
   const processingService = new DocumentProcessingService(
     documentStore,
@@ -572,9 +578,10 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
       const { data, mimeType, originalName } =
         await documentService.downloadDocument(actor, organizationId, documentId);
 
-      const disposition = query.inline === "1"
-        ? `inline; filename="${originalName}"`
-        : `attachment; filename="${originalName}"`;
+      const safeFilename = originalName.replace(/[^\x20-\x7E]/g, "_");
+      const encodedFilename = encodeURIComponent(originalName);
+      const dispositionType = query.inline === "1" ? "inline" : "attachment";
+      const disposition = `${dispositionType}; filename="${safeFilename}"; filename*=UTF-8''${encodedFilename}`;
 
       reply
         .header("Content-Type", mimeType)

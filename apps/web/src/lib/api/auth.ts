@@ -50,15 +50,17 @@ export function createAuthApi(client: ApiClient) {
       university?: string | null;
       faculty?: string | null;
       department?: string | null;
+      phoneNumber?: string | null;
+      email?: string;
     }): Promise<MeResponse> {
       return client.patch<MeResponse>("/v1/auth/profile", params);
     },
 
     /**
-     * POST /v1/auth/sign-in — Authenticate and create session via Email + Password.
+     * POST /v1/auth/sign-in — Authenticate and create session via Email or Phone + Password.
      */
-    signIn(email: string, password: string): Promise<SignInResponse> {
-      const body: SignInRequest = { email, password };
+    signIn(identifier: string, password: string): Promise<SignInResponse> {
+      const body: SignInRequest = { identifier, email: identifier, password };
       return client.post<SignInResponse>("/v1/auth/sign-in", body);
     },
 

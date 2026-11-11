@@ -127,6 +127,43 @@ export class InMemoryFlashcardStore implements FlashcardStore {
       .map((f) => ({ ...f }));
   }
 
+  async findManyByIds(ids: FlashcardId[]): Promise<FlashcardRecord[]> {
+    const idSet = new Set(ids);
+    return Array.from(this.flashcards.values())
+      .filter((f) => idSet.has(f.id) && f.deletedAt === null)
+      .map((f) => ({ ...f }));
+  }
+
+  async getCardCountsByCourseLesson(
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
+  ): Promise<Array<{ courseId: string; lessonId: string | null; documentId: string | null; totalCards: number }>> {
+    const counts = new Map<string, { courseId: string; lessonId: string | null; documentId: string | null; totalCards: number }>();
+    for (const f of this.flashcards.values()) {
+      if (f.deletedAt !== null) continue;
+      if (
+        organizationId &&
+        f.organizationId !== organizationId &&
+        (!systemOrganizationId || f.organizationId !== systemOrganizationId)
+      ) {
+        continue;
+      }
+      const key = `${f.courseId}-${f.lessonId ?? ""}-${f.documentId ?? ""}`;
+      const existing = counts.get(key);
+      if (existing) {
+        existing.totalCards += 1;
+      } else {
+        counts.set(key, {
+          courseId: f.courseId,
+          lessonId: f.lessonId ?? null,
+          documentId: f.documentId ?? null,
+          totalCards: 1,
+        });
+      }
+    }
+    return Array.from(counts.values());
+  }
+
   async create(record: FlashcardRecord): Promise<FlashcardRecord> {
     this.flashcards.set(record.id, { ...record });
     return { ...record };
@@ -306,6 +343,16 @@ export class InMemoryUserFlashcardScheduleStore
     return { ...fullRecord };
   }
 
+  async getByUserAndCardIds(
+    userId: UserId,
+    flashcardIds: FlashcardId[],
+  ): Promise<UserFlashcardScheduleRecord[]> {
+    const idSet = new Set(flashcardIds);
+    return Array.from(this.schedules.values())
+      .filter((s) => s.userId === userId && idSet.has(s.flashcardId))
+      .map((s) => ({ ...s }));
+  }
+
   clear(): void {
     this.schedules.clear();
   }
@@ -374,6 +421,44 @@ export class InMemoryQuizStore implements QuizStore {
           q.deletedAt === null,
       )
       .map((q) => ({ ...q }));
+  }
+
+  private questionStore?: { getRawQuestions: () => QuizQuestionRecord[] };
+
+  setQuestionStore(store: { getRawQuestions: () => QuizQuestionRecord[] }): void {
+    this.questionStore = store;
+  }
+
+  async listByCourseWithQuestionCount(
+    courseId: CourseId,
+    organizationId?: OrganizationId,
+    options?: { limit?: number; offset?: number; status?: string },
+  ): Promise<{ items: Array<QuizRecord & { questionCount: number }>; total: number }> {
+    const statusFilter = options?.status ?? "published";
+    const all = Array.from(this.quizzes.values())
+      .filter(
+        (q) =>
+          q.courseId === courseId &&
+          (organizationId === undefined || q.organizationId === organizationId) &&
+          q.status === statusFilter &&
+          q.deletedAt === null,
+      )
+      .map((q) => {
+        let questionCount = this.questionsByQuiz.get(q.id)?.filter((qn) => !qn.deletedAt).length ?? 0;
+        if (questionCount === 0 && this.questionStore) {
+          questionCount = this.questionStore.getRawQuestions().filter((qn) => qn.quizId === q.id && !qn.deletedAt).length;
+        }
+        return {
+          ...q,
+          questionCount,
+        };
+      });
+
+    const total = all.length;
+    const limit = options?.limit ?? 15;
+    const offset = options?.offset ?? 0;
+    const items = all.slice(offset, offset + limit);
+    return { items, total };
   }
 
   async listByOrganization(
@@ -464,6 +549,10 @@ export class InMemoryQuizQuestionStore implements QuizQuestionStore {
     this.questions = snapshot.map((q) => ({ ...q }));
   }
 
+  getRawQuestions(): QuizQuestionRecord[] {
+    return this.questions;
+  }
+
   async listByQuiz(quizId: QuizId): Promise<QuizQuestionRecord[]> {
     return this.questions
       .filter((q) => q.quizId === quizId)
@@ -537,6 +626,56 @@ export class InMemoryQuizQuestionStore implements QuizQuestionStore {
       result.push({ topic, difficulty, questionCount: count });
     }
     return result;
+  }
+
+  async countByCourseAndDifficulty(
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
+  ): Promise<Array<{
+    quizId: string;
+    courseId: string;
+    documentId: string | null;
+    lessonId: string | null;
+    topic: string | null;
+    difficulty: string | null;
+    questionCount: number;
+  }>> {
+    const groups = new Map<string, {
+      quizId: string;
+      courseId: string;
+      documentId: string | null;
+      lessonId: string | null;
+      topic: string | null;
+      difficulty: string | null;
+      questionCount: number;
+    }>();
+
+    for (const q of this.questions) {
+      if (q.deletedAt) continue;
+      const quiz = this.quizStore?.getAll().find((qz) => qz.id === q.quizId);
+      if (!quiz || quiz.deletedAt) continue;
+      if (organizationId) {
+        if (quiz.organizationId !== organizationId && (!systemOrganizationId || quiz.organizationId !== systemOrganizationId)) {
+          continue;
+        }
+      }
+      const key = `${q.quizId}-${quiz.courseId}-${quiz.documentId ?? ""}-${q.lessonId ?? ""}-${q.topic ?? ""}-${q.difficulty ?? ""}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.questionCount += 1;
+      } else {
+        groups.set(key, {
+          quizId: q.quizId,
+          courseId: quiz.courseId,
+          documentId: quiz.documentId ?? null,
+          lessonId: q.lessonId ?? null,
+          topic: q.topic ?? null,
+          difficulty: q.difficulty ?? "medium",
+          questionCount: 1,
+        });
+      }
+    }
+    return Array.from(groups.values());
   }
 
   async createMany(

@@ -16,6 +16,7 @@ import {
 } from "@avana/domain";
 import type { CourseStore } from "../courses/course-store.js";
 import type { DocumentStore, DocumentRecord } from "../learning/learning-store.js";
+import { assertDocumentAssociatedWithCourse } from "../documents/document-course-association.js";
 import type { GenerationService } from "../generation/generation-service.js";
 import type { GenerationQueue, GenerationContext } from "../generation/generation-queue.js";
 import type { WalletService } from "../wallet/wallet-service.js";
@@ -68,26 +69,44 @@ export class SourcePackService {
       if (course.organizationId !== organizationId) {
         throw new DomainError("forbidden", "Access denied to this course");
       }
+      if (this.deps.courseStore.findByIdForUser) {
+        const userCourse = await this.deps.courseStore.findByIdForUser(
+          courseId,
+          actor.userId,
+          sysOrgId,
+        );
+        if (!userCourse) {
+          throw new DomainError("forbidden", "Access denied to this course");
+        }
+      }
     }
   }
 
   private async validateDocumentsInCourse(
     documents: Array<{ documentId: DocumentId }>,
-    courseId: CourseId,
+    _courseId: CourseId,
     organizationId: OrganizationId,
   ): Promise<DocumentRecord[]> {
     const verified: DocumentRecord[] = [];
+    const seenDocumentIds = new Set<string>();
+
     for (const d of documents) {
+      if (seenDocumentIds.has(d.documentId)) {
+        throw new DomainError(
+          "bad_request",
+          `Duplicate document detected in source pack: ${d.documentId}`,
+        );
+      }
+      seenDocumentIds.add(d.documentId);
+
       const doc = await this.deps.documentStore.findByIdForOrganization(
         d.documentId,
         organizationId,
       );
-      if (!doc) {
+      if (!doc || doc.deletedAt) {
         throw new DomainError("not_found", `Document ${d.documentId} not found`);
       }
-      if (doc.courseId && doc.courseId !== courseId) {
-        throw new DomainError("bad_request", `Document ${d.documentId} does not belong to this course`);
-      }
+
       verified.push(doc);
     }
     return verified;
@@ -250,16 +269,15 @@ export class SourcePackService {
     // Load actual document records and verify extraction/readiness
     const loadedDocs: DocumentRecord[] = [];
     for (const s of orderedSources) {
-      const doc = await this.deps.documentStore.findByIdForOrganization(
+      const doc = await assertDocumentAssociatedWithCourse(
+        {
+          documentStore: this.deps.documentStore,
+          sourcePackStore: this.deps.store,
+        },
         s.documentId,
+        courseId,
         organizationId,
       );
-      if (!doc) {
-        throw new DomainError("not_found", `سند ${s.documentId} یافت نشد.`);
-      }
-      if (doc.courseId && doc.courseId !== courseId) {
-        throw new DomainError("bad_request", `سند ${s.documentId} به این درس تعلق ندارد.`);
-      }
       const allowedStatuses = ["extracted", "review_pending", "ready"];
       if (!allowedStatuses.includes(doc.status)) {
         throw new DomainError(

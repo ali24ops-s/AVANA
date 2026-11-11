@@ -5,7 +5,7 @@
  * on read to match the domain shape.
  */
 
-import { and, asc, count, desc, eq, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, isNotNull, lte, or, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   flashcards,
@@ -392,6 +392,46 @@ export class DrizzleFlashcardStore implements FlashcardStore {
     return rows.map(toFlashcardRecord);
   }
 
+  async findManyByIds(ids: FlashcardId[]): Promise<FlashcardRecord[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(flashcards)
+      .where(and(inArray(flashcards.id, ids), isNull(flashcards.deletedAt)));
+    return rows.map(toFlashcardRecord);
+  }
+
+  async getCardCountsByCourseLesson(
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
+  ): Promise<Array<{ courseId: string; lessonId: string | null; documentId: string | null; totalCards: number }>> {
+    const orgFilter =
+      systemOrganizationId && systemOrganizationId !== organizationId
+        ? or(
+            eq(flashcards.organizationId, organizationId!),
+            eq(flashcards.organizationId, systemOrganizationId),
+          )
+        : organizationId
+        ? eq(flashcards.organizationId, organizationId)
+        : undefined;
+
+    const conditions = [isNull(flashcards.deletedAt)];
+    if (orgFilter) conditions.push(orgFilter);
+
+    const rows = await this.db
+      .select({
+        courseId: flashcards.courseId,
+        lessonId: flashcards.lessonId,
+        documentId: flashcards.documentId,
+        totalCards: sql<number>`count(*)::int`,
+      })
+      .from(flashcards)
+      .where(and(...conditions))
+      .groupBy(flashcards.courseId, flashcards.lessonId, flashcards.documentId);
+
+    return rows;
+  }
+
   async create(record: FlashcardRecord): Promise<FlashcardRecord> {
     const [row] = await this.db
       .insert(flashcards)
@@ -647,6 +687,86 @@ export class DrizzleUserFlashcardScheduleStore
 
     return toUserFlashcardScheduleRecord(rows[0]);
   }
+
+  async getByUserAndCardIds(
+    userId: UserId,
+    flashcardIds: FlashcardId[],
+  ): Promise<UserFlashcardScheduleRecord[]> {
+    if (flashcardIds.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(userFlashcardSchedules)
+      .where(
+        and(
+          eq(userFlashcardSchedules.userId, userId),
+          inArray(userFlashcardSchedules.flashcardId, flashcardIds),
+        ),
+      );
+    return rows.map(toUserFlashcardScheduleRecord);
+  }
+
+  async getDueCardsWithFlashcards(
+    userId: UserId,
+    options?: { courseIds?: string[]; documentIds?: string[]; limit?: number },
+  ): Promise<Array<{ flashcard: FlashcardRecord; schedule: UserFlashcardScheduleRecord }>> {
+    const conditions = [
+      eq(userFlashcardSchedules.userId, userId),
+      lte(userFlashcardSchedules.dueAt, new Date()),
+      gt(userFlashcardSchedules.reviewCount, 0),
+      isNull(flashcards.deletedAt),
+    ];
+    if (options?.courseIds && options.courseIds.length > 0) {
+      conditions.push(inArray(flashcards.courseId, options.courseIds));
+    }
+    if (options?.documentIds && options.documentIds.length > 0) {
+      conditions.push(inArray(flashcards.documentId, options.documentIds));
+    }
+
+    const rows = await this.db
+      .select({
+        flashcard: flashcards,
+        schedule: userFlashcardSchedules,
+      })
+      .from(userFlashcardSchedules)
+      .innerJoin(flashcards, eq(userFlashcardSchedules.flashcardId, flashcards.id))
+      .where(and(...conditions))
+      .orderBy(asc(userFlashcardSchedules.dueAt))
+      .limit(options?.limit ?? 20);
+
+    return rows.map((r) => ({
+      flashcard: toFlashcardRecord(r.flashcard),
+      schedule: toUserFlashcardScheduleRecord(r.schedule),
+    }));
+  }
+
+  async getUserScheduleAggregates(
+    userId: UserId,
+  ): Promise<Array<{
+    courseId: string;
+    lessonId: string | null;
+    documentId: string | null;
+    dueCards: number;
+    overdueCards: number;
+    learningCards: number;
+    reviewedCards: number;
+  }>> {
+    const rows = await this.db
+      .select({
+        courseId: flashcards.courseId,
+        lessonId: flashcards.lessonId,
+        documentId: flashcards.documentId,
+        dueCards: sql<number>`count(case when ${userFlashcardSchedules.reviewCount} > 0 and ${userFlashcardSchedules.dueAt} <= now() then 1 end)::int`,
+        overdueCards: sql<number>`count(case when ${userFlashcardSchedules.reviewCount} > 0 and ${userFlashcardSchedules.intervalDays} >= 1 and ${userFlashcardSchedules.dueAt} <= now() - interval '24 hours' then 1 end)::int`,
+        learningCards: sql<number>`count(case when ${userFlashcardSchedules.reviewCount} > 0 and ${userFlashcardSchedules.intervalDays} = 0 then 1 end)::int`,
+        reviewedCards: sql<number>`count(case when ${userFlashcardSchedules.reviewCount} > 0 then 1 end)::int`,
+      })
+      .from(userFlashcardSchedules)
+      .innerJoin(flashcards, eq(userFlashcardSchedules.flashcardId, flashcards.id))
+      .where(and(eq(userFlashcardSchedules.userId, userId), isNull(flashcards.deletedAt)))
+      .groupBy(flashcards.courseId, flashcards.lessonId, flashcards.documentId);
+
+    return rows;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -721,6 +841,57 @@ export class DrizzleQuizStore implements QuizStore {
       .orderBy(asc(quizzes.createdAt));
 
     return rows.map(toQuizRecord);
+  }
+
+  async listByCourseWithQuestionCount(
+    courseId: CourseId,
+    organizationId?: OrganizationId,
+    options?: { limit?: number; offset?: number; status?: string },
+  ): Promise<{ items: Array<QuizRecord & { questionCount: number }>; total: number }> {
+    const statusFilter = options?.status ?? "published";
+    const conditions = [
+      eq(quizzes.courseId, courseId),
+      isNull(quizzes.deletedAt),
+      eq(quizzes.status, statusFilter),
+    ];
+    if (organizationId) {
+      conditions.push(eq(quizzes.organizationId, organizationId));
+    }
+
+    const [countRow] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(quizzes)
+      .where(and(...conditions));
+    const total = countRow?.count ?? 0;
+
+    const limit = options?.limit ?? 15;
+    const offset = options?.offset ?? 0;
+
+    const rows = await this.db
+      .select({
+        quiz: quizzes,
+        questionCount: sql<number>`count(${quizQuestions.id})::int`,
+      })
+      .from(quizzes)
+      .leftJoin(
+        quizQuestions,
+        and(
+          eq(quizzes.id, quizQuestions.quizId),
+          isNull(quizQuestions.deletedAt),
+        ),
+      )
+      .where(and(...conditions))
+      .groupBy(quizzes.id)
+      .orderBy(asc(quizzes.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const items = rows.map((r) => ({
+      ...toQuizRecord(r.quiz),
+      questionCount: r.questionCount,
+    }));
+
+    return { items, total };
   }
 
   async listByOrganization(
@@ -970,6 +1141,59 @@ export class DrizzleQuizQuestionStore implements QuizQuestionStore {
       result.push({ topic, difficulty, questionCount: count });
     }
     return result;
+  }
+
+  async countByCourseAndDifficulty(
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
+  ): Promise<Array<{
+    quizId: string;
+    courseId: string;
+    documentId: string | null;
+    lessonId: string | null;
+    topic: string | null;
+    difficulty: string | null;
+    questionCount: number;
+  }>> {
+    const orgFilter =
+      systemOrganizationId && systemOrganizationId !== organizationId
+        ? or(
+            eq(quizzes.organizationId, organizationId!),
+            eq(quizzes.organizationId, systemOrganizationId),
+          )
+        : organizationId
+        ? eq(quizzes.organizationId, organizationId)
+        : undefined;
+
+    const conditions = [
+      isNull(quizzes.deletedAt),
+      isNull(quizQuestions.deletedAt),
+    ];
+    if (orgFilter) conditions.push(orgFilter);
+
+    const rows = await this.db
+      .select({
+        quizId: quizQuestions.quizId,
+        courseId: quizzes.courseId,
+        documentId: quizzes.documentId,
+        lessonId: quizQuestions.lessonId,
+        topic: quizQuestions.topic,
+        difficulty: quizQuestions.difficulty,
+        questionCount: sql<number>`count(*)::int`,
+      })
+      .from(quizQuestions)
+      .innerJoin(quizzes, eq(quizQuestions.quizId, quizzes.id))
+      .where(and(...conditions))
+      .groupBy(
+        quizQuestions.quizId,
+        quizzes.courseId,
+        quizzes.documentId,
+        quizQuestions.lessonId,
+        quizQuestions.topic,
+        quizQuestions.difficulty,
+      );
+
+    return rows;
   }
 
   async delete(id: QuizQuestionId): Promise<void> {

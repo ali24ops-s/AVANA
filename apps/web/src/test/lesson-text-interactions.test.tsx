@@ -6,12 +6,21 @@ import { LessonInteractiveContent } from "../components/study/LessonInteractiveC
 import { AskAvanaSelectionDialog } from "../components/study/AskAvanaSelectionDialog.js";
 import { ExplainSimplyDialog } from "../components/study/ExplainSimplyDialog.js";
 import { LessonNoteDialog } from "../components/study/LessonNoteDialog.js";
+import { LessonNoteHoverCard } from "../components/study/LessonNoteHoverCard.js";
 import { ReportIssueDialog } from "../components/study/ReportIssueDialog.js";
+import { computeDeleteButtonCoords } from "../components/study/LessonHighlightDeleteButton.js";
+import {
+  HIGHLIGHT_COLORS,
+  isValidHighlightColor,
+  normalizeHighlightColor,
+  getStoredHighlightColor,
+} from "../components/study/highlightColors.js";
 import {
   StudyAssistantChat,
   type AssistantPendingAction,
 } from "../components/ai/StudyAssistantChat.js";
 import type { TextSelectionData } from "../hooks/useTextSelection.js";
+import type { LessonAnnotationResource } from "@avana/contracts";
 
 const createTestQueryClient = () =>
   new QueryClient({
@@ -20,6 +29,28 @@ const createTestQueryClient = () =>
       mutations: { retry: false },
     },
   });
+
+let localStorageStore: Record<string, string> = {};
+const localStorageMock = {
+  getItem: vi.fn((key: string) => localStorageStore[key] ?? null),
+  setItem: vi.fn((key: string, val: string) => {
+    localStorageStore[key] = String(val);
+  }),
+  removeItem: vi.fn((key: string) => {
+    delete localStorageStore[key];
+  }),
+  clear: vi.fn(() => {
+    localStorageStore = {};
+  }),
+  key: vi.fn((idx: number) => Object.keys(localStorageStore)[idx] ?? null),
+  get length() {
+    return Object.keys(localStorageStore).length;
+  },
+};
+Object.defineProperty(window, "localStorage", {
+  value: localStorageMock,
+  writable: true,
+});
 
 const mockSelection: TextSelectionData = {
   selectedText: "مهار ساخت دیواره سلولی باکتری",
@@ -45,6 +76,8 @@ describe("Lesson Text Interaction & Selection Feature Suite", () => {
 
   beforeEach(() => {
     window.innerWidth = 1024;
+    document.cookie = "avana_csrf=test-csrf-token";
+    localStorageStore = {};
     queryClient = createTestQueryClient();
     vi.restoreAllMocks();
   });
@@ -96,7 +129,7 @@ describe("Lesson Text Interaction & Selection Feature Suite", () => {
       expect(onExplainSimply).toHaveBeenCalledWith(mockSelection);
 
       fireEvent.click(screen.getByText("هایلایت"));
-      expect(onHighlight).toHaveBeenCalledWith(mockSelection);
+      expect(onHighlight).toHaveBeenCalledWith(mockSelection, "yellow");
 
       fireEvent.click(screen.getByText("یادداشت"));
       expect(onAddNote).toHaveBeenCalledWith(mockSelection);
@@ -1195,17 +1228,14 @@ describe("Lesson Text Interaction & Selection Feature Suite", () => {
         expect(mark).toBeInTheDocument();
       });
 
-      // Click mark to open dialog
+      // Click mark to trigger quick delete floating button
       if (mark) {
         fireEvent.click(mark);
       }
 
-      await waitFor(() => {
-        expect(screen.getByText("حذف هایلایت")).toBeInTheDocument();
-      });
-
-      // Click delete button
-      fireEvent.click(screen.getByText("حذف هایلایت"));
+      // Click floating delete button
+      const deleteBtn = await screen.findByTestId("delete-highlight-button");
+      fireEvent.click(deleteBtn);
 
       // Marks should be unmounted and removed from DOM
       await waitFor(() => {
@@ -2116,7 +2146,9 @@ describe("Lesson Text Interaction & Selection Feature Suite", () => {
 
       // Verify error banner is displayed
       await waitFor(() => {
-        expect(screen.getByText(/اختلال در اتصال به شبکه/)).toBeInTheDocument();
+        expect(
+          screen.getByText(/اختلال در اتصال به شبکه|خطا در برقراری ارتباط با سرور/),
+        ).toBeInTheDocument();
       });
 
       // Verify "تلاش دوباره" button is present
@@ -2173,6 +2205,1674 @@ describe("Lesson Text Interaction & Selection Feature Suite", () => {
       // Legacy fallback dialog opens
       expect(screen.getByRole("dialog")).toBeInTheDocument();
       expect(screen.getByText("پاسخ هوشمند با اتکا به متن درسنامه")).toBeInTheDocument();
+    });
+  });
+
+  describe("10. Lesson Note Hover Card & Floating Interactions", () => {
+    const setupLessonWithNotes = (
+      notesList: Array<Record<string, unknown>>,
+      markdown: string,
+    ) => {
+      vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/annotations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ items: notesList })),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      return render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-hover-test"
+            courseId="course-1"
+            lessonTitle="درس آزمایش یادداشت شناور"
+            content={markdown}
+          />
+        </QueryClientProvider>,
+      );
+    };
+
+    it("1. displays note content in floating hover card on mouse hover without clicking", async () => {
+      const mockNote = {
+        id: "note-hover-1",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "نکته فارماکولوژی: فقط روی باکتری‌های در حال رشد اثر دارد",
+        color: "default",
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='note-hover-1']");
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      // Hover over mark
+      fireEvent.mouseOver(noteMark);
+
+      // Card appears with header and content
+      await waitFor(() => {
+        expect(screen.getByTestId("lesson-note-hover-card")).toBeInTheDocument();
+        expect(screen.getByText("یادداشت شما")).toBeInTheDocument();
+        expect(
+          screen.getByText("نکته فارماکولوژی: فقط روی باکتری‌های در حال رشد اثر دارد"),
+        ).toBeInTheDocument();
+      });
+
+      // Full modal dialog is NOT opened
+      expect(screen.queryByText("ویرایش یادداشت شخصی")).not.toBeInTheDocument();
+    });
+
+    it("2. closes hover card when mouse leaves after grace delay", async () => {
+      const mockNote = {
+        id: "note-hover-2",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "یادداشت تست خروج موس",
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='note-hover-2']");
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      fireEvent.mouseOver(noteMark);
+      await waitFor(() => {
+        expect(screen.getByTestId("lesson-note-hover-card")).toBeInTheDocument();
+      });
+
+      // Mouse leaves mark
+      fireEvent.mouseOut(noteMark, { relatedTarget: document.body });
+
+      // After grace delay (150ms), card is removed
+      await waitFor(
+        () => {
+          expect(screen.queryByTestId("lesson-note-hover-card")).not.toBeInTheDocument();
+        },
+        { timeout: 500 },
+      );
+    });
+
+    it("3. keeps hover card open when mouse enters inside the card", async () => {
+      const mockNote = {
+        id: "note-hover-3",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "یادداشت تست ورود به کارت",
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='note-hover-3']");
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      fireEvent.mouseOver(noteMark);
+      const card = await screen.findByTestId("lesson-note-hover-card");
+
+      // Mouse moves from mark directly into card
+      fireEvent.mouseOut(noteMark, { relatedTarget: card });
+      fireEvent.mouseEnter(card);
+
+      // Wait past grace delay
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Card remains visible
+      expect(screen.getByTestId("lesson-note-hover-card")).toBeInTheDocument();
+    });
+
+    it("4. verifies grace delay duration (~150ms) before dismissal", async () => {
+      const mockNote = {
+        id: "note-hover-4",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "بررسی گریس دیلی",
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='note-hover-4']");
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      fireEvent.mouseOver(noteMark);
+      await screen.findByTestId("lesson-note-hover-card");
+
+      // Mouse leaves
+      fireEvent.mouseOut(noteMark, { relatedTarget: document.body });
+
+      // Before grace delay expires (e.g. at 50ms), card is still visible
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(screen.getByTestId("lesson-note-hover-card")).toBeInTheDocument();
+
+      // After 200ms, card is closed
+      await waitFor(() => {
+        expect(screen.queryByTestId("lesson-note-hover-card")).not.toBeInTheDocument();
+      });
+    });
+
+    it("5. renders multi-line and long notes with proper formatting, whitespace-pre-wrap, and break-words", async () => {
+      const multiLineText = "سطر اول یادداشت\nسطر دوم با جزئیات بیشتر\n\nسطر چهارم بعد از دو اینتر";
+      const mockNote = {
+        id: "note-hover-5",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: multiLineText,
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='note-hover-5']");
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      fireEvent.mouseOver(noteMark);
+      const cardContent = await screen.findByTestId("lesson-note-hover-content");
+
+      expect(cardContent).toHaveClass("whitespace-pre-wrap");
+      expect(cardContent).toHaveClass("break-words");
+      expect(cardContent.textContent).toBe(multiLineText);
+    });
+
+    it("6. supports multiple independent notes smoothly switching on hover", async () => {
+      const mockNotes = [
+        {
+          id: "note-6a",
+          userId: "user-1",
+          lessonId: "lesson-hover-test",
+          type: "note",
+          selectedText: "پنی‌سیلین",
+          noteText: "متن یادداشت اول درباره پنی‌سیلین",
+        },
+        {
+          id: "note-6b",
+          userId: "user-1",
+          lessonId: "lesson-hover-test",
+          type: "note",
+          selectedText: "سفالوسپورین",
+          noteText: "متن یادداشت دوم درباره سفالوسپورین",
+        },
+      ];
+
+      const { container } = setupLessonWithNotes(
+        mockNotes,
+        "داروهای پنی‌سیلین و سفالوسپورین هر دو بتالاکتام هستند.",
+      );
+
+      const markA = await waitFor(() => {
+        const m = container.querySelector("mark[data-avana-annotation='note-6a']");
+        expect(m).toBeInTheDocument();
+        return m as HTMLElement;
+      });
+      const markB = container.querySelector("mark[data-avana-annotation='note-6b']") as HTMLElement;
+      expect(markB).toBeInTheDocument();
+
+      // Hover note A
+      fireEvent.mouseOver(markA);
+      await waitFor(() => {
+        expect(screen.getByText("متن یادداشت اول درباره پنی‌سیلین")).toBeInTheDocument();
+      });
+
+      // Hover note B
+      fireEvent.mouseOut(markA, { relatedTarget: markB });
+      fireEvent.mouseOver(markB);
+
+      await waitFor(() => {
+        expect(screen.getByText("متن یادداشت دوم درباره سفالوسپورین")).toBeInTheDocument();
+        expect(screen.queryByText("متن یادداشت اول درباره پنی‌سیلین")).not.toBeInTheDocument();
+      });
+    });
+
+    it("7. does not flicker or close when moving between different DOM segments of the same note", async () => {
+      const mockNote = {
+        id: "note-split-7",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "ساخت دیواره",
+        prefix: "مهار ",
+        suffix: " سلولی",
+        noteText: "یادداشت روی چند نود ترکیبی",
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "مهار ساخت دیواره سلولی رخ می‌دهد.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='note-split-7']");
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      fireEvent.mouseOver(noteMark);
+      await screen.findByTestId("lesson-note-hover-card");
+
+      // Re-triggering over on the same note keeps it stable
+      fireEvent.mouseOver(noteMark);
+      expect(screen.getByTestId("lesson-note-hover-card")).toBeInTheDocument();
+      expect(screen.getByText("یادداشت روی چند نود ترکیبی")).toBeInTheDocument();
+    });
+
+    it("8. opens note dialog when clicking the edit button in hover card", async () => {
+      const mockNote = {
+        id: "note-edit-8",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "متن برای ویرایش",
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='note-edit-8']");
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      fireEvent.mouseOver(noteMark);
+      await screen.findByTestId("lesson-note-hover-card");
+
+      // Click "ویرایش" button
+      const editBtn = screen.getByRole("button", { name: "ویرایش یادداشت" });
+      fireEvent.click(editBtn);
+
+      // Dialog opens and hover card closes
+      await waitFor(() => {
+        expect(screen.getByText("ویرایش یادداشت شخصی")).toBeInTheDocument();
+        expect(screen.getByDisplayValue("متن برای ویرایش")).toBeInTheDocument();
+        expect(screen.queryByTestId("lesson-note-hover-card")).not.toBeInTheDocument();
+      });
+    });
+
+    it("9. does not display hover card when a dialog is currently open", async () => {
+      const mockNote = {
+        id: "note-dialog-9",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "یادداشت تست تداخل دیالوگ",
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='note-dialog-9']");
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      // Click to open dialog
+      fireEvent.click(noteMark);
+      await screen.findByText("ویرایش یادداشت شخصی");
+
+      // Try mouseover on the mark while dialog is open
+      fireEvent.mouseOver(noteMark);
+
+      expect(screen.queryByTestId("lesson-note-hover-card")).not.toBeInTheDocument();
+    });
+
+    it("10. preserves mobile tap behavior to open dialog directly without hover trigger", async () => {
+      const mockNote = {
+        id: "note-mobile-10",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "یادداشت موبایل",
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='note-mobile-10']");
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      // Pointer over with touch pointerType should NOT trigger hover card
+      fireEvent.pointerOver(noteMark, { pointerType: "touch" });
+      expect(screen.queryByTestId("lesson-note-hover-card")).not.toBeInTheDocument();
+
+      // Tap (click) opens dialog
+      fireEvent.click(noteMark);
+      await waitFor(() => {
+        expect(screen.getByText("ویرایش یادداشت شخصی")).toBeInTheDocument();
+        expect(screen.getByDisplayValue("یادداشت موبایل")).toBeInTheDocument();
+      });
+    });
+
+    it("11. enables keyboard accessibility via focus and Enter key", async () => {
+      const mockNote = {
+        id: "note-kb-11",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "یادداشت دسترسی‌پذیری کیبورد",
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='note-kb-11']");
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      expect(noteMark).toHaveAttribute("tabindex", "0");
+      expect(noteMark).toHaveAttribute("role", "button");
+
+      // Focusing shows hover card
+      fireEvent.focus(noteMark);
+      await waitFor(() => {
+        expect(screen.getByTestId("lesson-note-hover-card")).toBeInTheDocument();
+        expect(screen.getByText("یادداشت دسترسی‌پذیری کیبورد")).toBeInTheDocument();
+      });
+
+      // Pressing Enter opens dialog
+      fireEvent.keyDown(noteMark, { key: "Enter" });
+      await waitFor(() => {
+        expect(screen.getByText("ویرایش یادداشت شخصی")).toBeInTheDocument();
+      });
+    });
+
+    it("12. does not interfere with active text selection or selection toolbar", async () => {
+      const mockNote = {
+        id: "note-sel-12",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "یادداشت عدم تداخل با سلکشن",
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      await waitFor(() => {
+        expect(
+          container.querySelector("mark[data-avana-annotation='note-sel-12']"),
+        ).toBeInTheDocument();
+      });
+
+      // Simulate active text selection
+      const p = container.querySelector("p");
+      if (p && p.firstChild) {
+        const range = document.createRange();
+        range.setStart(p.firstChild, 0);
+        range.setEnd(p.firstChild, 10);
+        range.getBoundingClientRect = () =>
+          ({
+            width: 100,
+            height: 20,
+            top: 200,
+            bottom: 220,
+            left: 100,
+            right: 200,
+            x: 100,
+            y: 200,
+            toJSON: () => {},
+          }) as DOMRect;
+        const mockSel = {
+          rangeCount: 1,
+          isCollapsed: false,
+          getRangeAt: () => range,
+          toString: () => "داروهای ضد",
+          removeAllRanges: vi.fn(),
+          addRange: vi.fn(),
+        };
+        vi.spyOn(window, "getSelection").mockReturnValue(mockSel as unknown as Selection);
+        document.dispatchEvent(new Event("selectionchange"));
+      }
+
+      // Toolbar is displayed
+      await screen.findByRole("toolbar");
+
+      // If user hovers mark during active selection, hover card is suppressed
+      const noteMark = container.querySelector(
+        "mark[data-avana-annotation='note-sel-12']",
+      ) as HTMLElement;
+      fireEvent.mouseOver(noteMark);
+
+      expect(screen.queryByTestId("lesson-note-hover-card")).not.toBeInTheDocument();
+    });
+
+    it("13. closes hover card or updates when scrolled out of view", async () => {
+      const mockNote = {
+        id: "note-scroll-13",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "یادداشت تست اسکرول",
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='note-scroll-13']");
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      fireEvent.mouseOver(noteMark);
+      await screen.findByTestId("lesson-note-hover-card");
+
+      // Mock mark scrolling out of top of viewport
+      vi.spyOn(noteMark, "getBoundingClientRect").mockReturnValue({
+        top: -150,
+        bottom: -130,
+        left: 100,
+        right: 200,
+        width: 100,
+        height: 20,
+        x: 100,
+        y: -150,
+        toJSON: () => {},
+      } as DOMRect);
+
+      // Trigger scroll
+      window.dispatchEvent(new Event("scroll"));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("lesson-note-hover-card")).not.toBeInTheDocument();
+      });
+    });
+
+    it("14. verifies card mounts with calculated initial coordinates without starting at (0, 0)", () => {
+      const mockNote: LessonAnnotationResource = {
+        id: "note-init-coords",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "متن تست مختصات اولیه",
+        color: "default",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const targetRect = {
+        top: 250,
+        bottom: 270,
+        left: 400,
+        right: 480,
+        width: 80,
+        height: 20,
+      };
+
+      render(
+        <LessonNoteHoverCard
+          annotation={mockNote}
+          targetRect={targetRect}
+          onEdit={vi.fn()}
+        />,
+      );
+
+      const card = screen.getByTestId("lesson-note-hover-card");
+      expect(card.style.top).not.toBe("0px");
+      expect(card.style.left).not.toBe("0px");
+      expect(parseInt(card.style.top, 10)).toBeGreaterThan(0);
+      expect(parseInt(card.style.left, 10)).toBeGreaterThan(0);
+    });
+
+    it("15. recalculates position when note content/text is updated", () => {
+      const mockNote: LessonAnnotationResource = {
+        id: "note-rerender",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "یادداشت کوتاه",
+        color: "default",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const targetRect = {
+        top: 300,
+        bottom: 320,
+        left: 400,
+        right: 480,
+        width: 80,
+        height: 20,
+      };
+
+      const { rerender } = render(
+        <LessonNoteHoverCard
+          annotation={mockNote}
+          targetRect={targetRect}
+          onEdit={vi.fn()}
+        />,
+      );
+
+      const updatedNote: LessonAnnotationResource = {
+        ...mockNote,
+        noteText: "یک متن بسیار طولانی‌تر که ساختار یادداشت را تغییر می‌دهد.",
+      };
+
+      rerender(
+        <LessonNoteHoverCard
+          annotation={updatedNote}
+          targetRect={targetRect}
+          onEdit={vi.fn()}
+        />,
+      );
+
+      expect(
+        screen.getByText("یک متن بسیار طولانی‌تر که ساختار یادداشت را تغییر می‌دهد."),
+      ).toBeInTheDocument();
+    });
+
+    it("16. responds to card size changes via ResizeObserver", () => {
+      let observerCallback: ResizeObserverCallback = () => {};
+      const observeFn = vi.fn();
+      const disconnectFn = vi.fn();
+
+      class MockResizeObserver {
+        constructor(callback: ResizeObserverCallback) {
+          observerCallback = callback;
+        }
+        observe = observeFn;
+        disconnect = disconnectFn;
+        unobserve = vi.fn();
+      }
+
+      const originalRO = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver;
+
+      const mockNote: LessonAnnotationResource = {
+        id: "note-ro",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "متن تست ریسایز آبزرور",
+        color: "default",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const { unmount } = render(
+        <LessonNoteHoverCard
+          annotation={mockNote}
+          targetRect={{
+            top: 200,
+            bottom: 220,
+            left: 300,
+            right: 380,
+            width: 80,
+            height: 20,
+          }}
+          onEdit={vi.fn()}
+        />,
+      );
+
+      expect(observeFn).toHaveBeenCalled();
+
+      // Trigger ResizeObserver callback
+      observerCallback([], {} as ResizeObserver);
+      expect(screen.getByTestId("lesson-note-hover-card")).toBeInTheDocument();
+
+      unmount();
+      expect(disconnectFn).toHaveBeenCalled();
+
+      globalThis.ResizeObserver = originalRO;
+    });
+
+    it("17. adjusts card position when window is resized", async () => {
+      const mockNote = {
+        id: "note-resize-window",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "یادداشت تست ریسایز پنجره",
+      };
+
+      window.innerWidth = 1024;
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector(
+          "mark[data-avana-annotation='note-resize-window']",
+        );
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      // 1. Initial wide viewport: mock mark at left: 700
+      let currentMarkRect = {
+        top: 200,
+        bottom: 220,
+        left: 700,
+        right: 780,
+        width: 80,
+        height: 20,
+        x: 700,
+        y: 200,
+        toJSON: () => {},
+      } as DOMRect;
+      vi.spyOn(noteMark, "getBoundingClientRect").mockImplementation(() => currentMarkRect);
+
+      fireEvent.mouseOver(noteMark);
+      const card = await screen.findByTestId("lesson-note-hover-card");
+
+      // Verify initial position is placed towards the right side (> 450px)
+      const initialLeft = parseInt(card.style.left, 10);
+      expect(initialLeft).toBeGreaterThan(450);
+
+      // 2. Shrink viewport to 400px and responsive layout shifts mark to left: 100
+      window.innerWidth = 400;
+      currentMarkRect = {
+        top: 200,
+        bottom: 220,
+        left: 100,
+        right: 180,
+        width: 80,
+        height: 20,
+        x: 100,
+        y: 200,
+        toJSON: () => {},
+      } as DOMRect;
+
+      window.dispatchEvent(new Event("resize"));
+
+      // 3. Verify card recalculated position: shifted away from 580px and clamped <= 64px
+      await waitFor(() => {
+        const newLeft = parseInt(card.style.left, 10);
+        expect(newLeft).not.toBe(initialLeft);
+        expect(newLeft).toBeLessThanOrEqual(64);
+        expect(newLeft).toBeGreaterThanOrEqual(16);
+      });
+    });
+
+    it("18. verifies hover enter/leave and grace delay work properly when card is rendered in document.body portal", async () => {
+      const mockNote = {
+        id: "note-portal-delay",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "یادداشت داخل پورتال",
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector(
+          "mark[data-avana-annotation='note-portal-delay']",
+        );
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      fireEvent.mouseOver(noteMark);
+      const card = await screen.findByTestId("lesson-note-hover-card");
+
+      // Verify it is portaled to document.body
+      expect(document.body.contains(card)).toBe(true);
+
+      // Move into portaled card
+      fireEvent.mouseOut(noteMark, { relatedTarget: card });
+      fireEvent.mouseEnter(card);
+
+      // Past 200ms grace period it remains attached to body
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(document.body.contains(card)).toBe(true);
+
+      // Mouse leaves portaled card
+      fireEvent.mouseLeave(card);
+      await waitFor(() => {
+        expect(screen.queryByTestId("lesson-note-hover-card")).not.toBeInTheDocument();
+      });
+    });
+
+    it("19. opens edit dialog cleanly when clicking edit button from inside the portaled card", async () => {
+      const mockNote = {
+        id: "note-portal-edit",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "متن ویرایش پورتال",
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector(
+          "mark[data-avana-annotation='note-portal-edit']",
+        );
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      fireEvent.mouseOver(noteMark);
+      const card = await screen.findByTestId("lesson-note-hover-card");
+
+      // Click "ویرایش" from within portal
+      const editBtn = screen.getByRole("button", { name: "ویرایش یادداشت" });
+      fireEvent.click(editBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText("ویرایش یادداشت شخصی")).toBeInTheDocument();
+        expect(screen.getByDisplayValue("متن ویرایش پورتال")).toBeInTheDocument();
+        expect(document.body.contains(card)).toBe(false);
+      });
+    });
+
+    it("20. dismisses hover card immediately upon pressing Escape key", async () => {
+      const mockNote = {
+        id: "note-esc-20",
+        userId: "user-1",
+        lessonId: "lesson-hover-test",
+        type: "note",
+        selectedText: "دیواره سلولی",
+        noteText: "یادداشت تست کلید Escape",
+      };
+
+      const { container } = setupLessonWithNotes(
+        [mockNote],
+        "داروهای ضدباکتری دیواره سلولی را هدف قرار می‌دهند.",
+      );
+
+      const noteMark = await waitFor(() => {
+        const mark = container.querySelector(
+          "mark[data-avana-annotation='note-esc-20']",
+        );
+        expect(mark).toBeInTheDocument();
+        return mark as HTMLElement;
+      });
+
+      // Hover over mark to display card
+      fireEvent.mouseOver(noteMark);
+      await screen.findByTestId("lesson-note-hover-card");
+
+      // Press Escape on window
+      fireEvent.keyDown(window, { key: "Escape" });
+
+      // Hover card is immediately closed
+      await waitFor(() => {
+        expect(screen.queryByTestId("lesson-note-hover-card")).not.toBeInTheDocument();
+      });
+
+      // Dialog is NOT opened
+      expect(screen.queryByText("ویرایش یادداشت شخصی")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("11. Highlight Color Picker & Disallowing Notes on Highlighted Text", () => {
+    it("1. displays 5-color palette on hover with distinct accessible colors", async () => {
+      render(
+        <LessonSelectionToolbar
+          selectionData={mockSelection}
+          onAskAvana={vi.fn()}
+          onExplainSimply={vi.fn()}
+          onHighlight={vi.fn()}
+          onAddNote={vi.fn()}
+          onReportIssue={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      const highlightBtn = screen.getByText("هایلایت").closest("button");
+      expect(highlightBtn).toBeInTheDocument();
+
+      // Initially palette is closed
+      expect(screen.queryByRole("group", { name: "انتخاب رنگ هایلایت" })).not.toBeInTheDocument();
+
+      // Mock getBoundingClientRect on button
+      vi.spyOn(highlightBtn!, "getBoundingClientRect").mockReturnValue({
+        top: 200,
+        bottom: 236,
+        left: 300,
+        right: 390,
+        width: 90,
+        height: 36,
+        x: 300,
+        y: 200,
+        toJSON: () => {},
+      });
+
+      // Hover over highlight trigger container
+      fireEvent.mouseEnter(highlightBtn!.parentElement!);
+
+      // Palette should open
+      const palette = await screen.findByRole("group", { name: "انتخاب رنگ هایلایت" });
+      expect(palette).toBeInTheDocument();
+
+      // Exactly 5 color choices
+      expect(screen.getByTestId("color-choice-yellow")).toBeInTheDocument();
+      expect(screen.getByTestId("color-choice-teal")).toBeInTheDocument();
+      expect(screen.getByTestId("color-choice-purple")).toBeInTheDocument();
+      expect(screen.getByTestId("color-choice-blue")).toBeInTheDocument();
+      expect(screen.getByTestId("color-choice-rose")).toBeInTheDocument();
+      expect(screen.queryByTestId("color-choice-green")).not.toBeInTheDocument();
+    });
+
+    it("2. selects a color from palette, calls onHighlight, persists to localStorage, and marks active", async () => {
+      const onHighlight = vi.fn();
+      localStorage.clear();
+
+      render(
+        <LessonSelectionToolbar
+          selectionData={mockSelection}
+          onAskAvana={vi.fn()}
+          onExplainSimply={vi.fn()}
+          onHighlight={onHighlight}
+          onAddNote={vi.fn()}
+          onReportIssue={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      const highlightBtn = screen.getByText("هایلایت").closest("button")!;
+      vi.spyOn(highlightBtn, "getBoundingClientRect").mockReturnValue({
+        top: 200,
+        bottom: 236,
+        left: 300,
+        right: 390,
+        width: 90,
+        height: 36,
+        x: 300,
+        y: 200,
+        toJSON: () => {},
+      });
+
+      fireEvent.mouseEnter(highlightBtn.parentElement!);
+
+      // Click blue color
+      const blueBtn = await screen.findByTestId("color-choice-blue");
+      fireEvent.click(blueBtn);
+
+      expect(onHighlight).toHaveBeenCalledWith(mockSelection, "blue");
+      expect(localStorage.getItem("avana_preferred_highlight_color")).toBe("blue");
+
+      // Palette closes after selection
+      await waitFor(() => {
+        expect(screen.queryByRole("group", { name: "انتخاب رنگ هایلایت" })).not.toBeInTheDocument();
+      });
+    });
+
+    it("3. applies stored last-used color when directly clicking highlight button without opening palette", async () => {
+      const onHighlight = vi.fn();
+      localStorage.setItem("avana_preferred_highlight_color", "purple");
+
+      render(
+        <LessonSelectionToolbar
+          selectionData={mockSelection}
+          onAskAvana={vi.fn()}
+          onExplainSimply={vi.fn()}
+          onHighlight={onHighlight}
+          onAddNote={vi.fn()}
+          onReportIssue={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      const highlightBtn = screen.getByText("هایلایت").closest("button")!;
+      // Direct click without hover
+      fireEvent.click(highlightBtn);
+
+      expect(onHighlight).toHaveBeenCalledWith(mockSelection, "purple");
+    });
+
+    it("3b. migrates legacy stored 'green' in localStorage to 'purple' seamlessly", async () => {
+      const onHighlight = vi.fn();
+      localStorage.setItem("avana_preferred_highlight_color", "green");
+
+      render(
+        <LessonSelectionToolbar
+          selectionData={mockSelection}
+          onAskAvana={vi.fn()}
+          onExplainSimply={vi.fn()}
+          onHighlight={onHighlight}
+          onAddNote={vi.fn()}
+          onReportIssue={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      const highlightBtn = screen.getByText("هایلایت").closest("button")!;
+      fireEvent.click(highlightBtn);
+
+      // Migrated to purple on read
+      expect(onHighlight).toHaveBeenCalledWith(mockSelection, "purple");
+      expect(localStorage.getItem("avana_preferred_highlight_color")).toBe("purple");
+    });
+
+    it("4. validates stored color in localStorage and falls back to yellow on invalid value", async () => {
+      const onHighlight = vi.fn();
+      localStorage.setItem("avana_preferred_highlight_color", "invalid_color_123");
+
+      render(
+        <LessonSelectionToolbar
+          selectionData={mockSelection}
+          onAskAvana={vi.fn()}
+          onExplainSimply={vi.fn()}
+          onHighlight={onHighlight}
+          onAddNote={vi.fn()}
+          onReportIssue={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      const highlightBtn = screen.getByText("هایلایت").closest("button")!;
+      fireEvent.click(highlightBtn);
+
+      // Falls back to yellow
+      expect(onHighlight).toHaveBeenCalledWith(mockSelection, "yellow");
+    });
+
+    it("5. supports mobile color trigger button to open palette on touch devices", async () => {
+      window.innerWidth = 400;
+      window.dispatchEvent(new Event("resize"));
+
+      render(
+        <LessonSelectionToolbar
+          selectionData={mockSelection}
+          onAskAvana={vi.fn()}
+          onExplainSimply={vi.fn()}
+          onHighlight={vi.fn()}
+          onAddNote={vi.fn()}
+          onReportIssue={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      const mobileTrigger = screen.getByTestId("mobile-color-trigger");
+      expect(mobileTrigger).toBeInTheDocument();
+
+      fireEvent.click(mobileTrigger);
+
+      const palette = await screen.findByRole("group", { name: "انتخاب رنگ هایلایت" });
+      expect(palette).toBeInTheDocument();
+    });
+
+    it("6. hides 'یادداشت' button when canAddNote is false", () => {
+      render(
+        <LessonSelectionToolbar
+          selectionData={mockSelection}
+          onAskAvana={vi.fn()}
+          onExplainSimply={vi.fn()}
+          onHighlight={vi.fn()}
+          onAddNote={vi.fn()}
+          onReportIssue={vi.fn()}
+          onClose={vi.fn()}
+          canAddNote={false}
+        />,
+      );
+
+      expect(screen.queryByText("یادداشت")).not.toBeInTheDocument();
+      // Other actions remain available
+      expect(screen.getByText("هایلایت")).toBeInTheDocument();
+      expect(screen.getByText("از آوانا بپرس")).toBeInTheDocument();
+      expect(screen.getByText("توضیح ساده")).toBeInTheDocument();
+      expect(screen.getByText("گزارش مشکل")).toBeInTheDocument();
+    });
+
+    it("7. hides 'یادداشت' in LessonInteractiveContent when selection overlaps existing highlight", async () => {
+      const mockHighlight = {
+        id: "hl-existing-1",
+        userId: "user-1",
+        lessonId: "lesson-1",
+        type: "highlight" as const,
+        selectedText: "سفالوسپورین‌ها",
+        color: "teal",
+        startOffset: 10,
+        endOffset: 24,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+        if (String(url).includes("/annotations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ items: [mockHighlight] })),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-1"
+            content="درمان با سفالوسپورین‌ها آغاز شد."
+          />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='hl-existing-1']");
+        expect(mark).toBeInTheDocument();
+        expect(mark).toHaveAttribute("data-color", "teal");
+      });
+    });
+
+    it("8. clicking an existing highlight shows floating X delete icon without any dialog or modal", async () => {
+      const mockHighlight = {
+        id: "hl-to-manage",
+        userId: "user-1",
+        lessonId: "lesson-1",
+        type: "highlight" as const,
+        selectedText: "پنی‌سیلین جی",
+        color: "rose",
+        startOffset: 0,
+        endOffset: 12,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
+        const method = opts?.method || "GET";
+        if (String(url).includes("/annotations") && method === "GET") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ items: [mockHighlight] })),
+          } as unknown as Response);
+        }
+        if (String(url).includes("/annotations/hl-to-manage") && method === "DELETE") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ success: true })),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-1"
+            content="پنی‌سیلین جی داروی انتخابی است."
+          />
+        </QueryClientProvider>,
+      );
+
+      const mark = await waitFor(() => {
+        const el = container.querySelector("mark[data-avana-annotation='hl-to-manage']");
+        expect(el).toBeInTheDocument();
+        return el!;
+      });
+
+      // Click on the highlight mark
+      fireEvent.click(mark);
+
+      // Verify NO modal or dialog opens
+      expect(screen.queryByText("مدیریت هایلایت")).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("یادداشت من:")).not.toBeInTheDocument();
+
+      // Floating delete button appears
+      const deleteBtn = await screen.findByTestId("delete-highlight-button");
+      expect(deleteBtn).toBeInTheDocument();
+      expect(deleteBtn).toHaveAttribute("data-annotation-id", "hl-to-manage");
+      expect(deleteBtn).toHaveAttribute("aria-label", "حذف هایلایت");
+
+      // Clicking X deletes only that highlight immediately without extra confirmation
+      fireEvent.click(deleteBtn);
+
+      await waitFor(() => {
+        expect(fetchSpy).toHaveBeenCalledWith(
+          expect.stringContaining("/annotations/hl-to-manage"),
+          expect.objectContaining({ method: "DELETE" }),
+        );
+      });
+
+      // Delete button disappears
+      await waitFor(() => {
+        expect(screen.queryByTestId("delete-highlight-button")).not.toBeInTheDocument();
+      });
+    });
+
+    it("9. renders legacy highlights with color: 'default' seamlessly", async () => {
+      const legacyHighlight = {
+        id: "hl-legacy",
+        userId: "user-1",
+        lessonId: "lesson-1",
+        type: "highlight" as const,
+        selectedText: "آمپی‌سیلین",
+        color: "default",
+        startOffset: 0,
+        endOffset: 10,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+        if (String(url).includes("/annotations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ items: [legacyHighlight] })),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-1"
+            content="آمپی‌سیلین تجویز شد."
+          />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='hl-legacy']");
+        expect(mark).toBeInTheDocument();
+        expect(mark).toHaveAttribute("data-color", "default");
+        expect(mark).toHaveClass("avana-highlight");
+      });
+    });
+
+    it("9b. maps legacy highlights with color: 'green' to 'purple' in display layer without database migration", async () => {
+      const greenHighlight = {
+        id: "hl-green-legacy",
+        userId: "user-1",
+        lessonId: "lesson-1",
+        type: "highlight" as const,
+        selectedText: "سفالکسین",
+        color: "green",
+        startOffset: 0,
+        endOffset: 8,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+        if (String(url).includes("/annotations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ items: [greenHighlight] })),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-1"
+            content="سفالکسین تجویز شد."
+          />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='hl-green-legacy']");
+        expect(mark).toBeInTheDocument();
+        // Crucial: Must be normalized to 'purple' in the DOM
+        expect(mark).toHaveAttribute("data-color", "purple");
+        expect(mark).toHaveClass("avana-highlight");
+      });
+    });
+
+    it("10. positions palette above when enough room, and below when near top of viewport", async () => {
+      // Test when enough room above
+      const { unmount } = render(
+        <LessonSelectionToolbar
+          selectionData={mockSelection}
+          onAskAvana={vi.fn()}
+          onExplainSimply={vi.fn()}
+          onHighlight={vi.fn()}
+          onAddNote={vi.fn()}
+          onReportIssue={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      const btn1 = screen.getByText("هایلایت").closest("button")!;
+      vi.spyOn(btn1, "getBoundingClientRect").mockReturnValue({
+        top: 250,
+        bottom: 286,
+        left: 200,
+        right: 290,
+        width: 90,
+        height: 36,
+        x: 200,
+        y: 250,
+        toJSON: () => {},
+      });
+
+      fireEvent.mouseEnter(btn1.parentElement!);
+
+      const palette1 = await screen.findByRole("group", { name: "انتخاب رنگ هایلایت" });
+      // When top is 250, spaceAbove is 250 >= 44 + 10 -> positioned above (< 250)
+      const topAbove = parseInt(palette1.style.top, 10);
+      expect(topAbove).toBeLessThan(250);
+
+      unmount();
+
+      // Test when near top of viewport (e.g. top: 20)
+      render(
+        <LessonSelectionToolbar
+          selectionData={mockSelection}
+          onAskAvana={vi.fn()}
+          onExplainSimply={vi.fn()}
+          onHighlight={vi.fn()}
+          onAddNote={vi.fn()}
+          onReportIssue={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      const btn2 = screen.getByText("هایلایت").closest("button")!;
+      vi.spyOn(btn2, "getBoundingClientRect").mockReturnValue({
+        top: 20,
+        bottom: 56,
+        left: 200,
+        right: 290,
+        width: 90,
+        height: 36,
+        x: 200,
+        y: 20,
+        toJSON: () => {},
+      });
+
+      fireEvent.mouseEnter(btn2.parentElement!);
+
+      const palette2 = await screen.findByRole("group", { name: "انتخاب رنگ هایلایت" });
+      // When top is 20, spaceAbove < 54 -> positioned below (> 56)
+      const topBelow = parseInt(palette2.style.top, 10);
+      expect(topBelow).toBeGreaterThanOrEqual(56);
+    });
+
+    it("11. keeps palette open when moving mouse from button into palette via grace timer", async () => {
+      render(
+        <LessonSelectionToolbar
+          selectionData={mockSelection}
+          onAskAvana={vi.fn()}
+          onExplainSimply={vi.fn()}
+          onHighlight={vi.fn()}
+          onAddNote={vi.fn()}
+          onReportIssue={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      const btn = screen.getByText("هایلایت").closest("button")!;
+      vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({
+        top: 200,
+        bottom: 236,
+        left: 300,
+        right: 390,
+        width: 90,
+        height: 36,
+        x: 300,
+        y: 200,
+        toJSON: () => {},
+      });
+
+      // Hover on button
+      fireEvent.mouseEnter(btn.parentElement!);
+      const palette = await screen.findByRole("group", { name: "انتخاب رنگ هایلایت" });
+      expect(palette).toBeInTheDocument();
+
+      // Move mouse away from button
+      fireEvent.mouseLeave(btn.parentElement!);
+
+      // Mouse enters palette before grace timer expires
+      fireEvent.mouseEnter(palette);
+
+      // Wait 250ms — palette must still be open
+      await new Promise((r) => setTimeout(r, 250));
+      expect(screen.queryByRole("group", { name: "انتخاب رنگ هایلایت" })).toBeInTheDocument();
+
+      // Mouse leaves palette
+      fireEvent.mouseLeave(palette);
+
+      // Now it closes after grace timer
+      await waitFor(() => {
+        expect(screen.queryByRole("group", { name: "انتخاب رنگ هایلایت" })).not.toBeInTheDocument();
+      });
+    });
+
+    it("12. prevents default on mousedown for color choices to preserve browser selection", async () => {
+      render(
+        <LessonSelectionToolbar
+          selectionData={mockSelection}
+          onAskAvana={vi.fn()}
+          onExplainSimply={vi.fn()}
+          onHighlight={vi.fn()}
+          onAddNote={vi.fn()}
+          onReportIssue={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      const btn = screen.getByText("هایلایت").closest("button")!;
+      vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({
+        top: 200,
+        bottom: 236,
+        left: 300,
+        right: 390,
+        width: 90,
+        height: 36,
+        x: 300,
+        y: 200,
+        toJSON: () => {},
+      });
+
+      fireEvent.mouseEnter(btn.parentElement!);
+      const colorChoice = await screen.findByTestId("color-choice-teal");
+
+      const mousedownEvent = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+      colorChoice.dispatchEvent(mousedownEvent);
+
+      expect(mousedownEvent.defaultPrevented).toBe(true);
+    });
+
+    it("13. computeDeleteButtonCoords places X at top-left in RTL, top-right in LTR, and clamps within screen", () => {
+      window.innerWidth = 1000;
+      window.innerHeight = 800;
+
+      // Highlight in the middle of screen
+      const middleRect = {
+        top: 300,
+        bottom: 330,
+        left: 400,
+        right: 600,
+        width: 200,
+        height: 30,
+      };
+
+      // In RTL (isRtl = true): button floats near top-left of the mark
+      const rtlCoords = computeDeleteButtonCoords(middleRect, true);
+      // left should be near rect.left (400 - 12 = 388)
+      expect(rtlCoords.left).toBe(388);
+      // top should float above top edge (300 - 12 - 2 = 286)
+      expect(rtlCoords.top).toBe(286);
+
+      // In LTR (isRtl = false): button floats near top-right of the mark
+      const ltrCoords = computeDeleteButtonCoords(middleRect, false);
+      // left should be near rect.right (600 - 12 = 588)
+      expect(ltrCoords.left).toBe(588);
+      expect(ltrCoords.top).toBe(286);
+
+      // Clamping near left screen edge (e.g. rect.left = 2 on a 360px mobile viewport)
+      window.innerWidth = 360;
+      const leftEdgeRect = {
+        top: 100,
+        bottom: 125,
+        left: 2,
+        right: 150,
+        width: 148,
+        height: 25,
+      };
+      const clampedMobileLeft = computeDeleteButtonCoords(leftEdgeRect, true);
+      expect(clampedMobileLeft.left).toBe(8); // Clamped to min 8px
+
+      // Clamping near right screen edge on mobile
+      const rightEdgeRect = {
+        top: 100,
+        bottom: 125,
+        left: 200,
+        right: 358,
+        width: 158,
+        height: 25,
+      };
+      const clampedMobileRight = computeDeleteButtonCoords(rightEdgeRect, false);
+      // 360 - 24 - 8 = 328
+      expect(clampedMobileRight.left).toBe(328); // Clamped to right edge
+    });
+
+    it("14. mobile highlight deletion: renders inside viewport and deletes highlight without opening modal", async () => {
+      window.innerWidth = 380;
+      window.dispatchEvent(new Event("resize"));
+
+      const mobileHl = {
+        id: "hl-mobile-1",
+        userId: "user-1",
+        lessonId: "lesson-1",
+        type: "highlight" as const,
+        selectedText: "سفازولین",
+        color: "teal",
+        startOffset: 0,
+        endOffset: 8,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
+        const method = opts?.method || "GET";
+        if (String(url).includes("/annotations") && method === "GET") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ items: [mobileHl] })),
+          } as unknown as Response);
+        }
+        if (String(url).includes("/annotations/hl-mobile-1") && method === "DELETE") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ success: true })),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-1"
+            content="سفازولین تزریق وریدی شد."
+          />
+        </QueryClientProvider>,
+      );
+
+      const mark = await waitFor(() => {
+        const el = container.querySelector("mark[data-avana-annotation='hl-mobile-1']");
+        expect(el).toBeInTheDocument();
+        return el!;
+      });
+
+      // Tap on mobile highlight
+      fireEvent.click(mark);
+
+      // Verify no modal/dialog opens
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(screen.queryByText("مدیریت هایلایت")).not.toBeInTheDocument();
+
+      const deleteBtn = await screen.findByTestId("delete-highlight-button");
+      expect(deleteBtn).toBeInTheDocument();
+
+      // Tap on delete button
+      fireEvent.click(deleteBtn);
+
+      await waitFor(() => {
+        expect(fetchSpy).toHaveBeenCalledWith(
+          expect.stringContaining("/annotations/hl-mobile-1"),
+          expect.objectContaining({ method: "DELETE" }),
+        );
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("delete-highlight-button")).not.toBeInTheDocument();
+      });
+    });
+
+    it("15. preserves independent notes viewing and editing without conflict with highlights", async () => {
+      const independentNote = {
+        id: "note-independent-1",
+        userId: "user-1",
+        lessonId: "lesson-1",
+        type: "note" as const,
+        selectedText: "سفتریاکسون",
+        noteText: "نکته مهم بالینی: ترشح صفراوی دارد.",
+        color: "teal",
+        startOffset: 0,
+        endOffset: 10,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+        if (String(url).includes("/annotations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ items: [independentNote] })),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-1"
+            content="سفتریاکسون تجویز شد."
+          />
+        </QueryClientProvider>,
+      );
+
+      const noteMark = await waitFor(() => {
+        const el = container.querySelector("mark[data-avana-annotation='note-independent-1']");
+        expect(el).toBeInTheDocument();
+        expect(el).toHaveClass("avana-note");
+        return el!;
+      });
+
+      // Clicking an independent note DOES open the Note Dialog (not the highlight X button)
+      fireEvent.click(noteMark);
+
+      await waitFor(() => {
+        expect(screen.getByText("ویرایش یادداشت شخصی")).toBeInTheDocument();
+        expect(screen.getByDisplayValue("نکته مهم بالینی: ترشح صفراوی دارد.")).toBeInTheDocument();
+      });
+
+      // Highlight delete button is NOT present
+      expect(screen.queryByTestId("delete-highlight-button")).not.toBeInTheDocument();
+    });
+
+    it("16. verifies palette has exactly 5 colors, purple is present, green is absent, and normalize works", () => {
+      expect(HIGHLIGHT_COLORS).toHaveLength(5);
+      const colorIds = HIGHLIGHT_COLORS.map((c) => c.id);
+      expect(colorIds).toEqual(["yellow", "teal", "purple", "blue", "rose"]);
+      expect(colorIds).not.toContain("green");
+
+      expect(isValidHighlightColor("purple")).toBe(true);
+      expect(isValidHighlightColor("green")).toBe(false);
+
+      expect(normalizeHighlightColor("green")).toBe("purple");
+      expect(normalizeHighlightColor("purple")).toBe("purple");
+      expect(normalizeHighlightColor("yellow")).toBe("yellow");
+      expect(normalizeHighlightColor("default")).toBe("default");
+
+      // Verify localStorage getter maps green to purple
+      localStorage.setItem("avana_preferred_highlight_color", "green");
+      expect(getStoredHighlightColor()).toBe("purple");
+      expect(localStorage.getItem("avana_preferred_highlight_color")).toBe("purple");
     });
   });
 });

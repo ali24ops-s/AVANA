@@ -118,6 +118,16 @@ export function CourseDetailPage() {
         })
       : null;
 
+  const isOfficialUpcoming = isExamUpcoming(course.official_exam_at);
+  const officialExamDate =
+    course.official_exam_at && isOfficialUpcoming
+      ? new Date(course.official_exam_at).toLocaleDateString("fa-IR", {
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+        })
+      : null;
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       {/* Back link */}
@@ -163,7 +173,7 @@ export function CourseDetailPage() {
               </p>
             </div>
           </div>
-          {examDate && (
+          {examDate ? (
             <div className="flex items-center gap-3">
               <FileText className="w-5 h-5 text-[#008080]" />
               <div>
@@ -175,7 +185,19 @@ export function CourseDetailPage() {
                 </p>
               </div>
             </div>
-          )}
+          ) : officialExamDate ? (
+            <div className="flex items-center gap-3">
+              <FileText className="w-5 h-5 text-[#008080]" />
+              <div>
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  تاریخ آزمون رسمی دوره
+                </p>
+                <p className="text-sm font-semibold text-[var(--color-text)]">
+                  {officialExamDate}
+                </p>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

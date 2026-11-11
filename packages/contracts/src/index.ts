@@ -8,3 +8,6 @@
 export type * from "./generated/index.js";
 export * from "./annotations.js";
 export * from "./study-planner.js";
+export * from "./mind-map.js";
+export * from "./presentation.js";
+export * from "./personal-summary.js";

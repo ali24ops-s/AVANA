@@ -601,4 +601,128 @@ describe("Card-to-Card Payment System (کارت‌به‌کارت با فعال�
       ).rejects.toThrow(DomainError);
     });
   });
+
+  describe("7. Defensive Digit Normalization & Persian/Arabic Equivalence", () => {
+    it("accepts Persian digits for tracking number and card last 4, normalizing them to ASCII", async () => {
+      const monthlyProduct = await commerceStore.findProductById(monthlyPlanId);
+      const price = monthlyProduct!.price;
+
+      const newUser: Actor = {
+        userId: asUserId(randomUUID() as any),
+        role: "student",
+      };
+
+      const result = await commerceService.submitCardToCardPayment(
+        newUser,
+        {
+          productId: monthlyPlanId,
+          amount: price,
+          // Persian digits
+          trackingNumber: "۱۲۳۴۵۶۷۸",
+          sourceCardLast4: "۹۸۷۶",
+        },
+        "req-persian-digits",
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.subscriptionStatus).toBe("active_pending_payment_review");
+
+      // Verify payment was stored with normalized ASCII digits
+      const stored = await commerceStore.findPaymentById(result.paymentId);
+      expect(stored?.trackingNumber).toBe("12345678");
+      expect(stored?.sourceCardLast4).toBe("9876");
+    });
+
+    it("accepts Arabic digits for tracking number and card last 4, normalizing them to ASCII", async () => {
+      const monthlyProduct = await commerceStore.findProductById(monthlyPlanId);
+      const price = monthlyProduct!.price;
+
+      const newUser: Actor = {
+        userId: asUserId(randomUUID() as any),
+        role: "student",
+      };
+
+      const result = await commerceService.submitCardToCardPayment(
+        newUser,
+        {
+          productId: monthlyPlanId,
+          amount: price,
+          // Arabic digits
+          trackingNumber: "٩٨٧٦٥٤٣٢",
+          sourceCardLast4: "١٢٣٤",
+        },
+        "req-arabic-digits",
+      );
+
+      expect(result.success).toBe(true);
+      const stored = await commerceStore.findPaymentById(result.paymentId);
+      expect(stored?.trackingNumber).toBe("98765432");
+      expect(stored?.sourceCardLast4).toBe("1234");
+    });
+
+    it("prevents duplicate payments across Persian and English digit representations", async () => {
+      const monthlyProduct = await commerceStore.findProductById(monthlyPlanId);
+      const price = monthlyProduct!.price;
+
+      const user1: Actor = {
+        userId: asUserId(randomUUID() as any),
+        role: "student",
+      };
+      const user2: Actor = {
+        userId: asUserId(randomUUID() as any),
+        role: "student",
+      };
+
+      // User 1 submits with Persian digits
+      await commerceService.submitCardToCardPayment(
+        user1,
+        {
+          productId: monthlyPlanId,
+          amount: price,
+          trackingNumber: "۵۵۶۶۷۷۸۸",
+          sourceCardLast4: "۴۴۳۳",
+        },
+        "req-dup-1",
+      );
+
+      // User 2 tries to submit with English digits of the same tracking number and card
+      await expect(
+        commerceService.submitCardToCardPayment(
+          user2,
+          {
+            productId: monthlyPlanId,
+            amount: price,
+            trackingNumber: "55667788",
+            sourceCardLast4: "4433",
+          },
+          "req-dup-2",
+        ),
+      ).rejects.toThrow("این پرداخت با این مشخصات و شماره پیگیری قبلاً در سیستم ثبت شده است.");
+    });
+
+    it("completes payment without coupon code using full price", async () => {
+      const monthlyProduct = await commerceStore.findProductById(monthlyPlanId);
+      const price = monthlyProduct!.price;
+
+      const newUser: Actor = {
+        userId: asUserId(randomUUID() as any),
+        role: "student",
+      };
+
+      const result = await commerceService.submitCardToCardPayment(
+        newUser,
+        {
+          productId: monthlyPlanId,
+          amount: price,
+          trackingNumber: "TRK-NO-COUPON-BACKEND",
+          sourceCardLast4: "5566",
+          couponCode: undefined,
+        },
+        "req-no-coupon-test",
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.subscriptionStatus).toBe("active_pending_payment_review");
+    });
+  });
 });

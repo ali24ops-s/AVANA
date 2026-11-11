@@ -400,6 +400,64 @@ export function adaptToGeminiJsonSchema(jsonSchema: unknown): Record<string, unk
     };
   }
 
+  if (
+    typeKey === "generated_presentation_slide" ||
+    typeKey === "presentation_slide"
+  ) {
+    return {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        subtitle: { type: "string" },
+        content: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string",
+                enum: ["text", "bullet_list", "table"],
+              },
+              content: { type: "string" },
+              claims: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    text: { type: "string" },
+                    chunkIds: {
+                      type: "array",
+                      items: { type: "string" },
+                    },
+                    evidenceStatus: {
+                      type: "string",
+                      enum: ["supported", "insufficient_evidence"],
+                    },
+                  },
+                  required: ["text", "chunkIds", "evidenceStatus"],
+                },
+              },
+            },
+            required: ["type", "content", "claims"],
+          },
+        },
+        speakerNotes: { type: "string" },
+        citations: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              chunkId: { type: "string" },
+              referenceId: { type: "string" },
+            },
+            required: ["chunkId"],
+          },
+        },
+      },
+      required: ["title", "content", "speakerNotes", "citations"],
+    };
+  }
+
   // If already a full schema object with properties:
   if (schemaObj.properties && typeof schemaObj.properties === "object") {
     const rawProps = schemaObj.properties as Record<string, unknown>;
@@ -682,27 +740,31 @@ export class GeminiModelGateway implements ModelGateway {
       httpErr.geminiMessage ||
       (httpErr.body.trim().length > 0 ? httpErr.body.slice(0, 300) : httpErr.statusText),
     );
+    const lower = `${httpErr.body} ${httpErr.geminiStatus || ""} ${httpErr.geminiMessage || ""}`.toLowerCase();
 
     if (httpErr.status === 500 || httpErr.status === 502 || httpErr.status === 503 || httpErr.status === 504) {
       throw new DomainError(
         "service_unavailable",
         `Gemini API service unavailable (HTTP ${httpErr.status}): ${errorDetails}`,
+        { provider: "gemini", httpStatus: httpErr.status, reason: "server_error" },
       );
     }
     if (httpErr.status === 429) {
+      const isDailyQuota = lower.includes("generaterequestsperday") || lower.includes("daily quota");
       throw new DomainError(
         "rate_limit_exceeded",
-        `Gemini API rate limit exceeded: ${errorDetails}`,
+        `Gemini API ${isDailyQuota ? "daily quota exhausted" : "rate limit exceeded"}: ${errorDetails}`,
+        { provider: "gemini", httpStatus: 429, reason: isDailyQuota ? "quota_exhausted" : "rate_limited" },
       );
     }
     if (httpErr.status === 401) {
       throw new DomainError(
         "unauthorized",
         `Gemini API authentication failed: ${errorDetails}`,
+        { provider: "gemini", httpStatus: 401, reason: "api_key_invalid" },
       );
     }
     if (httpErr.status === 403) {
-      const lower = `${httpErr.body} ${httpErr.geminiStatus || ""} ${httpErr.geminiMessage || ""}`.toLowerCase();
       const isQuota =
         lower.includes("generaterequestsperday") ||
         lower.includes("quota") ||
@@ -711,18 +773,21 @@ export class GeminiModelGateway implements ModelGateway {
       throw new DomainError(
         isQuota ? "rate_limit_exceeded" : "forbidden",
         `Gemini API ${isQuota ? "quota exhausted" : "permission denied"}: ${errorDetails}`,
+        { provider: "gemini", httpStatus: 403, reason: isQuota ? "quota_exhausted" : "forbidden" },
       );
     }
     if (httpErr.status === 404) {
       throw new DomainError(
         "not_found",
         `Gemini API endpoint or model not found: ${errorDetails}`,
+        { provider: "gemini", httpStatus: 404, reason: "not_found" },
       );
     }
 
     throw new DomainError(
       "unprocessable",
       `Gemini API request failed: ${errorDetails}`,
+      { provider: "gemini", httpStatus: httpErr.status, reason: "unprocessable" },
     );
   }
 

@@ -41,11 +41,10 @@ export function isRole(value: string): value is Role {
  * Precedence ordering for Organization-scoped roles.
  * Higher precedence (earlier in the array) wins when resolving organization memberships.
  *
- * NOTE: platform_admin is strictly EXCLUDED from organization roles because it is a
- * Global Platform Role and must only be granted via users.global_role.
+ * NOTE: Global platform roles (platform_admin, support_agent, content_worker) are strictly
+ * EXCLUDED from organization roles. They must only be granted via users.global_role.
  */
 export const ORGANIZATION_ROLE_PRECEDENCE: readonly Role[] = [
-  Roles.support_agent,
   Roles.organization_admin,
   Roles.course_editor,
   Roles.content_worker,
@@ -59,12 +58,13 @@ export const ORGANIZATION_ROLE_PRECEDENCE: readonly Role[] = [
  *
  * Enforcement Rules:
  * 1. Global Role: If globalRole === "platform_admin", the effective role is ALWAYS "platform_admin".
- *    If globalRole === "content_worker", the effective role is "content_worker".
- * 2. Organization Roles: When globalRole is NULL (or not platform_admin/content_worker), only valid
+ *    If globalRole === "support_agent", the effective role is ALWAYS "support_agent".
+ *    If globalRole === "content_worker", the effective role is ALWAYS "content_worker".
+ * 2. Organization Roles: When globalRole is NULL (or not a privileged global role), only valid
  *    organization-scoped roles (organization_admin, course_editor, content_worker, teacher, student)
  *    are considered according to ORGANIZATION_ROLE_PRECEDENCE.
- *    Any "platform_admin" value in membership roles is strictly IGNORED and cannot grant
- *    platform admin privileges.
+ *    Any global role values (such as platform_admin or support_agent) in organization membership
+ *    roles are strictly IGNORED and cannot grant global platform privileges.
  * 3. Fallback: If no valid organization roles exist and globalRole is NULL, returns "student".
  */
 export function resolveEffectiveRole(

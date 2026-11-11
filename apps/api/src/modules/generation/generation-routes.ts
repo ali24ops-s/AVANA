@@ -39,6 +39,7 @@ import type { WalletService } from "../wallet/wallet-service.js";
 import type { WalletStore } from "../wallet/wallet-store.js";
 import { refundGenerationJobDebit } from "./generation-refund-helper.js";
 import { GenerationService } from "./generation-service.js";
+import { assertDocumentAssociatedWithCourse } from "../documents/document-course-association.js";
 import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
 import { makeAuthMiddleware } from "../../http/authMiddleware.js";
 import type {
@@ -101,6 +102,7 @@ export interface GenerationRouteOptions {
   walletStore?: WalletStore;
   entitlementService?: EntitlementService;
   questionPatternStore?: import("./question-patterns-store.js").QuestionPatternStore;
+  sourcePackStore?: import("../source-packs/source-pack-store.js").SourcePackStore;
 }
 
 const UUID_RE =
@@ -191,6 +193,13 @@ export const generationRoutes: FastifyPluginAsync<
     service.setQuestionPatternStore(opts.questionPatternStore);
     if (adminService) {
       adminService.setQuestionPatternStore(opts.questionPatternStore);
+    }
+  }
+
+  if (opts.sourcePackStore) {
+    service.setSourcePackStore(opts.sourcePackStore);
+    if (adminService) {
+      adminService.setSourcePackStore(opts.sourcePackStore);
     }
   }
 
@@ -457,19 +466,12 @@ export const generationRoutes: FastifyPluginAsync<
         }
       }
 
-      if (!doc.courseId) {
-        throw new DomainError(
-          "bad_request",
-          "این سند به دوره‌ای اختصاص نیافته است. لطفاً ابتدا سند را به دوره متصل کنید.",
-        );
-      }
-
-      if (doc.courseId !== courseId) {
-        throw new DomainError(
-          "bad_request",
-          "این سند به دوره دیگری تعلق دارد.",
-        );
-      }
+      await assertDocumentAssociatedWithCourse(
+        { documentStore: opts.documentStore, sourcePackStore: opts.sourcePackStore },
+        documentId,
+        courseId,
+        organizationId,
+      );
 
       // Server-side validation against DB content status:
       // Filter out any requested types that already exist in DB
@@ -634,6 +636,7 @@ export const generationRoutes: FastifyPluginAsync<
       try {
         result = await queue.enqueueGenerationJob({
           jobId,
+          requestId: request.id,
           actorUserId: actor.userId,
           actorRole: actor.role,
           organizationId,
@@ -741,13 +744,12 @@ export const generationRoutes: FastifyPluginAsync<
       // 3. Verify all source documents belong to org, course, and are in extracted/ready state
       const sourceDocs: DocumentRecord[] = [];
       for (const s of normalizedSources) {
-        const doc = await documentStore.findByIdForOrganization(s.documentId, organizationId);
-        if (!doc) {
-          throw new DomainError("not_found", `Document ${s.documentId} not found`);
-        }
-        if (doc.courseId && doc.courseId !== courseId) {
-          throw new DomainError("bad_request", `Document ${s.documentId} does not belong to this course`);
-        }
+        const doc = await assertDocumentAssociatedWithCourse(
+          { documentStore, sourcePackStore: opts.sourcePackStore },
+          s.documentId,
+          courseId,
+          organizationId,
+        );
         const allowedStatuses = ["extracted", "review_pending", "ready"];
         if (!allowedStatuses.includes(doc.status)) {
           throw new DomainError(
@@ -921,6 +923,7 @@ export const generationRoutes: FastifyPluginAsync<
       try {
         result = await queue.enqueueGenerationJob({
           jobId,
+          requestId: request.id,
           actorUserId: actor.userId,
           actorRole: actor.role,
           organizationId,
@@ -1032,69 +1035,81 @@ export const generationRoutes: FastifyPluginAsync<
 
   // -----------------------------------------------------------------------
   // GET /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/generate/jobs/:jobId
+  // GET /v1/organizations/:organizationId/documents/:documentId/generate/jobs/:jobId
   // Returns the generation job lifecycle (queued/running/succeeded/failed).
   // -----------------------------------------------------------------------
-  app.get(
-    "/v1/organizations/:organizationId/courses/:courseId/documents/:documentId/generate/jobs/:jobId",
-    { preHandler: [requireAuth] },
-    async (request, _reply) => {
-      const actor = getActor(request);
-      const params = request.params as {
+  const handleGetGenerationJob = async (request: unknown) => {
+    const req = request as {
+      params: {
         organizationId: string;
-        courseId: string;
+        courseId?: string;
         documentId: string;
         jobId: string;
       };
-      const organizationId = getOrganizationId(params);
-      const documentId = getDocumentId(params);
-      const jobId = parseGenerationJobId(params.jobId, "jobId");
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = getOrganizationId(req.params);
+    const documentId = getDocumentId(req.params);
+    const jobId = parseGenerationJobId(req.params.jobId, "jobId");
 
-      // Authorization: content:review required to read job lifecycle.
-      await service.authorize(actor, organizationId, "content:review");
+    // Authorization: content:review required to read job lifecycle.
+    await service.authorize(actor, organizationId, "content:review");
 
-      const doc = await documentStore.findByIdForOrganization(
-        documentId,
-        organizationId,
-      );
-      if (!doc) {
-        throw new DomainError("not_found", "Document not found");
-      }
+    const doc = await documentStore.findByIdForOrganization(
+      documentId,
+      organizationId,
+    );
+    if (!doc) {
+      throw new DomainError("not_found", "Document not found");
+    }
 
-      const job = await generationJobStore.findByIdForOrganization(
-        jobId,
-        organizationId,
-      );
-      if (!job || job.documentId !== documentId) {
-        throw new DomainError("not_found", "Generation job not found");
-      }
+    const job = await generationJobStore.findByIdForOrganization(
+      jobId,
+      organizationId,
+    );
+    if (!job || job.documentId !== documentId) {
+      throw new DomainError("not_found", "Generation job not found");
+    }
 
-      const requestedTypes = normalizeRequestedContentTypes(job.type);
-      const progress = await service.getGenerationProgress(
-        documentId,
-        organizationId,
-        requestedTypes,
-      );
+    const requestedTypes = normalizeRequestedContentTypes(job.type);
+    const progress = await service.getGenerationProgress(
+      documentId,
+      organizationId,
+      requestedTypes,
+    );
 
-      return {
-        request_id: request.id,
-        job: {
-          id: job.id,
-          organization_id: job.organizationId,
-          document_id: job.documentId,
-          course_id: job.courseId,
-          type: job.type,
-          status: job.status,
-          attempts: job.attempts,
-          error_code: job.errorCode,
-          error_message: job.errorMessage,
-          created_at: job.createdAt,
-          updated_at: job.updatedAt,
-          started_at: job.startedAt,
-          completed_at: job.completedAt,
-          progress,
-        },
-      };
-    },
+    return {
+      request_id: req.id,
+      job: {
+        id: job.id,
+        organization_id: job.organizationId,
+        document_id: job.documentId,
+        course_id: job.courseId,
+        type: job.type,
+        status: job.status,
+        attempts: job.attempts,
+        error_code: job.errorCode,
+        error_message: job.errorMessage,
+        created_at: job.createdAt,
+        updated_at: job.updatedAt,
+        started_at: job.startedAt,
+        completed_at: job.completedAt,
+        progress,
+      },
+    };
+  };
+
+  app.get(
+    "/v1/organizations/:organizationId/courses/:courseId/documents/:documentId/generate/jobs/:jobId",
+    { preHandler: [requireAuth] },
+    handleGetGenerationJob,
+  );
+
+  app.get(
+    "/v1/organizations/:organizationId/documents/:documentId/generate/jobs/:jobId",
+    { preHandler: [requireAuth] },
+    handleGetGenerationJob,
   );
 
   // -----------------------------------------------------------------------
@@ -1300,25 +1315,12 @@ export const generationRoutes: FastifyPluginAsync<
         }
       }
 
-      const doc = await documentStore.findByIdForOrganization(
+      await assertDocumentAssociatedWithCourse(
+        { documentStore, sourcePackStore: opts.sourcePackStore },
         documentId,
+        courseId,
         effectiveOrgId,
       );
-      if (!doc) {
-        throw new DomainError("not_found", "Document not found");
-      }
-      if (!doc.courseId) {
-        throw new DomainError(
-          "bad_request",
-          "این سند به دوره‌ای اختصاص نیافته است. لطفاً ابتدا سند را به دوره متصل کنید.",
-        );
-      }
-      if (doc.courseId !== courseId) {
-        throw new DomainError(
-          "bad_request",
-          "این سند به دوره دیگری تعلق دارد.",
-        );
-      }
     } else {
       effectiveOrgId = organizationId;
 
