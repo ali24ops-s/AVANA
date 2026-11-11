@@ -5,7 +5,6 @@ import { MemoryRouter, Routes, Route, useSearchParams } from "react-router-dom";
 import {
   resolveChapterDocument,
   type ChapterModule,
-  type ChapterDocument,
 } from "../utils/chapterResolver.js";
 import {
   CourseReviewSummaryView,
@@ -254,6 +253,53 @@ describe("Chapter Selection & Persistence Test Suite", () => {
       });
       expect(result.activeDocument?.id).toBe("doc-1");
       expect(result.canonicalChapterId).toBe("mod-1");
+    });
+
+    it("Requirement: resolves module without document_id (independent of document presence)", () => {
+      const moduleWithoutDoc: ChapterModule = {
+        id: "mod-no-doc",
+        title: "فصل مستقل درسنامه",
+        document_id: null,
+      };
+      const result = resolveChapterDocument({
+        chapterId: "mod-no-doc",
+        modules: [moduleWithoutDoc],
+        documents: [],
+      });
+      expect(result.activeModule?.id).toBe("mod-no-doc");
+      expect(result.canonicalChapterId).toBe("mod-no-doc");
+      expect(result.activeDocument).toBeNull();
+      expect(result.isResolved).toBe(true);
+    });
+
+    it("Requirement: resolves module when document is deleted from documents list", () => {
+      const moduleWithDeletedDoc: ChapterModule = {
+        id: "mod-del",
+        title: "فصل با سند حذف‌شده",
+        document_id: "doc-deleted-id",
+      };
+      const result = resolveChapterDocument({
+        chapterId: "mod-del",
+        modules: [moduleWithDeletedDoc],
+        documents: [],
+      });
+      expect(result.activeModule?.id).toBe("mod-del");
+      expect(result.canonicalChapterId).toBe("mod-del");
+      expect(result.activeDocument).toBeNull();
+      expect(result.isResolved).toBe(true);
+    });
+
+    it("Requirement: falls back to first module when documents list is empty", () => {
+      const moduleA: ChapterModule = { id: "mod-a", title: "فصل اول", document_id: null };
+      const moduleB: ChapterModule = { id: "mod-b", title: "فصل دوم", document_id: null };
+      const result = resolveChapterDocument({
+        chapterId: null,
+        modules: [moduleA, moduleB],
+        documents: [],
+      });
+      expect(result.activeModule?.id).toBe("mod-a");
+      expect(result.canonicalChapterId).toBe("mod-a");
+      expect(result.isResolved).toBe(true);
     });
   });
 

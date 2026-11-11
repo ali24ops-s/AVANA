@@ -285,11 +285,22 @@ export class MindMapService {
    */
   private async verifyModuleAccess(
     actor: Actor,
-    moduleId: string,
-  ): Promise<{ courseId: CourseId; organizationId: OrganizationId; moduleTitle: string; documentId: string | null }> {
-    const moduleRecord = await this.moduleStore.findById(moduleId);
+    identifier: string,
+    expectedCourseId?: CourseId | string | null,
+  ): Promise<{ moduleId: string; courseId: CourseId; organizationId: OrganizationId; moduleTitle: string; documentId: string | null }> {
+    let moduleRecord = await this.moduleStore.findById(identifier);
+    if (!moduleRecord && typeof this.moduleStore.findByDocument === "function") {
+      moduleRecord = await this.moduleStore.findByDocument(identifier as DocumentId);
+    }
     if (!moduleRecord) {
       throw new DomainError("not_found", "سرفصل آموزشی مورد نظر یافت نشد.");
+    }
+
+    if (expectedCourseId && moduleRecord.courseId !== expectedCourseId) {
+      throw new DomainError(
+        "bad_request",
+        "سرفصل مورد نظر متعلق به این دوره نیست.",
+      );
     }
 
     const course = await this.courseStore.findByIdForUser(
@@ -336,6 +347,7 @@ export class MindMapService {
     }
 
     return {
+      moduleId: moduleRecord.id,
       courseId: course.id,
       organizationId: course.organizationId,
       moduleTitle: moduleRecord.title,
@@ -538,7 +550,8 @@ export class MindMapService {
     // 3. No valid educational source
     throw new DomainError(
       "bad_request",
-      "منبع آموزشی معتبر در دسترس نیست. برای این فصل، درسنامه‌ای یا فایل مرجع استخراج‌شده‌ای یافت نشد.",
+      "منبع آموزشی معتبر در دسترس نیست (NO_VALID_SOURCE). برای این فصل، درسنامه‌ای یا فایل مرجع استخراج‌شده‌ای یافت نشد.",
+      { reason: "NO_VALID_SOURCE" },
     );
   }
 
@@ -753,7 +766,8 @@ export class MindMapService {
     // 4. No valid and relevant educational source found
     throw new DomainError(
       "bad_request",
-      `منبع آموزشی معتبر و مرتبط با مفهوم «${targetNode.title}» برای استخراج توضیحات تکمیلی یافت نشد.`,
+      `منبع آموزشی معتبر و مرتبط با مفهوم «${targetNode.title}» برای استخراج توضیحات تکمیلی یافت نشد (NO_VALID_SOURCE).`,
+      { reason: "NO_VALID_SOURCE" },
     );
   }
 
@@ -1325,19 +1339,19 @@ export class MindMapService {
   /**
    * Get latest mind map for a chapter.
    */
-  async getMindMap(actor: Actor, moduleId: string): Promise<GetMindMapResponse> {
-    const { documentId } = await this.verifyModuleAccess(actor, moduleId);
+  async getMindMap(actor: Actor, moduleId: string, courseId?: string | null): Promise<GetMindMapResponse> {
+    const { moduleId: resolvedModuleId, documentId } = await this.verifyModuleAccess(actor, moduleId, courseId);
 
     const latest = await this.store.findLatestCompleted(
       actor.userId,
-      moduleId,
+      resolvedModuleId,
       "mind_map",
     );
 
     let sourceAvailable = false;
     let resolvedSourceType: MindMapSourceType | null = null;
     try {
-      const source = await this.resolveEducationalSource(moduleId, documentId);
+      const source = await this.resolveEducationalSource(resolvedModuleId, documentId);
       sourceAvailable = true;
       resolvedSourceType = source.sourceType;
     } catch {
@@ -1732,7 +1746,7 @@ ${JSON.stringify(candidateSummaries, null, 2)}
           shortDescription: shortDesc.slice(0, 600),
           keyPoints,
           examTips,
-          category: typeof n.category === "string" ? (n.category as any) : undefined,
+          category: typeof n.category === "string" ? n.category : undefined,
           nodeRole: n.nodeRole === "category" || n.nodeRole === "concept" ? n.nodeRole : undefined,
           structuredDetails,
           sortOrder: typeof n.sortOrder === "number" ? n.sortOrder : 0,
@@ -1898,6 +1912,7 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
     actor: Actor,
     moduleId: string,
     correlationId?: string,
+    courseIdParam?: string | null,
   ): Promise<GenerateMindMapResponse> {
     const cid = correlationId || randomUUID();
     const overallStart = Date.now();
@@ -1907,6 +1922,7 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
     let recordId: string | null = null;
     let pendingCreated = false;
     let heartbeatTimer: NodeJS.Timeout | null = null;
+    let resolvedModuleId = moduleId;
 
     const stopHeartbeat = () => {
       if (heartbeatTimer) {
@@ -1942,7 +1958,8 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
       // 2. STAGE: MODULE_RESOLVED
       currentStage = "MODULE_RESOLVED";
       stageStart = Date.now();
-      const moduleAccess = await this.verifyModuleAccess(actor, moduleId);
+      const moduleAccess = await this.verifyModuleAccess(actor, moduleId, courseIdParam);
+      resolvedModuleId = moduleAccess.moduleId;
       courseId = moduleAccess.courseId;
       const { organizationId, moduleTitle, documentId } = moduleAccess;
 
@@ -1950,7 +1967,7 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
         timestamp: new Date().toISOString(),
         stage: "MODULE_RESOLVED",
         correlationId: cid,
-        moduleId,
+        moduleId: resolvedModuleId,
         courseId,
         userId: actor.userId,
         durationMs: Date.now() - stageStart,
@@ -1965,7 +1982,7 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
       // 3. STAGE: SOURCE_RESOLVED
       currentStage = "SOURCE_RESOLVED";
       stageStart = Date.now();
-      const source = await this.resolveEducationalSource(moduleId, documentId);
+      const source = await this.resolveEducationalSource(resolvedModuleId, documentId);
 
       this.emitLifecycle({
         timestamp: new Date().toISOString(),
@@ -1998,7 +2015,7 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
         timestamp: new Date().toISOString(),
         stage: "SOURCE_CONTENT_LOADED",
         correlationId: cid,
-        moduleId,
+        moduleId: resolvedModuleId,
         courseId,
         userId: actor.userId,
         durationMs: Date.now() - stageStart,
@@ -2011,7 +2028,7 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
       // Check active in-flight lease to prevent concurrency conflicts
       const activePending = await this.store.findActivePending(
         actor.userId,
-        moduleId,
+        resolvedModuleId,
         "mind_map",
       );
       if (activePending && (!activePending.leaseExpiresAt || new Date(activePending.leaseExpiresAt) > new Date())) {
@@ -2023,13 +2040,13 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
 
       const previousCompleted = await this.store.findLatestCompleted(
         actor.userId,
-        moduleId,
+        resolvedModuleId,
         "mind_map",
       );
 
       const nextVersion = await this.store.getNextVersion(
         actor.userId,
-        moduleId,
+        resolvedModuleId,
         "mind_map",
       );
 
@@ -2039,7 +2056,7 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
 
       const snapshot: import("@avana/contracts").PersonalContentSnapshot = {
         capturedAt: new Date().toISOString(),
-        moduleId,
+        moduleId: resolvedModuleId,
         moduleTitle,
         courseId,
         totalHighlights: 0,
@@ -2051,7 +2068,7 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
         id: recordId,
         userId: actor.userId,
         courseId,
-        moduleId,
+        moduleId: resolvedModuleId,
         contentType: "mind_map",
         version: nextVersion,
         status: "pending",
@@ -2059,7 +2076,7 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
         highlightsCount: 0,
         notesCount: 0,
         costToman: 0,
-        idempotencyKey: `mm_gen_${actor.userId}_${moduleId}_v${nextVersion}`,
+        idempotencyKey: `mm_gen_${actor.userId}_${resolvedModuleId}_v${nextVersion}`,
         workerId,
         leaseExpiresAt,
       });
@@ -2261,7 +2278,7 @@ ${source.sourceText}
         timestamp: new Date().toISOString(),
         stage: "GEMINI_REQUEST_STARTED",
         correlationId: cid,
-        moduleId,
+        moduleId: resolvedModuleId,
         courseId,
         userId: actor.userId,
         durationMs: 0,
@@ -2293,7 +2310,7 @@ ${source.sourceText}
         timestamp: new Date().toISOString(),
         stage: "GEMINI_RESPONSE_RECEIVED",
         correlationId: cid,
-        moduleId,
+        moduleId: resolvedModuleId,
         courseId,
         userId: actor.userId,
         durationMs: geminiDuration,
@@ -2313,7 +2330,7 @@ ${source.sourceText}
         timestamp: new Date().toISOString(),
         stage: "MODEL_OUTPUT_PARSED",
         correlationId: cid,
-        moduleId,
+        moduleId: resolvedModuleId,
         courseId,
         userId: actor.userId,
         durationMs: Date.now() - stageStart,
@@ -2330,7 +2347,7 @@ ${source.sourceText}
         timestamp: new Date().toISOString(),
         stage: "MIND_MAP_VALIDATED",
         correlationId: cid,
-        moduleId,
+        moduleId: resolvedModuleId,
         courseId,
         userId: actor.userId,
         durationMs: Date.now() - stageStart,
@@ -2359,7 +2376,7 @@ ${source.sourceText}
         try {
           const deepenedNodes = await this.expandBranchesBatched(
             actor,
-            moduleId,
+            resolvedModuleId,
             documentId,
             organizationId,
             cid,
@@ -2440,7 +2457,7 @@ ${source.sourceText}
         timestamp: new Date().toISOString(),
         stage: "MIND_MAP_SAVED",
         correlationId: cid,
-        moduleId,
+        moduleId: resolvedModuleId,
         courseId,
         userId: actor.userId,
         durationMs: Date.now() - stageStart,
@@ -2458,7 +2475,7 @@ ${source.sourceText}
         timestamp: new Date().toISOString(),
         stage: "RESPONSE_RETURNED",
         correlationId: cid,
-        moduleId,
+        moduleId: resolvedModuleId,
         courseId,
         userId: actor.userId,
         durationMs: totalDuration,
@@ -2637,12 +2654,13 @@ ${source.sourceText}
     actor: Actor,
     moduleId: string,
     nodeId: string,
+    courseId?: string | null,
   ): Promise<ExpandMindMapNodeResponse> {
-    const { organizationId, documentId } = await this.verifyModuleAccess(actor, moduleId);
+    const { moduleId: resolvedModuleId, organizationId, documentId } = await this.verifyModuleAccess(actor, moduleId, courseId);
 
     const latest = await this.store.findLatestCompleted(
       actor.userId,
-      moduleId,
+      resolvedModuleId,
       "mind_map",
     );
     if (!latest) {
@@ -2675,7 +2693,7 @@ ${source.sourceText}
 
     // Grounding: resolve the most relevant educational source chunks/lessons for this node
     const parentNode = targetNode.parentId ? effective.nodes[targetNode.parentId] ?? null : null;
-    const source = await this.resolveRelevantSourceForNode(moduleId, documentId, targetNode, parentNode);
+    const source = await this.resolveRelevantSourceForNode(resolvedModuleId, documentId, targetNode, parentNode);
 
     const systemPrompt = `شما استاد و متخصص ارشد علوم پزشکی، داروشناسی و آموزش تحلیلی در پلتفرم آوانا (AVANA) هستید.
 وظیفه شما تدوین یک «مینی‌درس تخصصی و عمیق» (Specialized Clinical/Academic Mini-Lesson) درباره یک مفهوم یا گره خاص در نقشه مفهومی است.
@@ -2805,8 +2823,9 @@ ${source.sourceText.slice(0, 15000)}
     actor: Actor,
     moduleId: string,
     request: UpdateMindMapRequest,
+    courseId?: string | null,
   ): Promise<MindMapDto> {
-    await this.verifyModuleAccess(actor, moduleId);
+    const { moduleId: resolvedModuleId } = await this.verifyModuleAccess(actor, moduleId, courseId);
 
     if (!request || typeof request !== "object" || Array.isArray(request)) {
       throw new DomainError("bad_request", "داده‌های ارسالی برای به‌روزرسانی مایندمپ نامعتبر است (شیء معتبر الزامی است).");
@@ -2814,7 +2833,7 @@ ${source.sourceText.slice(0, 15000)}
 
     const latest = await this.store.findLatestCompleted(
       actor.userId,
-      moduleId,
+      resolvedModuleId,
       "mind_map",
     );
     if (!latest) {
@@ -2846,12 +2865,12 @@ ${source.sourceText.slice(0, 15000)}
   /**
    * Reset user modifications, reverting to pure AI Base content.
    */
-  async resetToAiBase(actor: Actor, moduleId: string): Promise<MindMapDto> {
-    await this.verifyModuleAccess(actor, moduleId);
+  async resetToAiBase(actor: Actor, moduleId: string, courseId?: string | null): Promise<MindMapDto> {
+    const { moduleId: resolvedModuleId } = await this.verifyModuleAccess(actor, moduleId, courseId);
 
     const latest = await this.store.findLatestCompleted(
       actor.userId,
-      moduleId,
+      resolvedModuleId,
       "mind_map",
     );
     if (!latest) {
@@ -2877,12 +2896,12 @@ ${source.sourceText.slice(0, 15000)}
   /**
    * List all versions of the mind map for a module.
    */
-  async listVersions(actor: Actor, moduleId: string): Promise<ListMindMapVersionsResponse> {
-    await this.verifyModuleAccess(actor, moduleId);
+  async listVersions(actor: Actor, moduleId: string, courseId?: string | null): Promise<ListMindMapVersionsResponse> {
+    const { moduleId: resolvedModuleId } = await this.verifyModuleAccess(actor, moduleId, courseId);
 
     const records = await this.store.listVersions(
       actor.userId,
-      moduleId,
+      resolvedModuleId,
       "mind_map",
     );
 
@@ -2917,12 +2936,12 @@ ${source.sourceText.slice(0, 15000)}
   /**
    * Get a specific historical version of the mind map.
    */
-  async getVersion(actor: Actor, moduleId: string, version: number): Promise<GetMindMapResponse> {
-    await this.verifyModuleAccess(actor, moduleId);
+  async getVersion(actor: Actor, moduleId: string, version: number, courseId?: string | null): Promise<GetMindMapResponse> {
+    const { moduleId: resolvedModuleId } = await this.verifyModuleAccess(actor, moduleId, courseId);
 
     const record = await this.store.findByVersion(
       actor.userId,
-      moduleId,
+      resolvedModuleId,
       version,
       "mind_map",
     );
@@ -2948,12 +2967,13 @@ ${source.sourceText.slice(0, 15000)}
     actor: Actor,
     moduleId: string,
     targetVersion: number,
+    courseId?: string | null,
   ): Promise<RestoreMindMapVersionResponse> {
-    const { courseId } = await this.verifyModuleAccess(actor, moduleId);
+    const { moduleId: resolvedModuleId, courseId: verifiedCourseId } = await this.verifyModuleAccess(actor, moduleId, courseId);
 
     const targetRecord = await this.store.findByVersion(
       actor.userId,
-      moduleId,
+      resolvedModuleId,
       targetVersion,
       "mind_map",
     );
@@ -2964,7 +2984,7 @@ ${source.sourceText.slice(0, 15000)}
 
     const nextVersion = await this.store.getNextVersion(
       actor.userId,
-      moduleId,
+      resolvedModuleId,
       "mind_map",
     );
 
@@ -2977,8 +2997,8 @@ ${source.sourceText.slice(0, 15000)}
 
     const newRecord = await this.store.createPending({
       userId: actor.userId,
-      courseId,
-      moduleId,
+      courseId: verifiedCourseId,
+      moduleId: resolvedModuleId,
       contentType: "mind_map",
       version: nextVersion,
       status: "completed",
@@ -2987,7 +3007,7 @@ ${source.sourceText.slice(0, 15000)}
       highlightsCount: 0,
       notesCount: 0,
       costToman: 0,
-      idempotencyKey: `mm_restore_${actor.userId}_${moduleId}_v${nextVersion}_from_v${targetVersion}_${Date.now()}`,
+      idempotencyKey: `mm_restore_${actor.userId}_${resolvedModuleId}_v${nextVersion}_from_v${targetVersion}_${Date.now()}`,
     });
 
     return {

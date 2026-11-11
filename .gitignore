@@ -96,11 +96,8 @@ scratch-*.ts
 # Generated load-test results
 /docs/load-tests/results/
 
-# Studio local outputs, heavy media renders & caches (local-only)
-tools/tutorial-studio/output/
-tools/tutorial-studio/.cache/
-tools/tutorial-studio/.remotion/
-tools/tutorial-studio/.vite/
-tools/tutorial-studio/.vite-temp/
+# Studio & design tools (kept out of repository)
+tools/tutorial-studio/
+design-previews/
+.system_generated_eval_output*.json
 stage5_*.png
-

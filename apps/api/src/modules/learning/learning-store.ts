@@ -257,10 +257,11 @@ export interface DocumentStore {
     ownerUserId: UserId,
   ): Promise<DocumentRecord[]>;
 
-  /** Find an active document by content hash (duplicate-upload detection). */
+  /** Find an active document by content hash, optionally scoped to a course or unattached. */
   findByOrganizationAndSha256(
     organizationId: OrganizationId,
     sha256: string,
+    courseId?: CourseId | null,
   ): Promise<DocumentRecord | undefined>;
 
   /** Insert a new document record. */

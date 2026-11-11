@@ -15,7 +15,7 @@ import {
 } from "../modules/learning/test/in-memory-stores.js";
 import { InMemoryCourseStore } from "../modules/courses/test/in-memory-stores.js";
 import type { ModelGateway } from "../generation/gateway/types.js";
-import type { Actor, UserId, CourseId, OrganizationId, DocumentId, ModuleId } from "@avana/domain";
+import type { Actor, UserId, CourseId, OrganizationId, DocumentId, ModuleId, DocumentChunkId } from "@avana/domain";
 import { DomainError, validateMindMapAiBase, computeEffectiveMindMap } from "@avana/domain";
 
 describe("MindMapService — Unit & Integration Test Suite", () => {
@@ -4222,6 +4222,273 @@ describe("MindMapService — Unit & Integration Test Suite", () => {
         expect(hasValidSupplementaryContent(child)).toBe(true);
         expect(isDuplicateOfNodeContent(child.shortDescription, candidateConcept)).toBe(false);
       }
+    });
+  });
+
+  describe("Regression: Reference Document Independence & Robust Resolution", () => {
+    const standaloneModuleId = "00000000-0000-0000-0000-000000000099";
+    const mappedDocId = "00000000-0000-0000-0000-000000000088" as DocumentId;
+
+    it("1. Module with documentId: null + valid published lesson succeeds with sourceType: 'lessons'", async () => {
+      await moduleStore.create({
+        id: standaloneModuleId as ModuleId,
+        courseId,
+        title: "فصل بدون سند مرجع",
+        sortOrder: 2,
+        documentId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      await lessonStore.create({
+        id: "lesson-standalone-1" as LessonId,
+        moduleId: standaloneModuleId as ModuleId,
+        courseId,
+        title: "مکانیسم‌های فارماکولوژی مستقل",
+        contentMarkdown: "این یک درسنامه بالینی کامل است که بدون وجود هرگونه فایل PDF یا سند مرجع در سیستم منتشر شده است و بیش از سی کاراکتر دارد.",
+        sortOrder: 1,
+        publicationStatus: "published",
+        isFreePreview: false,
+        tokenEstimate: 50,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      const check = await service.getMindMap(userA, standaloneModuleId, courseId);
+      expect(check.source_available).toBe(true);
+      expect(check.source_type).toBe("lessons");
+
+      const generated = await service.generateMindMap(userA, standaloneModuleId, "req-standalone", courseId);
+      expect(generated.mind_map.payload.sourceType).toBe("lessons");
+      expect(generated.mind_map.payload.sourceId).toBe(standaloneModuleId);
+      expect(generated.mind_map.status).toBe("completed");
+    });
+
+    it("2. Module with deleted/missing documentId + valid published lesson succeeds with sourceType: 'lessons'", async () => {
+      const deletedDocModuleId = "00000000-0000-0000-0000-000000000098";
+      await moduleStore.create({
+        id: deletedDocModuleId as ModuleId,
+        courseId,
+        title: "فصل با سند حذف‌شده",
+        sortOrder: 3,
+        documentId: "deleted-document-uuid" as DocumentId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // Valid published lesson exists, but NO chunks exist for "deleted-document-uuid"
+      await lessonStore.create({
+        id: "lesson-del-1" as LessonId,
+        moduleId: deletedDocModuleId as ModuleId,
+        courseId,
+        title: "درسنامه فصل با سند حذف‌شده",
+        contentMarkdown: "متن درسنامه مستقل و غنی فارماکولوژی برای ماژولی که فایل اصلی آن در سیستم حذف گردیده است.",
+        sortOrder: 1,
+        publicationStatus: "published",
+        isFreePreview: false,
+        tokenEstimate: 60,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      const res = await service.generateMindMap(userA, deletedDocModuleId, "req-del", courseId);
+      expect(res.mind_map.payload.sourceType).toBe("lessons");
+      expect(res.mind_map.payload.sourceId).toBe(deletedDocModuleId);
+      expect(res.mind_map.status).toBe("completed");
+    });
+
+    it("3. Resolves caller-provided documentId to moduleId via findByDocument and succeeds", async () => {
+      const mappedModuleId = "00000000-0000-0000-0000-000000000097";
+      await moduleStore.create({
+        id: mappedModuleId as ModuleId,
+        courseId,
+        title: "فصل متناظر با سند",
+        sortOrder: 4,
+        documentId: mappedDocId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      await lessonStore.create({
+        id: "lesson-mapped-1" as LessonId,
+        moduleId: mappedModuleId as ModuleId,
+        courseId,
+        title: "درسنامه فصل نگاشت‌شده",
+        contentMarkdown: "محتوای علمی درسنامه آموزشی که شناسه سند آن به جای شناسه ماژول ارسال می‌شود.",
+        sortOrder: 1,
+        publicationStatus: "published",
+        isFreePreview: false,
+        tokenEstimate: 60,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // Calling with documentId string instead of moduleId
+      const getRes = await service.getMindMap(userA, mappedDocId, courseId);
+      expect(getRes.source_available).toBe(true);
+      expect(getRes.source_type).toBe("lessons");
+
+      const genRes = await service.generateMindMap(userA, mappedDocId, "req-mapped", courseId);
+      expect(genRes.mind_map.moduleId).toBe(mappedModuleId);
+      expect(genRes.mind_map.payload.sourceId).toBe(mappedModuleId);
+    });
+
+    it("4. Falls back to reference chunks when published lessons are unavailable or empty", async () => {
+      const chunksOnlyModuleId = "00000000-0000-0000-0000-000000000096";
+      const chunksOnlyDocId = "00000000-0000-0000-0000-000000000086" as DocumentId;
+
+      await moduleStore.create({
+        id: chunksOnlyModuleId as ModuleId,
+        courseId,
+        title: "فصل فقط با چانک‌های مرجع",
+        sortOrder: 5,
+        documentId: chunksOnlyDocId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // Lesson is draft / unpublished
+      await lessonStore.create({
+        id: "lesson-draft-1" as LessonId,
+        moduleId: chunksOnlyModuleId as ModuleId,
+        courseId,
+        title: "درسنامه پیش‌نویس",
+        contentMarkdown: "متن پیش‌نویس منتشرنشده",
+        sortOrder: 1,
+        publicationStatus: "draft",
+        isFreePreview: false,
+        tokenEstimate: 10,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // Valid chunks exist in chunkStore
+      await chunkStore.createMany([
+        {
+          id: "chunk-fb-1" as DocumentChunkId,
+          documentId: chunksOnlyDocId,
+          organizationId: orgId,
+          sequence: 1,
+          heading: "داروهای مسدودکننده بتا",
+          content: "پروپرانولول و متوپرولول از داروهای بتابلوکر بوده و در پرفشاری خون مصرف دارند.",
+          startPage: 1,
+          endPage: 2,
+          tokenEstimate: 50,
+          contentHash: "hash-fb-1",
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const res = await service.generateMindMap(userA, chunksOnlyModuleId, "req-fb", courseId);
+      expect(res.mind_map.payload.sourceType).toBe("reference_document");
+      expect(res.mind_map.payload.sourceId).toBe(chunksOnlyDocId);
+    });
+
+    it("5. Throws bad_request with NO_VALID_SOURCE when neither lesson nor chunks are available", async () => {
+      const emptyModuleId = "00000000-0000-0000-0000-000000000095";
+      await moduleStore.create({
+        id: emptyModuleId as ModuleId,
+        courseId,
+        title: "فصل بدون هیچ منبعی",
+        sortOrder: 6,
+        documentId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      await expect(
+        service.generateMindMap(userA, emptyModuleId, "req-empty", courseId),
+      ).rejects.toThrowError(
+        expect.objectContaining({
+          code: "bad_request",
+          details: { reason: "NO_VALID_SOURCE" },
+        }),
+      );
+    });
+
+    it("6. Rejects request with bad_request when module does not match expected courseId", async () => {
+      const mismatchCourseId = "00000000-0000-0000-0000-000000000999" as CourseId;
+
+      await expect(
+        service.getMindMap(userA, moduleId, mismatchCourseId),
+      ).rejects.toThrowError(
+        expect.objectContaining({
+          code: "bad_request",
+          message: "سرفصل مورد نظر متعلق به این دوره نیست.",
+        }),
+      );
+
+      await expect(
+        service.generateMindMap(userA, moduleId, "req-mismatch", mismatchCourseId),
+      ).rejects.toThrowError(
+        expect.objectContaining({
+          code: "bad_request",
+          message: "سرفصل مورد نظر متعلق به این دوره نیست.",
+        }),
+      );
+    });
+
+    it("7. Preserves userModifications and userNotes across read and updates", async () => {
+      // First generate mind map
+      await lessonStore.create({
+        id: "lesson-notes-1" as LessonId,
+        moduleId: moduleId as ModuleId,
+        courseId,
+        title: "درسنامه تست یادداشت‌ها",
+        contentMarkdown: "محتوای غنی و معتبر درسنامه برای سنجش ماندگاری یادداشت‌ها و گره‌های اختصاصی کاربر.",
+        sortOrder: 1,
+        publicationStatus: "published",
+        isFreePreview: false,
+        tokenEstimate: 50,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      await service.generateMindMap(userA, moduleId, "req-notes", courseId);
+
+      // Add a user note and a custom node
+      const updated = await service.updateMindMap(
+        userA,
+        moduleId,
+        {
+          userModifications: {
+            deletedNodeIds: [],
+            customNodes: {
+              custom_1: {
+                id: "custom_1",
+                parentId: "root",
+                title: "گره دست‌ساز کاربر",
+                shortDescription: "توضیح دست‌ساز",
+                keyPoints: ["نکته شخصی"],
+                sortOrder: 10,
+              },
+            },
+            overrides: {},
+          },
+          userNotes: {
+            root: { noteText: "یادداشت شخصی من روی گره ریشه", updatedAt: new Date().toISOString() },
+          },
+        },
+        courseId,
+      );
+
+      expect(updated.payload.userNotes?.root?.noteText).toBe("یادداشت شخصی من روی گره ریشه");
+      expect(updated.payload.userModifications.customNodes.custom_1.title).toBe("گره دست‌ساز کاربر");
+
+      // Verify getMindMap returns the same preserved modifications
+      const fetched = await service.getMindMap(userA, moduleId, courseId);
+      expect(fetched.mind_map?.payload.userNotes?.root?.noteText).toBe("یادداشت شخصی من روی گره ریشه");
+      expect(fetched.mind_map?.payload.userModifications.customNodes.custom_1.title).toBe("گره دست‌ساز کاربر");
     });
   });
 });

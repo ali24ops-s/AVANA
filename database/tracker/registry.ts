@@ -97,6 +97,7 @@ import { up as up0097 } from "../migrations/0097_mind_map_personal_content_type.
 import { up as up0098 } from "../migrations/0098_error_monitoring_core.js";
 import { up as up0099 } from "../migrations/0099_crm_campaigns.js";
 import { up as up0100 } from "../migrations/0100_crm_campaign_dispatch.js";
+import { up as up0101 } from "../migrations/0101_scope_documents_by_course.js";
 
 export const ALL_MIGRATIONS: MigrationDefinition[] = [
   {
@@ -680,5 +681,11 @@ export const ALL_MIGRATIONS: MigrationDefinition[] = [
     sequence: 100,
     up: up0100,
     sourceFile: "0100_crm_campaign_dispatch.ts",
+  },
+  {
+    id: "0101_scope_documents_by_course",
+    sequence: 101,
+    up: up0101,
+    sourceFile: "0101_scope_documents_by_course.ts",
   },
 ];

@@ -437,6 +437,7 @@ export class InMemoryDocumentStore implements DocumentStore {
   async findByOrganizationAndSha256(
     organizationId: OrganizationId,
     sha256: string,
+    courseId?: CourseId | null,
   ): Promise<DocumentRecord | undefined> {
     for (const d of this.documents.values()) {
       if (
@@ -444,6 +445,10 @@ export class InMemoryDocumentStore implements DocumentStore {
         d.sha256 === sha256 &&
         d.deletedAt === null
       ) {
+        if (courseId !== undefined) {
+          if (courseId === null && d.courseId !== null) continue;
+          if (courseId !== null && d.courseId !== courseId) continue;
+        }
         return { ...d };
       }
     }
@@ -463,9 +468,14 @@ export class InMemoryDocumentStore implements DocumentStore {
   async create(document: DocumentRecord): Promise<DocumentRecord> {
     if (document.sha256) {
       for (const [id, d] of this.documents.entries()) {
+        const courseMatch = document.courseId
+          ? d.courseId === document.courseId
+          : d.courseId === null || d.courseId === undefined;
+
         if (
           d.organizationId === document.organizationId &&
-          d.sha256 === document.sha256
+          d.sha256 === document.sha256 &&
+          courseMatch
         ) {
           if (d.deletedAt !== null) {
             this.documents.delete(id);

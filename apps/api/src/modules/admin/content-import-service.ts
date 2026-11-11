@@ -22,6 +22,7 @@ import {
 } from "@avana/database/schema";
 import { normalizeEducationalContent } from "@avana/domain";
 import type { StorageProvider } from "../storage/storage-provider.js";
+import { StorageLockCoordinator } from "../documents/storage-lock-coordinator.js";
 import type {
   ExportPackageManifest,
   ExportCourseItem,
@@ -138,7 +139,7 @@ export class ContentImportService {
           ? Math.max(...existingDocsInPack.map((d) => d.orderIndex ?? 0)) + 1
           : 0;
 
-      await executor
+      const insertQuery = executor
         .insert(sourcePackDocuments)
         .values({
           id: crypto.randomUUID(),
@@ -146,10 +147,20 @@ export class ContentImportService {
           documentId,
           role: "supplementary_reference",
           orderIndex: nextOrder,
-        })
-        .onConflictDoNothing({
+        });
+
+      type ConflictQuery = {
+        onConflictDoNothing?: (opts?: { target?: unknown }) => Promise<unknown>;
+      };
+
+      const conflictQuery = insertQuery as unknown as ConflictQuery;
+      if (typeof conflictQuery.onConflictDoNothing === "function") {
+        await conflictQuery.onConflictDoNothing({
           target: [sourcePackDocuments.sourcePackId, sourcePackDocuments.documentId],
         });
+      } else {
+        await insertQuery;
+      }
     }
   }
 
@@ -463,68 +474,77 @@ export class ContentImportService {
       }
     }
 
-    // 7.2 Document Duplicate Detection (Tier 1: imported_entities, Tier 2: sha256)
+    // 7.2 Document Duplicate Detection (Tier 1: imported_entities for target course, Tier 2: targetCourse + sha256)
     const dbTargetDocs = await this.db
       .select()
       .from(documents)
       .where(and(eq(documents.organizationId, organizationId), isNull(documents.deletedAt)));
 
+    const docsByCourseAndSha = new Map<string, typeof documents.$inferSelect>();
+    const docsUnattachedBySha = new Map<string, typeof documents.$inferSelect>();
     const docsBySha = new Map<string, typeof documents.$inferSelect>();
     const docsById = new Map<string, typeof documents.$inferSelect>();
     for (const d of dbTargetDocs) {
-      docsBySha.set(d.sha256, d);
       docsById.set(d.id, d);
+      docsBySha.set(d.sha256, d);
+      if (d.courseId) {
+        docsByCourseAndSha.set(`${d.courseId}:${d.sha256}`, d);
+      } else {
+        docsUnattachedBySha.set(d.sha256, d);
+      }
     }
 
     const docResolutions = new Map<string, string>(); // exportId -> targetDocId
 
     for (const d of documentsList) {
+      const targetCourseId = d.courseExportId ? courseResolutions.get(d.courseExportId) : undefined;
       const imp = importedByExportId.get(`document:${d.exportId}`);
       let targetDoc: typeof documents.$inferSelect | undefined;
+
+      // Tier 1: Check prior import provenance for this document in the target course
       if (imp && docsById.has(imp.targetEntityId)) {
-        targetDoc = docsById.get(imp.targetEntityId);
-      } else {
-        targetDoc = docsBySha.get(d.sha256);
+        const potentialDoc = docsById.get(imp.targetEntityId)!;
+        if (targetCourseId) {
+          if (potentialDoc.courseId === targetCourseId) {
+            targetDoc = potentialDoc;
+          }
+        } else if (!potentialDoc.courseId) {
+          targetDoc = potentialDoc;
+        }
+      }
+
+      // Tier 2: Natural key match within the target course (or unattached scope)
+      if (!targetDoc) {
+        if (d.courseExportId) {
+          if (targetCourseId) {
+            targetDoc = docsByCourseAndSha.get(`${targetCourseId}:${d.sha256}`);
+          }
+        } else {
+          targetDoc = docsUnattachedBySha.get(d.sha256);
+        }
       }
 
       if (targetDoc) {
         docResolutions.set(d.exportId, targetDoc.id);
-
-        let subStatus: ImportEntitySubStatus = "EXISTING_SAME_COURSE";
-        let conflictReason: string | undefined = undefined;
-
-        if (d.courseExportId) {
-          const targetCourseId = courseResolutions.get(d.courseExportId);
-          if (!targetDoc.courseId) {
-            // Scenario B: Document exists without owner -> initial ownership will be assigned
-            subStatus = "EXISTING_UNOWNED";
-          } else if (targetCourseId && targetDoc.courseId === targetCourseId) {
-            // Scenario C: Document already belongs to target course
-            subStatus = "EXISTING_SAME_COURSE";
-          } else {
-            // Scenario D: Document belongs to another course in same organization -> Shared reuse
-            subStatus = "EXISTING_SHARED";
-            conflictReason = `استفاده مشترک از سند موجود (مالکیت اصلی دوره ${targetDoc.courseId} حفظ می‌شود)`;
-          }
-        } else if (!targetDoc.courseId) {
-          subStatus = "EXISTING_UNOWNED";
-        }
-
+        const subStatus: ImportEntitySubStatus = targetDoc.courseId ? "EXISTING_SAME_COURSE" : "EXISTING_UNOWNED";
         resolutions.push({
           entityType: "document",
           exportId: d.exportId,
           status: "EXISTING",
           subStatus,
           targetEntityId: targetDoc.id,
-          conflictReason,
           titleOrName: d.originalName,
         });
       } else {
-        // Scenario A: Brand-new document (or belonging to another org since docsBySha is strictly org-scoped)
+        // Target course does not have this document yet -> Independent Document will be created for target course!
+        // Check if physical file exists in storage from any other document in org for shared storage reuse
+        const fileExistsInOrg = docsBySha.has(d.sha256);
+        const subStatus: ImportEntitySubStatus | undefined = fileExistsInOrg ? "EXISTING_SHARED" : undefined;
         resolutions.push({
           entityType: "document",
           exportId: d.exportId,
           status: "NEW",
+          ...(subStatus ? { subStatus } : {}),
           titleOrName: d.originalName,
         });
       }
@@ -1075,185 +1095,7 @@ export class ContentImportService {
           liveImportedByExportId.set(`${imp.entityType}:${imp.exportId}`, imp);
         }
 
-        // 2. Insert / Deduplicate Documents & Files
-        const liveTargetDocs = await tx
-          .select()
-          .from(documents)
-          .where(and(eq(documents.organizationId, organizationId), isNull(documents.deletedAt)));
-
-        const liveDocsBySha = new Map<string, typeof documents.$inferSelect>();
-        const liveDocsById = new Map<string, typeof documents.$inferSelect>();
-        for (const d of liveTargetDocs) {
-          liveDocsBySha.set(d.sha256, d);
-          liveDocsById.set(d.id, d);
-        }
-
-        for (const doc of parsedData.documents) {
-          const imp = liveImportedByExportId.get(`document:${doc.exportId}`);
-          const planRes = resolutionMap.get(`document:${doc.exportId}`);
-          const naturalMatch = liveDocsBySha.get(doc.sha256);
-
-          let existingDocId: string | undefined = undefined;
-          if (imp && liveDocsById.has(imp.targetEntityId)) {
-            existingDocId = imp.targetEntityId;
-          } else if (naturalMatch) {
-            existingDocId = naturalMatch.id;
-          } else if (planRes?.status === "EXISTING" && planRes.targetEntityId && liveDocsById.has(planRes.targetEntityId)) {
-            existingDocId = planRes.targetEntityId;
-          }
-
-          if (existingDocId) {
-            targetIdMap.set(doc.exportId, existingDocId);
-            totalSkipped++;
-            newProvenanceRecords.push({
-              id: crypto.randomUUID(),
-              organizationId,
-              batchId,
-              entityType: "document",
-              exportId: doc.exportId,
-              targetEntityId: existingDocId,
-              contentHash: doc.contentHash,
-              naturalKey: doc.sha256,
-            });
-            continue;
-          }
-
-          const newDocId = crypto.randomUUID();
-          let storageKey = `uploads/${newDocId}.bin`;
-          if (doc.originalName) {
-            const ext = path.extname(doc.originalName) || ".bin";
-            storageKey = `uploads/${newDocId}${ext}`;
-          }
-
-          // If binary file was bundled in package, save to storageProvider
-          if (parsedData.files.has(doc.sha256)) {
-            const fileData = parsedData.files.get(doc.sha256)!;
-            await this.storageProvider.save({
-              storageKey,
-              data: fileData,
-              mimeType: doc.mimeType,
-            });
-            newlySavedStorageKeys.push(storageKey);
-          }
-
-          const newDocRecord = {
-            id: newDocId,
-            organizationId,
-            courseId: null, // Will be bound if course is created
-            ownerUserId: actorId,
-            originalName: doc.originalName,
-            mimeType: doc.mimeType,
-            sizeBytes: doc.sizeBytes,
-            sha256: doc.sha256,
-            storageKey,
-            pageCount: doc.pageCount,
-            status: "ready",
-            qualityScore: doc.qualityScore,
-            qualityLevel: doc.qualityLevel,
-            qualityReport: doc.qualityReport,
-          };
-
-          // Purge any soft-deleted document with the same sha256 in the same org
-          // to satisfy the idx_documents_org_hash unique constraint, adhering to
-          // the semantics in DrizzleDocumentStore.create.
-          await tx
-            .delete(documents)
-            .where(
-              and(
-                eq(documents.organizationId, organizationId),
-                eq(documents.sha256, doc.sha256),
-                isNotNull(documents.deletedAt),
-              ),
-            );
-
-          await tx.insert(documents).values(newDocRecord);
-
-          targetIdMap.set(doc.exportId, newDocId);
-          liveDocsById.set(newDocId, newDocRecord as unknown as typeof documents.$inferSelect);
-          liveDocsBySha.set(doc.sha256, newDocRecord as unknown as typeof documents.$inferSelect);
-          totalCreated++;
-
-          newProvenanceRecords.push({
-            id: crypto.randomUUID(),
-            organizationId,
-            batchId,
-            entityType: "document",
-            exportId: doc.exportId,
-            targetEntityId: newDocId,
-            contentHash: doc.contentHash,
-            naturalKey: doc.sha256,
-          });
-        }
-
-        // Insert / Map Document Chunks with Integrity Verification (Constraint C)
-        const chunkExportToId = new Map<string, string>();
-
-        // Cache existing chunks for existing documents by documentId
-        const existingChunksByDocId = new Map<string, (typeof documentChunks.$inferSelect)[]>();
-        for (const doc of parsedData.documents) {
-          const targetDocId = targetIdMap.get(doc.exportId);
-          const docImp = liveImportedByExportId.get(`document:${doc.exportId}`);
-          const docNatural = parsedData.documents.find((d) => d.exportId === doc.exportId);
-          const isDocExisting =
-            (docImp && liveDocsById.has(docImp.targetEntityId)) ||
-            (docNatural && liveDocsBySha.has(docNatural.sha256));
-          if (isDocExisting && targetDocId && !existingChunksByDocId.has(targetDocId)) {
-            try {
-              const chunks = await tx
-                .select()
-                .from(documentChunks)
-                .where(eq(documentChunks.documentId, targetDocId))
-                .orderBy(documentChunks.sequence);
-              existingChunksByDocId.set(targetDocId, chunks || []);
-            } catch {
-              // fallback if table query fails in minimal mock
-            }
-          }
-        }
-
-        for (const ch of parsedData.documentChunks) {
-          const targetDocId = targetIdMap.get(ch.documentExportId);
-          if (!targetDocId) continue;
-
-          const existingChunks = existingChunksByDocId.get(targetDocId);
-          if (existingChunks && existingChunks.length > 0) {
-            // Constraint C: Verify chunk match against live chunk:
-            // Match against: documentId, sequence, actual content or contentHash
-            const expectedHash =
-              ch.contentHash ||
-              crypto.createHash("sha256").update(ch.content).digest("hex");
-            const matchedLiveChunk = existingChunks.find(
-              (lc) =>
-                lc.sequence === ch.sequence &&
-                (lc.contentHash === expectedHash ||
-                  (lc.content && lc.content.trim() === ch.content.trim())),
-            );
-            if (matchedLiveChunk) {
-              chunkExportToId.set(ch.exportId, matchedLiveChunk.id);
-            }
-            // Skip inserting duplicate chunk for existing document
-            continue;
-          }
-
-          const newChunkId = crypto.randomUUID();
-          await tx.insert(documentChunks).values({
-            id: newChunkId,
-            documentId: targetDocId,
-            organizationId,
-            sequence: ch.sequence,
-            heading: ch.heading,
-            content: ch.content,
-            startPage: ch.startPage,
-            endPage: ch.endPage,
-            tokenEstimate: ch.tokenEstimate,
-            contentHash:
-              ch.contentHash ||
-              crypto.createHash("sha256").update(ch.content).digest("hex"),
-          });
-          chunkExportToId.set(ch.exportId, newChunkId);
-        }
-
-        // 3. Insert / Deduplicate Courses
+        // 2. Insert / Deduplicate Courses
         const liveTargetCourses = await tx
           .select()
           .from(courses)
@@ -1327,36 +1169,246 @@ export class ContentImportService {
           });
         }
 
-        // Link Documents to Courses if courseExportId was set
+        // 3. Insert / Deduplicate Documents & Files (Scoped to target course)
+        const liveTargetDocs = await tx
+          .select()
+          .from(documents)
+          .where(and(eq(documents.organizationId, organizationId), isNull(documents.deletedAt)));
+
+        const liveDocsByCourseAndSha = new Map<string, typeof documents.$inferSelect>();
+        const liveDocsUnattachedBySha = new Map<string, typeof documents.$inferSelect>();
+        const liveDocsBySha = new Map<string, typeof documents.$inferSelect>();
+        const liveDocsById = new Map<string, typeof documents.$inferSelect>();
+        for (const d of liveTargetDocs) {
+          liveDocsBySha.set(d.sha256, d);
+          liveDocsById.set(d.id, d);
+          if (d.courseId) {
+            liveDocsByCourseAndSha.set(`${d.courseId}:${d.sha256}`, d);
+          } else {
+            liveDocsUnattachedBySha.set(d.sha256, d);
+          }
+        }
+
+        const newDocIdsCreated = new Set<string>();
+
         for (const doc of parsedData.documents) {
-          if (doc.courseExportId) {
-            const targetCourseId = targetIdMap.get(doc.courseExportId);
-            const targetDocId = targetIdMap.get(doc.exportId);
-            if (targetCourseId && targetDocId) {
-              const currentDoc = liveDocsById.get(targetDocId);
-              if (currentDoc) {
-                if (!currentDoc.courseId) {
-                  // Scenario B: Document exists without owner -> assign initial ownership to target course
-                  await tx
-                    .update(documents)
-                    .set({ courseId: targetCourseId })
-                    .where(eq(documents.id, targetDocId));
-                  currentDoc.courseId = targetCourseId;
-                } else if (currentDoc.courseId !== targetCourseId) {
-                  // Scenario D: Shared document already owned by another course in same org.
-                  // NEVER overwrite documents.courseId (Zero Hijacking!).
-                  // Idempotently link to target course's Source Pack.
-                  await this.ensureDocumentInCourseSourcePack(
-                    tx,
-                    organizationId,
-                    targetCourseId,
-                    targetDocId,
-                  );
+          const targetCourseId = doc.courseExportId ? targetIdMap.get(doc.courseExportId) || null : null;
+          const imp = liveImportedByExportId.get(`document:${doc.exportId}`);
+          const planRes = resolutionMap.get(`document:${doc.exportId}`);
+
+          let existingDocId: string | undefined = undefined;
+
+          // Tier 1: Check provenance within the target course scope
+          if (imp && liveDocsById.has(imp.targetEntityId)) {
+            const potentialDoc = liveDocsById.get(imp.targetEntityId)!;
+            if (targetCourseId) {
+              if (potentialDoc.courseId === targetCourseId) {
+                existingDocId = potentialDoc.id;
+              }
+            } else if (!potentialDoc.courseId) {
+              existingDocId = potentialDoc.id;
+            }
+          }
+
+          // Tier 2: Natural key match within target course (or unattached scope)
+          if (!existingDocId) {
+            if (doc.courseExportId) {
+              if (targetCourseId) {
+                const naturalCourseMatch = liveDocsByCourseAndSha.get(`${targetCourseId}:${doc.sha256}`);
+                if (naturalCourseMatch) {
+                  existingDocId = naturalCourseMatch.id;
                 }
-                // Scenario C: currentDoc.courseId === targetCourseId -> already owned, no update needed
+              }
+            } else {
+              const naturalUnattachedMatch = liveDocsUnattachedBySha.get(doc.sha256);
+              if (naturalUnattachedMatch) {
+                existingDocId = naturalUnattachedMatch.id;
               }
             }
           }
+
+          // Tier 3: Plan resolution if it points to a document belonging to target course
+          if (!existingDocId && planRes?.status === "EXISTING" && planRes.targetEntityId && liveDocsById.has(planRes.targetEntityId)) {
+            const planDoc = liveDocsById.get(planRes.targetEntityId)!;
+            if ((targetCourseId && planDoc.courseId === targetCourseId) || (!targetCourseId && !planDoc.courseId)) {
+              existingDocId = planDoc.id;
+            }
+          }
+
+          if (existingDocId) {
+            targetIdMap.set(doc.exportId, existingDocId);
+            totalSkipped++;
+            newProvenanceRecords.push({
+              id: crypto.randomUUID(),
+              organizationId,
+              batchId,
+              entityType: "document",
+              exportId: doc.exportId,
+              targetEntityId: existingDocId,
+              contentHash: doc.contentHash,
+              naturalKey: targetCourseId ? `${targetCourseId}:${doc.sha256}` : doc.sha256,
+            });
+            continue;
+          }
+
+          // Independent Document creation for target course
+          const newDocId = crypto.randomUUID();
+
+          const existingFileDoc = liveDocsBySha.get(doc.sha256);
+          const candidateStorageKey = existingFileDoc?.storageKey;
+          const lockKey = candidateStorageKey || `uploads/${newDocId}`;
+
+          await StorageLockCoordinator.withLock(
+            organizationId,
+            lockKey,
+            tx,
+            async () => {
+              let storageKey: string;
+              if (candidateStorageKey && (await this.storageProvider.exists(candidateStorageKey))) {
+                storageKey = candidateStorageKey;
+              } else {
+                const ext = doc.originalName ? path.extname(doc.originalName) || ".bin" : ".bin";
+                storageKey = `uploads/${newDocId}${ext}`;
+                if (parsedData.files.has(doc.sha256)) {
+                  const fileData = parsedData.files.get(doc.sha256)!;
+                  await this.storageProvider.save({
+                    storageKey,
+                    data: fileData,
+                    mimeType: doc.mimeType,
+                  });
+                  newlySavedStorageKeys.push(storageKey);
+                }
+              }
+
+              const newDocRecord = {
+                id: newDocId,
+                organizationId,
+                courseId: targetCourseId ?? null,
+                ownerUserId: actorId,
+                originalName: doc.originalName,
+                mimeType: doc.mimeType,
+                sizeBytes: doc.sizeBytes,
+                sha256: doc.sha256,
+                storageKey,
+                pageCount: doc.pageCount,
+                status: "ready",
+                qualityScore: doc.qualityScore,
+                qualityLevel: doc.qualityLevel,
+                qualityReport: doc.qualityReport,
+              };
+
+              // Purge any soft-deleted document in the same target course scope with the same sha256
+              const courseCond = targetCourseId
+                ? eq(documents.courseId, targetCourseId)
+                : isNull(documents.courseId);
+              await tx
+                .delete(documents)
+                .where(
+                  and(
+                    eq(documents.organizationId, organizationId),
+                    courseCond,
+                    eq(documents.sha256, doc.sha256),
+                    isNotNull(documents.deletedAt),
+                  ),
+                );
+
+              await tx.insert(documents).values(newDocRecord);
+
+              liveDocsById.set(newDocId, newDocRecord as unknown as typeof documents.$inferSelect);
+              liveDocsBySha.set(doc.sha256, newDocRecord as unknown as typeof documents.$inferSelect);
+              if (targetCourseId) {
+                liveDocsByCourseAndSha.set(`${targetCourseId}:${doc.sha256}`, newDocRecord as unknown as typeof documents.$inferSelect);
+              } else {
+                liveDocsUnattachedBySha.set(doc.sha256, newDocRecord as unknown as typeof documents.$inferSelect);
+              }
+            },
+          );
+
+          targetIdMap.set(doc.exportId, newDocId);
+          newDocIdsCreated.add(newDocId);
+          if (targetCourseId) {
+            await this.ensureDocumentInCourseSourcePack(
+              tx,
+              organizationId,
+              targetCourseId,
+              newDocId,
+            );
+          }
+          totalCreated++;
+
+          newProvenanceRecords.push({
+            id: crypto.randomUUID(),
+            organizationId,
+            batchId,
+            entityType: "document",
+            exportId: doc.exportId,
+            targetEntityId: newDocId,
+            contentHash: doc.contentHash,
+            naturalKey: targetCourseId ? `${targetCourseId}:${doc.sha256}` : doc.sha256,
+          });
+        }
+
+        // 4. Insert / Map Document Chunks with Integrity Verification (Constraint C)
+        const chunkExportToId = new Map<string, string>();
+
+        // Cache existing chunks for existing documents by documentId
+        const existingChunksByDocId = new Map<string, (typeof documentChunks.$inferSelect)[]>();
+        for (const doc of parsedData.documents) {
+          const targetDocId = targetIdMap.get(doc.exportId);
+          if (targetDocId && !newDocIdsCreated.has(targetDocId) && !existingChunksByDocId.has(targetDocId)) {
+            try {
+              const chunks = await tx
+                .select()
+                .from(documentChunks)
+                .where(eq(documentChunks.documentId, targetDocId))
+                .orderBy(documentChunks.sequence);
+              existingChunksByDocId.set(targetDocId, chunks || []);
+            } catch {
+              // fallback if table query fails in minimal mock
+            }
+          }
+        }
+
+        for (const ch of parsedData.documentChunks) {
+          const targetDocId = targetIdMap.get(ch.documentExportId);
+          if (!targetDocId) continue;
+
+          const existingChunks = existingChunksByDocId.get(targetDocId);
+          if (existingChunks && existingChunks.length > 0) {
+            // Constraint C: Verify chunk match against live chunk:
+            // Match against: documentId, sequence, actual content or contentHash
+            const expectedHash =
+              ch.contentHash ||
+              crypto.createHash("sha256").update(ch.content).digest("hex");
+            const matchedLiveChunk = existingChunks.find(
+              (lc) =>
+                lc.sequence === ch.sequence &&
+                (lc.contentHash === expectedHash ||
+                  (lc.content && lc.content.trim() === ch.content.trim())),
+            );
+            if (matchedLiveChunk) {
+              chunkExportToId.set(ch.exportId, matchedLiveChunk.id);
+            }
+            // Skip inserting duplicate chunk for existing document
+            continue;
+          }
+
+          const newChunkId = crypto.randomUUID();
+          await tx.insert(documentChunks).values({
+            id: newChunkId,
+            documentId: targetDocId,
+            organizationId,
+            sequence: ch.sequence,
+            heading: ch.heading,
+            content: ch.content,
+            startPage: ch.startPage,
+            endPage: ch.endPage,
+            tokenEstimate: ch.tokenEstimate,
+            contentHash:
+              ch.contentHash ||
+              crypto.createHash("sha256").update(ch.content).digest("hex"),
+          });
+          chunkExportToId.set(ch.exportId, newChunkId);
         }
 
         // 4. Insert / Deduplicate Modules

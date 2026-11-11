@@ -663,10 +663,12 @@ export const documents = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (table) => ({
-    orgHashIdx: uniqueIndex("idx_documents_org_hash").on(
-      table.organizationId,
-      table.sha256,
-    ),
+    orgCourseHashIdx: uniqueIndex("idx_documents_org_course_hash")
+      .on(table.organizationId, table.courseId, table.sha256)
+      .where(sql`${table.courseId} IS NOT NULL AND ${table.deletedAt} IS NULL`),
+    orgUnattachedHashIdx: uniqueIndex("idx_documents_org_unattached_hash")
+      .on(table.organizationId, table.sha256)
+      .where(sql`${table.courseId} IS NULL AND ${table.deletedAt} IS NULL`),
     orgCourseIdx: index("idx_documents_org_course").on(
       table.organizationId,
       table.courseId,

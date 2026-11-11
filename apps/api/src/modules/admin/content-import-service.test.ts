@@ -3,6 +3,8 @@ import { describe, expect, it, beforeEach } from "vitest";
 import crypto from "node:crypto";
 import { ContentExportService } from "./content-export-service.js";
 import { ContentImportService } from "./content-import-service.js";
+import { DocumentService } from "../documents/document-service.js";
+import { buildActor } from "@avana/domain";
 import type { StorageProvider, StoredFile, UploadIntent } from "../storage/storage-provider.js";
 import type { DbClient } from "@avana/database/client";
 
@@ -443,7 +445,7 @@ describe("ContentImportService: Document Ownership & Anti-Hijacking Regression S
     const zipBuffer = await exportService.exportContent(orgA, { courseId: courseIdSource });
 
     const plan = await importService.validatePackage(zipBuffer, actorId, orgB);
-    expect(plan.summary.documents.existing).toBe(1);
+    expect(plan.summary.documents.new).toBe(1);
     expect(plan.conflicts.length).toBe(0);
 
     const result = await importService.executeImport(plan.planId, actorId, orgB);
@@ -452,8 +454,15 @@ describe("ContentImportService: Document Ownership & Anti-Hijacking Regression S
     const importedCourse = targetDb.tables.courses.find((c) => c.name === "دوره مقصد دارای سند آزاد");
     expect(importedCourse).toBeDefined();
 
+    // The unattached document must remain unattached (Zero Hijacking of unattached documents)
     const existingDocInTarget = targetDb.tables.documents.find((d) => d.id === docIdExisting);
-    expect(existingDocInTarget.courseId).toBe(importedCourse.id);
+    expect(existingDocInTarget.courseId).toBeNull();
+
+    // An independent document was created for the target course
+    const newCourseDoc = targetDb.tables.documents.find((d) => d.courseId === importedCourse.id);
+    expect(newCourseDoc).toBeDefined();
+    expect(newCourseDoc.id).not.toBe(docIdExisting);
+    expect(newCourseDoc.sha256).toBe(fileSha);
   });
 
   it("Test 3: Document موجود متعلق به Course A و دارای Lesson/Flashcard/Quiz → Import به Course B نباید course_id را overwrite کند", async () => {
@@ -535,9 +544,7 @@ describe("ContentImportService: Document Ownership & Anti-Hijacking Regression S
     expect(plan.conflicts.length).toBe(0);
 
     const docRes = plan.resolutions.find((r) => r.entityType === "document");
-    expect(docRes?.status).toBe("EXISTING");
-    expect(docRes?.subStatus).toBe("EXISTING_SHARED");
-    expect(docRes?.conflictReason).toContain("استفاده مشترک از سند موجود");
+    expect(docRes?.status).toBe("NEW");
 
     // Execution succeeds cleanly
     const result = await importService.executeImport(plan.planId, actorId, orgB);
@@ -550,6 +557,13 @@ describe("ContentImportService: Document Ownership & Anti-Hijacking Regression S
     // Course A educational structure remains intact
     expect(targetDb.tables.modules.find((m) => m.id === "mod-pharma1-1")).toBeDefined();
     expect(targetDb.tables.flashcards.find((f) => f.id === "card-pharma1-1")).toBeDefined();
+
+    // Course B gets its own independent document record
+    const targetCourseB = targetDb.tables.courses.find((c) => c.name === "فارماسیوتیکس 3");
+    expect(targetCourseB).toBeDefined();
+    const courseBDoc = targetDb.tables.documents.find((d) => d.courseId === targetCourseB.id);
+    expect(courseBDoc).toBeDefined();
+    expect(courseBDoc.id).not.toBe(docIdInCourseA);
   });
 
   it("Test 4: Document موجود با hash یکسان ولی ownership متفاوت → Document Hijacking رخ ندهد و به صورت Shared Reuse وارد شود", async () => {
@@ -614,8 +628,7 @@ describe("ContentImportService: Document Ownership & Anti-Hijacking Regression S
     const plan = await importService.validatePackage(zipBuffer, actorId, orgB);
 
     const docRes = plan.resolutions.find((r) => r.entityType === "document");
-    expect(docRes?.status).toBe("EXISTING");
-    expect(docRes?.subStatus).toBe("EXISTING_SHARED");
+    expect(docRes?.status).toBe("NEW");
     expect(plan.conflicts.length).toBe(0);
 
     const execResult = await importService.executeImport(plan.planId, actorId, orgB);
@@ -625,6 +638,13 @@ describe("ContentImportService: Document Ownership & Anti-Hijacking Regression S
     const docAfter = targetDb.tables.documents.find((d) => d.id === docIdInCourseA);
     expect(docAfter.courseId).toBe(courseAId);
     expect(targetDb.tables.quizzes.find((q) => q.id === "quiz-owner-1")?.courseId).toBe(courseAId);
+
+    // Independent document created for Course B
+    const courseBDoc = targetDb.tables.documents.find(
+      (d) => d.courseId === targetDb.tables.courses.find((c) => c.name === "دوره جدید استفاده‌کننده از سند")?.id
+    );
+    expect(courseBDoc).toBeDefined();
+    expect(courseBDoc.id).not.toBe(docIdInCourseA);
   });
 
   it("Test 5: Import مجدد idempotent باشد و ساختار موجود را خراب نکند", async () => {
@@ -757,19 +777,24 @@ describe("ContentImportService: Document Ownership & Anti-Hijacking Regression S
 
     expect(plan.conflicts.length).toBe(0);
     const docRes = plan.resolutions.find((r) => r.entityType === "document");
-    expect(docRes?.status).toBe("EXISTING");
-    expect(docRes?.subStatus).toBe("EXISTING_SHARED");
+    expect(docRes?.status).toBe("NEW");
 
     const result = await importService.executeImport(plan.planId, actorId, orgB);
     expect(result.success).toBe(true);
 
-    // Both courses have active modules pointing to the exact same shared document
+    // Course A module remains connected to Course A's document
     const modCourseA = targetDb.tables.modules.find((m) => m.id === "mod-a-ch1");
     expect(modCourseA?.documentId).toBe(docId);
 
+    // Course B gets its own independent document and its module points to it
+    const targetCourseB = targetDb.tables.courses.find((c) => c.name === "فارماسیوتیکس ۲ - فرمولاسیون");
+    const courseBDoc = targetDb.tables.documents.find((d) => d.courseId === targetCourseB?.id);
+    expect(courseBDoc).toBeDefined();
+    expect(courseBDoc?.id).not.toBe(docId);
+
     const modCourseB = targetDb.tables.modules.find((m) => m.title === "طراحی اشکال دارویی پیشرفته");
     expect(modCourseB).toBeDefined();
-    expect(modCourseB?.documentId).toBe(docId);
+    expect(modCourseB?.documentId).toBe(courseBDoc?.id);
   });
 
   it("Test 7: documents.courseId بعد از Import همچنان Course A باشد", async () => {
@@ -893,10 +918,15 @@ describe("ContentImportService: Document Ownership & Anti-Hijacking Regression S
     const zipBuffer = await exportService.exportContent(orgA, { courseId: courseBId });
     const plan = await importService.validatePackage(zipBuffer, actorId, orgB);
     await importService.executeImport(plan.planId, actorId, orgB);
-
     const createdModule = targetDb.tables.modules.find((m) => m.title === "فصل ۱۹: محلول‌ها");
     expect(createdModule).toBeDefined();
-    expect(createdModule?.documentId).toBe(docId);
+
+    const targetCourseB = targetDb.tables.courses.find((c) => c.name === "دوره ب ماژول");
+    const courseBDoc = targetDb.tables.documents.find((d) => d.courseId === targetCourseB?.id);
+    expect(courseBDoc).toBeDefined();
+    expect(courseBDoc?.id).not.toBe(docId);
+    expect(createdModule?.documentId).toBe(courseBDoc?.id);
+    expect(targetDb.tables.documents.find((d) => d.id === docId)?.courseId).toBe(courseAId);
   });
 
   it("Test 9: Lessonهای دو دوره کاملاً مستقل باقی بمانند", async () => {
@@ -1075,7 +1105,10 @@ describe("ContentImportService: Document Ownership & Anti-Hijacking Regression S
     expect(cardA?.documentId).toBe(docId);
 
     expect(cardB?.courseId).toBe(targetCourseB?.id);
-    expect(cardB?.documentId).toBe(docId);
+    const courseBDoc = targetDb.tables.documents.find((d) => d.courseId === targetCourseB?.id);
+    expect(courseBDoc).toBeDefined();
+    expect(courseBDoc?.id).not.toBe(docId);
+    expect(cardB?.documentId).toBe(courseBDoc?.id);
   });
 
   it("Test 11: Import مجدد هیچ رکورد تکراری نسازد (Idempotency)", async () => {
@@ -1230,14 +1263,18 @@ describe("ContentImportService: Document Ownership & Anti-Hijacking Regression S
     const plan = await importService.validatePackage(zipBuffer, actorId, orgB);
 
     const docRes = plan.resolutions.find((r) => r.entityType === "document");
-    expect(docRes?.status).toBe("EXISTING");
-    expect(docRes?.subStatus).toBe("EXISTING_UNOWNED");
+    expect(docRes?.status).toBe("NEW");
 
     await importService.executeImport(plan.planId, actorId, orgB);
 
-    const claimedDoc = targetDb.tables.documents.find((d) => d.id === unownedDocId);
+    const unownedDoc = targetDb.tables.documents.find((d) => d.id === unownedDocId);
     const targetCourse = targetDb.tables.courses.find((c) => c.name === "دوره مالکیت‌گیرنده");
-    expect(claimedDoc.courseId).toBe(targetCourse?.id);
+    expect(unownedDoc.courseId).toBeNull();
+
+    const newCourseDoc = targetDb.tables.documents.find((d) => d.courseId === targetCourse?.id);
+    expect(newCourseDoc).toBeDefined();
+    expect(newCourseDoc?.id).not.toBe(unownedDocId);
+    expect(newCourseDoc?.sha256).toBe(fileSha);
   });
 
   it("Test 14: سند دارای ساختار آموزشی قبلی همچنان محافظت شود و داده‌های دوره اول سالم بمانند", async () => {
@@ -1358,7 +1395,7 @@ describe("ContentImportService: Document Ownership & Anti-Hijacking Regression S
 
     // Inject simulated error in transaction
     const originalInsert = targetDb.insert.bind(targetDb);
-    let shouldFail = true;
+    const shouldFail = true;
     targetDb.insert = function (tableObj: any) {
       const tableName = targetDb.getTableName(tableObj);
       if (tableName === "courses" && shouldFail) {
@@ -1654,5 +1691,308 @@ describe("ContentImportService: Document Ownership & Anti-Hijacking Regression S
 
     targetDb.insert = originalInsert;
   });
-});
 
+  it("Test 19: Import به Course C نیز به صورت کاملاً ایزوله رفتار کند (Three-course isolation)", async () => {
+    const courseAId = "course-a-tri";
+    const courseBId = "course-b-tri";
+    const courseCId = "course-c-tri";
+    const docAId = "doc-a-tri";
+    const fileContent = Buffer.from("Tri-course shared content Aulton ch 1");
+    const fileSha = crypto.createHash("sha256").update(fileContent).digest("hex");
+
+    // Course A in target
+    targetDb.tables.courses.push({
+      id: courseAId,
+      organizationId: orgB,
+      name: "فارماسیوتیکس ۱ - پایه",
+      status: "published",
+    });
+    targetDb.tables.documents.push({
+      id: docAId,
+      organizationId: orgB,
+      courseId: courseAId,
+      ownerUserId: actorId,
+      originalName: "Aulton ch 1.PDF",
+      mimeType: "application/pdf",
+      sizeBytes: fileContent.length,
+      sha256: fileSha,
+      storageKey: `uploads/${docAId}.pdf`,
+      pageCount: 20,
+      status: "ready",
+      deletedAt: null,
+    });
+    targetStorage.files.set(`uploads/${docAId}.pdf`, fileContent);
+
+    // Course B in source
+    sourceDb.tables.courses.push({
+      id: courseBId,
+      organizationId: orgA,
+      name: "فارماسیوتیکس ۲ - متوسط",
+      status: "published",
+    });
+    sourceDb.tables.documents.push({
+      id: "doc-source-b",
+      organizationId: orgA,
+      courseId: courseBId,
+      ownerUserId: actorId,
+      originalName: "Aulton ch 1.PDF",
+      mimeType: "application/pdf",
+      sizeBytes: fileContent.length,
+      sha256: fileSha,
+      storageKey: "uploads/doc-source-b.pdf",
+      pageCount: 20,
+      status: "ready",
+      deletedAt: null,
+    });
+    sourceStorage.files.set("uploads/doc-source-b.pdf", fileContent);
+
+    // Import Course B package into target
+    const zipB = await exportService.exportContent(orgA, { courseId: courseBId });
+    const planB = await importService.validatePackage(zipB, actorId, orgB);
+    const resB = await importService.executeImport(planB.planId, actorId, orgB);
+    expect(resB.success).toBe(true);
+
+    // Course C in source
+    sourceDb.tables.courses.push({
+      id: courseCId,
+      organizationId: orgA,
+      name: "فارماسیوتیکس ۳ - پیشرفته",
+      status: "published",
+    });
+    sourceDb.tables.documents.push({
+      id: "doc-source-c",
+      organizationId: orgA,
+      courseId: courseCId,
+      ownerUserId: actorId,
+      originalName: "Aulton ch 1.PDF",
+      mimeType: "application/pdf",
+      sizeBytes: fileContent.length,
+      sha256: fileSha,
+      storageKey: "uploads/doc-source-c.pdf",
+      pageCount: 20,
+      status: "ready",
+      deletedAt: null,
+    });
+    sourceStorage.files.set("uploads/doc-source-c.pdf", fileContent);
+
+    // Import Course C package into target
+    const zipC = await exportService.exportContent(orgA, { courseId: courseCId });
+    const planC = await importService.validatePackage(zipC, actorId, orgB);
+    const resC = await importService.executeImport(planC.planId, actorId, orgB);
+    expect(resC.success).toBe(true);
+
+    // Assert that targetDb now has 3 independent documents for the 3 courses
+    const targetCourseA = targetDb.tables.courses.find((c) => c.name === "فارماسیوتیکس ۱ - پایه");
+    const targetCourseB = targetDb.tables.courses.find((c) => c.name === "فارماسیوتیکس ۲ - متوسط");
+    const targetCourseC = targetDb.tables.courses.find((c) => c.name === "فارماسیوتیکس ۳ - پیشرفته");
+
+    const docA = targetDb.tables.documents.find((d) => d.courseId === targetCourseA?.id);
+    const docB = targetDb.tables.documents.find((d) => d.courseId === targetCourseB?.id);
+    const docC = targetDb.tables.documents.find((d) => d.courseId === targetCourseC?.id);
+
+    expect(docA).toBeDefined();
+    expect(docB).toBeDefined();
+    expect(docC).toBeDefined();
+
+    expect(docA?.id).not.toBe(docB?.id);
+    expect(docB?.id).not.toBe(docC?.id);
+    expect(docA?.id).not.toBe(docC?.id);
+
+    // Shared storage file reuse
+    expect(docB?.storageKey).toBe(docA?.storageKey);
+    expect(docC?.storageKey).toBe(docA?.storageKey);
+    expect(targetStorage.files.has(docA!.storageKey)).toBe(true);
+  });
+
+  it("Test 20: Storage deletion safety: حذف سند Course A فایل فیزیکی را به دلیل حضور Course B حذف نمی‌کند", async () => {
+    const courseAId = "course-del-a";
+    const courseBId = "course-del-b";
+    const docAId = "doc-del-a";
+    const fileContent = Buffer.from("Safe deletion content");
+    const fileSha = crypto.createHash("sha256").update(fileContent).digest("hex");
+    const storageKey = `uploads/${docAId}.pdf`;
+
+    targetDb.tables.courses.push(
+      { id: courseAId, organizationId: orgB, name: "دوره الف", status: "published" },
+      { id: courseBId, organizationId: orgB, name: "دوره ب", status: "published" },
+    );
+    targetDb.tables.documents.push(
+      {
+        id: docAId,
+        organizationId: orgB,
+        courseId: courseAId,
+        ownerUserId: actorId,
+        originalName: "SafeDel.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: fileContent.length,
+        sha256: fileSha,
+        storageKey,
+        pageCount: 5,
+        status: "ready",
+        deletedAt: null,
+      },
+      {
+        id: "doc-del-b",
+        organizationId: orgB,
+        courseId: courseBId,
+        ownerUserId: actorId,
+        originalName: "SafeDel.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: fileContent.length,
+        sha256: fileSha,
+        storageKey,
+        pageCount: 5,
+        status: "ready",
+        deletedAt: null,
+      },
+    );
+    targetStorage.files.set(storageKey, fileContent);
+
+    // Simulate DocumentService.deleteDocument logic:
+    // 1. Soft-delete doc A
+    const docA = targetDb.tables.documents.find((d) => d.id === docAId)!;
+    docA.deletedAt = new Date();
+
+    // 2. Check if other active documents reference storageKey
+    const otherActiveDocs = targetDb.tables.documents.filter(
+      (d) => d.organizationId === orgB && d.storageKey === storageKey && d.id !== docAId && !d.deletedAt,
+    );
+
+    if (otherActiveDocs.length === 0) {
+      await targetStorage.delete(storageKey);
+    }
+
+    // Physical file must still be present because doc-del-b is active!
+    expect(targetStorage.files.has(storageKey)).toBe(true);
+
+    // Now soft-delete doc B as well
+    const docB = targetDb.tables.documents.find((d) => d.id === "doc-del-b")!;
+    docB.deletedAt = new Date();
+
+    const remainingActive = targetDb.tables.documents.filter(
+      (d) => d.organizationId === orgB && d.storageKey === storageKey && d.id !== "doc-del-b" && !d.deletedAt,
+    );
+
+    if (remainingActive.length === 0) {
+      await targetStorage.delete(storageKey);
+    }
+
+    // Now that all references are deleted, physical file is removed
+    expect(targetStorage.files.has(storageKey)).toBe(false);
+  });
+
+  it("Test 21: Race Condition Safety: همزمانی واقعی بین Delete و Import به فایل مشترک آسیبی نمی‌زند", async () => {
+    const courseAId = "course-race-a";
+    const courseBId = "course-race-b";
+    const docAId = "doc-race-a";
+    const fileContent = Buffer.from("Concurrent Race Safety Content Aulton");
+    const fileSha = crypto.createHash("sha256").update(fileContent).digest("hex");
+    const storageKey = `uploads/${docAId}.pdf`;
+
+    // 1. Seed Course A and Document A in Target DB
+    targetDb.tables.courses.push({
+      id: courseAId,
+      organizationId: orgB,
+      name: "دوره در حال حذف",
+      status: "published",
+    });
+    targetDb.tables.documents.push({
+      id: docAId,
+      organizationId: orgB,
+      courseId: courseAId,
+      ownerUserId: actorId,
+      originalName: "Aulton Race.PDF",
+      mimeType: "application/pdf",
+      sizeBytes: fileContent.length,
+      sha256: fileSha,
+      storageKey,
+      pageCount: 10,
+      status: "ready",
+      deletedAt: null,
+    });
+    targetStorage.files.set(storageKey, fileContent);
+
+    // 2. Prepare Source Course B with same sha256 document
+    sourceDb.tables.courses.push({
+      id: courseBId,
+      organizationId: orgA,
+      name: "دوره در حال ورود همزمان",
+      status: "published",
+    });
+    sourceDb.tables.documents.push({
+      id: "doc-source-race",
+      organizationId: orgA,
+      courseId: courseBId,
+      ownerUserId: actorId,
+      originalName: "Aulton Race.PDF",
+      mimeType: "application/pdf",
+      sizeBytes: fileContent.length,
+      sha256: fileSha,
+      storageKey: "uploads/doc-source-race.pdf",
+      pageCount: 10,
+      status: "ready",
+      deletedAt: null,
+    });
+    sourceStorage.files.set("uploads/doc-source-race.pdf", fileContent);
+
+    const zipBuffer = await exportService.exportContent(orgA, { courseId: courseBId });
+    const plan = await importService.validatePackage(zipBuffer, actorId, orgB);
+
+    // 3. Create DocumentService adapter for targetDb to invoke real deleteDocument
+    const docStoreAdapter: any = {
+      findByIdForOrganization: async (id: string, oId: string) => {
+        const d = targetDb.tables.documents.find((doc) => doc.id === id && doc.organizationId === oId && !doc.deletedAt);
+        return d ? { ...d } : undefined;
+      },
+      listByOrganization: async (oId: string) => {
+        return targetDb.tables.documents
+          .filter((d) => d.organizationId === oId && !d.deletedAt)
+          .map((d) => ({ ...d }));
+      },
+      delete: async (id: string) => {
+        const d = targetDb.tables.documents.find((doc) => doc.id === id);
+        if (d) d.deletedAt = new Date();
+      },
+    };
+    const orgStoreAdapter: any = {
+      findById: async (id: string) => ({ id, name: "Org B" }),
+      listMembershipsByUserId: async () => [{ organizationId: orgB, role: "organization_admin" }],
+    };
+    const adminActor = buildActor({
+      userId: actorId,
+      globalRole: "platform_admin",
+      role: "organization_admin",
+      memberships: [{ organizationId: orgB, role: "organization_admin" }],
+    });
+    const docService = new DocumentService(
+      docStoreAdapter,
+      targetStorage,
+      orgStoreAdapter,
+    );
+
+    // 4. Fire Delete and Import CONCURRENTLY!
+    const deletePromise = docService.deleteDocument(adminActor, orgB as any, docAId as any);
+    const importPromise = importService.executeImport(plan.planId, actorId, orgB);
+
+    // Both operations must resolve successfully without unhandled errors
+    const [_, importResult] = await Promise.all([deletePromise, importPromise]);
+    expect(importResult.success).toBe(true);
+
+    // 5. Verify outcomes:
+    // Course A document is soft-deleted
+    const docA = targetDb.tables.documents.find((d) => d.id === docAId);
+    expect(docA?.deletedAt).not.toBeNull();
+
+    // Course B document is created and active
+    const targetCourseB = targetDb.tables.courses.find((c) => c.name === "دوره در حال ورود همزمان");
+    expect(targetCourseB).toBeDefined();
+
+    const courseBDoc = targetDb.tables.documents.find(
+      (d) => d.courseId === targetCourseB?.id && !d.deletedAt,
+    );
+    expect(courseBDoc).toBeDefined();
+
+    // CRITICAL: Under NO circumstance should Course B's document point to a missing file in storage!
+    expect(targetStorage.files.has(courseBDoc!.storageKey)).toBe(true);
+  });
+});

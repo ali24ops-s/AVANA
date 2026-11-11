@@ -1,5 +1,5 @@
 {
-  "build_timestamp": "2026-11-11T11:32:13.554Z",
+  "build_timestamp": "2026-11-11T17:02:29.540Z",
   "migrations": [
     {
       "id": "0001_init",
@@ -776,6 +776,14 @@
       "dist_file": "0100_crm_campaign_dispatch.js",
       "source_sha256": "5afa38f26063b74c3406f0feb329282e6dd952968ab635ecc8123c1dbfdcd009",
       "dist_sha256": "7dc0e18c8a7317fdb881e6d4a03dfbe72e7d5b06da48b8b338d9ad4a811b7ca4"
+    },
+    {
+      "id": "0101_scope_documents_by_course",
+      "sequence": 101,
+      "source_file": "0101_scope_documents_by_course.ts",
+      "dist_file": "0101_scope_documents_by_course.js",
+      "source_sha256": "b5ec4e6c16ca05720f902e3c72145cde9aadae087ca78effdd6bb0834f9c559c",
+      "dist_sha256": "f0da228dfbb7db43be681187f217b231575fe66cdcf4ca743c5d2d9adf9e85bb"
     }
   ]
 }

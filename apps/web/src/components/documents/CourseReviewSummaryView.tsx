@@ -27,7 +27,6 @@ import {
   type ReviewSummaryPayload,
   cleanEducationalTitle,
   toPersianDigits,
-  formatTomanPrice,
 } from "@avana/domain";
 import { resolveChapterDocument } from "../../utils/chapterResolver.js";
 
@@ -54,7 +53,7 @@ export function stripChapterPrefix(title: string): string {
   if (!title) return "";
   const trimmed = title.trim();
   const stripped = trimmed.replace(
-    /^فصل\s*(?:[0-9\u06F0-\u06F9]+(?:\.[0-9\u06F0-\u06F9]+)?|(?:بیست|سی|چهل|پنجاه|شصت|هفتاد|هشتاد|نود)\s*و\s*(?:اول|دوم|سوم|چهارم|پنجم|ششم|هفتم|هشتم|نهم)|اول|دوم|سوم|چهارم|پنجم|ششم|هفتم|هشتم|نهم|دهم|یازدهم|دوازدهم|سیزدهم|چهاردهم|پانزدهم|شانزدهم|هفدهم|هجدهم|نوزدهم|بیستم)?\s*[:\-–—\.]?\s*/i,
+    /^فصل\s*(?:[0-9\u06F0-\u06F9]+(?:\.[0-9\u06F0-\u06F9]+)?|(?:بیست|سی|چهل|پنجاه|شصت|هفتاد|هشتاد|نود)\s*و\s*(?:اول|دوم|سوم|چهارم|پنجم|ششم|هفتم|هشتم|نهم)|اول|دوم|سوم|چهارم|پنجم|ششم|هفتم|هشتم|نهم|دهم|یازدهم|دوازدهم|سیزدهم|چهاردهم|پانزدهم|شانزدهم|هفدهم|هجدهم|نوزدهم|بیستم)?\s*[:\-–—.]?\s*/i,
     "",
   ).trim();
   return stripped.length > 0 ? stripped : trimmed;
@@ -119,11 +118,6 @@ export function CourseReviewSummaryView({
     };
   }, [isCurriculumDrawerOpen]);
 
-  // Extract unique documents from modules in canonical module sort order
-  const modulesWithDocs = (modules || []).filter(
-    (m): m is typeof m & { document_id: string } => Boolean(m.document_id),
-  );
-
   const docsQuery = useQuery({
     queryKey: ["course-documents", organizationId, courseId],
     queryFn: async () => {
@@ -133,29 +127,32 @@ export function CourseReviewSummaryView({
       });
       return courseRes.items;
     },
-    enabled: modulesWithDocs.length === 0,
+    enabled: (modules || []).length === 0,
   });
 
   const documents: Array<{ id: string; title: string }> =
-    modulesWithDocs.length > 0
-      ? modulesWithDocs.map((m) => ({
-          id: m.document_id,
+    modules && modules.length > 0
+      ? modules.map((m) => ({
+          id: m.document_id || m.id,
           title: cleanEducationalTitle(m.title, "سرفصل آموزشی"),
         }))
-      : (docsQuery.data ?? []).map((d) => ({
-          id: d.id,
-          title: cleanEducationalTitle((d as any).original_name || (d as any).title, "سرفصل آموزشی"),
-        }));
+      : (docsQuery.data ?? []).map((d) => {
+          const docItem = d as { id: string; original_name?: string; title?: string };
+          return {
+            id: docItem.id,
+            title: cleanEducationalTitle(docItem.original_name || docItem.title, "سرفصل آموزشی"),
+          };
+        });
 
   // Canonical source of truth for free preview chapter
   const canonicalPreviewDocId =
     previewDocumentId ||
-    (modulesWithDocs.length > 0 ? modulesWithDocs[0].document_id : documents[0]?.id) ||
+    (modules && modules.length > 0 ? (modules[0].document_id || modules[0].id) : documents[0]?.id) ||
     null;
 
-  const isDocsLoading = modulesWithDocs.length === 0 && docsQuery.isLoading;
+  const isDocsLoading = (modules || []).length === 0 && docsQuery.isLoading;
 
-  const { activeDocument, activeModule, canonicalChapterId } = resolveChapterDocument({
+  const { activeDocument, activeModule } = resolveChapterDocument({
     chapterId: currentChapterId,
     modules,
     documents,
@@ -167,13 +164,13 @@ export function CourseReviewSummaryView({
 
   const handleChapterClick = (doc: { id: string; title: string }) => {
     const matchingModule = (modules || []).find(
-      (m) => m.document_id === doc.id || m.id === doc.id,
+      (m) => (m.document_id && m.document_id === doc.id) || m.id === doc.id,
     );
     const newCanonicalId = matchingModule?.id ?? doc.id;
     if (onSelectChapter) {
       onSelectChapter(newCanonicalId);
     } else {
-      setUncontrolledDocId(doc.id);
+      setUncontrolledDocId(newCanonicalId);
     }
     setIsCurriculumDrawerOpen(false);
   };
@@ -228,7 +225,7 @@ export function CourseReviewSummaryView({
     }
   }, [hasOfficialSummary, hasPersonalSummary, hasMindMap, effectiveTab]);
 
-  if (modulesWithDocs.length === 0 && docsQuery.isLoading) {
+  if ((modules || []).length === 0 && docsQuery.isLoading) {
     return (
       <div className="flex items-center justify-center p-16">
         <Loader2 className="w-8 h-8 animate-spin text-[var(--color-primary)]" />
@@ -236,7 +233,7 @@ export function CourseReviewSummaryView({
     );
   }
 
-  if (modulesWithDocs.length === 0 && docsQuery.isError) {
+  if ((modules || []).length === 0 && docsQuery.isError) {
     return (
       <div className="p-6 rounded-card bg-[var(--color-surface)] border border-[var(--color-error)]/40 text-[var(--color-error)] text-xs flex items-center gap-2" dir="rtl">
         <AlertCircle className="w-5 h-5 shrink-0" />
@@ -268,12 +265,14 @@ export function CourseReviewSummaryView({
   }
 
   const isActiveLocked = Boolean(
-    isPreview && activeDocument && activeDocument.id !== canonicalPreviewDocId,
+    isPreview && ((activeDocument && activeDocument.id !== canonicalPreviewDocId) || (activeModule && activeModule.id !== canonicalPreviewDocId && activeModule.document_id !== canonicalPreviewDocId)),
   );
 
   const renderChapterNavList = () => {
     return documents.map((doc, index) => {
-      const isSelected = activeDocument?.id === doc.id;
+      const isSelected = activeModule
+        ? activeModule.id === doc.id || (activeModule.document_id && activeModule.document_id === doc.id)
+        : activeDocument?.id === doc.id;
       const isDocPreview = Boolean(doc.id === canonicalPreviewDocId);
       const isDocLocked = Boolean(isPreview && !isDocPreview);
       const displayTitle = stripChapterPrefix(doc.title);
@@ -408,7 +407,7 @@ export function CourseReviewSummaryView({
                 </span>
               </div>
               <h3 className="text-lg sm:text-xl font-black text-[var(--color-text)]">
-                خلاصه مروری فصل «{activeDocument.title}» قفل است
+                خلاصه مروری فصل «{activeDocument?.title || activeModule?.title || "سرفصل آموزشی"}» قفل است
               </h3>
               <p className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed">
                 این فصل شامل خلاصه جامع نکات کلیدی، مقایسه‌ها و جمع‌بندی نکات پرتکرار آزمونی است که در نسخه کامل دوره یا با داشتن اشتراک آوانا پلاس در دسترس خواهد بود.
@@ -449,7 +448,7 @@ export function CourseReviewSummaryView({
               )}
             </div>
           </Card>
-        ) : activeDocument ? (
+        ) : (activeDocument || activeModule) ? (
           <div className="space-y-4">
             {/* The 3 Tabs Navigation Bar */}
             <div
@@ -523,7 +522,14 @@ export function CourseReviewSummaryView({
             {/* TAB 1: Official Summary */}
             {effectiveTab === "official" && (
               <div id="tabpanel-official" role="tabpanel" aria-labelledby="tab-official" className="space-y-4">
-                {officialSummaryQuery.isLoading ? (
+                {!activeDocument ? (
+                  <Card className="flex flex-col items-center justify-center p-12 text-center space-y-4 font-sans" dir="rtl">
+                    <Zap className="w-8 h-8 text-[var(--color-primary)]" />
+                    <p className="text-xs text-[var(--color-text-muted)]">
+                      خلاصه رسمی برای این سرفصل تنها با وجود سند آموزشی مرجع فعال می‌شود. می‌توانید از بخش «نقشه مفهومی» یا «خلاصه شخصی» استفاده کنید.
+                    </p>
+                  </Card>
+                ) : officialSummaryQuery.isLoading ? (
                   <Card className="flex flex-col items-center justify-center p-12 text-center space-y-4 font-sans" dir="rtl">
                     <Loader2 className="w-8 h-8 animate-spin text-primary" />
                     <span className="text-xs text-[var(--color-text-muted)]">در حال بارگذاری خلاصه رسمی...</span>
@@ -670,11 +676,11 @@ export function CourseReviewSummaryView({
                       </div>
                     )}
                     <ReviewSummaryViewer
-                      key={`personal-${activeDocument.id}-${personalSummary.version}`}
+                      key={`personal-${activeDocument?.id ?? activeModuleId}-${personalSummary.version}`}
                       organizationId={organizationId}
-                      documentId={activeDocument.id}
+                      documentId={activeDocument?.id ?? activeModuleId ?? ""}
                       courseId={courseId}
-                      documentTitle={activeDocument.title}
+                      documentTitle={activeDocument?.title || activeModule?.title || "سرفصل آموزشی"}
                       isPersonalSummary={true}
                       personalPayload={personalSummary.payload as ReviewSummaryPayload}
                       personalSummaryVersion={personalSummary.version}
@@ -761,9 +767,9 @@ export function CourseReviewSummaryView({
                 ) : hasMindMap && mindMapPayload ? (
                   <div className="w-full h-[650px] sm:h-[750px] rounded-2xl overflow-hidden border border-[var(--color-border)] shadow-xs bg-[var(--color-surface)]">
                     <MindMapCanvas
-                      key={`mindmap-${activeModuleId}-${activeDocument.id}`}
+                      key={`mindmap-${activeModuleId}-${activeDocument?.id ?? "nodoc"}`}
                       mindMapHook={mindMapHook}
-                      chapterTitle={activeDocument.title}
+                      chapterTitle={activeDocument?.title || activeModule?.title || "سرفصل آموزشی"}
                     />
                   </div>
                 ) : (
@@ -840,7 +846,7 @@ export function CourseReviewSummaryView({
       </main>
 
       {/* Transparent Payment & Confirmation Modal for Personal Summary */}
-      {activeDocument && (
+      {(activeDocument || activeModule) && (
         <PersonalSummaryConfirmationModal
           isOpen={isConfirmModalOpen}
           onClose={() => setIsConfirmModalOpen(false)}
@@ -854,7 +860,7 @@ export function CourseReviewSummaryView({
             }
           }}
           isGenerating={isGeneratingPersonal}
-          chapterTitle={activeDocument.title}
+          chapterTitle={activeDocument?.title || activeModule?.title || "سرفصل آموزشی"}
           highlightsCount={currentAnnotations.highlights_count}
           notesCount={currentAnnotations.notes_count}
           costToman={costToman}

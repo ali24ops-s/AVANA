@@ -764,17 +764,25 @@ export class DrizzleDocumentStore implements DocumentStore {
   async findByOrganizationAndSha256(
     organizationId: OrganizationId,
     sha256: string,
+    courseId?: CourseId | null,
   ): Promise<DocumentRecord | undefined> {
+    const conditions = [
+      eq(documents.organizationId, organizationId),
+      eq(documents.sha256, sha256),
+      isNull(documents.deletedAt),
+    ];
+    if (courseId !== undefined) {
+      if (courseId === null) {
+        conditions.push(isNull(documents.courseId));
+      } else {
+        conditions.push(eq(documents.courseId, courseId));
+      }
+    }
+
     const row = await this.db
       .select()
       .from(documents)
-      .where(
-        and(
-          eq(documents.organizationId, organizationId),
-          eq(documents.sha256, sha256),
-          isNull(documents.deletedAt),
-        ),
-      )
+      .where(and(...conditions))
       .limit(1)
       .then((rows) => rows[0]);
 
@@ -783,6 +791,10 @@ export class DrizzleDocumentStore implements DocumentStore {
   }
 
   async create(document: DocumentRecord): Promise<DocumentRecord> {
+    const courseCondition = document.courseId
+      ? eq(documents.courseId, document.courseId)
+      : isNull(documents.courseId);
+
     const existing = document.sha256
       ? await this.db
           .select()
@@ -790,6 +802,7 @@ export class DrizzleDocumentStore implements DocumentStore {
           .where(
             and(
               eq(documents.organizationId, document.organizationId),
+              courseCondition,
               eq(documents.sha256, document.sha256),
             ),
           )
@@ -832,13 +845,14 @@ export class DrizzleDocumentStore implements DocumentStore {
           updatedAt: new Date(document.updatedAt),
           deletedAt: null,
         })
-        .onConflictDoNothing({ target: [documents.organizationId, documents.sha256] })
+        .onConflictDoNothing()
         .returning();
 
       if (!row) {
         const existingActive = await this.findByOrganizationAndSha256(
           document.organizationId,
           document.sha256,
+          document.courseId,
         );
         if (existingActive) {
           return existingActive;
@@ -850,6 +864,7 @@ export class DrizzleDocumentStore implements DocumentStore {
       const existingActive = await this.findByOrganizationAndSha256(
         document.organizationId,
         document.sha256,
+        document.courseId,
       );
       if (existingActive) {
         return existingActive;

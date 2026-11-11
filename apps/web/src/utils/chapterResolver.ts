@@ -57,8 +57,11 @@ export function resolveChapterDocument({
     };
   }
 
-  // If there are no documents available at all
-  if (!documents || documents.length === 0) {
+  const safeDocs = documents || [];
+  const safeModules = modules || [];
+
+  // If there are no documents and no modules available at all
+  if (safeDocs.length === 0 && safeModules.length === 0) {
     return {
       activeDocument: null,
       activeModule: null,
@@ -71,28 +74,26 @@ export function resolveChapterDocument({
 
   if (cleanChapterId) {
     // 1. Priority 1: Match on module.id
-    const moduleMatch = (modules || []).find((m) => m.id === cleanChapterId);
+    const moduleMatch = safeModules.find((m) => m.id === cleanChapterId);
     if (moduleMatch) {
-      const docForModule = documents.find(
+      const docForModule = safeDocs.find(
         (d) =>
           (moduleMatch.document_id && d.id === moduleMatch.document_id) ||
           d.id === moduleMatch.id,
-      );
-      if (docForModule) {
-        return {
-          activeDocument: docForModule,
-          activeModule: moduleMatch,
-          canonicalChapterId: moduleMatch.id,
-          isResolved: true,
-        };
-      }
+      ) ?? null;
+      return {
+        activeDocument: docForModule,
+        activeModule: moduleMatch,
+        canonicalChapterId: moduleMatch.id,
+        isResolved: true,
+      };
     }
 
     // 2. Priority 2: Match on document.id
-    const directDocMatch = documents.find((d) => d.id === cleanChapterId);
+    const directDocMatch = safeDocs.find((d) => d.id === cleanChapterId);
     if (directDocMatch) {
       const moduleForDoc =
-        (modules || []).find(
+        safeModules.find(
           (m) =>
             m.document_id === directDocMatch.id ||
             m.id === directDocMatch.id,
@@ -106,41 +107,48 @@ export function resolveChapterDocument({
     }
 
     // 3. Priority 3: Match on module.document_id
-    const moduleByDocIdMatch = (modules || []).find(
+    const moduleByDocIdMatch = safeModules.find(
       (m) => m.document_id === cleanChapterId,
     );
     if (moduleByDocIdMatch) {
-      const docForModule = documents.find(
+      const docForModule = safeDocs.find(
         (d) =>
           d.id === moduleByDocIdMatch.document_id ||
           d.id === moduleByDocIdMatch.id,
-      );
-      if (docForModule) {
-        return {
-          activeDocument: docForModule,
-          activeModule: moduleByDocIdMatch,
-          canonicalChapterId: moduleByDocIdMatch.id,
-          isResolved: true,
-        };
-      }
+      ) ?? null;
+      return {
+        activeDocument: docForModule,
+        activeModule: moduleByDocIdMatch,
+        canonicalChapterId: moduleByDocIdMatch.id,
+        isResolved: true,
+      };
     }
   }
 
-  // 4. Controlled fallback: canonical preview document or first available document
-  const fallbackDoc =
+  // 4. Controlled fallback: canonical preview document or first available document/module
+  let fallbackDoc: ChapterDocument | null =
     (canonicalPreviewDocId
-      ? documents.find((d) => d.id === canonicalPreviewDocId)
+      ? safeDocs.find((d) => d.id === canonicalPreviewDocId)
       : null) ??
-    documents[0] ??
+    safeDocs[0] ??
     null;
 
   const fallbackModule =
-    (modules || []).find(
+    safeModules.find(
       (m) =>
         (fallbackDoc && m.document_id === fallbackDoc.id) ||
         (fallbackDoc && m.id === fallbackDoc.id),
     ) ??
-    (modules && modules.length > 0 ? modules[0] : null);
+    (safeModules.length > 0 ? safeModules[0] : null);
+
+  if (!fallbackDoc && fallbackModule) {
+    fallbackDoc =
+      safeDocs.find(
+        (d) =>
+          (fallbackModule.document_id && d.id === fallbackModule.document_id) ||
+          d.id === fallbackModule.id,
+      ) ?? null;
+  }
 
   const canonicalChapterId =
     fallbackModule?.id ?? fallbackDoc?.id ?? null;

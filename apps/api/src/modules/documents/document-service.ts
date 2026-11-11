@@ -52,6 +52,7 @@ import type {
   BulkOperationResponse,
   BulkOperationItemResult,
 } from "@avana/contracts";
+import { StorageLockCoordinator } from "./storage-lock-coordinator.js";
 
 // ---------------------------------------------------------------------------
 // Validation constants
@@ -1358,9 +1359,6 @@ export class DocumentService {
       throw new DomainError("not_found", "Document not found");
     }
 
-    // Remove the file from storage (best-effort; idempotent).
-    await this.storageProvider.delete(doc.storageKey);
-
     // Clean up extracted chunks for this document (source-owned data).
     if (this.chunkStore) {
       await this.chunkStore.deleteByDocument(documentId);
@@ -1377,8 +1375,66 @@ export class DocumentService {
       await this.generationJobStore.deleteByDocument(documentId, organizationId);
     }
 
-    // Soft-delete the metadata row.
-    await this.store.delete(documentId);
+    // Safely delete document and check storage references within coordinated lock
+    let shouldDeletePhysical = false;
+    const db = (this.store as unknown as { db?: any })?.db;
+    if (db && typeof db.transaction === "function") {
+      await db.transaction(async (tx: any) => {
+        await StorageLockCoordinator.withLock(
+          organizationId,
+          doc.storageKey,
+          tx,
+          async () => {
+            // Soft-delete the metadata row first so concurrent checks see it as deleted.
+            await this.store.delete(documentId);
+
+            // Check if any other active document in the organization shares this storageKey
+            const remainingActiveDocs = await this.store.listByOrganization(organizationId);
+            const isStorageShared = remainingActiveDocs.some(
+              (d) => d.id !== documentId && d.storageKey === doc.storageKey,
+            );
+            if (!isStorageShared) {
+              shouldDeletePhysical = true;
+            }
+          },
+        );
+      });
+
+      // Remove the file from physical storage strictly AFTER the DB transaction has successfully committed!
+      // To eliminate race conditions with concurrent Imports, re-verify active references under StorageLockCoordinator.
+      if (shouldDeletePhysical) {
+        await StorageLockCoordinator.withLock(
+          organizationId,
+          doc.storageKey,
+          (this.store as unknown as { db?: any })?.db,
+          async () => {
+            const remainingActiveDocs = await this.store.listByOrganization(organizationId);
+            const isStorageShared = remainingActiveDocs.some(
+              (d) => d.id !== documentId && d.storageKey === doc.storageKey,
+            );
+            if (!isStorageShared) {
+              await this.storageProvider.delete(doc.storageKey).catch(() => {});
+            }
+          },
+        );
+      }
+    } else {
+      await StorageLockCoordinator.withLock(
+        organizationId,
+        doc.storageKey,
+        undefined,
+        async () => {
+          await this.store.delete(documentId);
+          const remainingActiveDocs = await this.store.listByOrganization(organizationId);
+          const isStorageShared = remainingActiveDocs.some(
+            (d) => d.id !== documentId && d.storageKey === doc.storageKey,
+          );
+          if (!isStorageShared) {
+            await this.storageProvider.delete(doc.storageKey).catch(() => {});
+          }
+        },
+      );
+    }
 
     if (this.auditService) {
       await this.auditService.emit([
@@ -1466,9 +1522,6 @@ export class DocumentService {
       throw new DomainError("not_found", "Document not found");
     }
 
-    // Remove the file from storage (best-effort; idempotent).
-    await this.storageProvider.delete(doc.storageKey);
-
     // Clean up extracted chunks for this document (source-owned data).
     if (this.chunkStore) {
       await this.chunkStore.deleteByDocument(documentId);
@@ -1485,8 +1538,66 @@ export class DocumentService {
       await this.generationJobStore.deleteByDocument(documentId, organizationId);
     }
 
-    // Soft-delete the metadata row.
-    await this.store.delete(documentId);
+    // Safely delete document and check storage references within coordinated lock
+    let shouldDeletePhysical = false;
+    const db = (this.store as unknown as { db?: any })?.db;
+    if (db && typeof db.transaction === "function") {
+      await db.transaction(async (tx: any) => {
+        await StorageLockCoordinator.withLock(
+          organizationId,
+          doc.storageKey,
+          tx,
+          async () => {
+            // Soft-delete the metadata row first so concurrent checks see it as deleted.
+            await this.store.delete(documentId);
+
+            // Check if any other active document in the organization shares this storageKey
+            const remainingActiveDocs = await this.store.listByOrganization(organizationId);
+            const isStorageShared = remainingActiveDocs.some(
+              (d) => d.id !== documentId && d.storageKey === doc.storageKey,
+            );
+            if (!isStorageShared) {
+              shouldDeletePhysical = true;
+            }
+          },
+        );
+      });
+
+      // Remove file strictly AFTER DB transaction has successfully committed
+      // To eliminate race conditions with concurrent Imports, re-verify active references under StorageLockCoordinator.
+      if (shouldDeletePhysical) {
+        await StorageLockCoordinator.withLock(
+          organizationId,
+          doc.storageKey,
+          (this.store as unknown as { db?: any })?.db,
+          async () => {
+            const remainingActiveDocs = await this.store.listByOrganization(organizationId);
+            const isStorageShared = remainingActiveDocs.some(
+              (d) => d.id !== documentId && d.storageKey === doc.storageKey,
+            );
+            if (!isStorageShared) {
+              await this.storageProvider.delete(doc.storageKey).catch(() => {});
+            }
+          },
+        );
+      }
+    } else {
+      await StorageLockCoordinator.withLock(
+        organizationId,
+        doc.storageKey,
+        undefined,
+        async () => {
+          await this.store.delete(documentId);
+          const remainingActiveDocs = await this.store.listByOrganization(organizationId);
+          const isStorageShared = remainingActiveDocs.some(
+            (d) => d.id !== documentId && d.storageKey === doc.storageKey,
+          );
+          if (!isStorageShared) {
+            await this.storageProvider.delete(doc.storageKey).catch(() => {});
+          }
+        },
+      );
+    }
 
     if (this.auditService) {
       await this.auditService.emit([
