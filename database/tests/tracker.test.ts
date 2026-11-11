@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import path from "path";
 import { computeCanonicalSha256, resolveBuildManifest } from "../tracker/checksum.js";
 import {
   tryAcquireAdvisoryLock,
@@ -82,11 +83,39 @@ describe("AVANA Migration Tracking System Unit & Integration Tests", () => {
       expect(hash1).toHaveLength(64);
     });
 
-    it("resolves build manifest containing all 97 migrations", () => {
-      const manifest = resolveBuildManifest(process.cwd());
-      expect(manifest.migrations.length).toBe(97);
-      expect(manifest.migrations[0].id).toBe("0001_init");
-      expect(manifest.migrations[96].id).toBe("0100_crm_campaign_dispatch");
+    it("resolves build manifest containing all 98 migrations across cwd and path scenarios", () => {
+      const databaseDir = process.cwd().endsWith("database")
+        ? process.cwd()
+        : path.join(process.cwd(), "database");
+      const monorepoRoot = process.cwd().endsWith("database")
+        ? path.resolve(process.cwd(), "..")
+        : process.cwd();
+      const distDir = path.join(databaseDir, "dist");
+
+      // 1. From database directory
+      const manifestFromDb = resolveBuildManifest(databaseDir);
+      expect(manifestFromDb.migrations.length).toBe(98);
+      expect(manifestFromDb.migrations[0].id).toBe("0001_init");
+      expect(manifestFromDb.migrations[97].id).toBe("0101_scope_documents_by_course");
+
+      // 2. From monorepo root
+      const manifestFromRoot = resolveBuildManifest(monorepoRoot);
+      expect(manifestFromRoot.migrations.length).toBe(98);
+      expect(manifestFromRoot.migrations[0].id).toBe("0001_init");
+      expect(manifestFromRoot.migrations[97].id).toBe("0101_scope_documents_by_course");
+
+      // 3. From dist directory
+      const manifestFromDist = resolveBuildManifest(distDir);
+      expect(manifestFromDist.migrations.length).toBe(98);
+
+      // 4. Without passing baseDir (independent of process.cwd())
+      const manifestDefault = resolveBuildManifest();
+      expect(manifestDefault.migrations.length).toBe(98);
+
+      // 5. Throws clear error if path does not exist
+      expect(() => resolveBuildManifest("/non/existent/manifest/path")).toThrow(
+        /\[MANIFEST_NOT_FOUND\]/
+      );
     });
   });
 

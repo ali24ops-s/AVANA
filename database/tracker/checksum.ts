@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { fileURLToPath } from "url";
 import type { BuildManifest, MigrationManifestEntry } from "./types.js";
 
 /**
@@ -24,37 +25,172 @@ export function computeFileSha256(filePath: string): string | null {
 }
 
 /**
+ * Discovers package root or database root directory by walking up from a starting directory.
+ */
+function findPackageRoot(startDir: string): string | null {
+  let curr = startDir;
+  while (curr !== path.dirname(curr)) {
+    if (
+      fs.existsSync(path.join(curr, "package.json")) &&
+      (fs.existsSync(path.join(curr, "migrations-manifest.json")) ||
+        fs.existsSync(path.join(curr, "migrations")) ||
+        fs.existsSync(path.join(curr, "dist", "migrations-manifest.json")))
+    ) {
+      return curr;
+    }
+    curr = path.dirname(curr);
+  }
+  return null;
+}
+
+/**
+ * Resolves the candidate path of migrations-manifest.json.
+ */
+function findManifestPath(baseDir?: string): string | null {
+  const candidates: string[] = [];
+
+  if (baseDir) {
+    candidates.push(
+      path.join(baseDir, "dist", "migrations-manifest.json"),
+      path.join(baseDir, "migrations-manifest.json"),
+      path.join(baseDir, "database", "dist", "migrations-manifest.json"),
+      path.join(baseDir, "database", "migrations-manifest.json")
+    );
+  }
+
+  // Independent of process.cwd(): walk up from the current module location
+  try {
+    const currentFile = fileURLToPath(import.meta.url);
+    const currentDir = path.dirname(currentFile);
+    const pkgRoot = findPackageRoot(currentDir);
+    if (pkgRoot) {
+      candidates.push(
+        path.join(pkgRoot, "dist", "migrations-manifest.json"),
+        path.join(pkgRoot, "migrations-manifest.json")
+      );
+    }
+    candidates.push(
+      path.resolve(currentDir, "../dist/migrations-manifest.json"),
+      path.resolve(currentDir, "../migrations-manifest.json"),
+      path.resolve(currentDir, "../../dist/migrations-manifest.json"),
+      path.resolve(currentDir, "../../migrations-manifest.json")
+    );
+  } catch {
+    // Ignore if import.meta.url is not available
+  }
+
+  // Fallback checking process.cwd()
+  const cwd = process.cwd();
+  candidates.push(
+    path.join(cwd, "dist", "migrations-manifest.json"),
+    path.join(cwd, "migrations-manifest.json"),
+    path.join(cwd, "database", "dist", "migrations-manifest.json"),
+    path.join(cwd, "database", "migrations-manifest.json")
+  );
+
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Loads the build manifest if available, otherwise generates an in-memory
  * manifest by inspecting available source / dist migration files.
+ * Throws a clear error if neither the manifest nor migrations directory is found.
  */
-export function resolveBuildManifest(baseDir: string): BuildManifest {
-  const manifestPath = path.join(baseDir, "migrations-manifest.json");
-  const distManifestPath = path.join(baseDir, "dist", "migrations-manifest.json");
+export function resolveBuildManifest(baseDir?: string): BuildManifest {
+  // If an explicit non-cwd baseDir is passed, verify candidate existence in that baseDir first
+  const isCwdOrUnset = !baseDir || path.resolve(baseDir) === path.resolve(process.cwd());
 
-  const targetPath = fs.existsSync(distManifestPath)
-    ? distManifestPath
-    : fs.existsSync(manifestPath)
-    ? manifestPath
-    : null;
+  let targetPath: string | null = null;
+  if (!isCwdOrUnset && baseDir) {
+    const explicitCandidates = [
+      path.join(baseDir, "dist", "migrations-manifest.json"),
+      path.join(baseDir, "migrations-manifest.json"),
+      path.join(baseDir, "database", "dist", "migrations-manifest.json"),
+      path.join(baseDir, "database", "migrations-manifest.json"),
+    ];
+    for (const c of explicitCandidates) {
+      if (fs.existsSync(c)) {
+        targetPath = c;
+        break;
+      }
+    }
+  } else {
+    targetPath = findManifestPath(baseDir);
+  }
 
   if (targetPath) {
     try {
       const raw = fs.readFileSync(targetPath, "utf8");
-      return JSON.parse(raw) as BuildManifest;
-    } catch (err) {
+      const parsed = JSON.parse(raw) as BuildManifest;
+      if (Array.isArray(parsed.migrations) && parsed.migrations.length > 0) {
+        return parsed;
+      }
+      throw new Error(`[MANIFEST_EMPTY] Manifest at "${targetPath}" contains 0 migrations.`);
+    } catch (err: any) {
+      if (err.message?.startsWith("[MANIFEST_")) {
+        throw err;
+      }
       // eslint-disable-next-line no-console
-      console.warn(`[WARN] Failed to parse manifest at ${targetPath}:`, err);
+      console.warn(`[WARN] Failed to parse manifest at ${targetPath}:`, err?.message ?? err);
     }
   }
 
   // Fallback: Scan migrations directory (development or pre-manifest environment)
-  const migrationsDir = path.join(baseDir, "migrations");
-  const distMigrationsDir = path.join(baseDir, "dist", "migrations");
-  const hasTs = fs.existsSync(migrationsDir);
-  const scanDir = hasTs ? migrationsDir : distMigrationsDir;
+  const candidateScanDirs: string[] = [];
+  if (baseDir) {
+    candidateScanDirs.push(
+      path.join(baseDir, "migrations"),
+      path.join(baseDir, "dist", "migrations"),
+      path.join(baseDir, "database", "migrations"),
+      path.join(baseDir, "database", "dist", "migrations")
+    );
+  }
+
+  if (isCwdOrUnset) {
+    try {
+      const currentDir = path.dirname(fileURLToPath(import.meta.url));
+      const pkgRoot = findPackageRoot(currentDir);
+      if (pkgRoot) {
+        candidateScanDirs.push(
+          path.join(pkgRoot, "migrations"),
+          path.join(pkgRoot, "dist", "migrations")
+        );
+      }
+      candidateScanDirs.push(
+        path.resolve(currentDir, "../migrations"),
+        path.resolve(currentDir, "../dist/migrations"),
+        path.resolve(currentDir, "../../migrations"),
+        path.resolve(currentDir, "../../dist/migrations")
+      );
+    } catch {
+      // Ignore
+    }
+
+    const cwd = process.cwd();
+    candidateScanDirs.push(
+      path.join(cwd, "migrations"),
+      path.join(cwd, "dist", "migrations"),
+      path.join(cwd, "database", "migrations"),
+      path.join(cwd, "database", "dist", "migrations")
+    );
+  }
+
+  let scanDir: string | null = null;
+  for (const dir of candidateScanDirs) {
+    if (dir && fs.existsSync(dir)) {
+      scanDir = dir;
+      break;
+    }
+  }
 
   const entries: MigrationManifestEntry[] = [];
-  if (fs.existsSync(scanDir)) {
+  if (scanDir && fs.existsSync(scanDir)) {
     const files = fs
       .readdirSync(scanDir)
       .filter((f) => f.endsWith(".ts") || f.endsWith(".js"))
@@ -69,8 +205,8 @@ export function resolveBuildManifest(baseDir: string): BuildManifest {
 
       const seqMatch = id.match(/^(\d+)_/);
       const sequence = seqMatch ? parseInt(seqMatch[1], 10) : 0;
-      const tsPath = path.join(migrationsDir, `${id}.ts`);
-      const jsPath = path.join(distMigrationsDir, `${id}.js`);
+      const tsPath = path.join(scanDir, `${id}.ts`);
+      const jsPath = path.join(scanDir, `${id}.js`);
 
       const sourceHash = computeFileSha256(tsPath) ?? computeFileSha256(jsPath) ?? "0".repeat(64);
       const distHash = computeFileSha256(jsPath) ?? undefined;
@@ -86,8 +222,15 @@ export function resolveBuildManifest(baseDir: string): BuildManifest {
     }
   }
 
-  return {
-    build_timestamp: new Date().toISOString(),
-    migrations: entries,
-  };
+  if (entries.length > 0) {
+    return {
+      build_timestamp: new Date().toISOString(),
+      migrations: entries,
+    };
+  }
+
+  throw new Error(
+    `[MANIFEST_NOT_FOUND] Could not locate migrations-manifest.json or migrations directory. ` +
+    `Searched baseDir: "${baseDir ?? "(none)"}", cwd: "${process.cwd()}".`
+  );
 }
