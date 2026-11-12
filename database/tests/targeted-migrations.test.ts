@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any, no-secrets/no-secrets */
 import { describe, it, expect, vi } from "vitest";
 import path from "path";
 import {
@@ -14,37 +14,47 @@ import type { MigrationDefinition } from "../tracker/types.js";
 
 describe("AVANA Targeted Migrations Execution Suite", () => {
   describe("Scope & Registry Whitelist Verification", () => {
-    it("contains strictly and exactly the 7 pre-approved migrations", () => {
+    it("contains strictly and exactly the 12 pre-approved migrations", () => {
       expect(TARGETED_MIGRATION_IDS).toEqual([
         "0088_crm_core",
         "0089_crm_segments",
+        "0090_course_membership_exam_schedules",
+        "0091_backfill_personal_course_exam_schedules",
+        "0094_course_publications_unique_version",
+        "0095_presentation_assistant_core",
         "0096_user_personal_contents",
         "0097_mind_map_personal_content_type",
+        "0098_error_monitoring_core",
         "0099_crm_campaigns",
         "0100_crm_campaign_dispatch",
         "0101_scope_documents_by_course",
       ]);
-      expect(TARGETED_MIGRATION_IDS.length).toBe(7);
+      expect(TARGETED_MIGRATION_IDS.length).toBe(12);
     });
 
-    it("strictly excludes 0042, 0071, and all historical/out-of-scope migrations", () => {
+    it("strictly excludes 0042, 0071, 0092, 0093, and all historical/out-of-scope migrations", () => {
       const targetedSet = new Set<string>(TARGETED_MIGRATION_IDS);
       expect(targetedSet.has("0042_special_exam_entitlements")).toBe(false);
       expect(targetedSet.has("0071_repair_legacy_registration_org_admins")).toBe(false);
       expect(targetedSet.has("0001_init")).toBe(false);
-      expect(targetedSet.has("0090_course_membership_exam_schedules")).toBe(false);
-      expect(targetedSet.has("0098_error_monitoring_core")).toBe(false);
+      expect(targetedSet.has("0092_update_question_pattern_instructions_and_examples")).toBe(false);
+      expect(targetedSet.has("0093_update_patterns_3_6_8_11_v3")).toBe(false);
+      expect(targetedSet.has("0090_course_membership_exam_schedules")).toBe(true);
+      expect(targetedSet.has("0091_backfill_personal_course_exam_schedules")).toBe(true);
+      expect(targetedSet.has("0094_course_publications_unique_version")).toBe(true);
+      expect(targetedSet.has("0095_presentation_assistant_core")).toBe(true);
+      expect(targetedSet.has("0098_error_monitoring_core")).toBe(true);
     });
 
-    it("resolves all 7 migrations from ALL_MIGRATIONS in exact registry order", () => {
+    it("resolves all 12 migrations from ALL_MIGRATIONS in exact registry order", () => {
       const targeted = resolveTargetedMigrations(ALL_MIGRATIONS);
-      expect(targeted.length).toBe(7);
+      expect(targeted.length).toBe(12);
 
       const resolvedIds = targeted.map((m) => m.id);
       expect(resolvedIds).toEqual([...TARGETED_MIGRATION_IDS]);
 
       const sequences = targeted.map((m) => m.sequence);
-      expect(sequences).toEqual([88, 89, 96, 97, 99, 100, 101]);
+      expect(sequences).toEqual([88, 89, 90, 91, 94, 95, 96, 97, 98, 99, 100, 101]);
 
       // Every targeted migration must have an up function
       for (const m of targeted) {
@@ -149,7 +159,7 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
   });
 
   describe("Official Manifest Checksums Integrity", () => {
-    it("ensures all 7 targeted migrations exist with valid SHA-256 in official manifest", () => {
+    it("ensures all 12 targeted migrations exist with valid SHA-256 in official manifest", () => {
       const databaseDir = process.cwd().endsWith("database")
         ? process.cwd()
         : path.join(process.cwd(), "database");
@@ -164,7 +174,7 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
       }
     });
 
-    it("verifies that actual on-disk migration file SHA-256 matches official manifest source_sha256 for all 7 migrations", () => {
+    it("verifies that actual on-disk migration file SHA-256 matches official manifest source_sha256 for all 12 migrations", () => {
       const databaseDir = process.cwd().endsWith("database")
         ? process.cwd()
         : path.join(process.cwd(), "database");
@@ -185,7 +195,7 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
   });
 
   describe("Mock Stateful Runner Execution for Targeted Migrations", () => {
-    it("executes ONLY the 7 targeted migrations and ignores all 91 other migrations", async () => {
+    it("executes ONLY the 12 targeted migrations and ignores all 89 other migrations", async () => {
       const executionLog: string[] = [];
       const dbState = {
         applied: new Set<string>(),
@@ -244,20 +254,20 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
         injectedClient: mockClient,
       });
 
-      // 1. Result reports exactly the 7 applied
+      // 1. Result reports exactly the 12 applied
       expect(res.applied).toEqual([...TARGETED_MIGRATION_IDS]);
       expect(res.skipped).toEqual([]);
       expect(res.failed).toBeNull();
 
-      // 2. Execution log shows only the 7 executed in exact order
+      // 2. Execution log shows only the 12 executed in exact order
       expect(executionLog).toEqual([...TARGETED_MIGRATION_IDS]);
 
       // 3. Out-of-scope migrations were NEVER called
       expect(executionLog).not.toContain("0042_special_exam_entitlements");
       expect(executionLog).not.toContain("0071_repair_legacy_registration_org_admins");
       expect(executionLog).not.toContain("0001_init");
-      expect(executionLog).not.toContain("0090_course_membership_exam_schedules");
-      expect(executionLog).not.toContain("0098_error_monitoring_core");
+      expect(executionLog).not.toContain("0092_update_question_pattern_instructions_and_examples");
+      expect(executionLog).not.toContain("0093_update_patterns_3_6_8_11_v3");
 
       // 4. Re-running skips all already-applied targeted migrations
       const res2 = await executeStatefulMigrations(targetedMigrations, {
@@ -266,13 +276,21 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
       });
       expect(res2.applied).toEqual([]);
       expect(res2.skipped).toEqual([...TARGETED_MIGRATION_IDS]);
-      expect(executionLog.length).toBe(7); // No additional up() calls
+      expect(executionLog.length).toBe(12); // No additional up() calls
     });
 
-    it("skips already applied or baselined migrations among the targeted list", async () => {
-      // Suppose 0088 and 0089 were already applied in production
+    it("skips already applied migrations and applies only unapplied ones (Real Production State Simulation)", async () => {
+      // In production: 0088, 0089, 0096, 0097, 0099, 0100, 0101 are already applied
       const dbState = {
-        applied: new Set<string>(["0088_crm_core", "0089_crm_segments"]),
+        applied: new Set<string>([
+          "0088_crm_core",
+          "0089_crm_segments",
+          "0096_user_personal_contents",
+          "0097_mind_map_personal_content_type",
+          "0099_crm_campaigns",
+          "0100_crm_campaign_dispatch",
+          "0101_scope_documents_by_course",
+        ]),
       };
 
       const executionLog: string[] = [];
@@ -318,21 +336,248 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
         injectedClient: mockClient,
       });
 
-      expect(res.skipped).toEqual(["0088_crm_core", "0089_crm_segments"]);
-      expect(res.applied).toEqual([
+      expect(res.skipped).toEqual([
+        "0088_crm_core",
+        "0089_crm_segments",
         "0096_user_personal_contents",
         "0097_mind_map_personal_content_type",
         "0099_crm_campaigns",
         "0100_crm_campaign_dispatch",
         "0101_scope_documents_by_course",
+      ]);
+      expect(res.applied).toEqual([
+        "0090_course_membership_exam_schedules",
+        "0091_backfill_personal_course_exam_schedules",
+        "0094_course_publications_unique_version",
+        "0095_presentation_assistant_core",
+        "0098_error_monitoring_core",
       ]);
       expect(executionLog).toEqual([
-        "0096_user_personal_contents",
-        "0097_mind_map_personal_content_type",
-        "0099_crm_campaigns",
-        "0100_crm_campaign_dispatch",
-        "0101_scope_documents_by_course",
+        "0090_course_membership_exam_schedules",
+        "0091_backfill_personal_course_exam_schedules",
+        "0094_course_publications_unique_version",
+        "0095_presentation_assistant_core",
+        "0098_error_monitoring_core",
       ]);
+    });
+
+    it("failure isolation: ensures independent transactions and keeps 0090 and 0091 applied when 0094 fails", async () => {
+      // Transaction-aware mock client that rigorously simulates PostgreSQL transactional isolation:
+      // committedState: persistent state across transactions
+      // inTransaction: whether a transaction is currently open
+      // stagedMigrations: uncommitted schema_migrations within current transaction
+      interface MigrationRecord {
+        status: string;
+        checksum: string;
+        error_message?: string;
+      }
+      interface AttemptRecord {
+        id: number;
+        migration_id: string;
+        attempt_number: number;
+        status: string;
+        error_message?: string;
+      }
+
+      const committedMigrations = new Map<string, MigrationRecord>([
+        ["0088_crm_core", { status: "applied", checksum: "0".repeat(64) }],
+        ["0089_crm_segments", { status: "applied", checksum: "0".repeat(64) }],
+        ["0096_user_personal_contents", { status: "applied", checksum: "0".repeat(64) }],
+        ["0097_mind_map_personal_content_type", { status: "applied", checksum: "0".repeat(64) }],
+        ["0099_crm_campaigns", { status: "applied", checksum: "0".repeat(64) }],
+        ["0100_crm_campaign_dispatch", { status: "applied", checksum: "0".repeat(64) }],
+        ["0101_scope_documents_by_course", { status: "applied", checksum: "0".repeat(64) }],
+      ]);
+
+      const committedAttempts: AttemptRecord[] = [];
+      let inTransaction = false;
+      let stagedMigrations = new Map<string, MigrationRecord>();
+      let stagedAttempts = new Map<number, Partial<AttemptRecord>>();
+
+      const transactionAwareClient = {
+        query: vi.fn().mockImplementation(async (sql: string, params?: any[]) => {
+          if (sql.includes("pg_is_in_recovery")) return { rows: [{ in_recovery: false }] };
+          if (sql.includes("pg_try_advisory_lock")) return { rows: [{ locked: true }] };
+          if (sql.includes("pg_advisory_unlock")) return { rows: [{ unlocked: true }] };
+
+          if (sql.trim().toUpperCase() === "BEGIN;") {
+            inTransaction = true;
+            stagedMigrations = new Map(committedMigrations);
+            stagedAttempts = new Map<number, Partial<AttemptRecord>>();
+            return { rows: [] };
+          }
+
+          if (sql.trim().toUpperCase() === "COMMIT;") {
+            inTransaction = false;
+            // Flush staged migration records to committed state
+            for (const [k, v] of stagedMigrations.entries()) {
+              committedMigrations.set(k, v);
+            }
+            // Flush staged attempt updates to committed attempts
+            for (const [attId, updates] of stagedAttempts.entries()) {
+              const att = committedAttempts.find((a) => a.id === attId);
+              if (att) {
+                Object.assign(att, updates);
+              }
+            }
+            stagedAttempts.clear();
+            return { rows: [] };
+          }
+
+          if (sql.trim().toUpperCase() === "ROLLBACK;") {
+            inTransaction = false;
+            // Discard uncommitted staged changes for both migrations and attempts
+            stagedMigrations.clear();
+            stagedAttempts.clear();
+            return { rows: [] };
+          }
+
+          if (sql.includes("SELECT migration_id, status, checksum FROM schema_migrations;")) {
+            const source = inTransaction ? stagedMigrations : committedMigrations;
+            return {
+              rows: Array.from(source.entries()).map(([migration_id, rec]) => ({
+                migration_id,
+                status: rec.status,
+                checksum: rec.checksum,
+              })),
+            };
+          }
+
+          if (sql.includes("SELECT COALESCE(MAX(attempt_number)")) {
+            const migrationId = params?.[0];
+            const matches = committedAttempts.filter((a) => a.migration_id === migrationId);
+            const maxAtt = matches.reduce((max, a) => Math.max(max, a.attempt_number), 0);
+            return { rows: [{ next_att: maxAtt + 1 }] };
+          }
+
+          if (sql.includes("INSERT INTO schema_migration_attempts")) {
+            // Step A: autocommit mode before BEGIN
+            const attemptId = committedAttempts.length + 1;
+            committedAttempts.push({
+              id: attemptId,
+              migration_id: params?.[0],
+              attempt_number: params?.[1],
+              status: "in_progress",
+            });
+            return { rows: [{ id: attemptId }] };
+          }
+
+          if (sql.includes("UPDATE schema_migration_attempts") && sql.includes("status = 'success'")) {
+            // Inside transaction: stage attempt success status
+            const attemptId = params?.[1];
+            if (inTransaction) {
+              stagedAttempts.set(attemptId, { status: "success" });
+            } else {
+              const att = committedAttempts.find((a) => a.id === attemptId);
+              if (att) att.status = "success";
+            }
+            return { rowCount: 1 };
+          }
+
+          if (sql.includes("UPDATE schema_migration_attempts") && sql.includes("status = 'failed'")) {
+            // Outside transaction (after rollback in autocommit mode): write directly to committed attempts
+            const attemptId = params?.[3];
+            const errMsg = params?.[1];
+            const att = committedAttempts.find((a) => a.id === attemptId);
+            if (att) {
+              att.status = "failed";
+              att.error_message = errMsg;
+            }
+            return { rowCount: 1 };
+          }
+
+          if (sql.includes("INSERT INTO schema_migrations")) {
+            const migrationId = params?.[0];
+            const checksum = params?.[2] ?? "0".repeat(64);
+            const isFailedStatus = sql.includes("'failed'");
+            const status = isFailedStatus ? "failed" : "applied";
+            const errMsg = isFailedStatus ? params?.[5] : undefined;
+
+            if (inTransaction) {
+              stagedMigrations.set(migrationId, { status, checksum, error_message: errMsg });
+            } else {
+              committedMigrations.set(migrationId, { status, checksum, error_message: errMsg });
+            }
+            return { rows: [] };
+          }
+
+          return { rows: [] };
+        }),
+      } as any;
+
+      let simulate0094DuplicateError = true;
+      const executionHistory: string[] = [];
+
+      const mockMigrations: MigrationDefinition[] = resolveTargetedMigrations(ALL_MIGRATIONS).map((m) => ({
+        id: m.id,
+        sequence: m.sequence,
+        up: vi.fn().mockImplementation(async () => {
+          executionHistory.push(m.id);
+          if (m.id === "0094_course_publications_unique_version" && simulate0094DuplicateError) {
+            // Simulates actual 0094 DO $$ block failure when duplicate course_id, version rows exist
+            throw new Error(
+              "Migration 0094 aborted: 2 duplicate (course_id, version) groups found in course_publications where deleted_at IS NULL. Manual data remediation required."
+            );
+          }
+        }),
+      }));
+
+      // Run 1: Should apply 0090 and 0091, then fail cleanly at 0094
+      await expect(
+        executeStatefulMigrations(mockMigrations, {
+          connectionString: "postgres://mock",
+          injectedClient: transactionAwareClient,
+        })
+      ).rejects.toThrow(/Migration 0094 aborted: 2 duplicate/);
+
+      // Verify that 0090 and 0091 were committed as applied despite 0094 failing
+      expect(committedMigrations.get("0090_course_membership_exam_schedules")?.status).toBe("applied");
+      expect(committedMigrations.get("0091_backfill_personal_course_exam_schedules")?.status).toBe("applied");
+
+      // Verify that 0094 is recorded as failed in schema_migrations with the exact error message
+      const m0094 = committedMigrations.get("0094_course_publications_unique_version");
+      expect(m0094?.status).toBe("failed");
+      expect(m0094?.error_message).toContain("Migration 0094 aborted: 2 duplicate");
+
+      // Verify that out-of-scope/subsequent migrations (0095, 0098) were NOT executed or recorded
+      expect(committedMigrations.has("0095_presentation_assistant_core")).toBe(false);
+      expect(committedMigrations.has("0098_error_monitoring_core")).toBe(false);
+      expect(executionHistory).not.toContain("0095_presentation_assistant_core");
+      expect(executionHistory).not.toContain("0098_error_monitoring_core");
+
+      // Verify attempt log entries
+      const att0090 = committedAttempts.find((a) => a.migration_id === "0090_course_membership_exam_schedules");
+      expect(att0090?.status).toBe("success");
+
+      const att0091 = committedAttempts.find((a) => a.migration_id === "0091_backfill_personal_course_exam_schedules");
+      expect(att0091?.status).toBe("success");
+
+      const att0094 = committedAttempts.find((a) => a.migration_id === "0094_course_publications_unique_version");
+      expect(att0094?.status).toBe("failed");
+      expect(att0094?.error_message).toContain("Migration 0094 aborted: 2 duplicate");
+
+      // Run 2: Simulate operator remediating data (no duplicates). Re-running runner retries 0094 and completes remaining
+      simulate0094DuplicateError = false;
+      const resRun2 = await executeStatefulMigrations(mockMigrations, {
+        connectionString: "postgres://mock",
+        injectedClient: transactionAwareClient,
+      });
+
+      // 0090 and 0091 were NOT re-executed (skipped because already applied!)
+      expect(resRun2.skipped).toContain("0090_course_membership_exam_schedules");
+      expect(resRun2.skipped).toContain("0091_backfill_personal_course_exam_schedules");
+
+      // 0094, 0095, 0098 applied in Run 2
+      expect(resRun2.applied).toEqual([
+        "0094_course_publications_unique_version",
+        "0095_presentation_assistant_core",
+        "0098_error_monitoring_core",
+      ]);
+
+      // 0094 is now successfully applied in schema_migrations
+      expect(committedMigrations.get("0094_course_publications_unique_version")?.status).toBe("applied");
+      expect(committedMigrations.get("0095_presentation_assistant_core")?.status).toBe("applied");
+      expect(committedMigrations.get("0098_error_monitoring_core")?.status).toBe("applied");
     });
   });
 });

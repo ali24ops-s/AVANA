@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+/* eslint-disable no-console, no-secrets/no-secrets */
 import { loadMonorepoEnv } from "@avana/config";
 import pg from "pg";
 import { ALL_MIGRATIONS } from "./tracker/registry.js";
@@ -46,8 +46,13 @@ const connectionString = process.env.DATABASE_URL ?? localConnectionString();
 export const TARGETED_MIGRATION_IDS = [
   "0088_crm_core",
   "0089_crm_segments",
+  "0090_course_membership_exam_schedules",
+  "0091_backfill_personal_course_exam_schedules",
+  "0094_course_publications_unique_version",
+  "0095_presentation_assistant_core",
   "0096_user_personal_contents",
   "0097_mind_map_personal_content_type",
+  "0098_error_monitoring_core",
   "0099_crm_campaigns",
   "0100_crm_campaign_dispatch",
   "0101_scope_documents_by_course",
