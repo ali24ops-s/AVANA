@@ -29,6 +29,7 @@ import {
   type CourseId,
   type DocumentId,
   type GeneratedContentId,
+  type ModuleId,
   type OrganizationId,
   type Role,
   DomainError,
@@ -179,6 +180,14 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
     return parseGeneratedContentId(params.contentId, "contentId");
   }
 
+  /** Helper to validate and extract module ID from params. */
+  function getModuleId(params: { moduleId: string }): ModuleId {
+    if (!params.moduleId || !UUID_RE.test(params.moduleId)) {
+      throw new DomainError("bad_request", "Invalid module ID");
+    }
+    return params.moduleId as ModuleId;
+  }
+
   // -----------------------------------------------------------------------
   // GET /v1/organizations/:organizationId/courses/:courseId/generated/review-queue
   // -----------------------------------------------------------------------
@@ -259,6 +268,111 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
         actor,
         organizationId,
         contentId,
+      );
+
+      const resolvedStudyService =
+        typeof opts.studyService === "function" ? opts.studyService() : opts.studyService;
+      if (resolvedStudyService) {
+        resolvedStudyService.invalidateTopicSummaryCache(organizationId);
+      }
+
+      return { request_id: request.id, ...result };
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/courses/:courseId/generated/:contentId/unapprove
+  // -----------------------------------------------------------------------
+  app.post(
+    "/v1/organizations/:organizationId/courses/:courseId/generated/:contentId/unapprove",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        courseId: string;
+        contentId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const courseId = getCourseId(params);
+      const contentId = getContentId(params);
+
+      const result = await service.unapproveContent(
+        actor,
+        organizationId,
+        courseId,
+        contentId,
+      );
+
+      const resolvedStudyService =
+        typeof opts.studyService === "function" ? opts.studyService() : opts.studyService;
+      if (resolvedStudyService) {
+        resolvedStudyService.invalidateTopicSummaryCache(organizationId);
+      }
+
+      return { request_id: request.id, ...result };
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/courses/:courseId/modules/:moduleId/unapprove-contents
+  // -----------------------------------------------------------------------
+  app.post(
+    "/v1/organizations/:organizationId/courses/:courseId/modules/:moduleId/unapprove-contents",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        courseId: string;
+        moduleId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const courseId = getCourseId(params);
+      const moduleId = getModuleId(params);
+
+      const result = await service.unapproveModuleContents(
+        actor,
+        organizationId,
+        courseId,
+        moduleId,
+      );
+
+      const resolvedStudyService =
+        typeof opts.studyService === "function" ? opts.studyService() : opts.studyService;
+      if (resolvedStudyService) {
+        resolvedStudyService.invalidateTopicSummaryCache(organizationId);
+      }
+
+      return { request_id: request.id, ...result };
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // DELETE /v1/organizations/:organizationId/courses/:courseId/generated/:contentId
+  // -----------------------------------------------------------------------
+  app.delete(
+    "/v1/organizations/:organizationId/courses/:courseId/generated/:contentId",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        courseId: string;
+        contentId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const courseId = getCourseId(params);
+      const contentId = getContentId(params);
+      const query = request.query as { confirm_published_delete?: string } | undefined;
+      const confirmPublishedDelete = query?.confirm_published_delete === "true";
+
+      const result = await service.deleteGeneratedContent(
+        actor,
+        organizationId,
+        courseId,
+        contentId,
+        { confirmPublishedDelete },
       );
 
       const resolvedStudyService =

@@ -812,5 +812,85 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("sentAt");
     expect(cols).toHaveProperty("createdAt");
   });
+
+  // -----------------------------------------------------------------------
+  // Polls & Surveys Module (Migration 0104)
+  // -----------------------------------------------------------------------
+  test("polls table is defined and has required columns", () => {
+    expect(schema.polls).toBeDefined();
+    const cols = getTableColumns(schema.polls);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("organizationId");
+    expect(cols).toHaveProperty("slug");
+    expect(cols).toHaveProperty("title");
+    expect(cols).toHaveProperty("description");
+    expect(cols).toHaveProperty("coverImageUrl");
+    expect(cols).toHaveProperty("status");
+    expect(cols).toHaveProperty("startsAt");
+    expect(cols).toHaveProperty("endsAt");
+    expect(cols).toHaveProperty("settings");
+    expect(cols).toHaveProperty("createdBy");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+    expect(cols).toHaveProperty("deletedAt");
+  });
+
+  test("poll_questions table is defined and has required columns", () => {
+    expect(schema.pollQuestions).toBeDefined();
+    const cols = getTableColumns(schema.pollQuestions);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("pollId");
+    expect(cols).toHaveProperty("questionText");
+    expect(cols).toHaveProperty("description");
+    expect(cols).toHaveProperty("questionType");
+    expect(cols).toHaveProperty("isRequired");
+    expect(cols).toHaveProperty("sortOrder");
+    expect(cols).toHaveProperty("minChoices");
+    expect(cols).toHaveProperty("maxChoices");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+  });
+
+  test("poll_options table is defined and has required columns", () => {
+    expect(schema.pollOptions).toBeDefined();
+    const cols = getTableColumns(schema.pollOptions);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("questionId");
+    expect(cols).toHaveProperty("optionText");
+    expect(cols).toHaveProperty("sortOrder");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+  });
+
+  test("poll_responses table is defined and has required columns", () => {
+    expect(schema.pollResponses).toBeDefined();
+    const cols = getTableColumns(schema.pollResponses);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("pollId");
+    expect(cols).toHaveProperty("participantId");
+    expect(cols).toHaveProperty("userId");
+    expect(cols).toHaveProperty("ipHash");
+    expect(cols).toHaveProperty("userAgent");
+    expect(cols).toHaveProperty("completedAt");
+  });
+
+  test("poll_answers table is defined and has required columns", () => {
+    expect(schema.pollAnswers).toBeDefined();
+    const cols = getTableColumns(schema.pollAnswers);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("responseId");
+    expect(cols).toHaveProperty("questionId");
+    expect(cols).toHaveProperty("textAnswer");
+    expect(cols).toHaveProperty("createdAt");
+  });
+
+  test("poll_answer_options table is defined and has required columns", () => {
+    expect(schema.pollAnswerOptions).toBeDefined();
+    const cols = getTableColumns(schema.pollAnswerOptions);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("answerId");
+    expect(cols).toHaveProperty("optionId");
+  });
 });
+
 

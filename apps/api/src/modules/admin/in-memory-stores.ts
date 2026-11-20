@@ -26,6 +26,7 @@ import type {
 import type { UserStore, UserRecord } from "../identity/user-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import { checkRedisHealth } from "./redis-health.js";
+import { isContentOwnedByModule } from "../generation/module-content-ownership.js";
 import type {
   AdminStore,
   DashboardStats,
@@ -602,6 +603,7 @@ export class InMemoryAdminStore implements AdminStore {
           contentMarkdown: l.contentMarkdown || "",
           reference: l.reference || undefined,
           createdAt: l.createdAt || new Date().toISOString(),
+          generatedContentId: (l as any).generatedContentId || null,
           flashcards: [],
           quizQuestions: [],
         };
@@ -658,6 +660,10 @@ export class InMemoryAdminStore implements AdminStore {
     moduleStore?: any;
     subCourseGroupStore?: any;
     lessonStore?: any;
+    generatedContentStore?: any;
+    flashcardStore?: any;
+    quizStore?: any;
+    quizQuestionStore?: any;
   };
 
   setLearningStores(stores: {
@@ -665,6 +671,10 @@ export class InMemoryAdminStore implements AdminStore {
     moduleStore?: any;
     subCourseGroupStore?: any;
     lessonStore?: any;
+    generatedContentStore?: any;
+    flashcardStore?: any;
+    quizStore?: any;
+    quizQuestionStore?: any;
   }) {
     this.learningStores = stores;
   }
@@ -688,16 +698,95 @@ export class InMemoryAdminStore implements AdminStore {
       updatedAt: g.updatedAt,
     }));
 
-    const modules = [];
+    const accepted = this.learningStores?.generatedContentStore
+      ? (await this.learningStores.generatedContentStore.listByCourse(courseId, course.organizationId))
+          .filter((c: any) => c.status === "accepted" && !c.deletedAt)
+      : [];
+
+    const flashcardsByGc = new Map<string, Array<{ lessonId: string | null }>>();
+    if (this.learningStores?.flashcardStore && accepted.length > 0) {
+      const cards = await this.learningStores.flashcardStore.listByCourse(courseId, course.organizationId);
+      for (const fc of cards) {
+        if (fc.generatedContentId && !fc.deletedAt) {
+          const list = flashcardsByGc.get(fc.generatedContentId) || [];
+          list.push({ lessonId: fc.lessonId ?? null });
+          flashcardsByGc.set(fc.generatedContentId, list);
+        }
+      }
+    }
+
+    const quizQuestionsByGc = new Map<string, Array<{ lessonId: string | null }>>();
+    if (this.learningStores?.quizStore && this.learningStores?.quizQuestionStore && accepted.length > 0) {
+      const quizzes = await this.learningStores.quizStore.listByCourse(courseId, course.organizationId);
+      for (const q of quizzes) {
+        if (!q.deletedAt) {
+          const questions = await this.learningStores.quizQuestionStore.listByQuiz(q.id);
+          for (const qq of questions) {
+            if (qq.generatedContentId && !qq.deletedAt) {
+              const list = quizQuestionsByGc.get(qq.generatedContentId) || [];
+              list.push({ lessonId: qq.lessonId ?? null });
+              quizQuestionsByGc.set(qq.generatedContentId, list);
+            }
+          }
+        }
+      }
+    }
+
+    const lessonsByModule = new Map<string, Array<any>>();
     for (const m of rawModules) {
-      const lessons = this.learningStores.lessonStore
+      const mLessons = this.learningStores.lessonStore
         ? await this.learningStores.lessonStore.listByModule(m.id)
         : [];
+      lessonsByModule.set(m.id, mLessons);
+    }
+
+    const modules = [];
+    for (const m of rawModules) {
+      const lessons = lessonsByModule.get(m.id) || [];
+      const moduleLessonIds = new Set(lessons.filter((l: any) => !l.deletedAt).map((l: any) => l.id));
+      const otherModules = rawModules.filter((om: any) => om.id !== m.id);
+      const otherLessonIds = new Set<string>();
+      for (const om of otherModules) {
+        const oLessons = lessonsByModule.get(om.id) || [];
+        for (const ol of oLessons) if (!ol.deletedAt) otherLessonIds.add(ol.id);
+      }
+
+      const otherModuleDocIds = new Set<string>();
+      for (const om of otherModules) {
+        if (om.documentId) otherModuleDocIds.add(om.documentId);
+      }
+      const isDocumentShared = Boolean(
+        m.documentId && otherModuleDocIds.has(m.documentId),
+      );
+
+      const ownershipContext = {
+        targetModuleId: m.id,
+        targetModuleDocId: m.documentId ?? null,
+        moduleLessonIds,
+        otherLessonIds,
+        otherModuleDocIds,
+        isDocumentShared,
+      };
+
+      let unapprovableContentCount = 0;
+      for (const gc of accepted) {
+        if (
+          isContentOwnedByModule(
+            gc,
+            ownershipContext,
+            flashcardsByGc,
+            quizQuestionsByGc,
+          )
+        ) {
+          unapprovableContentCount++;
+        }
+      }
       modules.push({
         id: m.id,
         title: m.title,
         sortOrder: m.sortOrder ?? 0,
         subCourseGroupId: m.subCourseGroupId ?? null,
+        unapprovableContentCount,
         lessons: lessons.map((l: any) => ({
           id: l.id,
           title: l.title,
@@ -706,6 +795,7 @@ export class InMemoryAdminStore implements AdminStore {
           quizCount: 0,
           hasContent: Boolean(l.contentMarkdown),
           createdAt: l.createdAt,
+          generatedContentId: (l as any).generatedContentId || null,
         })),
       });
     }
@@ -889,7 +979,7 @@ export class InMemoryAdminStore implements AdminStore {
   async updateCourseMetadata(
     _adminId: string,
     _courseId: string,
-    _payload: { name?: string; subject?: string; targetAcademicFields?: string[] },
+    _payload: { name?: string; slug?: string; subject?: string; targetAcademicFields?: string[] },
   ): Promise<void> {
     return;
   }

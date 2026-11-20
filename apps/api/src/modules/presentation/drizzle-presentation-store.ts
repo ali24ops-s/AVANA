@@ -9,6 +9,9 @@ import {
   type PresentationReferenceRecord,
   type CreatePresentationReferenceInput,
   type UpdatePresentationReferenceInput,
+  type CreatePresentationProjectInput,
+  type UpdatePresentationProjectInput,
+  type UserId,
   asPresentationProjectId,
   asPresentationReferenceId,
   asDocumentId,
@@ -19,6 +22,7 @@ import {
   normalizeSourceIdentifier,
   normalizeTitle,
   validatePresentationReferenceInput,
+  validatePresentationProjectInput,
 } from "@avana/domain";
 import {
   presentationProjects,
@@ -454,6 +458,34 @@ export class DrizzlePresentationProjectStore
     private readonly db: NodePgDatabase<Record<string, unknown>>,
   ) {}
 
+  async create(
+    input: CreatePresentationProjectInput,
+  ): Promise<PresentationProjectRecord> {
+    validatePresentationProjectInput(input);
+
+    const [created] = await this.db
+      .insert(presentationProjects)
+      .values({
+        organizationId: input.organizationId,
+        ownerUserId: input.ownerUserId,
+        title: input.title.trim(),
+        pptxDocumentId: input.pptxDocumentId ?? null,
+        targetDurationMinutes: input.targetDurationMinutes ?? 15,
+        academicLevel: input.academicLevel ?? "intermediate",
+        tone: input.tone ?? "formal_scientific",
+        elaborationDepth: input.elaborationDepth ?? "balanced",
+        status: input.status ?? "created",
+        currentStage: input.currentStage ?? null,
+        totalSlides: input.totalSlides ?? 0,
+        overallIntroduction: input.overallIntroduction ?? null,
+        overallConclusion: input.overallConclusion ?? null,
+        totalEstimatedSeconds: input.totalEstimatedSeconds ?? 0,
+      })
+      .returning();
+
+    return mapProjectRowToRecord(created);
+  }
+
   async findById(
     id: PresentationProjectId,
   ): Promise<PresentationProjectRecord | null> {
@@ -486,5 +518,97 @@ export class DrizzlePresentationProjectStore
       );
 
     return row ? mapProjectRowToRecord(row) : null;
+  }
+
+  async listByUserId(
+    userId: UserId,
+    organizationId?: OrganizationId,
+  ): Promise<PresentationProjectRecord[]> {
+    const conditions = [
+      eq(presentationProjects.ownerUserId, userId),
+      isNull(presentationProjects.deletedAt),
+    ];
+    if (organizationId) {
+      conditions.push(eq(presentationProjects.organizationId, organizationId));
+    }
+
+    const rows = await this.db
+      .select()
+      .from(presentationProjects)
+      .where(and(...conditions))
+      .orderBy(desc(presentationProjects.createdAt));
+
+    return rows.map(mapProjectRowToRecord);
+  }
+
+  async update(
+    id: PresentationProjectId,
+    input: UpdatePresentationProjectInput,
+  ): Promise<PresentationProjectRecord> {
+    validatePresentationProjectInput(input);
+
+    const updateValues: Partial<typeof presentationProjects.$inferInsert> = {
+      updatedAt: new Date(),
+    };
+
+    if (input.title !== undefined) {
+      updateValues.title = input.title.trim();
+    }
+    if (input.targetDurationMinutes !== undefined) {
+      updateValues.targetDurationMinutes = input.targetDurationMinutes;
+    }
+    if (input.academicLevel !== undefined) {
+      updateValues.academicLevel = input.academicLevel;
+    }
+    if (input.tone !== undefined) {
+      updateValues.tone = input.tone;
+    }
+    if (input.elaborationDepth !== undefined) {
+      updateValues.elaborationDepth = input.elaborationDepth;
+    }
+    if (input.status !== undefined) {
+      updateValues.status = input.status;
+    }
+    if (input.currentStage !== undefined) {
+      updateValues.currentStage = input.currentStage;
+    }
+    if (input.totalSlides !== undefined) {
+      updateValues.totalSlides = input.totalSlides;
+    }
+    if (input.overallIntroduction !== undefined) {
+      updateValues.overallIntroduction = input.overallIntroduction;
+    }
+    if (input.overallConclusion !== undefined) {
+      updateValues.overallConclusion = input.overallConclusion;
+    }
+    if (input.totalEstimatedSeconds !== undefined) {
+      updateValues.totalEstimatedSeconds = input.totalEstimatedSeconds;
+    }
+
+    const [updated] = await this.db
+      .update(presentationProjects)
+      .set(updateValues)
+      .where(
+        and(
+          eq(presentationProjects.id, id),
+          isNull(presentationProjects.deletedAt),
+        ),
+      )
+      .returning();
+
+    if (!updated) {
+      throw new DomainError("not_found", "Presentation project not found");
+    }
+
+    return mapProjectRowToRecord(updated);
+  }
+
+  async delete(id: PresentationProjectId): Promise<boolean> {
+    const [deleted] = await this.db
+      .delete(presentationProjects)
+      .where(eq(presentationProjects.id, id))
+      .returning({ id: presentationProjects.id });
+
+    return Boolean(deleted);
   }
 }

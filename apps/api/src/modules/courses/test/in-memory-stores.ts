@@ -11,9 +11,10 @@ import type {
   UserId,
   CoursePublicationRecord,
 } from "@avana/domain";
-import { DomainError } from "@avana/domain";
+import { DomainError, isUUID, generateDefaultCourseSlug } from "@avana/domain";
 import type {
   CourseRecord,
+  CourseResolutionResult,
   CourseStore,
   CoursePublicationStore,
   CreateCourseRecords,
@@ -21,6 +22,7 @@ import type {
 
 export class InMemoryCourseStore implements CourseStore {
   private courses: Map<string, CourseRecord> = new Map();
+  private slugRedirects: Map<string, { courseId: CourseId; targetSlug: string }> = new Map();
   private userCourses: Map<string, Set<string>> = new Map(); // userId -> Set of courseIds
   private userExamSchedules: Map<
     string,
@@ -51,6 +53,14 @@ export class InMemoryCourseStore implements CourseStore {
     const courseRecord: CourseRecord = {
       status: records.course.status ?? "published",
       ...records.course,
+      slug:
+        records.course.slug !== undefined
+          ? records.course.slug
+          : generateDefaultCourseSlug({
+              id: records.course.id,
+              name: records.course.name,
+              subject: records.course.subject,
+            }),
       officialExamDate: records.course.officialExamDate ?? records.course.examDate ?? null,
       officialExamScope: records.course.officialExamScope ?? records.course.examScope ?? null,
       examDate: records.course.officialExamDate ?? records.course.examDate ?? null,
@@ -85,7 +95,7 @@ export class InMemoryCourseStore implements CourseStore {
     if (records.auditEvents) {
       this.auditEvents.push(...records.auditEvents);
     }
-    const resultRecord = { ...records.course };
+    const resultRecord = { ...records.course, slug: courseRecord.slug };
     if (records.initialExamSchedule) {
       resultRecord.examDate = records.initialExamSchedule.examDate ?? null;
       resultRecord.examScope = records.initialExamSchedule.examScope ?? null;
@@ -120,6 +130,145 @@ export class InMemoryCourseStore implements CourseStore {
     const course = this.courses.get(courseId);
     if (!course || course.deletedAt !== null) return undefined;
     return { ...course };
+  }
+
+  async findByIdOrSlug(
+    identifier: string,
+  ): Promise<CourseResolutionResult | undefined> {
+    if (!identifier || !identifier.trim()) return undefined;
+    const clean = identifier.trim();
+
+    if (isUUID(clean)) {
+      const course = await this.findById(clean as CourseId);
+      if (!course) return undefined;
+      return {
+        course,
+        isRedirect: false,
+        canonicalSlug: course.slug ?? undefined,
+      };
+    }
+
+    // Direct active slug lookup
+    for (const c of this.courses.values()) {
+      if (c.slug === clean && c.deletedAt === null) {
+        return {
+          course: { ...c },
+          isRedirect: false,
+          canonicalSlug: c.slug ?? undefined,
+        };
+      }
+    }
+
+    // Historical slug redirect lookup
+    const redirect = this.slugRedirects.get(clean);
+    if (redirect) {
+      const target = await this.findById(redirect.courseId);
+      if (target) {
+        return {
+          course: target,
+          isRedirect: true,
+          canonicalSlug: target.slug ?? redirect.targetSlug,
+        };
+      }
+    }
+
+    return undefined;
+  }
+
+  async findByIdOrSlugForUser(
+    identifier: string,
+    userId: UserId,
+    systemOrganizationId?: OrganizationId,
+  ): Promise<CourseResolutionResult | undefined> {
+    if (!identifier || !identifier.trim()) return undefined;
+    const clean = identifier.trim();
+
+    if (isUUID(clean)) {
+      const course = await this.findByIdForUser(
+        clean as CourseId,
+        userId,
+        systemOrganizationId,
+      );
+      if (!course) return undefined;
+      return {
+        course,
+        isRedirect: false,
+        canonicalSlug: course.slug ?? undefined,
+      };
+    }
+
+    const resolved = await this.findByIdOrSlug(clean);
+    if (!resolved) return undefined;
+
+    const accessible = await this.findByIdForUser(
+      resolved.course.id,
+      userId,
+      systemOrganizationId,
+    );
+    if (!accessible) return undefined;
+
+    return {
+      course: accessible,
+      isRedirect: resolved.isRedirect,
+      canonicalSlug: accessible.slug ?? resolved.canonicalSlug,
+    };
+  }
+
+  async isSlugTaken(slug: string, excludeCourseId?: CourseId): Promise<boolean> {
+    const clean = slug.trim();
+    if (!clean) return false;
+
+    for (const c of this.courses.values()) {
+      if (c.slug === clean && c.deletedAt === null && c.id !== excludeCourseId) {
+        return true;
+      }
+    }
+
+    const redirect = this.slugRedirects.get(clean);
+    if (redirect && redirect.courseId !== excludeCourseId) {
+      return true;
+    }
+
+    return false;
+  }
+
+  async updateCourseSlug(
+    courseId: CourseId,
+    newSlug: string,
+  ): Promise<{ success: boolean; course: CourseRecord }> {
+    const current = await this.findById(courseId);
+    if (!current) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    const cleanNew = newSlug.trim();
+    if (current.slug === cleanNew) {
+      return { success: true, course: current };
+    }
+
+    if (await this.isSlugTaken(cleanNew, courseId)) {
+      throw new DomainError("conflict", "این شناسه (اسلاگ) قبلاً استفاده شده است.");
+    }
+
+    // Delete newSlug from redirects if it previously pointed to this course (prevents loop)
+    const existingRedirect = this.slugRedirects.get(cleanNew);
+    if (existingRedirect && existingRedirect.courseId === courseId) {
+      this.slugRedirects.delete(cleanNew);
+    }
+
+    // Save previous slug as redirect
+    if (current.slug && current.slug.trim()) {
+      this.slugRedirects.set(current.slug.trim(), {
+        courseId,
+        targetSlug: cleanNew,
+      });
+    }
+
+    current.slug = cleanNew;
+    current.updatedAt = new Date().toISOString();
+    this.courses.set(courseId, { ...current });
+
+    return { success: true, course: { ...current } };
   }
 
   async findByIdForUser(
@@ -448,6 +597,17 @@ export class InMemoryCourseStore implements CourseStore {
     this.courses.delete(courseId);
   }
 
+  async listOfficialPublished(): Promise<Array<{ id: CourseId; slug: string | null; name: string; updatedAt?: string | null }>> {
+    return Array.from(this.courses.values())
+      .filter((c) => !c.deletedAt && c.isOfficial && c.status === "published" && c.slug)
+      .map((c) => ({
+        id: c.id,
+        slug: c.slug ?? null,
+        name: c.name,
+        updatedAt: c.updatedAt ?? null,
+      }));
+  }
+
   getAll(): CourseRecord[] {
     return Array.from(this.courses.values()).map((c) => ({ ...c }));
   }
@@ -547,7 +707,7 @@ export class InMemoryCoursePublicationStore implements CoursePublicationStore {
     supersededPublications: import("@avana/domain").CoursePublicationRecord[];
   }> {
     if (!this.courseStore) {
-      throw new Error("Course store not configured in InMemoryCoursePublicationStore");
+      throw new Error("Course store not configured in publication store");
     }
     const course = await this.courseStore.findById(params.courseId);
     if (!course) {

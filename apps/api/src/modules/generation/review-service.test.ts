@@ -68,7 +68,7 @@ function makeDocument(
     originalName: "notes.pdf",
     mimeType: "application/pdf",
     sizeBytes: 100,
-    sha256: "b".repeat(64),
+    sha256: overrides.sha256 ?? randomUUID().replace(/-/g, "").padEnd(64, "0"),
     storageKey: `uploads/${overrides.id}.pdf`,
     pageCount: 1,
     status: "review_pending",

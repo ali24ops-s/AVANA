@@ -162,7 +162,7 @@ export function ContentLibraryCard({ content, onBuy }: ContentLibraryCardProps) 
           </Button>
         ) : (
           <Link
-            to={content.href || `/courses/${content.course_id}?lessonId=${content.lesson_id || content.id}`}
+            to={content.href || `/courses/${(content as any).course_slug || content.course_id}?lessonId=${content.lesson_id || content.id}`}
             className={`flex w-full items-center justify-between rounded-[10px] px-3.5 py-2 text-xs font-bold transition-all group-hover:shadow-sm ${
               hasAccess || content.is_preview
                 ? "bg-primary/10 text-primary hover:bg-primary hover:text-white"

@@ -172,7 +172,13 @@ export const ALLOWED_CRAWL_ROUTES = [
   "/blog",
   "/blog/*",
   "/brand/",
+  "/courses/*",
 ] as const;
+
+export interface DynamicCourseSitemapData {
+  slug: string;
+  updatedAt?: Date | string | null;
+}
 
 export interface DynamicBlogSitemapData {
   posts?: Array<{
@@ -188,7 +194,10 @@ export interface DynamicBlogSitemapData {
     slug: string;
     updatedAt?: Date | string | null;
   }>;
+  courses?: DynamicCourseSitemapData[];
 }
+
+export type DynamicSitemapData = DynamicBlogSitemapData;
 
 export interface SitemapUrlEntry {
   loc: string;
@@ -235,7 +244,13 @@ export function generateSitemapEntries(
 
     const path = url.slice(origin.length) || "/";
     const isDisallowed = excludedPaths.some(
-      (disallowed) => path === disallowed || (disallowed.endsWith("/") && path.startsWith(disallowed)),
+      (disallowed) => {
+        if (disallowed === "/courses/" || disallowed === "/courses") {
+          // Public course slugs are allowed when explicitly added
+          return false;
+        }
+        return path === disallowed || (disallowed.endsWith("/") && path.startsWith(disallowed));
+      },
     );
 
     if (isDisallowed) return;
@@ -291,6 +306,21 @@ export function generateSitemapEntries(
       const cleanSlug = tag.slug.trim().replace(/^\/+|\/+$/g, "");
       const fullUrl = `${origin}/blog/tag/${cleanSlug}`;
       const lastmod = formatLastMod(tag.updatedAt);
+      addEntry({
+        loc: fullUrl,
+        lastmod,
+        changefreq: "weekly",
+      });
+    }
+  }
+
+  // 5. Dynamic published official courses
+  if (blogData.courses) {
+    for (const course of blogData.courses) {
+      if (!course.slug) continue;
+      const cleanSlug = course.slug.trim().replace(/^\/+|\/+$/g, "");
+      const fullUrl = `${origin}/courses/${cleanSlug}`;
+      const lastmod = formatLastMod(course.updatedAt);
       addEntry({
         loc: fullUrl,
         lastmod,

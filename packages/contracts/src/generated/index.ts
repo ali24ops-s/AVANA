@@ -179,6 +179,7 @@ export type CourseResource = {
   is_user_published?: boolean;
   publisherName?: string | null;
   publisher_name?: string | null;
+  slug?: string | null;
 };
 
 export type CourseResponse = {
@@ -202,6 +203,7 @@ export type CreateCourseRequest = {
     moduleIds?: string[];
     lessonIds?: string[];
   } | null;
+  slug?: string | null;
 };
 
 export type UpdateCourseRequest = {
@@ -214,6 +216,7 @@ export type UpdateCourseRequest = {
     moduleIds?: string[];
     lessonIds?: string[];
   } | null;
+  slug?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -346,6 +349,7 @@ export type CourseLearnResponse = {
     access_reason?: string;
     isOfficial?: boolean;
     is_official?: boolean;
+    slug?: string | null;
   };
   groups?: SubCourseGroupResource[];
   modules: ModuleResource[];

@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import fp from "fastify-plugin";
 import { DomainError } from "@avana/domain";
 import { writeErrorEnvelope } from "./errorEnvelope.js";
 
@@ -52,7 +53,7 @@ function isDomainError(err: unknown): err is DomainError {
   );
 }
 
-export const errorHandlerPlugin: FastifyPluginAsync = async (app) => {
+export const errorHandlerPlugin: FastifyPluginAsync = fp(async (app) => {
   app.setErrorHandler((err, request, reply) => {
     if (isDomainError(err)) {
       const statusCode = mapDomainCodeToStatus(err.code);
@@ -92,4 +93,4 @@ export const errorHandlerPlugin: FastifyPluginAsync = async (app) => {
   app.setNotFoundHandler((request, reply) => {
     writeErrorEnvelope(reply, request, "not_found", "Not found", 404);
   });
-};
+});

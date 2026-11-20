@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql, lte, isNull } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
   type PresentationProjectId,
@@ -62,13 +62,15 @@ function mapSlideRowToRecord(row: PresentationSlide): PresentationSlideRecord {
     visualSummary: row.visualSummary ?? null,
     mediaStorageKeys: (row.mediaStorageKeys ?? []) as string[],
     extractionMetadata: (row.extractionMetadata ?? {}) as Record<string, unknown>,
+    paymentTransactionId: row.paymentTransactionId ?? null,
+    paidAt: row.paidAt ? safeDateToIsoString(row.paidAt) : null,
     createdAt: safeDateToIsoString(row.createdAt),
     updatedAt: safeDateToIsoString(row.updatedAt),
   };
 }
 
 export class DrizzlePresentationSlideStore implements PresentationSlideStore {
-  constructor(private readonly db: NodePgDatabase) {}
+  constructor(private readonly db: NodePgDatabase<Record<string, unknown>>) {}
 
   async createSlide(
     input: CreatePresentationSlideInput,
@@ -89,6 +91,8 @@ export class DrizzlePresentationSlideStore implements PresentationSlideStore {
           visualSummary: input.visualSummary ?? null,
           mediaStorageKeys: input.mediaStorageKeys ?? [],
           extractionMetadata: input.extractionMetadata ?? {},
+          paymentTransactionId: input.paymentTransactionId ?? null,
+          paidAt: input.paidAt ? new Date(input.paidAt) : null,
         })
         .returning();
 
@@ -207,6 +211,12 @@ export class DrizzlePresentationSlideStore implements PresentationSlideStore {
         ...(existing.extractionMetadata ?? {}),
         ...input.extractionMetadata,
       };
+    }
+    if (input.paymentTransactionId !== undefined) {
+      setPayload.paymentTransactionId = input.paymentTransactionId;
+    }
+    if (input.paidAt !== undefined) {
+      setPayload.paidAt = input.paidAt ? new Date(input.paidAt) : null;
     }
 
     const whereConditions = [
@@ -331,6 +341,15 @@ export class DrizzlePresentationSlideStore implements PresentationSlideStore {
     return Boolean(deletedRow);
   }
 
+  async deleteByProjectId(projectId: PresentationProjectId): Promise<number> {
+    const deletedRows = await this.db
+      .delete(presentationSlides)
+      .where(eq(presentationSlides.projectId, projectId))
+      .returning({ id: presentationSlides.id });
+
+    return deletedRows.length;
+  }
+
   async countByProjectId(projectId: PresentationProjectId): Promise<number> {
     const [result] = await this.db
       .select({ count: sql<number>`count(*)::int` })
@@ -338,5 +357,23 @@ export class DrizzlePresentationSlideStore implements PresentationSlideStore {
       .where(eq(presentationSlides.projectId, projectId));
 
     return result?.count ?? 0;
+  }
+
+  async findStaleGeneratingSlides(
+    staleThresholdMs: number,
+  ): Promise<PresentationSlideRecord[]> {
+    const thresholdDate = new Date(Date.now() - staleThresholdMs);
+    const rows = await this.db
+      .select()
+      .from(presentationSlides)
+      .where(
+        and(
+          sql`(${presentationSlides.extractionMetadata}->>'generationStatus') = 'generating'`,
+          isNull(presentationSlides.paidAt),
+          lte(presentationSlides.updatedAt, thresholdDate),
+        ),
+      );
+
+    return rows.map(mapSlideRowToRecord);
   }
 }

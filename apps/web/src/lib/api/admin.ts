@@ -1020,6 +1020,7 @@ export function createAdminApi(client: {
       courseId: string,
       payload: {
         name?: string;
+        slug?: string;
         subject?: string;
         target_academic_fields?: string[];
         targetAcademicFields?: string[];
@@ -1614,6 +1615,15 @@ export function createAdminApi(client: {
           { body: options },
         );
       },
+
+      async purgeGeneratedContent(
+        courseId: string,
+        documentId: string,
+      ): Promise<PurgeGeneratedContentResult> {
+        return client.delete<PurgeGeneratedContentResult>(
+          `/v1/admin/courses/${courseId}/documents/${documentId}/generated-content`,
+        );
+      },
     },
 
     async listOfficialCourses(): Promise<{ courses: OfficialCourse[] }> {
@@ -1753,6 +1763,15 @@ export function createAdminApi(client: {
       return client.delete<DeleteOfficialCourseResult>(
         `/v1/admin/content-studio/courses/${courseId}`,
         { body: options },
+      );
+    },
+
+    async purgeGeneratedContent(
+      courseId: string,
+      documentId: string,
+    ): Promise<PurgeGeneratedContentResult> {
+      return client.delete<PurgeGeneratedContentResult>(
+        `/v1/admin/courses/${courseId}/documents/${documentId}/generated-content`,
       );
     },
 
@@ -1973,6 +1992,18 @@ export interface DeleteOfficialCourseResult {
   deletedProduct: boolean;
 }
 
+export interface PurgeGeneratedContentResult {
+  success: boolean;
+  documentId: string;
+  documentStatus: string;
+  deletedSummary: {
+    lessonsCount: number;
+    quizzesCount: number;
+    flashcardsCount: number;
+    generatedContentsCount: number;
+  };
+}
+
 export interface OfficialCourseProduct {
   id: string;
   code: string;
@@ -2026,6 +2057,7 @@ export interface CourseRelease {
 
 export interface OfficialCourse {
   id: string;
+  slug?: string | null;
   organizationId?: string;
   name: string;
   description: string | null;
@@ -2095,6 +2127,7 @@ export interface AdminCourseHierarchyLesson {
   quizCount: number;
   hasContent: boolean;
   createdAt: string;
+  generatedContentId?: string | null;
 }
 
 export interface AdminCourseHierarchyModule {
@@ -2102,6 +2135,7 @@ export interface AdminCourseHierarchyModule {
   title: string;
   sortOrder?: number;
   subCourseGroupId?: string | null;
+  unapprovableContentCount?: number;
   lessons: AdminCourseHierarchyLesson[];
 }
 
@@ -2772,6 +2806,7 @@ export interface AdminLessonDetail {
   publicationStatus?: string;
   contentMarkdown: string;
   reference?: string | null;
+  generatedContentId?: string | null;
   createdAt: string;
   flashcards?: Array<{
     id: string;

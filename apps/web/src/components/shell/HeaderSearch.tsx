@@ -94,7 +94,8 @@ export function HeaderSearch() {
     if (item.target_url && !item.target_url.includes("packId=")) {
       navigate(item.target_url);
     } else {
-      navigate(`/courses/${item.id}`);
+      const slug = (item as { slug?: string | null }).slug;
+      navigate(`/courses/${slug || item.id}`);
     }
   };
 

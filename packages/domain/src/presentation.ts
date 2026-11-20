@@ -12,6 +12,9 @@ import type {
   PresentationProjectId,
   PresentationSlideId,
   PresentationReferenceId,
+  PresentationGenerationOperationId,
+  PresentationBatchId,
+  WalletTransactionId,
   DocumentId,
   OrganizationId,
   UserId,
@@ -21,6 +24,10 @@ import { DomainError } from "./errors.js";
 // ---------------------------------------------------------------------------
 // Enums & Domain Sets
 // ---------------------------------------------------------------------------
+
+export const PRESENTATION_CANONICAL_MODEL = "gemini-3.5-flash-lite" as const;
+export type PresentationCanonicalModel = typeof PRESENTATION_CANONICAL_MODEL;
+
 
 export const PRESENTATION_ACADEMIC_LEVELS = [
   "introductory",
@@ -110,6 +117,15 @@ export interface ExtractedVisual {
   height?: number;
 }
 
+export interface SlideUnsupportedContent {
+  hasCharts: boolean;
+  hasSmartArt: boolean;
+  hasGroupedShapes: boolean;
+  chartCount: number;
+  smartArtCount: number;
+  warningMessage?: string;
+}
+
 export interface ExtractedSlide {
   slideIndex: number;
   title: string | null;
@@ -118,6 +134,7 @@ export interface ExtractedSlide {
   tables: ExtractedTable[];
   speakerNotes: string | null;
   visuals: ExtractedVisual[];
+  unsupportedContent?: SlideUnsupportedContent;
   metadata?: Record<string, unknown>;
 }
 
@@ -161,6 +178,75 @@ export interface PresentationProjectRecord {
   deletedAt: string | null;
 }
 
+export interface CreatePresentationProjectInput {
+  organizationId: OrganizationId;
+  ownerUserId: UserId;
+  title: string;
+  pptxDocumentId?: DocumentId | null;
+  targetDurationMinutes?: TargetDurationMinutes;
+  academicLevel?: PresentationAcademicLevel;
+  tone?: PresentationTone;
+  elaborationDepth?: PresentationElaborationDepth;
+  status?: PresentationProjectStatus;
+  currentStage?: string | null;
+  totalSlides?: number;
+  overallIntroduction?: string | null;
+  overallConclusion?: string | null;
+  totalEstimatedSeconds?: number;
+}
+
+export interface UpdatePresentationProjectInput {
+  title?: string;
+  targetDurationMinutes?: TargetDurationMinutes;
+  academicLevel?: PresentationAcademicLevel;
+  tone?: PresentationTone;
+  elaborationDepth?: PresentationElaborationDepth;
+  status?: PresentationProjectStatus;
+  currentStage?: string | null;
+  totalSlides?: number;
+  overallIntroduction?: string | null;
+  overallConclusion?: string | null;
+  totalEstimatedSeconds?: number;
+}
+
+export function validatePresentationProjectInput(
+  input: Partial<CreatePresentationProjectInput>,
+): void {
+  if (input.title !== undefined) {
+    const trimmed = input.title.trim();
+    if (trimmed.length === 0) {
+      throw new DomainError("bad_request", "Presentation project title cannot be empty");
+    }
+    if (trimmed.length > 255) {
+      throw new DomainError("bad_request", "Presentation project title must not exceed 255 characters");
+    }
+  }
+
+  if (input.targetDurationMinutes !== undefined && !isValidTargetDuration(input.targetDurationMinutes)) {
+    throw new DomainError(
+      "bad_request",
+      `Invalid target duration: ${input.targetDurationMinutes}. Must be 5, 10, 15, 20, or 30.`,
+    );
+  }
+
+  if (input.academicLevel !== undefined && !PRESENTATION_ACADEMIC_LEVELS.includes(input.academicLevel)) {
+    throw new DomainError("bad_request", `Invalid academic level: ${input.academicLevel}`);
+  }
+
+  if (input.tone !== undefined && !PRESENTATION_TONES.includes(input.tone)) {
+    throw new DomainError("bad_request", `Invalid tone: ${input.tone}`);
+  }
+
+  if (input.elaborationDepth !== undefined && !PRESENTATION_ELABORATION_DEPTHS.includes(input.elaborationDepth)) {
+    throw new DomainError("bad_request", `Invalid elaboration depth: ${input.elaborationDepth}`);
+  }
+
+  if (input.status !== undefined && !PRESENTATION_PROJECT_STATUSES.includes(input.status)) {
+    throw new DomainError("bad_request", `Invalid project status: ${input.status}`);
+  }
+}
+
+
 export interface PresentationSlideRecord {
   id: PresentationSlideId;
   projectId: PresentationProjectId;
@@ -173,6 +259,8 @@ export interface PresentationSlideRecord {
   visualSummary: string | null;
   mediaStorageKeys: string[];
   extractionMetadata: Record<string, unknown>;
+  paymentTransactionId?: string | null;
+  paidAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -787,6 +875,8 @@ export interface CreatePresentationSlideInput {
   visualSummary?: string | null;
   mediaStorageKeys?: string[];
   extractionMetadata?: Record<string, unknown>;
+  paymentTransactionId?: string | null;
+  paidAt?: string | null;
 }
 
 export interface UpdatePresentationSlideInput {
@@ -798,6 +888,8 @@ export interface UpdatePresentationSlideInput {
   visualSummary?: string | null;
   mediaStorageKeys?: string[];
   extractionMetadata?: Record<string, unknown>;
+  paymentTransactionId?: string | null;
+  paidAt?: string | null;
   expectedUpdatedAt?: string;
 }
 
@@ -996,6 +1088,52 @@ export interface GeneratedSlideCitation {
   referenceId?: string;
 }
 
+// ---------------------------------------------------------------------------
+// 3-Tier Scientific Citation Validation Contracts
+// ---------------------------------------------------------------------------
+
+export function isValidDoi(doi: string): boolean {
+  if (!doi || typeof doi !== "string") return false;
+  const clean = doi.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "").trim();
+  return /^10\.\d{4,9}\/[-._;()/:a-zA-Z0-9]+$/.test(clean);
+}
+
+export function formatDoiUrl(doi: string): string {
+  const clean = doi.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "").trim();
+  return `https://doi.org/${clean}`;
+}
+
+export interface ThreeTierCitationEvaluation {
+  claimText: string;
+  evidenceStatus: EvidenceStatus;
+  sourceExistence: {
+    verified: boolean;
+    status: "verified_in_snapshot" | "missing_from_snapshot" | "invalid_chunk";
+    detail: string;
+    chunkId?: string;
+    referenceId?: string;
+    sourceTitle?: string;
+  };
+  bibliographicAccuracy: {
+    accurate: boolean;
+    status: "accurate" | "partial_metadata" | "invalid_doi_format" | "unverified_identifier";
+    detail: string;
+    doi?: string | null;
+    doiUrl?: string | null;
+    authors?: string[];
+    journal?: string | null;
+    year?: number | null;
+    title?: string | null;
+    sourceType?: string;
+  };
+  claimSupport: {
+    supported: boolean;
+    status: "supported" | "insufficient_evidence" | "unsupported";
+    detail: string;
+    groundedChunkIds: string[];
+  };
+}
+
 export interface GeneratedPresentationSlide {
   title: string;
   subtitle?: string;
@@ -1021,12 +1159,339 @@ export type SlideGenerationStatus =
   (typeof SLIDE_GENERATION_STATUSES)[number];
 
 export interface SlideGenerationResult {
-  slide: GeneratedPresentationSlide;
+  slide?: GeneratedPresentationSlide;
+  speechContent?: PresentationSpeakerContent;
   validation: ServerCitationValidationResult;
   repairAttempted: boolean;
   status: SlideGenerationStatus;
   generationRunId: string;
   snapshotState: SnapshotState;
+  model: string;
 }
 
+// ---------------------------------------------------------------------------
+// Scientific Presentation Speech Assistant Models (Speech Engine)
+// ---------------------------------------------------------------------------
+
+export interface PresentationSpeakerClaim {
+  text: string;
+  chunkIds: string[];
+  evidenceStatus: EvidenceStatus;
+}
+
+export interface PresentationSpeakerClinicalExample {
+  scenario?: string;
+  clinicalPearl?: string;
+  connectionToSlide?: string;
+}
+
+export interface PresentationSpeakerContent {
+  /** Fluent, oral scientific speech text in natural Persian ready for verbal delivery */
+  speechText: string;
+  /** Supplementary academic explanation providing depth beyond the slide text */
+  supplementaryExplanation?: string;
+  /** Key core scientific takeaway points (1 to 3 items) */
+  keyPoints?: string[];
+  /** High-yield or exam-relevant points (only if genuinely applicable, else empty or omitted) */
+  examPoints?: string[];
+  /** Clinical or pharmacological case example (only if genuinely applicable, else null) */
+  clinicalExample?: PresentationSpeakerClinicalExample | null;
+  /** Grounded citations referencing snapshot chunk IDs */
+  citations: GeneratedSlideCitation[];
+  /** Validated individual scientific claims with explicit evidenceStatus */
+  claims: PresentationSpeakerClaim[];
+  /** Suggested delivery duration in seconds for this slide */
+  suggestedDurationSeconds: number;
+  /** Natural transition sentence connecting to the next slide */
+  transitionSentence?: string;
+  /** Explicit notes explaining when evidence in provided references was insufficient */
+  insufficientEvidenceNotes?: string | null;
+}
+
+/**
+ * Scientific abbreviations commonly found in medical and academic presentation transcripts
+ * that should not trigger false sentence boundaries when followed by a dot.
+ */
+const SCIENTIFIC_ABBREVIATIONS = new Set([
+  "dr", "prof", "vs", "eg", "ie", "al", "fig", "tab", "ref", "no",
+  "vol", "approx", "ca", "min", "sec", "hr", "mg", "ml", "mcg", "kg", "mol",
+]);
+
+/**
+ * Splits continuous presentation speech text into sentences without corrupting:
+ * - Decimal numbers (e.g., 2.5 mg, 0.05, 3.14)
+ * - Academic/medical abbreviations (e.g., Dr., Prof., vs., et al., e.g., i.e.)
+ * - Pharmacological and statistical expressions (e.g., p < 0.05)
+ */
+export function splitSpeechSentences(text: string): string[] {
+  if (!text || !text.trim()) return [];
+  const normalized = text.trim();
+  const sentences: string[] = [];
+  let currentStart = 0;
+
+  for (let i = 0; i < normalized.length; i++) {
+    const ch = normalized[i];
+    if (ch === "." || ch === "!" || ch === "؟" || ch === "?") {
+      // Look ahead past any closing parentheses, brackets, or quotes
+      let lookahead = i + 1;
+      while (
+        lookahead < normalized.length &&
+        /[)\]}»”"'’]/.test(normalized[lookahead])
+      ) {
+        lookahead++;
+      }
+
+      // Check if lookahead reached whitespace or end of string
+      const isBoundarySpace =
+        lookahead >= normalized.length || /\s/.test(normalized[lookahead]);
+
+      if (!isBoundarySpace) {
+        // e.g., 2.5 or 0.05 or within word
+        continue;
+      }
+
+      if (ch === ".") {
+        // Abbreviation check: examine preceding token
+        const lookback = normalized.slice(Math.max(0, i - 15), i);
+        const match = lookback.match(/\b([A-Za-z]{1,6})$/);
+        if (match && SCIENTIFIC_ABBREVIATIONS.has(match[1].toLowerCase())) {
+          continue;
+        }
+
+        // Single letter initial in name (e.g., "A. Smith")
+        if (match && match[1].length === 1) {
+          const afterSpace = normalized.slice(lookahead).match(/^\s+([A-Za-z\u0600-\u06FF])/);
+          if (afterSpace && /^[a-z]/i.test(match[1])) {
+            const nextWord = normalized.slice(lookahead).trim().split(/\s+/)[0] || "";
+            // If next word starts with uppercase Latin or standard word, check if likely a surname
+            if (nextWord.length > 2 && /^[A-Z]/.test(nextWord)) {
+              continue;
+            }
+          }
+        }
+      }
+
+      // Valid sentence boundary!
+      // Include any closing brackets/quotes that were part of this sentence termination
+      const sentence = normalized.slice(currentStart, lookahead).trim();
+      if (sentence) {
+        sentences.push(sentence);
+      }
+
+      // Advance past trailing whitespace
+      while (lookahead < normalized.length && /\s/.test(normalized[lookahead])) {
+        lookahead++;
+      }
+      currentStart = lookahead;
+      i = lookahead - 1;
+    }
+  }
+
+  // Any remaining text
+  if (currentStart < normalized.length) {
+    const tail = normalized.slice(currentStart).trim();
+    if (tail) {
+      if (sentences.length > 0 && !/[.؟!?!][)\]}»”"'’]*$/.test(sentences[sentences.length - 1])) {
+        sentences[sentences.length - 1] = `${sentences[sentences.length - 1]} ${tail}`;
+      } else {
+        sentences.push(tail);
+      }
+    }
+  }
+
+  return sentences;
+}
+
+/**
+ * Tier 1: High-Priority Macro Semantic Markers
+ * Signals major structural shifts in presentation focus (overview -> mechanism -> clinical application -> conclusion).
+ */
+const HIGH_PRIORITY_TRANSITION_REGEX =
+  /(?:^|[\s،,])(?:از\s+(?:نظر|دیدگاه|حیث|جنبه|منظر)\s+(?:مکانیسم|پاتوفیزیولوژی|سلولی|مولکولی|فارماکولوژی|بیوشیمیایی|شواهد|بالینی|کاربرد\s+بالینی|درمانی|عملکردی|عملی)|همان‌طور\s+که\s+در\s+(?:تصویر|اسلاید|نمودار|شکل|دیاگرام|جدول)\s+مشاهده\s+می‌کنید|در\s+(?:محیط\s+بالینی|عمل|تصمیم‌گیری\s+بالینی|بیماران|پایش\s+بیمار)|بررسی\s+شواهد\s+(?:بالینی|علمی)|بر\s+اساس\s+(?:مطالعات|یافته‌ها|داده‌ها|نتایج|گایدلاین)|نکته\s+کلیدی\s+در\s+(?:تجویز|درمان)|پروتکل\s+(?:درمانی|پیشنهادی)|در\s+رابطه\s+با\s+عوارض|در\s+تنظیم\s+دوز|مکانیسم\s+(?:اصلی|اثر|عملکرد)|در\s+سطح\s+(?:سلولی|گیرنده|بافتی)|در\s+نهایت|به\s+طور\s+خلاصه|پیام\s+(?:کلیدی|اصلی|نهایی)|نکته\s+پایانی|در\s+مجموع|در\s+ادامه\s*،?\s*به\s+بررسی)/i;
+
+const ENGLISH_HIGH_PRIORITY_REGEX =
+  /^(?:From a clinical perspective|Clinically|In clinical practice|Regarding the underlying mechanism|From a pathophysiological standpoint|At the cellular level|In terms of clinical|Looking at the (?:data|evidence|diagram|chart)|As shown in (?:the|this)|In conclusion|To summarize|Moving on to)/i;
+
+/**
+ * Tier 2: Low-Priority Discourse Connectors
+ * Intra-paragraph logical connectives (therefore, furthermore, on the other hand).
+ * MUST NOT trigger a paragraph break alone without a substantial paragraph body (>= 3 sentences and >= 260 chars).
+ */
+const LOW_PRIORITY_CONNECTOR_REGEX =
+  /(?:^|[\s،,])(?:بنابراین|در\s+نتیجه|از\s+(?:سوی|طرف)\s+دیگر|در\s+مقابل|علاوه\s+بر\s+این|همچنین)/i;
+
+const ENGLISH_LOW_PRIORITY_REGEX =
+  /^(?:Therefore|Consequently|Furthermore|Moreover|In contrast|Additionally|Also)/i;
+
+export type SemanticTransitionPriority = "high" | "low" | "none";
+
+export function getSemanticTransitionPriority(sentence: string): SemanticTransitionPriority {
+  const prefix = sentence.slice(0, 80);
+  if (HIGH_PRIORITY_TRANSITION_REGEX.test(prefix) || ENGLISH_HIGH_PRIORITY_REGEX.test(prefix)) {
+    return "high";
+  }
+  if (LOW_PRIORITY_CONNECTOR_REGEX.test(prefix) || ENGLISH_LOW_PRIORITY_REGEX.test(prefix)) {
+    return "low";
+  }
+  return "none";
+}
+
+/**
+ * Splits presentation speech text into cohesive, readable paragraphs.
+ *
+ * Algorithm Rules:
+ * 1. Existing Paragraph Preservation: If the text is already formatted with blank lines (\n\n or \r\n\r\n),
+ *    the author's or model's paragraphs are preserved intact.
+ * 2. Single Line Breaks: If lines are separated by single \n and are substantial thoughts/sentences,
+ *    they are cleanly treated as paragraphs.
+ * 3. Continuous Unsegmented Text: Intelligently segmented into 2-4 cohesive multi-sentence paragraphs
+ *    based on semantic discourse topic shifts (mechanism, clinical relevance, conclusion).
+ * 4. Content Fidelity: Never deletes, summarizes, reorders, or modifies any scientific word, decimal number
+ *    (e.g., 2.5 mg), or medical abbreviation (Dr., et al.).
+ * 5. Flow & Cohesion: Avoids turning individual sentences into single-line paragraphs.
+ * 6. Priority-Based Breaking: High-priority macro markers trigger topic shifts after cohesive thoughts,
+ *    while low-priority connectors ("بنابراین", "علاوه بر این") keep sentences grouped in the same paragraph.
+ */
+export function splitSpeechTextIntoParagraphs(text: string | null | undefined): string[] {
+  if (!text || typeof text !== "string") return [];
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!normalized) return [];
+
+  // Step 1: Check existing multi-paragraph structure (\n\s*\n)
+  const existingParagraphs = normalized
+    .split(/\n\s*\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (existingParagraphs.length >= 2) {
+    return existingParagraphs;
+  }
+
+  // Step 2: Check if text has single line breaks separating logical paragraphs
+  const singleLines = normalized
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (singleLines.length >= 2) {
+    const allSubstantial = singleLines.every(
+      (l) => l.length >= 35 || /[.؟!?!][)\]}»”"'’]*$/.test(l),
+    );
+    if (allSubstantial) {
+      return singleLines;
+    }
+  }
+
+  // Step 3: Text is a single continuous block. Split into sentences safely.
+  const sentences = splitSpeechSentences(normalized);
+
+  // If text is short or only has 1 or 2 sentences, keep as single cohesive paragraph.
+  if (sentences.length <= 2 || normalized.length < 140) {
+    return [normalized];
+  }
+
+  // Group sentences into 2 to 4 coherent, multi-sentence paragraphs based on semantic topic shifts
+  const paragraphs: string[] = [];
+  let currentGroup: string[] = [sentences[0]];
+
+  for (let i = 1; i < sentences.length; i++) {
+    const sentence = sentences[i];
+    const priority = getSemanticTransitionPriority(sentence);
+    const currentLength = currentGroup.join(" ").length;
+    const remainingSentences = sentences.length - i;
+
+    // Conditions to start a new paragraph:
+    // 1. High-Priority Macro Shift:
+    //    Requires current group to have at least 2 sentences (or 1 compound sentence >= 140 chars)
+    //    AND remaining sentences can also form a cohesive unit (remainingSentences >= 2 || (remainingSentences === 1 && sentence.length >= 100)).
+    const isCurrentGroupSubstantial = currentGroup.length >= 2 || currentLength >= 140;
+    const isRemainingSubstantial =
+      remainingSentences >= 2 || (remainingSentences === 1 && sentence.length >= 100);
+
+    const shouldBreakOnHighPriority =
+      priority === "high" && isCurrentGroupSubstantial && isRemainingSubstantial;
+
+    // 2. Low-Priority Connector (بنابراین, علاوه بر این, همچنین, etc.):
+    //    MUST NOT create a new paragraph simply because current group has 2 sentences.
+    //    Only allows a break if current group is already long (>= 3 sentences AND >= 260 chars)
+    //    AND remaining sentences >= 2.
+    const shouldBreakOnLowPriority =
+      priority === "low" && currentGroup.length >= 3 && currentLength >= 260 && remainingSentences >= 2;
+
+    // 3. Length Fallback (no transition markers, but text is very long):
+    //    If current group has >= 3 sentences and >= 280 chars, break at natural sentence boundary.
+    const shouldBreakOnLength =
+      priority === "none" && currentGroup.length >= 3 && currentLength >= 280 && remainingSentences >= 2;
+
+    if (shouldBreakOnHighPriority || shouldBreakOnLowPriority || shouldBreakOnLength) {
+      paragraphs.push(currentGroup.join(" "));
+      currentGroup = [sentence];
+    } else {
+      currentGroup.push(sentence);
+    }
+  }
+
+  if (currentGroup.length > 0) {
+    // If the trailing group has only 1 short sentence and we already have paragraphs,
+    // merge it with the last paragraph to prevent an orphan single-sentence paragraph.
+    if (paragraphs.length > 0 && currentGroup.length === 1 && currentGroup[0].length < 120) {
+      paragraphs[paragraphs.length - 1] = `${paragraphs[paragraphs.length - 1]} ${currentGroup[0]}`;
+    } else {
+      paragraphs.push(currentGroup.join(" "));
+    }
+  }
+
+  return paragraphs.length > 0 ? paragraphs : [normalized];
+}
+
+/**
+ * Normalizes and formats speech text into coherent paragraphs separated by double newlines (\n\n).
+ */
+export function formatSpeechText(text: string | null | undefined): string {
+  const paragraphs = splitSpeechTextIntoParagraphs(text);
+  return paragraphs.join("\n\n");
+}
+
+// ---------------------------------------------------------------------------
+// Presentation Generation Operations (Persistent Financial State Machine)
+// ---------------------------------------------------------------------------
+
+export const PRESENTATION_OPERATION_STATUSES = [
+  "pending",
+  "debited",
+  "generating",
+  "completed",
+  "refund_pending",
+  "refunded",
+  "failed",
+] as const;
+export type PresentationGenerationOperationStatus =
+  (typeof PRESENTATION_OPERATION_STATUSES)[number];
+
+export function isPresentationGenerationOperationStatus(
+  value: string,
+): value is PresentationGenerationOperationStatus {
+  return (PRESENTATION_OPERATION_STATUSES as readonly string[]).includes(value);
+}
+
+export interface PresentationGenerationOperationRecord {
+  id: PresentationGenerationOperationId;
+  projectId: PresentationProjectId;
+  slideId: PresentationSlideId;
+  userId: UserId;
+  batchId: PresentationBatchId | null;
+  status: PresentationGenerationOperationStatus;
+  costToman: number;
+  debitTransactionId: WalletTransactionId | null;
+  refundTransactionId: WalletTransactionId | null;
+  idempotencyKey: string;
+  recoveryWorkerId: string | null;
+  recoveryLockedUntil: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  refundedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 

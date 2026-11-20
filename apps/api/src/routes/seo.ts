@@ -59,6 +59,7 @@ export const seoRoutes: FastifyPluginAsync<SeoRouteOptions> = async (
    */
   app.get("/sitemap.xml", async (_request, reply) => {
     let blogData: DynamicBlogSitemapData | undefined;
+    let coursesData: Array<{ slug: string; updatedAt?: string | null }> | undefined;
 
     if (opts?.blogStore) {
       try {
@@ -89,7 +90,24 @@ export const seoRoutes: FastifyPluginAsync<SeoRouteOptions> = async (
       }
     }
 
-    const sitemapXml = generateSitemapXml(blogData);
+    if (opts?.courseStore?.listOfficialPublished) {
+      try {
+        const officialCourses = await opts.courseStore.listOfficialPublished();
+        coursesData = officialCourses
+          .filter((c) => c.slug && c.slug.trim())
+          .map((c) => ({
+            slug: c.slug!.trim(),
+            updatedAt: c.updatedAt,
+          }));
+      } catch {
+        coursesData = undefined;
+      }
+    }
+
+    const sitemapXml = generateSitemapXml({
+      ...blogData,
+      courses: coursesData,
+    });
     return reply
       .status(200)
       .header("Content-Type", "application/xml; charset=utf-8")
@@ -205,27 +223,8 @@ function resolveCourseShareImage(
   };
 }
 
-  /**
-   * Helper: render HTML for course share preview / Open Graph tags.
-   */
-  async function handleCourseSharePreview(
-    rawCourseId: string,
-    request: import("fastify").FastifyRequest,
-    reply: import("fastify").FastifyReply,
-  ) {
-    if (!opts.courseStore) {
-      return reply
-        .status(503)
-        .header("Content-Type", "text/plain; charset=utf-8")
-        .send("Course store not available.");
-    }
-
-    const courseId = asCourseId(rawCourseId);
-    const course = await opts.courseStore.findById(courseId);
-
-    // If course does not exist or has been soft-deleted
-    if (!course || course.deletedAt) {
-      const notFoundHtml = `<!doctype html>
+function buildCourseNotFoundHtml(baseUrl: string): string {
+  return `<!doctype html>
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="utf-8">
@@ -241,14 +240,44 @@ function resolveCourseShareImage(
   <div style="max-width: 480px; margin: 0 auto; background: #fff; padding: 32px; border-radius: 16px; border: 1px solid #E2E7EA;">
     <h2 style="margin-top: 0; color: #008080;">دوره مورد نظر در دسترس نیست</h2>
     <p style="color: #5B6268; font-size: 14px; line-height: 1.6;">این دوره حذف شده است یا ممکن است پیوند نامعتبر باشد.</p>
-    <a href="${escapeHtml(appBaseUrl)}/courses" style="display: inline-block; margin-top: 16px; padding: 10px 20px; background: #008080; color: #fff; text-decoration: none; border-radius: 8px; font-size: 13px;">مشاهده فهرست دوره‌ها</a>
+    <a href="${escapeHtml(baseUrl)}/courses" style="display: inline-block; margin-top: 16px; padding: 10px 20px; background: #008080; color: #fff; text-decoration: none; border-radius: 8px; font-size: 13px;">مشاهده فهرست دوره‌ها</a>
   </div>
 </body>
 </html>`;
+}
+
+  /**
+   * Helper: render HTML for course share preview / Open Graph tags.
+   */
+  async function handleCourseSharePreview(
+    rawCourseId: string,
+    request: import("fastify").FastifyRequest,
+    reply: import("fastify").FastifyReply,
+  ) {
+    if (!opts.courseStore) {
+      return reply
+        .status(503)
+        .header("Content-Type", "text/plain; charset=utf-8")
+        .send("Course store not available.");
+    }
+
+    let course: import("../modules/courses/course-store.js").CourseRecord | undefined;
+    let resolution: import("../modules/courses/course-store.js").CourseResolutionResult | undefined;
+    if (opts.courseStore.findByIdOrSlug) {
+      resolution = await opts.courseStore.findByIdOrSlug(rawCourseId);
+      course = resolution?.course;
+    } else {
+      course = await opts.courseStore.findById(asCourseId(rawCourseId));
+    }
+
+    // If course does not exist or has been soft-deleted
+    if (!course || course.deletedAt) {
       return reply
         .status(404)
         .header("Content-Type", "text/html; charset=utf-8")
-        .send(notFoundHtml);
+        .header("Cache-Control", "no-store")
+        .header("X-Robots-Tag", "noindex, nofollow")
+        .send(buildCourseNotFoundHtml(appBaseUrl));
     }
 
     // Security invariant:
@@ -263,7 +292,23 @@ function resolveCourseShareImage(
       }
     }
 
-    const destinationUrl = `${appBaseUrl}/courses/${encodeURIComponent(course.id)}`;
+    const canonicalIdentifier = course.slug || course.id;
+    const cleanAppBaseUrl = appBaseUrl.replace(/\/+$/, "");
+    const destination = new URL(
+      `${cleanAppBaseUrl}/courses/${encodeURIComponent(canonicalIdentifier)}`,
+    );
+
+    const reqRawUrl = request.raw.url || request.url || "";
+    const queryIndex = reqRawUrl.indexOf("?");
+    if (queryIndex !== -1) {
+      const incomingSearch = reqRawUrl.slice(queryIndex);
+      const incomingParams = new URLSearchParams(incomingSearch);
+      incomingParams.forEach((val, key) => {
+        destination.searchParams.append(key, val);
+      });
+    }
+    const destinationUrl = destination.toString();
+    const canonicalUrl = `${cleanAppBaseUrl}/courses/${encodeURIComponent(canonicalIdentifier)}`;
 
     const title = isPubliclyDisclosable
       ? `${cleanEducationalTitle(course.name)} | دوره آموزشی در آوانا`
@@ -280,16 +325,22 @@ function resolveCourseShareImage(
     const userAgent = (request.headers["user-agent"] as string) || "";
     const isCrawler = isSocialCrawler(userAgent);
 
-    const reqRawUrl = request.raw.url || request.url || "";
     const reqPath = reqRawUrl.split("?")[0].split("#")[0].replace(/\/+$/, "");
-    const targetPath = `/courses/${encodeURIComponent(course.id)}`;
-    const isSelfRequest = reqPath === targetPath || reqPath === `/courses/${course.id}`;
+    const targetPath = `/courses/${encodeURIComponent(canonicalIdentifier)}`;
+    const isSelfRequest = reqPath === targetPath || reqPath === `/courses/${canonicalIdentifier}`;
+
+    // If accessed via a historical redirect slug, issue a permanent 301 redirect to canonical slug
+    if (resolution?.isRedirect && course.slug && rawCourseId !== course.slug) {
+      return reply.redirect(destinationUrl, 301);
+    }
+
     // Anti-loop defense: never redirect a request to the URL it is already requesting!
     const shouldRedirect = !isCrawler && !isSelfRequest;
 
     const escapedTitle = escapeHtml(title);
     const escapedDesc = escapeHtml(description);
     const escapedDestUrl = escapeHtml(destinationUrl);
+    const escapedCanonicalUrl = escapeHtml(canonicalUrl);
     const escapedSecureImageUrl = escapeHtml(image.secureUrl);
     const escapedImageType = escapeHtml(image.type);
     const escapedImageAlt = escapeHtml(image.alt);
@@ -301,7 +352,12 @@ function resolveCourseShareImage(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapedTitle}</title>
   <meta name="description" content="${escapedDesc}">
-  <link rel="canonical" href="${escapedDestUrl}">
+  ${
+    isPubliclyDisclosable
+      ? `<link rel="canonical" href="${escapedCanonicalUrl}">
+  <meta name="robots" content="index, follow">`
+      : `<meta name="robots" content="noindex, nofollow">`
+  }
 
   <!-- Open Graph / Telegram / WhatsApp / Social Crawlers -->
   <meta property="og:type" content="website">
@@ -309,7 +365,7 @@ function resolveCourseShareImage(
   <meta property="og:locale" content="fa_IR">
   <meta property="og:title" content="${escapedTitle}">
   <meta property="og:description" content="${escapedDesc}">
-  <meta property="og:url" content="${escapedDestUrl}">
+  <meta property="og:url" content="${escapedCanonicalUrl}">
   <meta property="og:image" content="${escapedSecureImageUrl}">
   <meta property="og:image:secure_url" content="${escapedSecureImageUrl}">
   <meta property="og:image:type" content="${escapedImageType}">
@@ -400,17 +456,153 @@ function resolveCourseShareImage(
   });
 
   /**
-   * GET /courses/:courseId
-   * Crawler alias when social crawlers request the canonical path directly on the API.
+   * Dedicated Handler: Resolves canonical course URLs on the main /courses/:courseId route.
+   *
+   * Architectural Responsibility:
+   * 1. Issues real HTTP 301 Moved Permanently for legacy UUIDs or historical redirects of public published courses.
+   * 2. Issues HTTP 302 Found with X-Robots-Tag: noindex, nofollow for private, draft, or organizational courses.
+   * 3. Returns HTTP 404 for deleted, invalid, or unknown UUIDs with noindex policy.
+   * 4. Forwards social crawlers (Telegram, WhatsApp) requesting a legacy UUID of a public course to Open Graph preview,
+   *    or returns a neutral noindex preview for private courses without disclosing sensitive metadata.
+   * 5. Preserves all query string parameters and prevents redirect loops.
    */
-  app.get("/courses/:courseId", async (request, reply) => {
-    const params = request.params as { courseId: string };
-    return handleCourseSharePreview(params.courseId, request, reply);
+  async function handleMainCourseRedirect(
+    rawCourseId: string,
+    request: import("fastify").FastifyRequest,
+    reply: import("fastify").FastifyReply,
+  ) {
+    if (!opts.courseStore) {
+      return reply
+        .status(503)
+        .header("Content-Type", "text/plain; charset=utf-8")
+        .send("Course store not available.");
+    }
+
+    if (!rawCourseId || typeof rawCourseId !== "string" || !rawCourseId.trim()) {
+      return reply
+        .status(404)
+        .header("Content-Type", "text/html; charset=utf-8")
+        .header("Cache-Control", "no-store")
+        .header("X-Robots-Tag", "noindex, nofollow")
+        .send(buildCourseNotFoundHtml(appBaseUrl));
+    }
+
+    const cleanId = rawCourseId.trim();
+
+    let course: import("../modules/courses/course-store.js").CourseRecord | undefined;
+    let resolution: import("../modules/courses/course-store.js").CourseResolutionResult | undefined;
+    try {
+      if (opts.courseStore.findByIdOrSlug) {
+        resolution = await opts.courseStore.findByIdOrSlug(cleanId);
+        course = resolution?.course;
+      } else {
+        course = await opts.courseStore.findById(asCourseId(cleanId));
+      }
+    } catch {
+      course = undefined;
+    }
+
+    // Deleted, non-existent, or invalid identifier -> 404 with noindex policy
+    if (!course || course.deletedAt) {
+      return reply
+        .status(404)
+        .header("Content-Type", "text/html; charset=utf-8")
+        .header("Cache-Control", "no-store")
+        .header("X-Robots-Tag", "noindex, nofollow")
+        .send(buildCourseNotFoundHtml(appBaseUrl));
+    }
+
+    // Check if course has public eligibility
+    let isPublic =
+      course.isOfficial === true && course.status === "published";
+    if (!isPublic && course.status === "published" && opts.coursePublicationStore) {
+      const pub = await opts.coursePublicationStore.findPublishedByCourse(course.id);
+      if (pub && pub.status === "published" && pub.deletedAt === null) {
+        isPublic = true;
+      }
+    }
+
+    const userAgent = (request.headers["user-agent"] as string) || "";
+    const isSocial = isSocialCrawler(userAgent);
+
+    // Social Crawler handling:
+    // If a social crawler (TelegramBot, WhatsApp, etc.) hits /courses/:id:
+    // If course is public: serve rich Open Graph metadata HTML.
+    // If course is private/draft: serve neutral metadata without leaking sensitive contents.
+    if (isSocial) {
+      return handleCourseSharePreview(cleanId, request, reply);
+    }
+
+    // If requested identifier is already the current canonical slug:
+    // Do NOT redirect (prevents redirect loop).
+    if (course.slug && cleanId === course.slug) {
+      return handleCourseSharePreview(cleanId, request, reply);
+    }
+
+    // If course does NOT have a valid slug:
+    // "فاقد Slug معتبر -> تحویل مناسب SPA با UUID"
+    if (!course.slug || !course.slug.trim()) {
+      return handleCourseSharePreview(cleanId, request, reply);
+    }
+
+    // Construct destination URL safely (Anti-Open Redirect)
+    const canonicalSlug = course.slug.trim();
+    const destination = new URL(
+      `${appBaseUrl}/courses/${encodeURIComponent(canonicalSlug)}`,
+    );
+
+    const reqRawUrl = request.raw.url || request.url || "";
+    const queryIndex = reqRawUrl.indexOf("?");
+    if (queryIndex !== -1) {
+      const incomingSearch = reqRawUrl.slice(queryIndex);
+      const incomingParams = new URLSearchParams(incomingSearch);
+      incomingParams.forEach((val, key) => {
+        destination.searchParams.append(key, val);
+      });
+    }
+    const destinationUrl = destination.toString();
+
+    // Matrix Dispatch:
+    // 1. Official published or approved public publication -> HTTP 301 Moved Permanently
+    if (isPublic) {
+      return reply
+        .status(301)
+        .header("Location", destinationUrl)
+        .header("Cache-Control", "public, max-age=86400")
+        .send();
+    }
+
+    // 2. Private, organizational, or draft course -> HTTP 302 Found with no-store & noindex
+    return reply
+      .status(302)
+      .header("Location", destinationUrl)
+      .header("Cache-Control", "no-store")
+      .header("X-Robots-Tag", "noindex, nofollow")
+      .send();
+  }
+
+  /**
+   * Route: /courses/:courseId
+   * Canonical course route handler.
+   * Dispatches legacy UUIDs, historical redirects, and social crawlers authoritatively.
+   * Supports both GET and HEAD methods.
+   */
+  app.route({
+    method: ["GET", "HEAD"],
+    url: "/courses/:courseId",
+    handler: async (request, reply) => {
+      const params = request.params as { courseId: string };
+      return handleMainCourseRedirect(params.courseId, request, reply);
+    },
   });
 
-  app.get("/courses/:courseId/", async (request, reply) => {
-    const params = request.params as { courseId: string };
-    return handleCourseSharePreview(params.courseId, request, reply);
+  app.route({
+    method: ["GET", "HEAD"],
+    url: "/courses/:courseId/",
+    handler: async (request, reply) => {
+      const params = request.params as { courseId: string };
+      return handleMainCourseRedirect(params.courseId, request, reply);
+    },
   });
 
   /**
@@ -430,10 +622,14 @@ function resolveCourseShareImage(
         .send(fallback);
     }
 
-    const courseId = asCourseId(rawCourseId);
     let course: import("../modules/courses/course-store.js").CourseRecord | undefined;
     try {
-      course = await opts.courseStore.findById(courseId);
+      if (opts.courseStore.findByIdOrSlug) {
+        const resolution = await opts.courseStore.findByIdOrSlug(rawCourseId);
+        course = resolution?.course;
+      } else {
+        course = await opts.courseStore.findById(asCourseId(rawCourseId));
+      }
     } catch {
       // Database query error -> fallback safely without leaking details
       const fallback = await loadFallbackShareCard();

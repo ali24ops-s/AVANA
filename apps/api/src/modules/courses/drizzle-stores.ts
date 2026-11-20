@@ -8,10 +8,11 @@
  * on read to match the domain shape expected by in-memory stores.
  */
 
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   courses,
+  courseSlugRedirects,
   auditLogs,
   organizationMemberships,
   courseMemberships,
@@ -20,6 +21,7 @@ import {
 } from "@avana/database/schema";
 import type {
   CourseRecord,
+  CourseResolutionResult,
   CreateCourseRecords,
   CourseStore,
   CoursePublicationStore,
@@ -36,7 +38,7 @@ import type {
   OrganizationId,
   UserId,
 } from "@avana/domain";
-import { DomainError } from "@avana/domain";
+import { DomainError, isUUID, generateDefaultCourseSlug } from "@avana/domain";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -46,6 +48,7 @@ type CourseRowInput = {
   id: string;
   organizationId: string;
   name: string;
+  slug?: string | null;
   description?: string | null;
   subject?: string | null;
   targetAcademicFields?: unknown;
@@ -66,6 +69,7 @@ function toCourseRecord(row: CourseRowInput): CourseRecord {
     id: row.id as CourseId,
     organizationId: row.organizationId as OrganizationId,
     name: row.name,
+    slug: row.slug ?? null,
     description: row.description ?? null,
     subject: row.subject ?? null,
     targetAcademicFields: Array.isArray(row.targetAcademicFields)
@@ -114,6 +118,7 @@ export class DrizzleCourseStore implements CourseStore {
           id: records.course.id,
           organizationId: records.course.organizationId,
           name: records.course.name,
+          slug: records.course.slug ?? generateDefaultCourseSlug({ id: records.course.id, name: records.course.name, subject: records.course.subject }),
           description: records.course.description ?? null,
           subject: records.course.subject,
           targetAcademicFields: records.course.targetAcademicFields ?? [],
@@ -184,6 +189,7 @@ export class DrizzleCourseStore implements CourseStore {
         id: courses.id,
         organizationId: courses.organizationId,
         name: courses.name,
+        slug: courses.slug,
         description: courses.description,
         subject: courses.subject,
         targetAcademicFields: courses.targetAcademicFields,
@@ -225,6 +231,7 @@ export class DrizzleCourseStore implements CourseStore {
         id: courses.id,
         organizationId: courses.organizationId,
         name: courses.name,
+        slug: courses.slug,
         description: courses.description,
         subject: courses.subject,
         targetAcademicFields: courses.targetAcademicFields,
@@ -246,6 +253,120 @@ export class DrizzleCourseStore implements CourseStore {
 
     if (!row) return undefined;
     return toCourseRecord(row);
+  }
+
+  async findByIdOrSlug(
+    identifier: string,
+  ): Promise<CourseResolutionResult | undefined> {
+    if (!identifier || !identifier.trim()) return undefined;
+    const clean = identifier.trim();
+
+    if (isUUID(clean)) {
+      const course = await this.findById(clean as CourseId);
+      if (!course) return undefined;
+      return {
+        course,
+        isRedirect: false,
+        canonicalSlug: course.slug ?? undefined,
+      };
+    }
+
+    // 1. Direct active slug lookup
+    const row = await this.db
+      .select({
+        id: courses.id,
+        organizationId: courses.organizationId,
+        name: courses.name,
+        slug: courses.slug,
+        description: courses.description,
+        subject: courses.subject,
+        targetAcademicFields: courses.targetAcademicFields,
+        status: courses.status,
+        isOfficial: courses.isOfficial,
+        examDate: sql<Date | string | null>`NULL`,
+        examScope: sql<unknown>`NULL`,
+        officialExamDate: courses.examDate,
+        officialExamScope: courses.examScope,
+        version: courses.version,
+        createdAt: courses.createdAt,
+        updatedAt: courses.updatedAt,
+        deletedAt: courses.deletedAt,
+      })
+      .from(courses)
+      .where(and(eq(courses.slug, clean), isNull(courses.deletedAt)))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (row) {
+      const course = toCourseRecord(row);
+      return {
+        course,
+        isRedirect: false,
+        canonicalSlug: course.slug ?? undefined,
+      };
+    }
+
+    // 2. Historical slug redirect lookup
+    const redirectRow = await this.db
+      .select({
+        courseId: courseSlugRedirects.courseId,
+      })
+      .from(courseSlugRedirects)
+      .where(eq(courseSlugRedirects.slug, clean))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!redirectRow) return undefined;
+
+    const targetCourse = await this.findById(redirectRow.courseId as CourseId);
+    if (!targetCourse) return undefined;
+
+    return {
+      course: targetCourse,
+      isRedirect: true,
+      canonicalSlug: targetCourse.slug ?? undefined,
+    };
+  }
+
+  async findByIdOrSlugForUser(
+    identifier: string,
+    userId: UserId,
+    systemOrganizationId?: OrganizationId,
+  ): Promise<CourseResolutionResult | undefined> {
+    if (!identifier || !identifier.trim()) return undefined;
+    const clean = identifier.trim();
+
+    if (isUUID(clean)) {
+      const course = await this.findByIdForUser(
+        clean as CourseId,
+        userId,
+        systemOrganizationId,
+      );
+      if (!course) return undefined;
+      return {
+        course,
+        isRedirect: false,
+        canonicalSlug: course.slug ?? undefined,
+      };
+    }
+
+    // First resolve the canonical course via active slug or historical redirect
+    const resolved = await this.findByIdOrSlug(clean);
+    if (!resolved) return undefined;
+
+    // Check user/org authorization with the canonical UUID
+    const accessible = await this.findByIdForUser(
+      resolved.course.id,
+      userId,
+      systemOrganizationId,
+    );
+    if (!accessible) return undefined;
+
+    return {
+      course: accessible,
+      isRedirect: resolved.isRedirect,
+      canonicalSlug: accessible.slug ?? resolved.canonicalSlug,
+    };
   }
 
   async findByIdForUser(
@@ -280,6 +401,7 @@ export class DrizzleCourseStore implements CourseStore {
         id: courses.id,
         organizationId: courses.organizationId,
         name: courses.name,
+        slug: courses.slug,
         description: courses.description,
         subject: courses.subject,
         targetAcademicFields: courses.targetAcademicFields,
@@ -349,6 +471,7 @@ export class DrizzleCourseStore implements CourseStore {
         id: courses.id,
         organizationId: courses.organizationId,
         name: courses.name,
+        slug: courses.slug,
         description: courses.description,
         subject: courses.subject,
         targetAcademicFields: courses.targetAcademicFields,
@@ -445,6 +568,7 @@ export class DrizzleCourseStore implements CourseStore {
         id: courses.id,
         organizationId: courses.organizationId,
         name: courses.name,
+        slug: courses.slug,
         description: courses.description,
         subject: courses.subject,
         targetAcademicFields: courses.targetAcademicFields,
@@ -690,6 +814,7 @@ export class DrizzleCourseStore implements CourseStore {
         c.id,
         c.organization_id AS "organizationId",
         c.name,
+        c.slug,
         c.description,
         c.subject,
         c.target_academic_fields AS "targetAcademicFields",
@@ -740,8 +865,124 @@ export class DrizzleCourseStore implements CourseStore {
     return resultRows.map(toCourseRecord);
   }
 
+  async isSlugTaken(slug: string, excludeCourseId?: CourseId): Promise<boolean> {
+    const clean = slug.trim();
+    if (!clean) return false;
+
+    // Check active courses
+    const active = await this.db
+      .select({ id: courses.id })
+      .from(courses)
+      .where(
+        and(
+          eq(courses.slug, clean),
+          isNull(courses.deletedAt),
+          excludeCourseId ? sql`${courses.id} != ${excludeCourseId}` : undefined,
+        ),
+      )
+      .limit(1);
+
+    if (active.length > 0) return true;
+
+    // Check historical redirects
+    const redirects = await this.db
+      .select({ id: courseSlugRedirects.id })
+      .from(courseSlugRedirects)
+      .where(
+        and(
+          eq(courseSlugRedirects.slug, clean),
+          excludeCourseId ? sql`${courseSlugRedirects.courseId} != ${excludeCourseId}` : undefined,
+        ),
+      )
+      .limit(1);
+
+    return redirects.length > 0;
+  }
+
+  async updateCourseSlug(
+    courseId: CourseId,
+    newSlug: string,
+  ): Promise<{ success: boolean; course: CourseRecord }> {
+    const current = await this.findById(courseId);
+    if (!current) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    const cleanNew = newSlug.trim();
+    if (current.slug === cleanNew) {
+      return { success: true, course: current };
+    }
+
+    const taken = await this.isSlugTaken(cleanNew, courseId);
+    if (taken) {
+      throw new DomainError("conflict", "این شناسه (اسلاگ) قبلاً استفاده شده است.");
+    }
+
+    const updated = await this.db.transaction(async (tx) => {
+      // 1. Remove newSlug from redirects if it previously pointed to this course (prevents redirect loop)
+      await tx
+        .delete(courseSlugRedirects)
+        .where(
+          and(
+            eq(courseSlugRedirects.courseId, courseId),
+            eq(courseSlugRedirects.slug, cleanNew),
+          ),
+        );
+
+      // 2. Save current slug as historical redirect if it was non-empty
+      if (current.slug && current.slug.trim()) {
+        await tx
+          .insert(courseSlugRedirects)
+          .values({
+            courseId,
+            slug: current.slug.trim(),
+          })
+          .onConflictDoNothing();
+      }
+
+      // 3. Update active course slug
+      const [row] = await tx
+        .update(courses)
+        .set({
+          slug: cleanNew,
+          updatedAt: new Date(),
+        })
+        .where(eq(courses.id, courseId))
+        .returning();
+
+      return toCourseRecord(row);
+    });
+
+    return { success: true, course: updated };
+  }
+
   async delete(courseId: CourseId): Promise<void> {
     await this.db.delete(courses).where(eq(courses.id, courseId));
+  }
+
+  async listOfficialPublished(): Promise<Array<{ id: CourseId; slug: string | null; name: string; updatedAt?: string | null }>> {
+    const rows = await this.db
+      .select({
+        id: courses.id,
+        slug: courses.slug,
+        name: courses.name,
+        updatedAt: courses.updatedAt,
+      })
+      .from(courses)
+      .where(
+        and(
+          isNull(courses.deletedAt),
+          eq(courses.isOfficial, true),
+          eq(courses.status, "published"),
+          isNotNull(courses.slug),
+        ),
+      );
+    return rows.map((r) => ({
+      id: r.id as CourseId,
+      slug: r.slug,
+      name: r.name,
+      updatedAt: r.updatedAt ? r.updatedAt.toISOString() : null,
+    }));
   }
 }
 

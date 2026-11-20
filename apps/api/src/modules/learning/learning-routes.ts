@@ -16,6 +16,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import {
   DomainError,
+  isUUID,
   type Actor,
   type CourseId,
   type LessonId,
@@ -112,18 +113,23 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
   }
 
   /**
-   * Helper to validate and extract course ID from params.
+   * Helper to resolve course ID from params (supports canonical UUID or public slug).
    */
-  function getCourseId(params: { courseId: string }): CourseId {
-    if (
-      !params.courseId ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        params.courseId,
-      )
-    ) {
+  async function resolveCourseId(rawParam?: string): Promise<CourseId> {
+    const clean = rawParam?.trim();
+    if (!clean) {
       throw new DomainError("bad_request", "Invalid course ID");
     }
-    return params.courseId as CourseId;
+    if (isUUID(clean)) {
+      return clean as CourseId;
+    }
+    if (courseStore.findByIdOrSlug) {
+      const resolved = await courseStore.findByIdOrSlug(clean);
+      if (resolved) {
+        return resolved.course.id;
+      }
+    }
+    throw new DomainError("not_found", "Course not found");
   }
 
   /**
@@ -154,7 +160,7 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
         moduleId?: string;
         previewSessionId?: string;
       };
-      const courseId = getCourseId(params);
+      const courseId = await resolveCourseId(params.courseId);
 
       const result = await learningService.getCourseLearning(
         actor,
@@ -183,7 +189,7 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
         courseId: string;
         lessonId: string;
       };
-      const courseId = getCourseId(params);
+      const courseId = await resolveCourseId(params.courseId);
       const lessonId = getLessonId(params);
       const body = request.body as { completed?: unknown } | undefined;
       if (body?.completed !== true) {
@@ -213,7 +219,7 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
     async (request, _reply) => {
       const actor = getActor(request);
       const params = request.params as { courseId: string };
-      const courseId = getCourseId(params);
+      const courseId = await resolveCourseId(params.courseId);
 
       const result = await learningService.getCourseProgress(actor, courseId);
 

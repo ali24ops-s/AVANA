@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { JSDOM } from "jsdom";
 import {
   PdfGenerationService,
   defaultPdfGenerationService,
@@ -833,5 +834,174 @@ onload="alert(2)"
       expect(chapterHtml).not.toContain('<div class="session-number-badge">۱۰</div>');
       expect(chapterHtml).not.toContain('<div class="session-number-badge">۱۱</div>');
     });
+
+    describe("Math Display Scoping & RTL Regression Prevention (Bugfix)", () => {
+      it("1. correctly renders single-line display math inside a list without breaking list item scoping", () => {
+        const md = `
+- **رتبه بندی نسبی:**
+  $$\\text{Nail} \\ll \\text{Palm/Sole}$$
+- آیتم بعدی در لیست اصلی
+        `.trim();
+
+        const html = markdownToSafeHtml(md);
+        const dom = new JSDOM(html);
+        const doc = dom.window.document;
+
+        const listItems = doc.querySelectorAll("ul.content-ul > li");
+        expect(listItems).toHaveLength(2);
+
+        // 1. Math formula strictly belongs to the first list item
+        expect(listItems[0].querySelector(".katex-display")).not.toBeNull();
+
+        // 2. Subsequent list item is an independent sibling, completely outside KaTeX
+        expect(listItems[1].querySelector(".katex-display")).toBeNull();
+        expect(listItems[1].textContent?.trim()).toBe("آیتم بعدی در لیست اصلی");
+        expect(doc.querySelector("annotation")?.textContent).not.toContain("آیتم بعدی");
+      });
+
+      it("2. correctly renders single-line display math inside nested lists while preserving hierarchy", () => {
+        const md = `
+* سطح اول
+  * سطح دوم آیتم ۱
+    $$\\text{Child} = \\text{Parent} \\times 2$$
+    توضیحات تکمیلی سطح دوم
+  * سطح دوم آیتم ۲
+* سطح اول آیتم بعدی
+        `.trim();
+
+        const html = markdownToSafeHtml(md);
+        const dom = new JSDOM(html);
+        const doc = dom.window.document;
+
+        const rootUl = doc.querySelector("ul.content-ul");
+        expect(rootUl).not.toBeNull();
+        const topLevelLis = rootUl!.children;
+        expect(topLevelLis).toHaveLength(2);
+
+        // First top level li has nested ul with 2 items
+        const nestedUl = topLevelLis[0].querySelector("ul");
+        expect(nestedUl).not.toBeNull();
+        const nestedLis = nestedUl!.children;
+        expect(nestedLis).toHaveLength(2);
+
+        // Nested li 1 contains the formula and the follow-up text
+        expect(nestedLis[0].querySelector(".katex-display")).not.toBeNull();
+        expect(nestedLis[0].textContent).toContain("توضیحات تکمیلی سطح دوم");
+
+        // Nested li 2 is sibling, contains no katex
+        expect(nestedLis[1].querySelector(".katex-display")).toBeNull();
+        expect(nestedLis[1].textContent?.trim()).toBe("سطح دوم آیتم ۲");
+
+        // Top level li 2 is sibling, contains no katex
+        expect(topLevelLis[1].querySelector(".katex-display")).toBeNull();
+        expect(topLevelLis[1].textContent?.trim()).toBe("سطح اول آیتم بعدی");
+
+        // Ensure no subsequent Persian text is inside annotations
+        expect(doc.querySelector("annotation")?.textContent).not.toContain("توضیحات تکمیلی");
+        expect(doc.querySelector("annotation")?.textContent).not.toContain("سطح اول آیتم بعدی");
+      });
+
+      it("3. correctly renders single-line display math outside any list", () => {
+        const md = `
+مقدمه قبل از معادله:
+
+$$E = mc^2$$
+
+متن تشریحی پاراگراف بعد از فرمول.
+        `.trim();
+
+        const html = markdownToSafeHtml(md);
+        const dom = new JSDOM(html);
+        const doc = dom.window.document;
+
+        expect(doc.querySelector(".katex-display")).not.toBeNull();
+        const pElements = doc.querySelectorAll("p.content-p");
+        expect(pElements.length).toBeGreaterThanOrEqual(2);
+        expect(pElements[pElements.length - 1].textContent?.trim()).toBe("متن تشریحی پاراگراف بعد از فرمول.");
+        expect(doc.querySelector("annotation")?.textContent).not.toContain("متن تشریحی");
+      });
+
+      it("4. correctly renders multiline display math without interference", () => {
+        const md = `
+معادلات سیستم:
+
+$$
+\\begin{aligned}
+A &= B + C \\\\
+D &= E + F
+\\end{aligned}
+$$
+
+پاراگراف فارسی پس از فرمول چندخطی.
+        `.trim();
+
+        const html = markdownToSafeHtml(md);
+        const dom = new JSDOM(html);
+        const doc = dom.window.document;
+
+        const katexEl = doc.querySelector(".katex-display");
+        expect(katexEl).not.toBeNull();
+        const pElements = doc.querySelectorAll("p.content-p");
+        expect(pElements.length).toBeGreaterThanOrEqual(2);
+        const nextP = pElements[pElements.length - 1];
+        expect(nextP.textContent?.trim()).toBe("پاراگراف فارسی پس از فرمول چندخطی.");
+        expect(katexEl!.contains(nextP)).toBe(false);
+        expect(doc.querySelector("annotation")?.textContent).not.toContain("پاراگراف فارسی");
+      });
+
+      it("5. structurally verifies that formula in list item preserves DOM hierarchy and keeps Persian text and callouts outside KaTeX", () => {
+        const md = `
+- **رتبه بندی نسبی نفوذپذیری منطقه‌ای (از کمترین به بیشترین):**
+  $$\\text{Nail} \\ll \\text{Palm/Sole} < \\text{Trunk/Extremities} < \\text{Face/Scalp} \\ll \\text{Scrotum}$$
+- به عنوان مثال، پوست پیشانی و گونه‌ها به دلیل داشتن عروق فراوان دارو جذب می‌کنند.
+
+> **برای فهم بهتر:** انتخاب پتانسیل استروئید موضعی باید بر اساس سایت آناتومیک انجام شود.
+        `.trim();
+
+        const html = markdownToSafeHtml(md);
+        const dom = new JSDOM(html);
+        const doc = dom.window.document;
+
+        // Root ul has exactly 2 li elements
+        const lis = doc.querySelectorAll("ul.content-ul > li");
+        expect(lis).toHaveLength(2);
+
+        // First li contains the display math
+        expect(lis[0].querySelector(".katex-display")).not.toBeNull();
+
+        // Second li is an independent sibling list item
+        expect(lis[1].querySelector(".katex-display")).toBeNull();
+        expect(lis[1].textContent).toContain("به عنوان مثال، پوست پیشانی و گونه‌ها");
+
+        // Callout is an independent sibling in root document, NOT inside ul or katex
+        const callout = doc.querySelector(".callout.callout-understanding");
+        expect(callout).not.toBeNull();
+        expect(doc.querySelector("ul.content-ul")!.contains(callout!)).toBe(false);
+        expect(lis[0].contains(callout!)).toBe(false);
+
+        // Thoroughly check: NO KaTeX element or annotation contains ANY Persian text
+        const allKatexElements = doc.querySelectorAll(".katex, .katex-display, annotation");
+        for (const el of Array.from(allKatexElements)) {
+          expect(el.textContent).not.toContain("پوست پیشانی");
+          expect(el.textContent).not.toContain("برای فهم بهتر");
+          expect(el.textContent).not.toContain("استروئید");
+        }
+      });
+
+      it("6. applies defensive max-width and overflow-x: auto styling to .katex-display container", () => {
+        const lessonHtml = renderLessonPdfHtml({
+          title: "فرمول طولانی",
+          contentMarkdown: "$$\\text{A} + \\text{B} + \\text{C} + \\text{D} + \\text{E} + \\text{F} + \\text{G} + \\text{H} + \\text{I} + \\text{J} + \\text{K}$$",
+        });
+
+        expect(lessonHtml).toContain(".katex-display {");
+        expect(lessonHtml).toContain("max-width: 100%;");
+        expect(lessonHtml).toContain("overflow-x: auto;");
+        expect(lessonHtml).toContain("box-sizing: border-box;");
+        // Ensure no overflow-x: hidden is used for math display
+        expect(lessonHtml).not.toContain("overflow-x: hidden !important;\n      page-break-inside: avoid;");
+      });
+    });
   });
 });
+

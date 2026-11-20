@@ -628,6 +628,8 @@ export function useMindMap(moduleId: string | null, courseId?: string | null) {
     // Mutations
     generateMutation,
     generateMindMap,
+    isPaid: Boolean(data?.is_paid),
+    costToman: data?.cost_toman ?? 2500,
     isGenerating: generateMutation.isPending,
     isSaving: saveStatus === "saving" || saveStatus === "conflict_retrying",
     saveStatus,

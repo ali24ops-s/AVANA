@@ -508,7 +508,12 @@ export class DrizzleFlashcardStore implements FlashcardStore {
     const row = await this.db
       .select()
       .from(flashcards)
-      .where(eq(flashcards.generatedContentId, generatedContentId))
+      .where(
+        and(
+          eq(flashcards.generatedContentId, generatedContentId),
+          isNull(flashcards.deletedAt),
+        ),
+      )
       .limit(1)
       .then((rows) => rows[0]);
 
@@ -942,7 +947,13 @@ export class DrizzleQuizStore implements QuizStore {
       .select({ quiz: quizzes })
       .from(quizzes)
       .innerJoin(quizQuestions, eq(quizzes.id, quizQuestions.quizId))
-      .where(eq(quizQuestions.generatedContentId, generatedContentId))
+      .where(
+        and(
+          eq(quizQuestions.generatedContentId, generatedContentId),
+          isNull(quizzes.deletedAt),
+          isNull(quizQuestions.deletedAt),
+        ),
+      )
       .limit(1)
       .then((rows) => rows[0]?.quiz);
 

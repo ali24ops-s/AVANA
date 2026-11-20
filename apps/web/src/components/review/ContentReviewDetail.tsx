@@ -18,6 +18,7 @@ import {
   Hash,
   Ban,
   Download,
+  Trash2,
 } from "lucide-react";
 import {
   type ReviewSummaryPayload,
@@ -70,6 +71,8 @@ export function ContentReviewDetail({
   const [showExtractedReactions, setShowExtractedReactions] = useState(false);
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  const [unapproveError, setUnapproveError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const adminApi = useAdmin();
   const [isDownloadingDoc, setIsDownloadingDoc] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
@@ -159,8 +162,80 @@ export function ContentReviewDetail({
     },
   });
 
+  // Unapprove mutation
+  const unapproveMutation = useMutation({
+    mutationFn: () => reviewApi.unapproveContent(organizationId, courseId, contentId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["review-queue", organizationId, courseId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["review-detail", organizationId, courseId, contentId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["course-content", organizationId, courseId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["course-learning", courseId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["flashcards", organizationId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["flashcards-queue", organizationId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["flashcard-summary", organizationId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["quizzes", organizationId, courseId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["study-analytics", organizationId, courseId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["study-recommendations", organizationId, courseId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["official-review-workspace", courseId],
+      });
+    },
+    onError: (err: Error) => {
+      setUnapproveError(err.message || "خطا در لغو تأیید محتوا.");
+    },
+  });
+
+  // Delete generated content mutation
+  const deleteMutation = useMutation({
+    mutationFn: (options?: { confirmPublishedDelete?: boolean } | void) =>
+      reviewApi.deleteGeneratedContent(organizationId, courseId, contentId, options || undefined),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["review-queue", organizationId, courseId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["course-content", organizationId, courseId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["course-learning", courseId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["official-review-workspace", courseId],
+      });
+      onBack();
+    },
+    onError: (err: Error) => {
+      setDeleteError(err.message || "خطا در حذف محتوا.");
+    },
+  });
+
   const isRegenerating = detailQuery.data?.content?.status === "regenerating" || regenerateMutation.isPending;
-  const anyMutationPending = acceptMutation.isPending || regenerateMutation.isPending || isRegenerating;
+  const anyMutationPending =
+    acceptMutation.isPending ||
+    regenerateMutation.isPending ||
+    unapproveMutation.isPending ||
+    deleteMutation.isPending ||
+    isRegenerating;
 
   if (detailQuery.isLoading) {
     return (
@@ -341,32 +416,95 @@ export function ContentReviewDetail({
 
           {/* Primary Action Button / Status indicator */}
           {content.status === "accepted" ? (
-            <div className="w-full sm:w-auto px-4 py-2 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded-xl text-xs font-bold border border-emerald-500/20 flex items-center justify-center gap-1.5 shadow-xs">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>تایید و منتشر شده</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="px-4 py-2 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded-xl text-xs font-bold border border-emerald-500/20 flex items-center justify-center gap-1.5 shadow-xs">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>تایید و منتشر شده</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setUnapproveError(null);
+                  if (window.confirm("آیا از لغو تأیید این محتوا و بازگردانی آن به حالت پیش‌نویس اطمینان دارید؟ درس مربوطه از دسترس خارج خواهد شد.")) {
+                    unapproveMutation.mutate();
+                  }
+                }}
+                disabled={anyMutationPending}
+                className="px-3.5 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 rounded-xl text-xs font-bold border border-amber-500/20 shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
+                title="لغو تأیید و بازگردانی به وضعیت پیش‌نویس (فقط برای دوره‌های منتشرنشده)"
+              >
+                {unapproveMutation.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-3.5 h-3.5" />
+                )}
+                <span>لغو تأیید</span>
+              </button>
             </div>
           ) : content.status === "rejected" ? (
-            <div className="w-full sm:w-auto px-4 py-2 bg-rose-500/10 text-rose-700 dark:text-rose-400 rounded-xl text-xs font-bold border border-rose-500/20 flex items-center justify-center gap-1.5 shadow-xs">
-              <Ban className="w-4 h-4" />
-              <span>پیش‌نویس رد شده</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="w-full sm:w-auto px-4 py-2 bg-rose-500/10 text-rose-700 dark:text-rose-400 rounded-xl text-xs font-bold border border-rose-500/20 flex items-center justify-center gap-1.5 shadow-xs">
+                <Ban className="w-4 h-4" />
+                <span>پیش‌نویس رد شده</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteError(null);
+                  if (window.confirm("آیا از حذف دائمی این محتوای تولیدشده اطمینان دارید؟")) {
+                    deleteMutation.mutate();
+                  }
+                }}
+                disabled={anyMutationPending}
+                className="px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 rounded-xl text-xs font-bold border border-rose-500/20 shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
+                title="حذف دائمی این محتوای تولیدشده"
+              >
+                {deleteMutation.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                <span>حذف دائمی</span>
+              </button>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => {
-                setAcceptError(null);
-                acceptMutation.mutate();
-              }}
-              disabled={anyMutationPending}
-              className="w-full sm:w-auto px-5 py-2.5 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md disabled:opacity-50 transition-colors"
-            >
-              {acceptMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="w-4 h-4" />
-              )}
-              <span>{acceptMutation.isPending ? "در حال انتشار..." : "تایید و انتشار"}</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteError(null);
+                  if (window.confirm("آیا از حذف دائمی این پیش‌نویس اطمینان دارید؟")) {
+                    deleteMutation.mutate();
+                  }
+                }}
+                disabled={anyMutationPending}
+                className="px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 rounded-xl text-xs font-bold border border-rose-500/20 shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
+                title="حذف دائمی این پیش‌نویس"
+              >
+                {deleteMutation.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                <span>حذف</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAcceptError(null);
+                  acceptMutation.mutate();
+                }}
+                disabled={anyMutationPending}
+                className="w-full sm:w-auto px-5 py-2.5 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md disabled:opacity-50 transition-colors"
+              >
+                {acceptMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4" />
+                )}
+                <span>{acceptMutation.isPending ? "در حال انتشار..." : "تایید و انتشار"}</span>
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -387,6 +525,34 @@ export function ContentReviewDetail({
         <div className="flex items-center gap-2 p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-700 dark:text-rose-400 text-xs font-medium">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>{acceptError}</span>
+        </div>
+      )}
+      {unapproveError && (
+        <div className="flex items-center justify-between gap-2 p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-amber-700 dark:text-amber-400 text-xs font-medium">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{unapproveError}</span>
+          </div>
+          <button
+            onClick={() => setUnapproveError(null)}
+            className="text-amber-500 hover:text-amber-700 text-xs font-bold"
+          >
+            بستن
+          </button>
+        </div>
+      )}
+      {deleteError && (
+        <div className="flex items-center justify-between gap-2 p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-700 dark:text-rose-400 text-xs font-medium">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{deleteError}</span>
+          </div>
+          <button
+            onClick={() => setDeleteError(null)}
+            className="text-rose-500 hover:text-rose-700 text-xs font-bold"
+          >
+            بستن
+          </button>
         </div>
       )}
       {regenerateError && (

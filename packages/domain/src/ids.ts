@@ -903,3 +903,48 @@ export function parsePresentationReferenceId(
   }
   return value as PresentationReferenceId;
 }
+
+export type PresentationGenerationOperationId = Brand<UUID, "presentationGenerationOperationId">;
+
+export function asPresentationGenerationOperationId(id: UUID): PresentationGenerationOperationId {
+  return id as PresentationGenerationOperationId;
+}
+
+export function isPresentationGenerationOperationId(
+  value: string,
+): value is PresentationGenerationOperationId {
+  return isUUID(value);
+}
+
+export function parsePresentationGenerationOperationId(
+  value: string,
+  fieldName = "presentationGenerationOperationId",
+): PresentationGenerationOperationId {
+  if (!isPresentationGenerationOperationId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as PresentationGenerationOperationId;
+}
+
+export type PresentationBatchId = Brand<UUID, "presentationBatchId">;
+
+export function asPresentationBatchId(id: UUID): PresentationBatchId {
+  return id as PresentationBatchId;
+}
+
+export function isPresentationBatchId(
+  value: string,
+): value is PresentationBatchId {
+  return isUUID(value);
+}
+
+export function parsePresentationBatchId(
+  value: string,
+  fieldName = "presentationBatchId",
+): PresentationBatchId {
+  if (!isPresentationBatchId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as PresentationBatchId;
+}
+

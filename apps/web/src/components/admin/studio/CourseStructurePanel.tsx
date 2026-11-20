@@ -19,6 +19,7 @@ import {
   Trash2,
   Check,
   Download,
+  RotateCcw,
 } from "lucide-react";
 import {
   getLessonDetails,
@@ -30,15 +31,110 @@ import {
 } from "../../../lib/api/admin.js";
 import { MarkdownRenderer } from "../../markdown/MarkdownRenderer.js";
 import { useAdmin } from "../../../hooks/useAdmin.js";
+import { createApiClient, getApiBaseUrl } from "../../../lib/api/client.js";
+import { createReviewApi } from "../../../lib/api/review.js";
 import { toPersianDigits, buildPdfFilename } from "@avana/domain";
 
 export interface CourseStructurePanelProps {
   courseId: string;
+  organizationId?: string;
+  courseStatus?: string;
 }
 
-export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
+export function CourseStructurePanel({
+  courseId,
+  organizationId,
+  courseStatus,
+}: CourseStructurePanelProps) {
   const adminApi = useAdmin();
   const queryClient = useQueryClient();
+  const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
+  const reviewApi = createReviewApi(apiClient);
+
+  const courseQuery = useQuery({
+    queryKey: ["admin-course", courseId],
+    queryFn: () => adminApi.getCourse(courseId),
+    enabled: !organizationId || !courseStatus,
+  });
+
+  const effectiveOrgId = organizationId || courseQuery.data?.course?.organizationId || "00000000-0000-0000-0000-000000000001";
+  const effectiveCourseStatus = courseStatus || courseQuery.data?.course?.status;
+  const isUnpublished = effectiveCourseStatus !== "published";
+
+  const [unapprovingLessonId, setUnapprovingLessonId] = useState<string | null>(null);
+
+  const unapproveMutation = useMutation({
+    mutationFn: async ({ contentId, lessonId }: { contentId: string; lessonId: string }) => {
+      setUnapprovingLessonId(lessonId);
+      return reviewApi.unapproveContent(effectiveOrgId, courseId, contentId);
+    },
+    onSuccess: (_, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ["course-hierarchy", courseId] });
+      void queryClient.invalidateQueries({ queryKey: ["course-drafts", courseId] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-lesson-detail", variables.lessonId, courseId] });
+      void queryClient.invalidateQueries({ queryKey: ["review-queue", effectiveOrgId, courseId] });
+      void queryClient.invalidateQueries({ queryKey: ["review-detail", effectiveOrgId, courseId, variables.contentId] });
+      void queryClient.invalidateQueries({ queryKey: ["course-learning", courseId] });
+      void queryClient.invalidateQueries({ queryKey: ["course-content", effectiveOrgId, courseId] });
+
+      if (previewLesson?.id === variables.lessonId) {
+        setPreviewLesson(null);
+      }
+
+      setActionMessage({
+        type: "success",
+        text: "تأیید محتوا با موفقیت لغو شد و به وضعیت پیش‌نویس بازگشت.",
+      });
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "خطا در لغو تأیید محتوا";
+      setActionMessage({
+        type: "error",
+        text: msg,
+      });
+    },
+    onSettled: () => {
+      setUnapprovingLessonId(null);
+    },
+  });
+
+  const handleUnapprove = (contentId: string, lessonTitle: string, lessonId: string) => {
+    const confirmed = window.confirm(
+      `آیا از لغو تأیید درسنامه «${lessonTitle}» اطمینان دارید؟\nاین عملیات وضعیت محتوا را به پیش‌نویس برمی‌گرداند تا مجدداً قابل بررسی و تأیید باشد.`
+    );
+    if (!confirmed) return;
+    unapproveMutation.mutate({ contentId, lessonId });
+  };
+
+  const [unapprovingModule, setUnapprovingModule] = useState<AdminCourseHierarchyModule | null>(null);
+
+  const bulkUnapproveMutation = useMutation({
+    mutationFn: async (mod: AdminCourseHierarchyModule) => {
+      return reviewApi.unapproveModuleContents(effectiveOrgId, courseId, mod.id);
+    },
+    onSuccess: (data, mod) => {
+      setUnapprovingModule(null);
+      void queryClient.invalidateQueries({ queryKey: ["course-hierarchy", courseId] });
+      void queryClient.invalidateQueries({ queryKey: ["course-drafts", courseId] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-lesson-detail"] });
+      void queryClient.invalidateQueries({ queryKey: ["review-queue", effectiveOrgId, courseId] });
+      void queryClient.invalidateQueries({ queryKey: ["review-detail", effectiveOrgId, courseId] });
+      void queryClient.invalidateQueries({ queryKey: ["course-learning", courseId] });
+      void queryClient.invalidateQueries({ queryKey: ["course-content", effectiveOrgId, courseId] });
+
+      setActionMessage({
+        type: "success",
+        text: `تأیید تمام محتواهای فصل «${mod.title}» (${toPersianDigits(data.unapproved_count)} محتوا) با موفقیت لغو شد و به وضعیت پیش‌نویس بازگشت.`,
+      });
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "خطا در لغو تأیید محتواهای فصل";
+      setActionMessage({
+        type: "error",
+        text: msg,
+      });
+    },
+  });
 
   const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
   const [previewLesson, setPreviewLesson] = useState<AdminCourseHierarchyLesson | null>(null);
@@ -448,6 +544,26 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
               <span className="hidden sm:inline">دریافت PDF فصل</span>
             </button>
 
+            {/* Bulk Unapprove Module Contents Button */}
+            {isUnpublished && (mod.unapprovableContentCount ?? 0) > 0 && (
+              <button
+                type="button"
+                disabled={bulkUnapproveMutation.isPending}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setUnapprovingModule(mod);
+                }}
+                title={`لغو تأیید همه محتواهای این فصل (${toPersianDigits(mod.unapprovableContentCount ?? 0)} محتوا)`}
+                className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span className="hidden sm:inline">لغو تأیید همه محتواهای فصل</span>
+                <span className="px-1.5 py-0.2 rounded-md bg-amber-500/20 text-[10px] font-bold">
+                  {toPersianDigits(mod.unapprovableContentCount ?? 0)}
+                </span>
+              </button>
+            )}
+
             {/* Group Selector */}
             {groups.length > 0 && (
               <select
@@ -585,6 +701,23 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
                         <HelpCircle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
                         <span>{toPersianDigits(lesson.quizCount)} سؤال</span>
                       </span>
+                    )}
+
+                    {isUnpublished && lesson.generatedContentId && (
+                      <button
+                        type="button"
+                        onClick={() => handleUnapprove(lesson.generatedContentId!, lesson.title, lesson.id)}
+                        disabled={unapprovingLessonId === lesson.id}
+                        className="px-2.5 py-1 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-700 dark:text-amber-400 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                        title="لغو تأیید و بازگردانی به وضعیت پیش‌نویس (فقط برای دوره‌های منتشرنشده)"
+                      >
+                        {unapprovingLessonId === lesson.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        )}
+                        <span>لغو تأیید</span>
+                      </button>
                     )}
 
                     <button
@@ -965,6 +1098,68 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
         </div>
       )}
 
+      {/* Modal: Bulk Unapprove Module Contents Confirmation */}
+      {unapprovingModule && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-md bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
+              <h4 className="font-bold text-base text-amber-600 dark:text-amber-400 flex items-center gap-2">
+                <RotateCcw className="w-5 h-5" />
+                <span>لغو تأیید همه محتواهای فصل</span>
+              </h4>
+              <button
+                type="button"
+                disabled={bulkUnapproveMutation.isPending}
+                onClick={() => setUnapprovingModule(null)}
+                className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-sm font-bold text-[var(--color-text)]">
+                آیا از لغو تأیید تمام محتواهای این فصل مطمئن هستید؟
+              </p>
+              <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+                فصل: <strong className="text-[var(--color-text)] font-bold">«{unapprovingModule.title}»</strong>
+              </p>
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-2 text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                <div className="flex items-center gap-2 font-bold">
+                  <span>تعداد محتواهای مشمول:</span>
+                  <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-900 dark:text-amber-200">
+                    {toPersianDigits(unapprovingModule.unapprovableContentCount ?? 0)} محتوا
+                  </span>
+                </div>
+                <p className="text-[11px] leading-relaxed">
+                  💡 <strong>توجه:</strong> محتواها به هیچ وجه حذف نمی‌شوند و به وضعیت پیش‌نویس (Draft) برمی‌گردند تا در صورت نیاز مجدداً از بخش بررسی محتوا ارزیابی و تأیید شوند.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-[var(--color-border)]">
+              <button
+                type="button"
+                disabled={bulkUnapproveMutation.isPending}
+                onClick={() => setUnapprovingModule(null)}
+                className="px-4 py-2 rounded-xl bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-card)] text-[var(--color-text)] border border-[var(--color-border)] text-xs font-bold transition-colors cursor-pointer"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                disabled={bulkUnapproveMutation.isPending}
+                onClick={() => bulkUnapproveMutation.mutate(unapprovingModule)}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold disabled:opacity-50 transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                {bulkUnapproveMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>لغو تأیید همه</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Lesson Details Preview Modal */}
       {previewLesson && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
@@ -978,6 +1173,25 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
                 </p>
               </div>
               <div className="flex items-center gap-2">
+                {isUnpublished && (previewLesson.generatedContentId || lessonDetailsQuery.data?.generatedContentId) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cId = previewLesson.generatedContentId || lessonDetailsQuery.data?.generatedContentId;
+                      if (cId) handleUnapprove(cId, previewLesson.title, previewLesson.id);
+                    }}
+                    disabled={unapprovingLessonId === previewLesson.id}
+                    className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-bold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                    title="لغو تأیید و بازگردانی به وضعیت پیش‌نویس"
+                  >
+                    {unapprovingLessonId === previewLesson.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    )}
+                    <span>لغو تأیید</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {

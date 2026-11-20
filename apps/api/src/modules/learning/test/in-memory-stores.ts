@@ -118,9 +118,9 @@ export class InMemoryModuleStore implements ModuleStore {
       .map((m) => ({ ...m }));
   }
 
-  async findByDocument(documentId: DocumentId): Promise<ModuleRecord | undefined> {
+  async findByDocument(documentId: DocumentId, courseId?: CourseId): Promise<ModuleRecord | undefined> {
     for (const m of this.modules.values()) {
-      if (m.documentId === documentId && m.deletedAt === null) {
+      if (m.documentId === documentId && m.deletedAt === null && (!courseId || m.courseId === courseId)) {
         return { ...m };
       }
     }

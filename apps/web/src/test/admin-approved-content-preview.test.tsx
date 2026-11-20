@@ -522,4 +522,139 @@ describe("Admin Approved Content & Submission Preview", () => {
       expect.anything(),
     );
   });
+
+  it("6. CourseStructurePanel displays 'لغو تأیید' button for lessons with generatedContentId in unpublished courses and hides it when published", async () => {
+    const courseId = "course-unapprove-test";
+    const lessonId = "lesson-unapprove-1";
+    const gcId = "gc-unapprove-999";
+    const orgId = "org-test-123";
+
+    const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url.includes(`/hierarchy`)) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: courseId,
+              name: "شیمی آلی",
+              subject: "شیمی",
+              courseFlashcardCount: 0,
+              courseQuizCount: 0,
+              modules: [
+                {
+                  id: "mod-1",
+                  title: "فصل اول: ساختارها",
+                  sortOrder: 1,
+                  lessons: [
+                    {
+                      id: lessonId,
+                      title: "درس پیوندهای کووالانسی",
+                      publicationStatus: "draft",
+                      flashcardCount: 0,
+                      quizCount: 0,
+                      hasContent: true,
+                      createdAt: new Date().toISOString(),
+                      generatedContentId: gcId,
+                    },
+                  ],
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+
+      if (url.includes(`/generated/${gcId}/unapprove`)) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ content_id: gcId, status: "draft" }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
+    });
+    global.fetch = fetchMock;
+
+    // Spy on window.confirm
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const { unmount } = render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <CourseStructurePanel
+            courseId={courseId}
+            organizationId={orgId}
+            courseStatus="draft"
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // Expand module
+    await waitFor(() => {
+      expect(screen.getByText("فصل اول: ساختارها")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("فصل اول: ساختارها"));
+
+    await waitFor(() => {
+      expect(screen.getByText("درس پیوندهای کووالانسی")).toBeInTheDocument();
+    });
+
+    // Unapprove button should be visible in draft course
+    const unapproveBtn = screen.getByRole("button", { name: "لغو تأیید" });
+    expect(unapproveBtn).toBeInTheDocument();
+
+    // Click unapprove
+    fireEvent.click(unapproveBtn);
+    expect(confirmSpy).toHaveBeenCalled();
+
+    // Verify unapprove API was called with the exact endpoint
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining(`/v1/organizations/${orgId}/courses/${courseId}/generated/${gcId}/unapprove`),
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    // Verify success banner appears
+    await waitFor(() => {
+      expect(
+        screen.getByText("تأیید محتوا با موفقیت لغو شد و به وضعیت پیش‌نویس بازگشت."),
+      ).toBeInTheDocument();
+    });
+
+    unmount();
+    confirmSpy.mockRestore();
+
+    // Now render with courseStatus="published" and verify button is NOT present
+    const publishedQueryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+
+    render(
+      <QueryClientProvider client={publishedQueryClient}>
+        <MemoryRouter>
+          <CourseStructurePanel
+            courseId={courseId}
+            organizationId={orgId}
+            courseStatus="published"
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("فصل اول: ساختارها")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("فصل اول: ساختارها"));
+
+    await waitFor(() => {
+      expect(screen.getByText("درس پیوندهای کووالانسی")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("button", { name: "لغو تأیید" })).not.toBeInTheDocument();
+  });
 });
+

@@ -428,4 +428,178 @@ describe("ServerCitationValidator (Phase 2A-2.3b)", () => {
       expect(result.evaluatedCitations[0].matchedChunk?.content).toBe(validContent1);
     });
   });
+
+  // 6. Three-Tier Scientific Citation Validation
+  describe("Three-Tier Scientific Citation Validation", () => {
+    it("successfully validates 3-tier citations with supported claim and verified source", async () => {
+      const result = await validator.evaluateThreeTierCitations({
+        projectId: testProjectId,
+        slideId: testSlideId,
+        claims: [
+          {
+            text: "وارفارین فاکتورهای انعقادی وابسته به ویتامین K را مهار می‌کند.",
+            evidenceStatus: "supported",
+            chunkIds: ["chk:warfarin:001"],
+          },
+        ],
+      });
+
+      expect(result.allSupported).toBe(true);
+      expect(result.evaluations).toHaveLength(1);
+
+      const eval1 = result.evaluations[0];
+      // Tier 1: Real source existence
+      expect(eval1.sourceExistence.verified).toBe(true);
+      expect(eval1.sourceExistence.status).toBe("verified_in_snapshot");
+      expect(eval1.sourceExistence.chunkId).toBe("chk:warfarin:001");
+
+      // Tier 2: Bibliographic metadata accuracy
+      expect(eval1.bibliographicAccuracy.accurate).toBe(true);
+      expect(eval1.bibliographicAccuracy.sourceType).toBe("pdf");
+
+      // Tier 3: Substantive claim support
+      expect(eval1.claimSupport.supported).toBe(true);
+      expect(eval1.claimSupport.status).toBe("supported");
+      expect(eval1.claimSupport.groundedChunkIds).toContain("chk:warfarin:001");
+    });
+
+    it("evaluates valid DOI format and creates canonical https://doi.org/... link", async () => {
+      // Add chunk with valid DOI to snapshot
+      const doiContent = "مطالعه کارآزمایی بالینی بر روی مهارکننده‌های SGLT2";
+      const doiHash = computeSha256(doiContent);
+      const doiChunkId = "chk:sglt2:doi01";
+
+      const currentSnapshot = await slideStore.getReferenceSnapshot(testSlideId, testProjectId);
+      const updatedSnapshot: SlideReferenceContextSnapshot = {
+        ...currentSnapshot!,
+        chunks: [
+          ...currentSnapshot!.chunks,
+          {
+            chunkId: doiChunkId,
+            referenceId: testRefId,
+            sourceType: "doi",
+            sourceTitle: "SGLT2 inhibitors in heart failure (10.1056/NEJMoa2024001)",
+            citationLabel: "10.1056/NEJMoa2024001",
+            sourceLocation: { startPage: 1, endPage: 10, slideIndex: null, confidence: "exact" },
+            contentHash: doiHash,
+            content: doiContent,
+            selectionScore: 0.99,
+            selectionReasons: ["Clinical trial evidence"],
+            rank: 3,
+          },
+        ],
+      };
+      await slideStore.saveReferenceSnapshot(testSlideId, testProjectId, updatedSnapshot);
+
+      const result = await validator.evaluateThreeTierCitations({
+        projectId: testProjectId,
+        slideId: testSlideId,
+        claims: [
+          {
+            text: "مهارکننده‌های SGLT2 خطر مرگ قلبی‌عروقی را کاهش می‌دهند.",
+            evidenceStatus: "supported",
+            chunkIds: [doiChunkId],
+          },
+        ],
+      });
+
+      expect(result.allSupported).toBe(true);
+      const evalItem = result.evaluations[0];
+      expect(evalItem.sourceExistence.verified).toBe(true);
+      expect(evalItem.bibliographicAccuracy.accurate).toBe(true);
+      expect(evalItem.bibliographicAccuracy.doi).toBe("10.1056/NEJMoa2024001");
+      expect(evalItem.bibliographicAccuracy.doiUrl).toBe("https://doi.org/10.1056/NEJMoa2024001");
+      expect(evalItem.claimSupport.supported).toBe(true);
+    });
+
+    it("rejects non-existent / fabricated chunkId (fails Tier 1 existence & Tier 3 support)", async () => {
+      const result = await validator.evaluateThreeTierCitations({
+        projectId: testProjectId,
+        slideId: testSlideId,
+        claims: [
+          {
+            text: "ادعای ساختگی بدون منبع تأییدشده در اسنپ‌شات.",
+            evidenceStatus: "supported",
+            chunkIds: ["chk:hallucinated:999"],
+          },
+        ],
+      });
+
+      expect(result.allSupported).toBe(false);
+      const evalItem = result.evaluations[0];
+      expect(evalItem.sourceExistence.verified).toBe(false);
+      expect(evalItem.sourceExistence.status).toBe("missing_from_snapshot");
+      expect(evalItem.claimSupport.supported).toBe(false);
+      expect(evalItem.claimSupport.status).toBe("unsupported");
+    });
+
+    it("correctly evaluates claims with insufficient_evidence without generating fake citations", async () => {
+      const result = await validator.evaluateThreeTierCitations({
+        projectId: testProjectId,
+        slideId: testSlideId,
+        claims: [
+          {
+            text: "هنوز شواهد کافی برای تجویز این دارو در بارداری وجود ندارد.",
+            evidenceStatus: "insufficient_evidence",
+            chunkIds: [],
+          },
+        ],
+      });
+
+      expect(result.allSupported).toBe(true);
+      const evalItem = result.evaluations[0];
+      // Legitimate insufficient evidence has no fake chunks
+      expect(evalItem.sourceExistence.verified).toBe(true);
+      expect(evalItem.claimSupport.status).toBe("insufficient_evidence");
+      expect(evalItem.claimSupport.groundedChunkIds).toHaveLength(0);
+    });
+
+    it("rejects insufficient_evidence claim if chunkIds are illegally attached", async () => {
+      const result = await validator.evaluateThreeTierCitations({
+        projectId: testProjectId,
+        slideId: testSlideId,
+        claims: [
+          {
+            text: "ادعای دارای شواهد ناکافی اما همراه با ارجاع جعلی",
+            evidenceStatus: "insufficient_evidence",
+            chunkIds: ["chk:warfarin:001"],
+          },
+        ],
+      });
+
+      expect(result.allSupported).toBe(false);
+      const evalItem = result.evaluations[0];
+      expect(evalItem.sourceExistence.verified).toBe(false);
+      expect(evalItem.sourceExistence.status).toBe("invalid_chunk");
+      expect(evalItem.claimSupport.supported).toBe(false);
+    });
+
+    it("preserves citations and snapshot integrity when slide user text is updated", async () => {
+      // 1. User updates slide speaker_notes and title
+      const updatedSlide = await slideStore.updateSlide(testSlideId, testProjectId, {
+        title: "عنوان جدید ویرایش‌شده توسط کاربر",
+        speakerNotes: "متن ویرایش‌شده سخنرانی توسط ارائه‌دهنده",
+      });
+
+      expect(updatedSlide.speakerNotes).toBe("متن ویرایش‌شده سخنرانی توسط ارائه‌دهنده");
+
+      // 2. Citations against snapshot remain fully valid
+      const result = await validator.evaluateThreeTierCitations({
+        projectId: testProjectId,
+        slideId: testSlideId,
+        claims: [
+          {
+            text: "وارفارین فاکتورهای انعقادی را مهار می‌کند.",
+            evidenceStatus: "supported",
+            chunkIds: ["chk:warfarin:001"],
+          },
+        ],
+      });
+
+      expect(result.allSupported).toBe(true);
+      expect(result.evaluations[0].sourceExistence.verified).toBe(true);
+      expect(result.evaluations[0].claimSupport.supported).toBe(true);
+    });
+  });
 });
+

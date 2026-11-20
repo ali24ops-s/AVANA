@@ -90,6 +90,25 @@ describe("MindMapService — Unit & Integration Test Suite", () => {
         }
         return null;
       },
+      findByIdOrSlug: async (identifier: string) => {
+        if (!identifier) return undefined;
+        const clean = identifier.trim();
+        if (clean === courseId) {
+          return {
+            course: {
+              id: courseId,
+              organizationId: orgId,
+              name: "دوره داروشناسی",
+              slug: "pharmacology-course",
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            } as any,
+            isRedirect: false,
+            canonicalSlug: "pharmacology-course",
+          };
+        }
+        return undefined;
+      },
     } as any;
 
     // Setup module
@@ -200,11 +219,11 @@ describe("MindMapService — Unit & Integration Test Suite", () => {
       ]);
     });
 
-    it("generates mind map with cost = 0 and version = 1 without debiting wallet", async () => {
+    it("generates mind map with cost = 2500 and version = 1 for first generation", async () => {
       const res = await service.generateMindMap(userA, moduleId);
       expect(res.success).toBe(true);
       expect(res.mind_map.version).toBe(1);
-      expect(res.mind_map.costToman).toBe(0);
+      expect(res.mind_map.costToman).toBe(2500);
       expect(res.mind_map.payload.aiBase.rootNodeId).toBe("root");
       expect(res.mind_map.payload.aiBase.nodes["node_beta_blockers"]).toBeDefined();
     });
@@ -4491,7 +4510,303 @@ describe("MindMapService — Unit & Integration Test Suite", () => {
       expect(fetched.mind_map?.payload.userModifications.customNodes.custom_1.title).toBe("گره دست‌ساز کاربر");
     });
   });
+
+  describe("20. Course Identifier Resolution (UUID, Slug, redirect_slug) & Cross-Course Isolation", () => {
+    const canonicalCourseUuid = "a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d" as CourseId;
+    const primarySlug = "pharmacology-cardio-2026";
+    const redirectSlug = "pharmacology-cardio-legacy";
+    const foreignCourseUuid = "b2c3d4e5-f6a1-4b2c-9d3e-4f5a6b7c8d9e" as CourseId;
+    const foreignCourseSlug = "pharmacology-neuro-2026";
+
+    const sharedDocId = "d1111111-1111-4111-8111-111111111111" as DocumentId;
+    const chapterModuleId = "m1111111-1111-4111-8111-111111111111" as ModuleId;
+    const foreignModuleId = "m2222222-2222-4222-8222-222222222222" as ModuleId;
+
+    beforeEach(async () => {
+      // Mock findByIdOrSlug and findByIdForUser with support for UUIDs, primary slug, redirect_slug
+      courseStore = {
+        findByIdForUser: async (cid: CourseId, uid: UserId) => {
+          if (uid === userA.userId && (cid === canonicalCourseUuid || cid === courseId)) {
+            return {
+              id: cid,
+              organizationId: orgId,
+              name: "دوره داروشناسی قلب",
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            } as any;
+          }
+          if (uid === userA.userId && cid === foreignCourseUuid) {
+            return {
+              id: foreignCourseUuid,
+              organizationId: orgId,
+              name: "دوره داروشناسی مغز",
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            } as any;
+          }
+          return null;
+        },
+        findById: async (cid: CourseId) => {
+          if (cid === canonicalCourseUuid || cid === courseId) {
+            return {
+              id: cid,
+              organizationId: orgId,
+              name: "دوره داروشناسی قلب",
+              slug: primarySlug,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            } as any;
+          }
+          if (cid === foreignCourseUuid) {
+            return {
+              id: foreignCourseUuid,
+              organizationId: orgId,
+              name: "دوره داروشناسی مغز",
+              slug: foreignCourseSlug,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            } as any;
+          }
+          return null;
+        },
+        findByIdOrSlug: async (identifier: string) => {
+          if (!identifier) return undefined;
+          const clean = identifier.trim();
+          if (clean === canonicalCourseUuid || clean === primarySlug) {
+            return {
+              course: {
+                id: canonicalCourseUuid,
+                organizationId: orgId,
+                name: "دوره داروشناسی قلب",
+                slug: primarySlug,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              } as any,
+              isRedirect: false,
+              canonicalSlug: primarySlug,
+            };
+          }
+          if (clean === redirectSlug) {
+            return {
+              course: {
+                id: canonicalCourseUuid,
+                organizationId: orgId,
+                name: "دوره داروشناسی قلب",
+                slug: primarySlug,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              } as any,
+              isRedirect: true,
+              canonicalSlug: primarySlug,
+            };
+          }
+          if (clean === foreignCourseUuid || clean === foreignCourseSlug) {
+            return {
+              course: {
+                id: foreignCourseUuid,
+                organizationId: orgId,
+                name: "دوره داروشناسی مغز",
+                slug: foreignCourseSlug,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              } as any,
+              isRedirect: false,
+              canonicalSlug: foreignCourseSlug,
+            };
+          }
+          if (clean === courseId) {
+            return {
+              course: {
+                id: courseId,
+                organizationId: orgId,
+                name: "دوره داروشناسی",
+                slug: "course-1-slug",
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              } as any,
+              isRedirect: false,
+              canonicalSlug: "course-1-slug",
+            };
+          }
+          return undefined;
+        },
+      } as any;
+
+      const mockOrgStore = {
+        listMembershipsByUserId: async (uid: UserId) =>
+          uid === userA.userId ? [{ organizationId: orgId, role: "student" as const }] : [],
+      } as any;
+
+      // Re-initialize service with the augmented courseStore
+      service = new MindMapService(
+        store,
+        gateway,
+        moduleStore,
+        lessonStore,
+        courseStore,
+        chunkStore,
+        undefined,
+        mockOrgStore,
+        undefined,
+        orgId,
+      );
+
+      // Create module under canonicalCourseUuid mapped to sharedDocId
+      await moduleStore.create({
+        id: chapterModuleId,
+        courseId: canonicalCourseUuid,
+        title: "فصل آنژین صدری",
+        sortOrder: 1,
+        documentId: sharedDocId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // Create lesson for chapterModuleId
+      await lessonStore.create({
+        id: "lesson-cardio-1" as LessonId,
+        moduleId: chapterModuleId,
+        courseId: canonicalCourseUuid,
+        title: "درسنامه آنژین صدری",
+        contentMarkdown: "محتوای علمی داروهای آنتی‌آنژینال شامل نیترات‌ها و بتابلوکرها.",
+        sortOrder: 1,
+        publicationStatus: "published",
+        isFreePreview: false,
+        tokenEstimate: 50,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // Create module under foreignCourseUuid mapped to THE SAME sharedDocId
+      await moduleStore.create({
+        id: foreignModuleId,
+        courseId: foreignCourseUuid,
+        title: "فصل نوروانتقال‌دهنده‌ها",
+        sortOrder: 1,
+        documentId: sharedDocId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // Create lesson for foreignModuleId
+      await lessonStore.create({
+        id: "lesson-neuro-1" as LessonId,
+        moduleId: foreignModuleId,
+        courseId: foreignCourseUuid,
+        title: "درسنامه نوروانتقال‌دهنده‌ها",
+        contentMarkdown: "محتوای علمی سیستم اعصاب مرکزی و دوپامین و سروتونین.",
+        sortOrder: 1,
+        publicationStatus: "published",
+        isFreePreview: false,
+        tokenEstimate: 50,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+    });
+
+    it("A. Valid Course UUID: successfully verifies access, generates and reads mind map", async () => {
+      const genRes = await service.generateMindMap(
+        userA,
+        chapterModuleId,
+        "req-uuid-test",
+        canonicalCourseUuid,
+      );
+      expect(genRes.mind_map.moduleId).toBe(chapterModuleId);
+      expect(genRes.mind_map.courseId).toBe(canonicalCourseUuid);
+
+      const getRes = await service.getMindMap(userA, chapterModuleId, canonicalCourseUuid);
+      expect(getRes.has_mind_map).toBe(true);
+      expect(getRes.mind_map?.id).toBe(genRes.mind_map.id);
+    });
+
+    it("B. Valid Course Primary Slug: resolves to canonical UUID and succeeds without throwing mismatch error", async () => {
+      const genRes = await service.generateMindMap(
+        userA,
+        chapterModuleId,
+        "req-primary-slug",
+        primarySlug,
+      );
+      expect(genRes.mind_map.moduleId).toBe(chapterModuleId);
+      expect(genRes.mind_map.courseId).toBe(canonicalCourseUuid);
+
+      const getRes = await service.getMindMap(userA, chapterModuleId, primarySlug);
+      expect(getRes.has_mind_map).toBe(true);
+      expect(getRes.mind_map?.id).toBe(genRes.mind_map.id);
+    });
+
+    it("C. Valid Course redirect_slug: resolves historical slug to canonical UUID and succeeds", async () => {
+      const genRes = await service.generateMindMap(
+        userA,
+        chapterModuleId,
+        "req-redirect-slug",
+        redirectSlug,
+      );
+      expect(genRes.mind_map.moduleId).toBe(chapterModuleId);
+      expect(genRes.mind_map.courseId).toBe(canonicalCourseUuid);
+
+      const getRes = await service.getMindMap(userA, chapterModuleId, redirectSlug);
+      expect(getRes.has_mind_map).toBe(true);
+      expect(getRes.mind_map?.id).toBe(genRes.mind_map.id);
+    });
+
+    it("D. Mismatched Course (UUID or Slug): rejects with 'سرفصل مورد نظر متعلق به این دوره نیست.'", async () => {
+      // Trying to access chapterModuleId (belongs to canonicalCourseUuid) with foreignCourseUuid
+      await expect(
+        service.getMindMap(userA, chapterModuleId, foreignCourseUuid),
+      ).rejects.toThrowError(
+        expect.objectContaining({
+          code: "bad_request",
+          message: "سرفصل مورد نظر متعلق به این دوره نیست.",
+        }),
+      );
+
+      // Trying with foreignCourseSlug
+      await expect(
+        service.generateMindMap(userA, chapterModuleId, "req-wrong-slug", foreignCourseSlug),
+      ).rejects.toThrowError(
+        expect.objectContaining({
+          code: "bad_request",
+          message: "سرفصل مورد نظر متعلق به این دوره نیست.",
+        }),
+      );
+    });
+
+    it("E. Cross-Course Isolation: resolves shared documentId specifically to courseId provided", async () => {
+      // Querying with sharedDocId and primarySlug should resolve to chapterModuleId (Cardio)
+      const cardioMindMap = await service.generateMindMap(
+        userA,
+        sharedDocId,
+        "req-shared-cardio",
+        primarySlug,
+      );
+      expect(cardioMindMap.mind_map.moduleId).toBe(chapterModuleId);
+      expect(cardioMindMap.mind_map.courseId).toBe(canonicalCourseUuid);
+
+      // Querying with sharedDocId and foreignCourseSlug should resolve to foreignModuleId (Neuro)
+      const neuroMindMap = await service.generateMindMap(
+        userA,
+        sharedDocId,
+        "req-shared-neuro",
+        foreignCourseSlug,
+      );
+      expect(neuroMindMap.mind_map.moduleId).toBe(foreignModuleId);
+      expect(neuroMindMap.mind_map.courseId).toBe(foreignCourseUuid);
+    });
+
+    it("F. Authorization enforcement: slug resolution does NOT grant access if user lacks permission", async () => {
+      // userB is not enrolled in canonicalCourseUuid
+      await expect(
+        service.getMindMap(userB, chapterModuleId, primarySlug),
+      ).rejects.toThrowError(
+        expect.objectContaining({
+          code: "forbidden",
+          message: "شما به این دوره یا سرفصل دسترسی ندارید.",
+        }),
+      );
+    });
+  });
 });
-
-
-

@@ -55,6 +55,8 @@ import {
   auditContentEdited,
   auditContentRejected,
   auditContentRegenerated,
+  auditContentApprovalRevoked,
+  auditContentDeleted,
   normalizeEducationalContent,
   calculateDefaultContentPrice,
   calculateContentPricingBreakdown,
@@ -110,6 +112,23 @@ import {
 import { DrizzleCommerceStore } from "../commerce/commerce-store.js";
 import { DrizzleAuditStore } from "../../observability/drizzle-stores.js";
 import type { SpecialExamAutomationService } from "../study/special-exam-automation-service.js";
+import {
+  courses,
+  modules,
+  lessons,
+  lessonProgress,
+  quizzes,
+  quizQuestions,
+  flashcards,
+  flashcardReviews,
+  userFlashcardSchedules,
+  flashcardStudySessionCards,
+  generatedContents,
+  generatedContentCitations,
+  documents,
+} from "@avana/database/schema";
+import { eq, and, isNull, inArray, ne, notInArray } from "drizzle-orm";
+import { isContentOwnedByModule } from "./module-content-ownership.js";
 
 // ---------------------------------------------------------------------------
 // Response contract types
@@ -247,6 +266,24 @@ export type RegenerateContentResult = {
   status: "regenerating";
 };
 
+export type UnapproveContentResult = {
+  content_id: GeneratedContentId;
+  status: "draft";
+};
+
+export type UnapproveModuleContentsResult = {
+  success: true;
+  module_id: ModuleId;
+  unapproved_count: number;
+  unapproved_ids: GeneratedContentId[];
+  status: "draft";
+};
+
+export type DeleteGeneratedContentResult = {
+  success: boolean;
+  content_id: GeneratedContentId;
+};
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
@@ -338,6 +375,15 @@ export class ReviewService {
     };
 
     if (!this.policy.can(fullActor, action, resourceContext)) {
+      const isMember = fullActor.memberships?.some(
+        (m) => m.organizationId === organizationId,
+      );
+      if (isMember) {
+        throw new DomainError(
+          "forbidden",
+          "دسترسی لازم برای این عملیات وجود ندارد.",
+        );
+      }
       throw new DomainError("not_found", "Organization not found");
     }
 
@@ -519,9 +565,135 @@ export class ReviewService {
     );
     const docMap = new Map(activeDocs.map((d) => [d.id, d]));
 
-    // 3. Group generated contents by documentId (or '__unknown__' for null/unmatched docs)
+    // 3. Explicitly verify actual deleted_at in DB for any documentId referenced by contents that isn't in docMap
+    const missingDocIds = [
+      ...new Set(
+        allCourseContents
+          .map((c) => c.documentId)
+          .filter((id): id is DocumentId => Boolean(id) && !docMap.has(id as DocumentId)),
+      ),
+    ];
+
+    const deletedDocIds = new Set<string>();
+
+    if (missingDocIds.length > 0) {
+      if (this.db) {
+        const checkedDocs = await this.db
+          .select({
+            id: documents.id,
+            originalName: documents.originalName,
+            deletedAt: documents.deletedAt,
+            createdAt: documents.createdAt,
+          })
+          .from(documents)
+          .where(inArray(documents.id, missingDocIds as any));
+
+        for (const d of checkedDocs) {
+          if (d.deletedAt === null) {
+            // Alive document: add to docMap
+            docMap.set(d.id as any, {
+              id: d.id,
+              originalName: d.originalName,
+              createdAt: d.createdAt ? d.createdAt.toISOString() : null,
+            } as any);
+          } else {
+            // Definitively soft-deleted
+            deletedDocIds.add(d.id);
+          }
+        }
+        const foundIds = new Set(checkedDocs.map((d) => d.id));
+        for (const mId of missingDocIds) {
+          if (!foundIds.has(mId)) {
+            deletedDocIds.add(mId);
+          }
+        }
+      } else {
+        const docStore = this.documentStore;
+        if (docStore) {
+          for (const mId of missingDocIds) {
+            try {
+              const found = docStore.findById
+                ? await docStore.findById(mId)
+                : await docStore.findByIdForOrganization(mId, organizationId);
+              if (!found || found.deletedAt) {
+                deletedDocIds.add(mId);
+              } else {
+                docMap.set(mId, found);
+              }
+            } catch {
+              deletedDocIds.add(mId);
+            }
+          }
+        } else {
+          for (const mId of missingDocIds) {
+            deletedDocIds.add(mId);
+          }
+        }
+      }
+    }
+
+    // 4. Verify materialized entities for accepted contents
+    const acceptedLessonsToCheck = allCourseContents.filter(
+      (c) => c.status === "accepted" && c.type === "lesson" && c.materializedLessonId,
+    );
+    const deadMaterializedLessonIds = new Set<string>();
+
+    if (acceptedLessonsToCheck.length > 0) {
+      const lessonIds = acceptedLessonsToCheck.map(
+        (c) => c.materializedLessonId as string,
+      );
+      if (this.db) {
+        const liveLessons = await this.db
+          .select({ id: lessons.id })
+          .from(lessons)
+          .where(
+            and(
+              inArray(lessons.id, lessonIds as any),
+              isNull(lessons.deletedAt),
+            ),
+          );
+        const liveSet = new Set(liveLessons.map((l) => l.id));
+        for (const lId of lessonIds) {
+          if (!liveSet.has(lId)) {
+            deadMaterializedLessonIds.add(lId);
+          }
+        }
+      } else {
+        for (const lId of lessonIds) {
+          try {
+            const l = await this.lessonStore.findById(lId as any);
+            if (!l || l.deletedAt) {
+              deadMaterializedLessonIds.add(lId);
+            }
+          } catch {
+            deadMaterializedLessonIds.add(lId);
+          }
+        }
+      }
+    }
+
+    // 5. Build single source of truth for all filtering and stats: validCourseContents
+    const validCourseContents = allCourseContents.filter((c) => {
+      if (c.deletedAt !== null) return false;
+
+      // Exclude if source document is dead
+      if (c.documentId && deletedDocIds.has(c.documentId)) {
+        return false;
+      }
+
+      // If accepted lesson, exclude if materialized lesson is dead
+      if (c.status === "accepted" && c.type === "lesson" && c.materializedLessonId) {
+        if (deadMaterializedLessonIds.has(c.materializedLessonId)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    // 6. Group validCourseContents by documentId (or '__unknown__' for null docs)
     const contentGroups = new Map<string, GeneratedContentRecord[]>();
-    for (const record of allCourseContents) {
+    for (const record of validCourseContents) {
       const groupKey =
         record.documentId && docMap.has(record.documentId)
           ? record.documentId
@@ -865,6 +1037,909 @@ export class ReviewService {
       content_id: record.id,
       status: "accepted",
       materialized_lesson_id: materializedLessonId,
+    };
+  }
+
+  /**
+   * Revoke approval (Unapprove) for an accepted generated content.
+   *
+   * Invariants:
+   * 1. Only permitted on UNPUBLISHED courses (course.status !== 'published').
+   *    If published, rejects with 409 Conflict.
+   * 2. The generated_contents record is NOT deleted; status reverts from 'accepted' to 'draft'.
+   * 3. acceptedAt and acceptedBy are cleared (null).
+   * 4. Associated materialized entities (lesson, flashcards, quiz questions) are strictly
+   *    verified for ownership and soft-deleted so they are no longer accessible.
+   * 5. Atomicity: execution is encapsulated in a DB transaction with post-commit audit logging.
+   * 6. Re-approval is fully preserved.
+   */
+  async unapproveContent(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    contentId: GeneratedContentId,
+  ): Promise<UnapproveContentResult> {
+    const record = await this.requireContent(organizationId, contentId);
+    await this.authorizeAction(actor, organizationId, "content:accept", record);
+
+    if (record.status !== "accepted") {
+      throw new DomainError(
+        "conflict",
+        `تنها محتوای تأییدشده امکان لغو تأیید دارد. وضعیت فعلی: '${record.status}'`,
+      );
+    }
+
+    // Verify course publication status: Unapprove is only allowed for unpublished courses
+    let isPublished = false;
+    if (this.courseStore) {
+      const course = await this.courseStore.findById(courseId);
+      if (course?.status === "published") {
+        isPublished = true;
+      }
+    } else if (this.db) {
+      const [courseRow] = await this.db
+        .select({ status: courses.status })
+        .from(courses)
+        .where(eq(courses.id, courseId as any));
+      if (courseRow?.status === "published") {
+        isPublished = true;
+      }
+    }
+
+    if (isPublished) {
+      throw new DomainError(
+        "conflict",
+        "امکان لغو تأیید محتوا در دوره‌های منتشرشده وجود ندارد. تغییرات باید از طریق ایجاد نسخه پیش‌نویس دوره (Course Draft) اعمال شوند.",
+      );
+    }
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+
+    if (this.db) {
+      await this.db.transaction(async (tx) => {
+        // Step 1: If lesson, check ownership and soft-delete materialized lesson
+        if (record.type === "lesson" && record.materializedLessonId) {
+          const shared = await tx
+            .select({ id: generatedContents.id })
+            .from(generatedContents)
+            .where(
+              and(
+                eq(generatedContents.materializedLessonId, record.materializedLessonId as any),
+                ne(generatedContents.id, record.id as any),
+                isNull(generatedContents.deletedAt),
+              ),
+            );
+
+          if (shared.length === 0) {
+            await tx
+              .update(lessons)
+              .set({ deletedAt: now, updatedAt: now })
+              .where(eq(lessons.id, record.materializedLessonId as any));
+
+            await tx
+              .update(modules)
+              .set({ previewLessonId: null, updatedAt: now })
+              .where(eq(modules.previewLessonId, record.materializedLessonId as any));
+          }
+        }
+
+        // Step 2: If flashcard, soft-delete flashcards specifically generated by this content
+        if (record.type === "flashcard") {
+          await tx
+            .update(flashcards)
+            .set({ deletedAt: now, updatedAt: now })
+            .where(
+              and(
+                eq(flashcards.generatedContentId, record.id as any),
+                isNull(flashcards.deletedAt),
+              ),
+            );
+        }
+
+        // Step 3: If quiz, soft-delete quiz questions specifically generated by this content
+        if (record.type === "quiz") {
+          await tx
+            .update(quizQuestions)
+            .set({ deletedAt: now, updatedAt: now })
+            .where(
+              and(
+                eq(quizQuestions.generatedContentId, record.id as any),
+                isNull(quizQuestions.deletedAt),
+              ),
+            );
+        }
+
+        // Step 4: Revert generated_contents record to draft
+        await tx
+          .update(generatedContents)
+          .set({
+            status: "draft",
+            acceptedAt: null,
+            acceptedBy: null,
+            reviewedBy: null,
+            reviewedAt: null,
+            reviewReason: null,
+            materializedLessonId: null,
+            updatedAt: now,
+          })
+          .where(eq(generatedContents.id, record.id as any));
+      });
+    } else {
+      // In-memory fallback
+      if (record.type === "lesson" && record.materializedLessonId && this.lessonStore) {
+        await this.lessonStore.delete(record.materializedLessonId);
+      }
+      await this.generatedContentStore.update({
+        ...record,
+        status: "draft",
+        acceptedAt: null,
+        acceptedBy: null,
+        reviewedBy: null,
+        reviewedAt: null,
+        reviewReason: null,
+        materializedLessonId: null,
+        updatedAt: nowIso,
+      });
+    }
+
+    if (this.auditService) {
+      await this.auditService.emit([
+        auditContentApprovalRevoked(actor.userId, organizationId, record.id, {
+          courseId,
+          documentId: record.documentId ?? "",
+          type: record.type,
+          previousMaterializedLessonId: record.materializedLessonId ?? null,
+        }),
+      ]);
+    }
+
+    return {
+      content_id: record.id,
+      status: "draft",
+    };
+  }
+
+  /**
+   * Resolve all accepted generated contents that strictly belong to a specific module.
+   *
+   * Exact ownership chain verification:
+   * 1. Target module must exist, belong to this course & org, and not be deleted.
+   * 2. Lessons of the module (non-deleted) define the module's boundary.
+   * 3. Candidate contents: all accepted, non-deleted generated_contents in this course.
+   * 4. Strict attribution rules:
+   *    - type === 'lesson': gc.materializedLessonId MUST be one of this module's lessons.
+   *    - type === 'flashcard': either has cards linked to this module's lessons (and none to other modules),
+   *      or has cards with lessonId === null and gc.documentId === module.documentId (with no other module claiming documentId).
+   *    - type === 'quiz': either gc.materializedLessonId in this module's lessons, or has questions linked to this module's lessons
+   *      (and none to other modules), or unmapped questions with gc.documentId === module.documentId.
+   *    - other types (e.g. review_summary): gc.documentId === module.documentId (with no other module claiming documentId).
+   */
+  async getModuleUnapprovableContents(
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    moduleId: ModuleId,
+    tx?: any,
+  ): Promise<GeneratedContentRecord[]> {
+    const dbClient = tx ?? this.db;
+
+    if (dbClient) {
+      // 1. Fetch target module
+      const [moduleRow] = await dbClient
+        .select()
+        .from(modules)
+        .where(
+          and(
+            eq(modules.id, moduleId as any),
+            eq(modules.courseId, courseId as any),
+            isNull(modules.deletedAt),
+          ),
+        );
+      if (!moduleRow) return [];
+
+      // 2. Fetch all modules of this course to identify other modules
+      const courseModules = await dbClient
+        .select({ id: modules.id, documentId: modules.documentId })
+        .from(modules)
+        .where(
+          and(
+            eq(modules.courseId, courseId as any),
+            isNull(modules.deletedAt),
+          ),
+        );
+      const otherModules = courseModules.filter((m: any) => m.id !== moduleId);
+
+      // 3. Fetch lessons of this module and other modules
+      const allLessons = await dbClient
+        .select({ id: lessons.id, moduleId: lessons.moduleId })
+        .from(lessons)
+        .where(
+          and(
+            inArray(lessons.moduleId, courseModules.map((m: any) => m.id) as any),
+            isNull(lessons.deletedAt),
+          ),
+        );
+      const moduleLessonIds = new Set<string>(
+        allLessons.filter((l: any) => l.moduleId === moduleId).map((l: any) => l.id),
+      );
+      const otherLessonIds = new Set<string>(
+        allLessons.filter((l: any) => l.moduleId !== moduleId).map((l: any) => l.id),
+      );
+
+      // 4. Fetch all accepted generated_contents for this course & org
+      const acceptedContents = await dbClient
+        .select()
+        .from(generatedContents)
+        .where(
+          and(
+            eq(generatedContents.courseId, courseId as any),
+            eq(generatedContents.organizationId, organizationId as any),
+            eq(generatedContents.status, "accepted"),
+            isNull(generatedContents.deletedAt),
+          ),
+        );
+      if (acceptedContents.length === 0) return [];
+
+      const candidateIds = acceptedContents.map((c: any) => c.id);
+
+      // 5. Query active flashcards and quiz questions for these contents
+      const [flashcardRows, quizQuestionRows] = await Promise.all([
+        dbClient
+          .select({
+            id: flashcards.id,
+            generatedContentId: flashcards.generatedContentId,
+            lessonId: flashcards.lessonId,
+          })
+          .from(flashcards)
+          .where(
+            and(
+              inArray(flashcards.generatedContentId, candidateIds as any),
+              isNull(flashcards.deletedAt),
+            ),
+          ),
+        dbClient
+          .select({
+            id: quizQuestions.id,
+            generatedContentId: quizQuestions.generatedContentId,
+            lessonId: quizQuestions.lessonId,
+          })
+          .from(quizQuestions)
+          .where(
+            and(
+              inArray(quizQuestions.generatedContentId, candidateIds as any),
+              isNull(quizQuestions.deletedAt),
+            ),
+          ),
+      ]);
+
+      const flashcardsByGc = new Map<string, Array<{ lessonId: string | null }>>();
+      for (const fc of flashcardRows) {
+        if (fc.generatedContentId) {
+          const list = flashcardsByGc.get(fc.generatedContentId) || [];
+          list.push({ lessonId: fc.lessonId });
+          flashcardsByGc.set(fc.generatedContentId, list);
+        }
+      }
+
+      const quizQuestionsByGc = new Map<string, Array<{ lessonId: string | null }>>();
+      for (const qq of quizQuestionRows) {
+        if (qq.generatedContentId) {
+          const list = quizQuestionsByGc.get(qq.generatedContentId) || [];
+          list.push({ lessonId: qq.lessonId });
+          quizQuestionsByGc.set(qq.generatedContentId, list);
+        }
+      }
+
+      const otherModuleDocIds = new Set<string>();
+      for (const om of otherModules) {
+        if (om.documentId) otherModuleDocIds.add(om.documentId);
+      }
+      const isDocumentShared = Boolean(
+        moduleRow.documentId && otherModuleDocIds.has(moduleRow.documentId),
+      );
+
+      const ownershipContext = {
+        targetModuleId: moduleId,
+        targetModuleDocId: moduleRow.documentId,
+        moduleLessonIds,
+        otherLessonIds,
+        otherModuleDocIds,
+        isDocumentShared,
+      };
+
+      const matched: GeneratedContentRecord[] = [];
+      for (const gc of acceptedContents) {
+        if (
+          isContentOwnedByModule(
+            gc,
+            ownershipContext,
+            flashcardsByGc,
+            quizQuestionsByGc,
+          )
+        ) {
+          matched.push(gc as unknown as GeneratedContentRecord);
+        }
+      }
+
+      return matched;
+    } else {
+      // In-memory fallback
+      if (!this.moduleStore) return [];
+      const moduleRecord = await this.moduleStore.findById(moduleId);
+      if (!moduleRecord || moduleRecord.courseId !== courseId || moduleRecord.deletedAt) {
+        return [];
+      }
+
+      const allCourseModules = await this.moduleStore.listByCourse(courseId);
+      const otherModules = allCourseModules.filter((m) => m.id !== moduleId && !m.deletedAt);
+
+      const allCourseContents = await this.generatedContentStore.listByCourse(
+        courseId,
+        organizationId,
+        "accepted",
+      );
+      const acceptedContents = allCourseContents.filter(
+        (c) => c.status === "accepted" && c.deletedAt === null,
+      );
+
+      const moduleLessons = this.lessonStore
+        ? await this.lessonStore.listByModule(moduleId)
+        : [];
+      const moduleLessonIds = new Set(
+        moduleLessons.filter((l) => !l.deletedAt).map((l) => l.id),
+      );
+
+      const otherLessonIds = new Set<string>();
+      if (this.lessonStore) {
+        for (const om of otherModules) {
+          const oLessons = await this.lessonStore.listByModule(om.id);
+          for (const ol of oLessons) {
+            if (!ol.deletedAt) otherLessonIds.add(ol.id);
+          }
+        }
+      }
+
+      const flashcardsByGc = new Map<string, Array<{ lessonId: string | null }>>();
+      if (this.flashcardStore) {
+        const courseCards = await this.flashcardStore.listByCourse(courseId, organizationId);
+        for (const fc of courseCards) {
+          if (fc.generatedContentId && !fc.deletedAt) {
+            const list = flashcardsByGc.get(fc.generatedContentId) || [];
+            list.push({ lessonId: fc.lessonId ?? null });
+            flashcardsByGc.set(fc.generatedContentId, list);
+          }
+        }
+      }
+
+      const quizQuestionsByGc = new Map<string, Array<{ lessonId: string | null }>>();
+      if (this.quizStore && this.quizQuestionStore) {
+        const courseQuizzes = await this.quizStore.listByCourse(courseId, organizationId);
+        for (const q of courseQuizzes) {
+          if (!q.deletedAt) {
+            const questions = await this.quizQuestionStore.listByQuiz(q.id);
+            for (const qq of questions) {
+              if (qq.generatedContentId && !qq.deletedAt) {
+                const list = quizQuestionsByGc.get(qq.generatedContentId) || [];
+                list.push({ lessonId: qq.lessonId ?? null });
+                quizQuestionsByGc.set(qq.generatedContentId, list);
+              }
+            }
+          }
+        }
+      }
+
+      const otherModuleDocIds = new Set<string>();
+      for (const om of otherModules) {
+        if (om.documentId) otherModuleDocIds.add(om.documentId);
+      }
+      const isDocumentShared = Boolean(
+        moduleRecord.documentId && otherModuleDocIds.has(moduleRecord.documentId),
+      );
+
+      const ownershipContext = {
+        targetModuleId: moduleId,
+        targetModuleDocId: moduleRecord.documentId ?? null,
+        moduleLessonIds,
+        otherLessonIds,
+        otherModuleDocIds,
+        isDocumentShared,
+      };
+
+      const matched: GeneratedContentRecord[] = [];
+      for (const gc of acceptedContents) {
+        if (
+          isContentOwnedByModule(
+            gc,
+            ownershipContext,
+            flashcardsByGc,
+            quizQuestionsByGc,
+          )
+        ) {
+          matched.push(gc);
+        }
+      }
+
+      return matched;
+    }
+  }
+
+  /**
+   * Bulk revoke approval (Unapprove) for all accepted generated contents in a module.
+   *
+   * Invariants:
+   * 1. Only permitted on UNPUBLISHED courses (course.status !== 'published').
+   *    If published, rejects with 409 Conflict.
+   * 2. Only user with 'content:accept' permission is authorized.
+   * 3. Only contents strictly belonging to this module are unapproved.
+   * 4. Each generated_contents record is NOT deleted; status reverts from 'accepted' to 'draft'.
+   * 5. acceptedAt, acceptedBy, reviewedBy, reviewedAt, reviewReason, materializedLessonId cleared.
+   * 6. Materialized entities (lessons, flashcards, quiz questions, quizzes) are strictly checked for ownership
+   *    and soft-deleted only if not shared with other active contents.
+   * 7. If an unapproved lesson was preview_lesson_id of any module, that reference is cleared.
+   * 8. Atomicity: execution is encapsulated in a single DB transaction.
+   * 9. Post-commit audit logging is fail-safe.
+   * 10. Re-approval is fully preserved.
+   */
+  async unapproveModuleContents(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    moduleId: ModuleId,
+  ): Promise<UnapproveModuleContentsResult> {
+    // 1. Authorize action on course level
+    await this.authorize(actor, organizationId, "content:accept");
+
+    // 2. Verify course publication status: Unapprove is only allowed for unpublished courses
+    let isPublished = false;
+    if (this.courseStore) {
+      const course = await this.courseStore.findById(courseId);
+      if (course?.status === "published") {
+        isPublished = true;
+      }
+    } else if (this.db) {
+      const [courseRow] = await this.db
+        .select({ status: courses.status })
+        .from(courses)
+        .where(eq(courses.id, courseId as any));
+      if (courseRow?.status === "published") {
+        isPublished = true;
+      }
+    }
+
+    if (isPublished) {
+      throw new DomainError(
+        "conflict",
+        "امکان لغو تأیید محتوا در دوره‌های منتشرشده وجود ندارد. تغییرات باید از طریق ایجاد نسخه پیش‌نویس دوره (Course Draft) اعمال شوند.",
+      );
+    }
+
+    // 3. Verify target module exists
+    let targetModuleDocId: string | null = null;
+    let isDocumentShared = false;
+    if (this.moduleStore) {
+      const mod = await this.moduleStore.findById(moduleId);
+      if (!mod || mod.courseId !== courseId || mod.deletedAt) {
+        throw new DomainError("not_found", "فصل مورد نظر یافت نشد.");
+      }
+      targetModuleDocId = mod.documentId ?? null;
+      if (targetModuleDocId) {
+        const allMods = await this.moduleStore.listByCourse(courseId);
+        isDocumentShared = allMods.some((m) => m.id !== moduleId && !m.deletedAt && m.documentId === targetModuleDocId);
+      }
+    } else if (this.db) {
+      const [mod] = await this.db
+        .select({ id: modules.id, documentId: modules.documentId })
+        .from(modules)
+        .where(
+          and(
+            eq(modules.id, moduleId as any),
+            eq(modules.courseId, courseId as any),
+            isNull(modules.deletedAt),
+          ),
+        );
+      if (!mod) {
+        throw new DomainError("not_found", "فصل مورد نظر یافت نشد.");
+      }
+      targetModuleDocId = mod.documentId ?? null;
+      if (targetModuleDocId) {
+        const otherMods = await this.db
+          .select({ id: modules.id, documentId: modules.documentId })
+          .from(modules)
+          .where(
+            and(
+              eq(modules.courseId, courseId as any),
+              ne(modules.id, moduleId as any),
+              isNull(modules.deletedAt),
+            ),
+          );
+        isDocumentShared = otherMods.some((om) => om.documentId === targetModuleDocId);
+      }
+    }
+
+    // 4. Resolve all accepted contents strictly belonging to this module
+    const targetContents = await this.getModuleUnapprovableContents(
+      organizationId,
+      courseId,
+      moduleId,
+    );
+
+    // 5. Authorize individual records
+    for (const record of targetContents) {
+      await this.authorizeAction(actor, organizationId, "content:accept", record);
+    }
+
+    if (targetContents.length === 0) {
+      return {
+        success: true,
+        module_id: moduleId,
+        unapproved_count: 0,
+        unapproved_ids: [],
+        status: "draft",
+      };
+    }
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const targetContentIds = targetContents.map((r) => r.id);
+
+    // 6. Execute unapproval in atomic transaction
+    if (this.db) {
+      await this.db.transaction(async (tx) => {
+        // Step A: Lessons soft-delete
+        // Check for each lesson claimed by targetContents if it is shared with other active generated contents
+        for (const record of targetContents) {
+          if (record.type === "lesson" && record.materializedLessonId) {
+            const shared = await tx
+              .select({ id: generatedContents.id })
+              .from(generatedContents)
+              .where(
+                and(
+                  eq(generatedContents.materializedLessonId, record.materializedLessonId as any),
+                  notInArray(generatedContents.id, targetContentIds as any),
+                  isNull(generatedContents.deletedAt),
+                ),
+              );
+
+            if (shared.length === 0) {
+              await tx
+                .update(lessons)
+                .set({ deletedAt: now, updatedAt: now })
+                .where(eq(lessons.id, record.materializedLessonId as any));
+
+              await tx
+                .update(modules)
+                .set({ previewLessonId: null, updatedAt: now })
+                .where(eq(modules.previewLessonId, record.materializedLessonId as any));
+            }
+          }
+        }
+
+        // Step B: Flashcards soft-delete
+        await tx
+          .update(flashcards)
+          .set({ deletedAt: now, updatedAt: now })
+          .where(
+            and(
+              inArray(flashcards.generatedContentId, targetContentIds as any),
+              isNull(flashcards.deletedAt),
+            ),
+          );
+
+        // Step C: Quiz questions soft-delete & parent quiz cleanup
+        const affectedQuestions = await tx
+          .select({ quizId: quizQuestions.quizId })
+          .from(quizQuestions)
+          .where(
+            and(
+              inArray(quizQuestions.generatedContentId, targetContentIds as any),
+              isNull(quizQuestions.deletedAt),
+            ),
+          );
+        const affectedQuizIds = new Set<string>(
+          affectedQuestions.map((q) => q.quizId),
+        );
+
+        if (targetModuleDocId && !isDocumentShared && targetContents.some((r) => r.type === "quiz")) {
+          const docQuizzes = await tx
+            .select({ id: quizzes.id })
+            .from(quizzes)
+            .where(
+              and(
+                eq(quizzes.documentId, targetModuleDocId as any),
+                eq(quizzes.courseId, courseId as any),
+                isNull(quizzes.deletedAt),
+              ),
+            );
+          for (const dq of docQuizzes) {
+            affectedQuizIds.add(dq.id);
+          }
+        }
+
+        await tx
+          .update(quizQuestions)
+          .set({ deletedAt: now, updatedAt: now })
+          .where(
+            and(
+              inArray(quizQuestions.generatedContentId, targetContentIds as any),
+              isNull(quizQuestions.deletedAt),
+            ),
+          );
+
+        // Check if any of affected quizzes have NO remaining active questions
+        for (const qId of affectedQuizIds) {
+          const remaining = await tx
+            .select({ id: quizQuestions.id })
+            .from(quizQuestions)
+            .where(
+              and(
+                eq(quizQuestions.quizId, qId as any),
+                isNull(quizQuestions.deletedAt),
+              ),
+            );
+          if (remaining.length === 0) {
+            await tx
+              .update(quizzes)
+              .set({ deletedAt: now, updatedAt: now })
+              .where(eq(quizzes.id, qId as any));
+          }
+        }
+
+        // Step D: Revert generated_contents records to draft
+        await tx
+          .update(generatedContents)
+          .set({
+            status: "draft",
+            acceptedAt: null,
+            acceptedBy: null,
+            reviewedBy: null,
+            reviewedAt: null,
+            reviewReason: null,
+            materializedLessonId: null,
+            updatedAt: now,
+          })
+          .where(inArray(generatedContents.id, targetContentIds as any));
+      });
+    } else {
+      // In-memory fallback
+      for (const record of targetContents) {
+        if (record.type === "lesson" && record.materializedLessonId && this.lessonStore) {
+          const allGc = await this.generatedContentStore.listByCourse(courseId, organizationId);
+          const isShared = allGc.some(
+            (g) =>
+              g.materializedLessonId === record.materializedLessonId &&
+              !targetContentIds.includes(g.id) &&
+              !g.deletedAt,
+          );
+          if (!isShared) {
+            await this.lessonStore.delete(record.materializedLessonId);
+            if (this.moduleStore) {
+              const allMods = await this.moduleStore.listByCourse(courseId);
+              for (const m of allMods) {
+                if (m.previewLessonId === record.materializedLessonId) {
+                  await this.moduleStore.update({ ...m, previewLessonId: null, updatedAt: nowIso });
+                }
+              }
+            }
+          }
+        }
+
+        if (record.type === "flashcard" && this.flashcardStore?.delete) {
+          const cards = await this.flashcardStore.listByCourse(courseId, organizationId);
+          for (const fc of cards) {
+            if (fc.generatedContentId === record.id && !fc.deletedAt) {
+              await this.flashcardStore.delete(fc.id);
+            }
+          }
+        }
+
+        if (record.type === "quiz" && this.quizQuestionStore && this.quizStore) {
+          const courseQuizzes = await this.quizStore.listByCourse(courseId, organizationId);
+          for (const q of courseQuizzes) {
+            if (!q.deletedAt) {
+              const questions = await this.quizQuestionStore.listByQuiz(q.id);
+              for (const qq of questions) {
+                if (qq.generatedContentId === record.id && !qq.deletedAt && this.quizQuestionStore.delete) {
+                  await this.quizQuestionStore.delete(qq.id);
+                }
+              }
+              const remainingQuestions = (await this.quizQuestionStore.listByQuiz(q.id)).filter(
+                (qq) => !qq.deletedAt,
+              );
+              const isDocQuiz = Boolean(targetModuleDocId && !isDocumentShared && q.documentId === targetModuleDocId);
+              if (remainingQuestions.length === 0 && (isDocQuiz || questions.some((qq) => qq.generatedContentId === record.id)) && this.quizStore.delete) {
+                await this.quizStore.delete(q.id);
+              }
+            }
+          }
+        }
+
+        await this.generatedContentStore.update({
+          ...record,
+          status: "draft",
+          acceptedAt: null,
+          acceptedBy: null,
+          reviewedBy: null,
+          reviewedAt: null,
+          reviewReason: null,
+          materializedLessonId: null,
+          updatedAt: nowIso,
+        });
+      }
+    }
+
+    // 7. Post-commit Audit logging (fail-safe)
+    if (this.auditService) {
+      try {
+        const events = targetContents.map((record) =>
+          auditContentApprovalRevoked(actor.userId, organizationId, record.id, {
+            courseId,
+            documentId: record.documentId ?? "",
+            type: record.type,
+            previousMaterializedLessonId: record.materializedLessonId ?? null,
+          }),
+        );
+        await this.auditService.emit(events);
+      } catch (auditErr) {
+        // Audit log emission failure must not corrupt or roll back already-committed business state
+        console.error("Failed to emit audit log for bulk unapprove:", auditErr);
+      }
+    }
+
+    return {
+      success: true,
+      module_id: moduleId,
+      unapproved_count: targetContents.length,
+      unapproved_ids: targetContentIds,
+      status: "draft",
+    };
+  }
+
+  /**
+   * Delete a generated content.
+   *
+   * Per AVANA content deletion policy:
+   * 1. Unpublished content: permanent and immediate hard delete.
+   * 2. Published content: explicit user confirmation required, then permanent hard delete.
+   * 3. Completely cleans up all attributable dependencies without affecting shared entities.
+   */
+  async deleteGeneratedContent(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    contentId: GeneratedContentId,
+    options?: { confirmPublishedDelete?: boolean },
+  ): Promise<DeleteGeneratedContentResult> {
+    const record = await this.requireContent(organizationId, contentId);
+    await this.authorizeAction(actor, organizationId, "content:reject", record);
+
+    let isPublished = false;
+    if (this.courseStore) {
+      const course = await this.courseStore.findById(courseId);
+      if (course?.status === "published") {
+        isPublished = true;
+      }
+    } else if (this.db) {
+      const [courseRow] = await this.db
+        .select({ status: courses.status })
+        .from(courses)
+        .where(eq(courses.id, courseId as any));
+      if (courseRow?.status === "published") {
+        isPublished = true;
+      }
+    }
+
+    if (isPublished && !options?.confirmPublishedDelete) {
+      throw new DomainError(
+        "conflict",
+        "حذف محتوای تولیدشده در دوره‌های منتشرشده نیازمند تأیید صریح کاربر است.",
+      );
+    }
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+
+    if (this.db) {
+      await this.db.transaction(async (tx) => {
+        // Step 1: If lesson, check ownership and hard delete materialized lesson
+        if (record.materializedLessonId) {
+          const shared = await tx
+            .select({ id: generatedContents.id })
+            .from(generatedContents)
+            .where(
+              and(
+                eq(generatedContents.materializedLessonId, record.materializedLessonId as any),
+                ne(generatedContents.id, record.id as any),
+              ),
+            );
+
+          if (shared.length === 0) {
+            await tx
+              .update(modules)
+              .set({ previewLessonId: null, updatedAt: now })
+              .where(eq(modules.previewLessonId, record.materializedLessonId as any));
+
+            await tx
+              .delete(lessonProgress)
+              .where(eq(lessonProgress.lessonId, record.materializedLessonId as any));
+
+            await tx
+              .delete(lessons)
+              .where(eq(lessons.id, record.materializedLessonId as any));
+          }
+        }
+
+        // Step 2: Flashcards
+        const cardRows = await tx
+          .select({ id: flashcards.id })
+          .from(flashcards)
+          .where(eq(flashcards.generatedContentId, record.id as any));
+        const cardIds = cardRows.map((c: any) => c.id);
+        if (cardIds.length > 0) {
+          await tx
+            .delete(userFlashcardSchedules)
+            .where(inArray(userFlashcardSchedules.flashcardId, cardIds));
+          await tx
+            .delete(flashcardReviews)
+            .where(inArray(flashcardReviews.flashcardId, cardIds));
+          await tx
+            .delete(flashcardStudySessionCards)
+            .where(inArray(flashcardStudySessionCards.flashcardId, cardIds));
+          await tx
+            .delete(flashcards)
+            .where(inArray(flashcards.id, cardIds));
+        }
+
+        // Step 3: Quizzes
+        const questionRows = await tx
+          .select({ id: quizQuestions.id })
+          .from(quizQuestions)
+          .where(eq(quizQuestions.generatedContentId, record.id as any));
+        const questionIds = questionRows.map((q: any) => q.id);
+        if (questionIds.length > 0) {
+          await tx
+            .delete(quizQuestions)
+            .where(inArray(quizQuestions.id, questionIds));
+        }
+
+        // Step 4: Citations
+        await tx
+          .delete(generatedContentCitations)
+          .where(eq(generatedContentCitations.generatedContentId, record.id as any));
+
+        // Step 5: HARD DELETE generatedContents row (per AVANA existing policy!)
+        await tx
+          .delete(generatedContents)
+          .where(eq(generatedContents.id, record.id as any));
+      });
+    } else {
+      // In-memory fallback
+      if (record.materializedLessonId && this.lessonStore) {
+        await this.lessonStore.delete(record.materializedLessonId);
+      }
+      if (typeof (this.generatedContentStore as any).hardDelete === "function") {
+        await (this.generatedContentStore as any).hardDelete(record.id);
+      } else {
+        await this.generatedContentStore.update({
+          ...record,
+          deletedAt: nowIso,
+          updatedAt: nowIso,
+        });
+      }
+    }
+
+    if (this.auditService) {
+      await this.auditService.emit([
+        auditContentDeleted(actor.userId, organizationId, record.id, {
+          courseId,
+          documentId: record.documentId ?? "",
+          type: record.type,
+        }),
+      ]);
+    }
+
+    return {
+      success: true,
+      content_id: record.id,
     };
   }
 

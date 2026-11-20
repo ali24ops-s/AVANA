@@ -20,6 +20,7 @@ import { createDocumentsApi } from "../../lib/api/documents.js";
 import { createGenerationApi } from "../../lib/api/generation.js";
 import { ReviewSummaryViewer } from "./ReviewSummaryViewer.js";
 import { PersonalSummaryConfirmationModal } from "./PersonalSummaryConfirmationModal.js";
+import { MindMapConfirmationModal } from "../mindmap/MindMapConfirmationModal.js";
 import { MindMapCanvas } from "../mindmap/MindMapCanvas.js";
 import { usePersonalSummary } from "../../hooks/usePersonalSummary.js";
 import { useMindMap } from "../../hooks/useMindMap.js";
@@ -91,6 +92,7 @@ export function CourseReviewSummaryView({
 
   const [isCurriculumDrawerOpen, setIsCurriculumDrawerOpen] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [isMindMapConfirmOpen, setIsMindMapConfirmOpen] = useState(false);
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const docsApi = createDocumentsApi(apiClient);
   const genApi = createGenerationApi(apiClient);
@@ -209,6 +211,8 @@ export function CourseReviewSummaryView({
     isGenerating: isGeneratingMindMap,
     generateMindMap,
     generateMutation: mindMapGenerateMutation,
+    isPaid: isMindMapPaid,
+    costToman: mindMapCostToman,
   } = mindMapHook;
 
   // Reset mind map mutation state on chapter change to prevent state leakage
@@ -823,7 +827,11 @@ export function CourseReviewSummaryView({
                         variant="primary"
                         size="md"
                         onClick={() => {
-                          void generateMindMap().catch(() => {});
+                          if (isMindMapPaid) {
+                            void generateMindMap().catch(() => {});
+                          } else {
+                            setIsMindMapConfirmOpen(true);
+                          }
                         }}
                         disabled={isGeneratingMindMap}
                         leftIcon={
@@ -834,7 +842,11 @@ export function CourseReviewSummaryView({
                           )
                         }
                       >
-                        {isGeneratingMindMap ? "در حال تولید نقشه مفهومی..." : "ساخت نقشه مفهومی با هوش مصنوعی"}
+                        {isGeneratingMindMap
+                          ? "در حال تولید نقشه مفهومی..."
+                          : isMindMapPaid
+                            ? "بازتولید رایگان با هوش مصنوعی"
+                            : "ساخت نقشه مفهومی هوشمند · ۲٬۵۰۰ تومان"}
                       </Button>
                     </div>
                   </Card>
@@ -865,6 +877,25 @@ export function CourseReviewSummaryView({
           notesCount={currentAnnotations.notes_count}
           costToman={costToman}
           errorMessage={personalGenerateMutation.error?.message}
+        />
+      )}
+
+      {/* Transparent Payment & Confirmation Modal for Mind Map */}
+      {(activeDocument || activeModule) && (
+        <MindMapConfirmationModal
+          isOpen={isMindMapConfirmOpen}
+          onClose={() => setIsMindMapConfirmOpen(false)}
+          onConfirm={async () => {
+            try {
+              await generateMindMap();
+              setIsMindMapConfirmOpen(false);
+            } catch {
+              // Mutation error handled in UI/hook
+            }
+          }}
+          isGenerating={isGeneratingMindMap}
+          moduleTitle={activeDocument?.title || activeModule?.title || "سرفصل آموزشی"}
+          costToman={mindMapCostToman}
         />
       )}
     </div>

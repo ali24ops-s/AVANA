@@ -175,6 +175,41 @@ import {
   teacherRoutes,
   studentTeacherPlatformRoutes,
 } from "../modules/teacher-platform/index.js";
+import {
+  studioRoutes,
+  publicQuizRoutes,
+  studioPollRoutes,
+  publicPollRoutes,
+  StudioService,
+  StudioAiService,
+  PollService,
+  type MarketingQuizStore,
+  type MarketingQuestionBankStore,
+  type MarketingQuizAttemptStore,
+  type PollStore,
+  type PollResponseStore,
+  DrizzleMarketingQuizStore,
+  DrizzleMarketingQuestionBankStore,
+  DrizzleMarketingQuizAttemptStore,
+  DrizzlePollStore,
+  DrizzlePollResponseStore,
+  InMemoryMarketingQuizStore,
+  InMemoryMarketingQuestionBankStore,
+  InMemoryMarketingQuizAttemptStore,
+  InMemoryPollStore,
+  InMemoryPollResponseStore,
+} from "../modules/studio/index.js";
+import {
+  presentationProjectRoutes,
+  presentationReferenceRoutes,
+  PresentationReferenceService,
+  PresentationGenerationService,
+  PresentationLayoutService,
+  PresentationReferenceIntegrationService,
+  type PresentationProjectStore,
+  type PresentationSlideStore,
+  type PresentationReferenceStore,
+} from "../modules/presentation/index.js";
 
 export interface V1RouteOptions {
   config: IdentityPluginOptions["config"];
@@ -276,6 +311,23 @@ export interface V1RouteOptions {
   crmService?: import("../modules/admin/crm/crm-service.js").CrmService;
   crmCampaignQueue?: import("../modules/admin/crm/crm-campaign-queue.js").CrmCampaignQueue;
   crmChannelAdapterRegistry?: import("../modules/admin/crm/crm-channel-adapter.js").CrmChannelAdapterRegistry;
+  marketingQuizStore?: MarketingQuizStore;
+  marketingQuestionBankStore?: MarketingQuestionBankStore;
+  marketingQuizAttemptStore?: MarketingQuizAttemptStore;
+  studioService?: StudioService;
+  studioAiService?: StudioAiService;
+  pollStore?: PollStore;
+  pollResponseStore?: PollResponseStore;
+  pollService?: PollService;
+  presentationProjectStore?: PresentationProjectStore;
+  presentationSlideStore?: PresentationSlideStore;
+  presentationReferenceStore?: PresentationReferenceStore;
+  presentationGenerationService?: PresentationGenerationService;
+  presentationLayoutService?: PresentationLayoutService;
+  presentationReferenceService?: PresentationReferenceService;
+  presentationReferenceIntegrationService?: PresentationReferenceIntegrationService;
+  presentationGenerationOperationStore?: import("../modules/presentation/index.js").PresentationGenerationOperationStore;
+  presentationGenerationOperationService?: import("../modules/presentation/index.js").PresentationGenerationOperationService;
 }
 
 
@@ -1493,4 +1545,201 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       storageProvider: opts.storageProvider,
     });
   }
+
+  // ---------------------------------------------------------------------------
+  // AVANA Studio & Marketing Quizzes Module
+  // ---------------------------------------------------------------------------
+  const effectiveDbForStudio = opts.db;
+  const marketingQuizStore =
+    opts.marketingQuizStore ??
+    (effectiveDbForStudio
+      ? new DrizzleMarketingQuizStore(effectiveDbForStudio)
+      : new InMemoryMarketingQuizStore());
+
+  const marketingQuestionBankStore =
+    opts.marketingQuestionBankStore ??
+    (effectiveDbForStudio
+      ? new DrizzleMarketingQuestionBankStore(effectiveDbForStudio)
+      : new InMemoryMarketingQuestionBankStore());
+
+  const marketingQuizAttemptStore =
+    opts.marketingQuizAttemptStore ??
+    (effectiveDbForStudio
+      ? new DrizzleMarketingQuizAttemptStore(effectiveDbForStudio)
+      : new InMemoryMarketingQuizAttemptStore());
+
+  const studioService =
+    opts.studioService ??
+    new StudioService(
+      marketingQuizStore,
+      marketingQuestionBankStore,
+      marketingQuizAttemptStore,
+      opts.quizQuestionStore,
+      opts.organizationStore,
+      effectiveDbForStudio,
+    );
+
+  const studioAiGateway = opts.gateway ?? opts.adminGateway;
+  const studioAiService =
+    opts.studioAiService ??
+    (studioAiGateway ? new StudioAiService(studioAiGateway) : undefined);
+
+  if (
+    opts.config?.nodeEnv === "production" &&
+    !opts.pollStore &&
+    !effectiveDbForStudio
+  ) {
+    throw new Error(
+      "Production configuration error: DrizzlePollStore requires a valid database connection in production",
+    );
+  }
+
+  const pollStore =
+    opts.pollStore ??
+    (effectiveDbForStudio
+      ? new DrizzlePollStore(effectiveDbForStudio)
+      : new InMemoryPollStore());
+
+  const pollResponseStore =
+    opts.pollResponseStore ??
+    (effectiveDbForStudio
+      ? new DrizzlePollResponseStore(effectiveDbForStudio)
+      : new InMemoryPollResponseStore());
+
+  if (
+    pollStore instanceof InMemoryPollStore &&
+    pollResponseStore instanceof InMemoryPollResponseStore
+  ) {
+    pollStore.setResponseStore(pollResponseStore);
+  }
+
+  const pollService =
+    opts.pollService ??
+    new PollService({
+      pollStore,
+      responseStore: pollResponseStore,
+      organizationStore: opts.organizationStore,
+    });
+
+  // Register Studio Management routes if auth is configured
+  if (opts.config && opts.sessionStore && opts.userStore) {
+    await app.register(studioRoutes, {
+      sessionService: new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      ),
+      userStore: opts.userStore,
+      studioService,
+      studioAiService,
+    });
+
+    await app.register(studioPollRoutes, {
+      sessionService: new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      ),
+      userStore: opts.userStore,
+      pollService,
+    });
+  }
+
+  // Register Public Quiz Taking routes (accessible to guests without auth)
+  await app.register(publicQuizRoutes, {
+    sessionService:
+      opts.config && opts.sessionStore
+        ? new SessionService(opts.sessionStore, opts.config.session)
+        : undefined,
+    userStore: opts.userStore,
+    studioService,
+  });
+
+  // Register Public Poll Taking routes (accessible to guests without auth)
+  await app.register(publicPollRoutes, {
+    pollService,
+    allowedOrigins: opts.config?.security?.cors?.origin ?? [],
+  });
+
+  // Register Presentation Assistant routes
+  if (
+    opts.presentationProjectStore &&
+    opts.presentationSlideStore &&
+    opts.organizationStore &&
+    opts.config &&
+    opts.sessionStore &&
+    opts.userStore
+  ) {
+    const sessionService = new SessionService(
+      opts.sessionStore,
+      opts.config.session,
+    );
+
+    const effectiveGateway = opts.adminGateway ?? opts.gateway;
+    const generationService =
+      opts.presentationGenerationService ??
+      (effectiveGateway
+        ? new PresentationGenerationService({
+            projectStore: opts.presentationProjectStore,
+            slideStore: opts.presentationSlideStore,
+            organizationStore: opts.organizationStore,
+            gateway: effectiveGateway,
+          })
+        : undefined);
+
+    const layoutService =
+      opts.presentationLayoutService ??
+      new PresentationLayoutService({
+        projectStore: opts.presentationProjectStore,
+        slideStore: opts.presentationSlideStore,
+        organizationStore: opts.organizationStore,
+      });
+
+    const referenceIntegrationService =
+      opts.presentationReferenceIntegrationService ??
+      (opts.presentationReferenceStore && opts.documentChunkStore
+        ? new PresentationReferenceIntegrationService({
+            referenceStore: opts.presentationReferenceStore,
+            projectStore: opts.presentationProjectStore,
+            organizationStore: opts.organizationStore,
+            chunkStore: opts.documentChunkStore,
+            documentStore: opts.documentStore,
+          })
+        : undefined);
+
+    if (generationService) {
+      await app.register(presentationProjectRoutes, {
+        projectStore: opts.presentationProjectStore,
+        slideStore: opts.presentationSlideStore,
+        referenceStore: opts.presentationReferenceStore,
+        generationService,
+        layoutService,
+        referenceIntegrationService,
+        organizationStore: opts.organizationStore,
+        sessionService,
+        userStore: opts.userStore,
+        storageProvider: opts.storageProvider,
+        walletService,
+        operationStore: opts.presentationGenerationOperationStore,
+        operationService: opts.presentationGenerationOperationService,
+      });
+    }
+
+    if (opts.presentationReferenceStore) {
+      const referenceService =
+        opts.presentationReferenceService ??
+        new PresentationReferenceService({
+          referenceStore: opts.presentationReferenceStore,
+          projectStore: opts.presentationProjectStore,
+          organizationStore: opts.organizationStore,
+          documentStore: opts.documentStore,
+        });
+
+      await app.register(presentationReferenceRoutes, {
+        service: referenceService,
+        sessionService,
+        userStore: opts.userStore,
+        storageProvider: opts.storageProvider,
+      });
+    }
+  }
 };
+

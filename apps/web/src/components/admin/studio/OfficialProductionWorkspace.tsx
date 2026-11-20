@@ -133,7 +133,11 @@ export function OfficialProductionWorkspace({
         )}
 
         {activeTab === "structure" && (
-          <CourseStructurePanel courseId={course.id} />
+          <CourseStructurePanel
+            courseId={course.id}
+            organizationId={organizationId}
+            courseStatus={course.status}
+          />
         )}
 
         {activeTab === "publish" && (

@@ -53,6 +53,24 @@ import type {
   BulkOperationItemResult,
 } from "@avana/contracts";
 import { StorageLockCoordinator } from "./storage-lock-coordinator.js";
+import {
+  courses,
+  modules,
+  lessons,
+  lessonProgress,
+  quizzes,
+  quizQuestions,
+  quizAttempts,
+  flashcards,
+  flashcardReviews,
+  userFlashcardSchedules,
+  flashcardStudySessionCards,
+  generationJobs,
+  generationChunks,
+  generatedContents,
+  generatedContentCitations,
+} from "@avana/database/schema";
+import { eq, and, isNull, inArray, ne } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // Validation constants
@@ -1335,6 +1353,184 @@ export class DocumentService {
   }
 
   /**
+   * Validates multi-course associations and cascades cleanup for a deleted document.
+   *
+   * Invariants:
+   * 1. Multi-course Guard: If this document has active accepted contents in ANY published course,
+   *    deletion is strictly BLOCKED with 409 Conflict.
+   * 2. Unpublished cleanup: For unpublished courses, deletes generated content, attributable
+   *    materialized lessons, flashcards, and quizzes so no orphan records are left behind.
+   */
+  private async validateAndCascadeDocumentDeletion(
+    documentId: DocumentId,
+    organizationId: OrganizationId,
+    doc: DocumentRecord,
+    tx?: any,
+  ): Promise<void> {
+    const db = tx ?? (this.store as unknown as { db?: any })?.db;
+    if (!db) {
+      if (this.chunkStore) {
+        await this.chunkStore.deleteByDocument(documentId);
+      }
+      if (this.generatedContentStore) {
+        await this.generatedContentStore.deleteByDocument(documentId, organizationId);
+      }
+      if (this.generationJobStore) {
+        await this.generationJobStore.deleteByDocument(documentId, organizationId);
+      }
+      return;
+    }
+
+    // 1. Identify all courses associated with this document (directly or via generated_contents)
+    const associatedCourseIds = new Set<string>();
+    if (doc.courseId) {
+      associatedCourseIds.add(doc.courseId);
+    }
+
+    const genRows = await db
+      .select({
+        id: generatedContents.id,
+        courseId: generatedContents.courseId,
+        status: generatedContents.status,
+        materializedLessonId: generatedContents.materializedLessonId,
+      })
+      .from(generatedContents)
+      .where(
+        and(
+          eq(generatedContents.documentId, documentId as any),
+          isNull(generatedContents.deletedAt),
+        ),
+      );
+
+    for (const g of genRows) {
+      if (g.courseId) {
+        associatedCourseIds.add(g.courseId);
+      }
+    }
+
+    if (associatedCourseIds.size > 0) {
+      const courseRows = await db
+        .select({
+          id: courses.id,
+          status: courses.status,
+          name: courses.name,
+        })
+        .from(courses)
+        .where(inArray(courses.id, Array.from(associatedCourseIds) as any));
+
+      const publishedCourseIds = new Set(
+        courseRows.filter((c: any) => c.status === "published").map((c: any) => c.id),
+      );
+
+      // Multi-Course Guard: check if any published course has accepted content from this document
+      const hasAcceptedInPublished = genRows.some(
+        (g: any) => g.status === "accepted" && publishedCourseIds.has(g.courseId),
+      );
+
+      if (hasAcceptedInPublished) {
+        throw new DomainError(
+          "conflict",
+          "امکان حذف این فایل وجود ندارد، زیرا محتوای فعال و تأییدشده آن در یک یا چند دوره منتشرشده قرار دارد.",
+        );
+      }
+    }
+
+    // 2. Cascade cleanup for attributable entities in unpublished courses
+    const lessonIdsToDelete: string[] = [];
+    for (const g of genRows) {
+      if (g.materializedLessonId) {
+        lessonIdsToDelete.push(g.materializedLessonId);
+      }
+    }
+
+    if (lessonIdsToDelete.length > 0) {
+      const sharedLessons = await db
+        .select({ materializedLessonId: generatedContents.materializedLessonId })
+        .from(generatedContents)
+        .where(
+          and(
+            inArray(generatedContents.materializedLessonId, lessonIdsToDelete as any),
+            ne(generatedContents.documentId, documentId as any),
+          ),
+        );
+      const sharedLessonSet = new Set(sharedLessons.map((s: any) => s.materializedLessonId));
+      const unsharedLessonIds = lessonIdsToDelete.filter((id) => !sharedLessonSet.has(id));
+
+      if (unsharedLessonIds.length > 0) {
+        await db
+          .update(modules)
+          .set({ previewLessonId: null, updatedAt: new Date() })
+          .where(inArray(modules.previewLessonId, unsharedLessonIds as any));
+
+        await db
+          .delete(lessonProgress)
+          .where(inArray(lessonProgress.lessonId, unsharedLessonIds as any));
+
+        await db
+          .delete(lessons)
+          .where(inArray(lessons.id, unsharedLessonIds as any));
+      }
+    }
+
+    // Cascade flashcards
+    const flashcardRows = await db
+      .select({ id: flashcards.id })
+      .from(flashcards)
+      .where(eq(flashcards.documentId, documentId as any));
+    const flashcardIds = flashcardRows.map((f: any) => f.id);
+    if (flashcardIds.length > 0) {
+      await db
+        .delete(userFlashcardSchedules)
+        .where(inArray(userFlashcardSchedules.flashcardId, flashcardIds));
+      await db
+        .delete(flashcardReviews)
+        .where(inArray(flashcardReviews.flashcardId, flashcardIds));
+      await db
+        .delete(flashcardStudySessionCards)
+        .where(inArray(flashcardStudySessionCards.flashcardId, flashcardIds));
+      await db
+        .delete(flashcards)
+        .where(inArray(flashcards.id, flashcardIds));
+    }
+
+    // Cascade quizzes
+    const quizRows = await db
+      .select({ id: quizzes.id })
+      .from(quizzes)
+      .where(eq(quizzes.documentId, documentId as any));
+    const quizIds = quizRows.map((q: any) => q.id);
+    if (quizIds.length > 0) {
+      await db
+        .delete(quizAttempts)
+        .where(inArray(quizAttempts.quizId, quizIds));
+      await db
+        .delete(quizQuestions)
+        .where(inArray(quizQuestions.quizId, quizIds));
+      await db
+        .delete(quizzes)
+        .where(inArray(quizzes.id, quizIds));
+    }
+
+    // Cascade generated contents & citations
+    if (genRows.length > 0) {
+      await db
+        .delete(generatedContentCitations)
+        .where(inArray(generatedContentCitations.generatedContentId, genRows.map((g: any) => g.id)));
+      await db
+        .delete(generatedContents)
+        .where(eq(generatedContents.documentId, documentId as any));
+    }
+
+    // Cascade generation jobs and chunks
+    await db
+      .delete(generationChunks)
+      .where(eq(generationChunks.documentId, documentId as any));
+    await db
+      .delete(generationJobs)
+      .where(eq(generationJobs.documentId, documentId as any));
+  }
+
+  /**
    * Delete a document bypassing organization membership checks (Admin only).
    */
   async adminDeleteDocument(
@@ -1359,27 +1555,14 @@ export class DocumentService {
       throw new DomainError("not_found", "Document not found");
     }
 
-    // Clean up extracted chunks for this document (source-owned data).
-    if (this.chunkStore) {
-      await this.chunkStore.deleteByDocument(documentId);
-    }
-
-    // Clean up unaccepted generated content drafts (drafts, regenerating, edited, rejected).
-    // Accepted contents (including accepted review summaries) remain intact.
-    if (this.generatedContentStore) {
-      await this.generatedContentStore.deleteDraftsByDocument(documentId, organizationId);
-    }
-
-    // Clean up generation jobs for this document.
-    if (this.generationJobStore) {
-      await this.generationJobStore.deleteByDocument(documentId, organizationId);
-    }
-
     // Safely delete document and check storage references within coordinated lock
     let shouldDeletePhysical = false;
     const db = (this.store as unknown as { db?: any })?.db;
     if (db && typeof db.transaction === "function") {
       await db.transaction(async (tx: any) => {
+        // Multi-course guard and atomic cascading cleanup
+        await this.validateAndCascadeDocumentDeletion(documentId, organizationId, doc, tx);
+
         await StorageLockCoordinator.withLock(
           organizationId,
           doc.storageKey,
@@ -1522,27 +1705,14 @@ export class DocumentService {
       throw new DomainError("not_found", "Document not found");
     }
 
-    // Clean up extracted chunks for this document (source-owned data).
-    if (this.chunkStore) {
-      await this.chunkStore.deleteByDocument(documentId);
-    }
-
-    // Clean up unaccepted generated content drafts (drafts, regenerating, edited, rejected).
-    // Accepted contents (including accepted review summaries) remain intact.
-    if (this.generatedContentStore) {
-      await this.generatedContentStore.deleteDraftsByDocument(documentId, organizationId);
-    }
-
-    // Clean up generation jobs for this document.
-    if (this.generationJobStore) {
-      await this.generationJobStore.deleteByDocument(documentId, organizationId);
-    }
-
     // Safely delete document and check storage references within coordinated lock
     let shouldDeletePhysical = false;
     const db = (this.store as unknown as { db?: any })?.db;
     if (db && typeof db.transaction === "function") {
       await db.transaction(async (tx: any) => {
+        // Multi-course guard and atomic cascading cleanup
+        await this.validateAndCascadeDocumentDeletion(documentId, organizationId, doc, tx);
+
         await StorageLockCoordinator.withLock(
           organizationId,
           doc.storageKey,

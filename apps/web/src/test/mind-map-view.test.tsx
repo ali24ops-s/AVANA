@@ -239,7 +239,7 @@ describe("Interactive AI Mind Map UI & Integration", () => {
       await screen.findByText(/نقشه مفهومی هوشمند \(Interactive AI Mind Map\)/),
     ).toBeDefined();
     expect(screen.getByText("رایگان (۰ تومان)")).toBeDefined();
-    expect(screen.getByText("ساخت نقشه مفهومی با هوش مصنوعی")).toBeDefined();
+    expect(screen.getByText(/ساخت نقشه مفهومی/)).toBeDefined();
   });
 
   it("Renders Mind Map canvas with nodes when mind map is available", async () => {

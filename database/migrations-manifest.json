@@ -1,5 +1,5 @@
 {
-  "build_timestamp": "2026-11-12T19:35:08.080Z",
+  "build_timestamp": "2026-11-20T19:49:28.249Z",
   "migrations": [
     {
       "id": "0001_init",
@@ -784,6 +784,46 @@
       "dist_file": "0101_scope_documents_by_course.js",
       "source_sha256": "b5ec4e6c16ca05720f902e3c72145cde9aadae087ca78effdd6bb0834f9c559c",
       "dist_sha256": "f0da228dfbb7db43be681187f217b231575fe66cdcf4ca743c5d2d9adf9e85bb"
+    },
+    {
+      "id": "0102_marketing_quizzes_and_studio",
+      "sequence": 102,
+      "source_file": "0102_marketing_quizzes_and_studio.ts",
+      "dist_file": "0102_marketing_quizzes_and_studio.js",
+      "source_sha256": "280cfe474f6567f3784d44b860d9966eb5a4c52b7ce3d420f678e8aec2cc7b86",
+      "dist_sha256": "4c5cf5b0158646461789553c64badccf66beea550bff90c5b095b848874e68c9"
+    },
+    {
+      "id": "0103_courses_slug_and_backfill",
+      "sequence": 103,
+      "source_file": "0103_courses_slug_and_backfill.ts",
+      "dist_file": "0103_courses_slug_and_backfill.js",
+      "source_sha256": "f374314a37daa3c5cce10c3d86f803f6ec63037608cd6bfbbba470c6cae444a9",
+      "dist_sha256": "7c3f4a946db5fdbd60160e550955a4402ca20fad1a34d86a41c102ad028e25c8"
+    },
+    {
+      "id": "0104_polls_and_surveys",
+      "sequence": 104,
+      "source_file": "0104_polls_and_surveys.ts",
+      "dist_file": "0104_polls_and_surveys.js",
+      "source_sha256": "0c1a523e89b1c8d8531ee74196250fd50b097cbf46376229fc9c287aa3200f5d",
+      "dist_sha256": "21d08c7b1623a8d3d82442757e4f72566aa46a377408b4ca809770f65b3a1b9e"
+    },
+    {
+      "id": "0105_presentation_slide_payments",
+      "sequence": 105,
+      "source_file": "0105_presentation_slide_payments.ts",
+      "dist_file": "0105_presentation_slide_payments.js",
+      "source_sha256": "6c27fc877ca2f7e5010bb7f7490100d06c4073d0610e27620c8d8fa1fdbdc4af",
+      "dist_sha256": "ef46d9c932ee702fc471bfb7bbbed10c4fc6d803d797d5da1163b72882cd753e"
+    },
+    {
+      "id": "0106_presentation_generation_operations",
+      "sequence": 106,
+      "source_file": "0106_presentation_generation_operations.ts",
+      "dist_file": "0106_presentation_generation_operations.js",
+      "source_sha256": "ae24369ce1b67e1f732e0568d3b6e3616b0c133e1ef2b4ce1e5c81cf64ccd404",
+      "dist_sha256": "4f3d67aa8374b68add1d26887765705358a8baed5d95295c6b2970c6214e7885"
     }
   ]
 }

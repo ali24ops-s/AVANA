@@ -251,6 +251,23 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     return params.courseId as CourseId;
   }
 
+  /** Helper to resolve optional course ID from params (supports canonical UUID or public slug/redirect). */
+  async function resolveOptionalCourseId(rawParam?: string): Promise<CourseId | undefined> {
+    if (!rawParam) return undefined;
+    const clean = rawParam.trim();
+    if (!clean) return undefined;
+    if (UUID_RE.test(clean)) {
+      return clean as CourseId;
+    }
+    if (courseStore && typeof courseStore.findByIdOrSlug === "function") {
+      const resolved = await courseStore.findByIdOrSlug(clean);
+      if (resolved) {
+        return resolved.course.id;
+      }
+    }
+    return clean as CourseId;
+  }
+
   /** Helper to resolve organization ID from params or course store. */
   async function resolveOrganizationId(
     actor: Actor,
@@ -2688,7 +2705,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
         throw new DomainError("bad_request", "Invalid module ID");
       }
 
-      const res = await getMindMapService().getMindMap(actor, moduleId, req.params.courseId);
+      const resolvedCourseId = await resolveOptionalCourseId(req.params.courseId);
+      const res = await getMindMapService().getMindMap(actor, moduleId, resolvedCourseId);
       return {
         request_id: req.id,
         ...res,
@@ -2722,7 +2740,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       throw new DomainError("bad_request", "Invalid module ID");
     }
 
-    const res = await getMindMapService().generateMindMap(actor, moduleId, req.id, req.params.courseId);
+    const resolvedCourseId = await resolveOptionalCourseId(req.params.courseId);
+    const res = await getMindMapService().generateMindMap(actor, moduleId, req.id, resolvedCourseId);
     return {
       request_id: req.id,
       ...res,
@@ -2761,7 +2780,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       throw new DomainError("bad_request", "Request body is required and must be an object");
     }
 
-    const res = await getMindMapService().updateMindMap(actor, moduleId, req.body, req.params.courseId);
+    const resolvedCourseId = await resolveOptionalCourseId(req.params.courseId);
+    const res = await getMindMapService().updateMindMap(actor, moduleId, req.body, resolvedCourseId);
     return {
       request_id: req.id,
       mind_map: res,
@@ -2810,7 +2830,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       throw new DomainError("bad_request", "Invalid node ID");
     }
 
-    const res = await getMindMapService().expandNode(actor, moduleId, nodeId, req.params.courseId);
+    const resolvedCourseId = await resolveOptionalCourseId(req.params.courseId);
+    const res = await getMindMapService().expandNode(actor, moduleId, nodeId, resolvedCourseId);
     return {
       request_id: req.id,
       ...res,
@@ -2844,7 +2865,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       throw new DomainError("bad_request", "Invalid module ID");
     }
 
-    const res = await getMindMapService().resetToAiBase(actor, moduleId, req.params.courseId);
+    const resolvedCourseId = await resolveOptionalCourseId(req.params.courseId);
+    const res = await getMindMapService().resetToAiBase(actor, moduleId, resolvedCourseId);
     return {
       request_id: req.id,
       mind_map: res,
@@ -2878,7 +2900,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       throw new DomainError("bad_request", "Invalid module ID");
     }
 
-    const res = await getMindMapService().listVersions(actor, moduleId, req.params.courseId);
+    const resolvedCourseId = await resolveOptionalCourseId(req.params.courseId);
+    const res = await getMindMapService().listVersions(actor, moduleId, resolvedCourseId);
     return {
       request_id: req.id,
       ...res,
@@ -2917,7 +2940,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       throw new DomainError("bad_request", "Invalid version number");
     }
 
-    const res = await getMindMapService().getVersion(actor, moduleId, version, req.params.courseId);
+    const resolvedCourseId = await resolveOptionalCourseId(req.params.courseId);
+    const res = await getMindMapService().getVersion(actor, moduleId, version, resolvedCourseId);
     return {
       request_id: req.id,
       ...res,
@@ -2956,7 +2980,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       throw new DomainError("bad_request", "Invalid version number");
     }
 
-    const res = await getMindMapService().restoreVersion(actor, moduleId, version, req.params.courseId);
+    const resolvedCourseId = await resolveOptionalCourseId(req.params.courseId);
+    const res = await getMindMapService().restoreVersion(actor, moduleId, version, resolvedCourseId);
     return {
       request_id: req.id,
       ...res,
@@ -2992,14 +3017,15 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     if (!moduleId || !UUID_RE.test(moduleId)) {
       throw new DomainError("bad_request", "Invalid module ID");
     }
-    if (courseId && !UUID_RE.test(courseId)) {
+    const resolvedCourseId = await resolveOptionalCourseId(courseId);
+    if (resolvedCourseId && !UUID_RE.test(resolvedCourseId)) {
       throw new DomainError("bad_request", "Invalid course ID");
     }
     if (!format || (format !== "svg" && format !== "html")) {
       throw new DomainError("bad_request", "فرمت خروجی نامعتبر است (svg یا html مجاز است).");
     }
 
-    const res = await getMindMapService().getMindMap(actor, moduleId, courseId);
+    const res = await getMindMapService().getMindMap(actor, moduleId, resolvedCourseId);
     if (!res.has_mind_map || !res.mind_map) {
       throw new DomainError("not_found", "مایندمپ یافت نشد.");
     }
@@ -3009,7 +3035,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       success: true,
       authorized: true,
       moduleId,
-      courseId: courseId ?? null,
+      courseId: resolvedCourseId ?? null,
       format,
       exportedAt: new Date().toISOString(),
     };
@@ -3047,8 +3073,9 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       throw new DomainError("bad_request", "شناسه مایندمپ یا سرفصل الزامی است.");
     }
 
+    const resolvedCourseId = await resolveOptionalCourseId(req.params.courseId);
     const res = await getMindMapService().enrichMindMapChemicals(actor, targetId, {
-      courseId: req.params.courseId,
+      courseId: resolvedCourseId,
       expectedUpdatedAt: req.body?.clientUpdatedAt,
     });
 

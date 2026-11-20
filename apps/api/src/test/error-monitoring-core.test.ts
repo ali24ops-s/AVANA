@@ -943,7 +943,7 @@ describe("Error Monitoring Core - Admin Endpoints & RBAC", () => {
 
     // 1. Nested secrets under generic, non-sensitive keys
     const rawContext = {
-      details: "Database error with postgres://avana:dbPassword123@10.0.0.1:5432/main",
+      details: "Database error with postgres://avana:dbPassword123@127.0.0.1:5432/main",
       metadata: "Model failed: key AIzaSyD12345678901234567890123456789012",
       logSnippet: "Bearer secret_user_token_987654321",
       arrayData: [
@@ -954,7 +954,7 @@ describe("Error Monitoring Core - Admin Endpoints & RBAC", () => {
     };
 
     const sanitized = service.sanitizeContext(rawContext);
-    expect((sanitized.details as string)).toContain("postgres://avana:[REDACTED]@10.0.0.1:5432/main");
+    expect((sanitized.details as string)).toContain("postgres://avana:[REDACTED]@127.0.0.1:5432/main");
     expect((sanitized.metadata as string)).toContain("[REDACTED_GEMINI_KEY]");
     expect((sanitized.logSnippet as string)).toBe("Bearer [REDACTED]");
     const arr = sanitized.arrayData as unknown[];

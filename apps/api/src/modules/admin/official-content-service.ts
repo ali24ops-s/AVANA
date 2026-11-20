@@ -2847,5 +2847,197 @@ export class OfficialContentService {
       deletedProduct,
     };
   }
+
+  /**
+   * Purge all generated content produced from a source document.
+   *
+   * Invariants:
+   * 1. Active Generation Guard: If generation is currently active ('generating', 'pending_generation' or active jobs), reject with 409 Conflict.
+   * 2. Source Document & Chunks Preserved: The `documents` row and its `document_chunks` are 100% PRESERVED.
+   * 3. Explicit Ownership Deletion: Only contents with definitive DB provenance are deleted:
+   *    - Quizzes with document_id = documentId
+   *    - Flashcards with document_id = documentId
+   *    - Lessons referenced by generated_contents.materialized_lesson_id
+   *    - GeneratedContents with document_id = documentId
+   *    - Generation metadata: jobs, chunks, progress, studio draft changes
+   * 4. Manual lessons and unrelated modules are NOT deleted.
+   * 5. Document status transitions to 'extracted' so future generation can be requested explicitly.
+   */
+  async purgeGeneratedContentForDocument(
+    actor: Actor,
+    courseId: CourseId,
+    documentId: string,
+  ): Promise<{
+    success: boolean;
+    documentId: string;
+    documentStatus: string;
+    deletedSummary: {
+      lessonsCount: number;
+      quizzesCount: number;
+      flashcardsCount: number;
+      generatedContentsCount: number;
+    };
+  }> {
+    this.requireContentManager(actor);
+
+    // 1. Single atomic database transaction
+    const result = await this.db.transaction(async (tx: any) => {
+      // Step A: Lock document row
+      const docRows = await tx
+        .select()
+        .from(documents)
+        .where(eq(documents.id, documentId as any))
+        .for("update");
+
+      const doc = docRows[0];
+      if (!doc || doc.deletedAt !== null) {
+        throw new DomainError("not_found", "فایل منبع یافت نشد.");
+      }
+
+      // Step B: Active Generation Guard on document status
+      if (doc.status === "generating" || doc.status === "pending_generation") {
+        throw new DomainError(
+          "conflict",
+          "تا زمانی که تولید محتوا از این فایل به پایان نرسیده است، امکان حذف آن وجود ندارد.",
+        );
+      }
+
+      // Step C: Active Generation Guard on generation_jobs
+      const activeJobRows = await tx
+        .select({ id: generationJobs.id, status: generationJobs.status })
+        .from(generationJobs)
+        .where(
+          and(
+            eq(generationJobs.documentId, documentId as any),
+            inArray(generationJobs.status, ["queued", "running", "stopping", "deleting"]),
+          ),
+        );
+
+      if (activeJobRows.length > 0) {
+        throw new DomainError(
+          "conflict",
+          "تا زمانی که تولید محتوا از این فایل به پایان نرسیده است، امکان حذف آن وجود ندارد.",
+        );
+      }
+
+      // Step D: Identify strictly attributable materialized lessons
+      const genRows = await tx
+        .select({
+          id: generatedContents.id,
+          materializedLessonId: generatedContents.materializedLessonId,
+        })
+        .from(generatedContents)
+        .where(eq(generatedContents.documentId, documentId as any));
+
+      const lessonIdsToDelete: string[] = [];
+      for (const g of genRows) {
+        if (g.materializedLessonId) {
+          lessonIdsToDelete.push(g.materializedLessonId);
+        }
+      }
+
+      // Step E: Identify quizzes and flashcards
+      const quizRows = await tx
+        .select({ id: quizzes.id })
+        .from(quizzes)
+        .where(eq(quizzes.documentId, documentId as any));
+      const quizIds = quizRows.map((q: any) => q.id);
+
+      const flashcardRows = await tx
+        .select({ id: flashcards.id })
+        .from(flashcards)
+        .where(eq(flashcards.documentId, documentId as any));
+      const flashcardIds = flashcardRows.map((f: any) => f.id);
+
+      // Step F: Cascade & delete quiz children
+      if (quizIds.length > 0) {
+        await tx.delete(quizAttempts).where(inArray(quizAttempts.quizId, quizIds));
+        await tx.delete(quizQuestions).where(inArray(quizQuestions.quizId, quizIds));
+        await tx.delete(quizzes).where(inArray(quizzes.id, quizIds));
+      }
+
+      // Step G: Cascade & delete flashcard children
+      if (flashcardIds.length > 0) {
+        await tx.delete(userFlashcardSchedules).where(inArray(userFlashcardSchedules.flashcardId, flashcardIds));
+        await tx.delete(flashcardReviews).where(inArray(flashcardReviews.flashcardId, flashcardIds));
+        await tx.delete(flashcardStudySessionCards).where(inArray(flashcardStudySessionCards.flashcardId, flashcardIds));
+        await tx.delete(flashcards).where(inArray(flashcards.id, flashcardIds));
+      }
+
+      // Step H: Delete definitively attributable lessons (preserve manual lessons!)
+      if (lessonIdsToDelete.length > 0) {
+        // Clear preview_lesson_id on modules if pointing to these lessons
+        await tx
+          .update(modules)
+          .set({ previewLessonId: null, updatedAt: new Date() })
+          .where(inArray(modules.previewLessonId, lessonIdsToDelete as any));
+
+        await tx.delete(lessonProgress).where(inArray(lessonProgress.lessonId, lessonIdsToDelete as any));
+        await tx.delete(lessons).where(inArray(lessons.id, lessonIdsToDelete as any));
+      }
+
+      // Step I: Delete generated content and pipeline metadata
+      if (genRows.length > 0) {
+        await tx.delete(generatedContentCitations).where(inArray(generatedContentCitations.generatedContentId, genRows.map((g: any) => g.id)));
+        await tx.delete(generatedContents).where(eq(generatedContents.documentId, documentId as any));
+      }
+
+      // Step J: Delete generation jobs, chunks
+      await tx.delete(generationChunks).where(eq(generationChunks.documentId, documentId as any));
+      await tx.delete(generationJobs).where(eq(generationJobs.documentId, documentId as any));
+
+      // Reset progress record if present
+      if (this.generationProgressService) {
+        try {
+          await this.generationProgressService.reset(documentId as any, doc.organizationId);
+        } catch {
+          // Progress reset failure is non-fatal to DB transaction
+        }
+      }
+
+      // Step K: Transition document status to 'extracted' (ready for future generation)
+      await tx
+        .update(documents)
+        .set({
+          status: "extracted",
+          errorCode: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(documents.id, documentId as any));
+
+      // Step L: Write Audit Log inside transaction
+      await tx.insert(auditLogs).values({
+        actorId: actor.userId,
+        organizationId: doc.organizationId ?? this.systemOrganizationId,
+        action: "DOCUMENT_GENERATED_CONTENT_PURGED",
+        entityType: "document",
+        entityId: documentId,
+        details: {
+          courseId,
+          documentId,
+          purgedBy: actor.userId,
+          deletedLessonsCount: lessonIdsToDelete.length,
+          deletedQuizzesCount: quizIds.length,
+          deletedFlashcardsCount: flashcardIds.length,
+          deletedGeneratedContentsCount: genRows.length,
+          purgedAt: new Date().toISOString(),
+        },
+      });
+
+      return {
+        lessonsCount: lessonIdsToDelete.length,
+        quizzesCount: quizIds.length,
+        flashcardsCount: flashcardIds.length,
+        generatedContentsCount: genRows.length,
+      };
+    });
+
+    return {
+      success: true,
+      documentId,
+      documentStatus: "extracted",
+      deletedSummary: result,
+    };
+  }
 }
 

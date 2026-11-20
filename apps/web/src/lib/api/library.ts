@@ -45,6 +45,7 @@ export interface ListLibraryResourcesParams {
 
 export interface LibraryCourseItem {
   id: string;
+  slug?: string | null;
   title: string;
   description: string | null;
   subject: string | null;

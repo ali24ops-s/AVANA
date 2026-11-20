@@ -2909,6 +2909,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     Params: { id: string };
     Body: {
       name?: string;
+      slug?: string;
       subject?: string;
       target_academic_fields?: string[];
       targetAcademicFields?: string[];
@@ -2923,11 +2924,15 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
 
       const payload: {
         name?: string;
+        slug?: string;
         subject?: string;
         targetAcademicFields?: string[];
       } = {};
       if (typeof body.name === "string" && body.name.trim().length > 0) {
         payload.name = body.name.trim();
+      }
+      if (typeof body.slug === "string" && body.slug.trim().length > 0) {
+        payload.slug = body.slug.trim();
       }
       if (body.subject !== undefined) {
         if (typeof body.subject === "string") {
@@ -2949,10 +2954,16 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         await opts.adminStore.updateCourseMetadata(adminId, id, payload);
         return reply.status(200).send({ success: true });
       } catch (error: unknown) {
-        const err = error as { message?: string };
+        const err = error as { code?: string; message?: string };
         request.log.error({ err: error }, "Failed to update course");
         if (err.message === "not_found") {
           return reply.status(404).send({ code: "not_found" });
+        }
+        if (err.code === "conflict" || err.message?.includes("قبلاً استفاده شده است")) {
+          return reply.status(409).send({ code: "conflict", message: err.message });
+        }
+        if (err.code === "bad_request") {
+          return reply.status(400).send({ code: "bad_request", message: err.message });
         }
         return reply.status(500).send({ code: "internal_error" });
       }
@@ -4121,6 +4132,50 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       });
       return reply.send(result);
     });
+
+    // 13. Purge all generated content from a source document
+    app.delete<{
+      Params: { courseId: string; documentId: string };
+    }>(
+      "/courses/:courseId/documents/:documentId/generated-content",
+      async (request, reply) => {
+        const user = (request as unknown as { user: { userId: string; email: string; role: string; globalRole?: Role | null } }).user;
+        const { courseId, documentId } = request.params;
+
+        try {
+          const result = await officialContentService.purgeGeneratedContentForDocument(
+            {
+              userId: asUserId(user.userId as unknown as import("@avana/domain").UUID),
+              role: user.role as Role,
+              globalRole: user.globalRole ?? null,
+            },
+            courseId as CourseId,
+            documentId,
+          );
+
+          // Clean up BullMQ queue outside of DB transaction
+          if (opts.generationQueue) {
+            try {
+              if (typeof (opts.generationQueue as any).removeJobsByDocument === "function") {
+                await (opts.generationQueue as any).removeJobsByDocument(documentId);
+              }
+            } catch (err) {
+              request.log.warn({ err, documentId }, "BullMQ queue job purge failed non-fatally");
+            }
+          }
+
+          return reply.status(200).send(result);
+        } catch (error: unknown) {
+          if (error instanceof DomainError && error.code === "conflict") {
+            return reply.status(409).send({
+              code: "generation_active",
+              message: error.message,
+            });
+          }
+          throw error;
+        }
+      },
+    );
   }
 
   if (courseDraftService) {

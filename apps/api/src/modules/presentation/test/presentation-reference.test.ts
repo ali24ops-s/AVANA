@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { randomUUID } from "node:crypto";
 import fastify from "fastify";
+import multipart from "@fastify/multipart";
 import type {
   Actor,
   DocumentChunkId,
@@ -556,6 +557,9 @@ describe("Presentation Reference Service & Data Layer", () => {
     beforeEach(async () => {
       app = fastify();
       await app.register(errorHandlerPlugin);
+      await app.register(multipart, {
+        limits: { fileSize: 50 * 1024 * 1024, files: 1 },
+      });
 
       // Dummy session and user stores for test auth
       const mockSessionService = {
@@ -653,5 +657,70 @@ describe("Presentation Reference Service & Data Layer", () => {
 
       expect(deleteRes.statusCode).toBe(204);
     });
+
+    it("POST /references/upload processes multipart file, extracts metadata, and stores reference", async () => {
+      const boundary = "----test-ref-boundary";
+      const fileContent = "Cardiovascular Pharmacology and Heart Failure Management\nDOI: 10.1056/NEJMoa2024001\nPMID: 32456789 (2024)\nPrimary findings show that SGLT2 inhibitors reduce mortality in HFrEF.";
+      const payload = Buffer.concat([
+        Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="clinical-guidelines.txt"\r\nContent-Type: text/plain\r\n\r\n`,
+        ),
+        Buffer.from(fileContent),
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/v1/presentation/projects/${testProjectId}/references/upload`,
+        headers: {
+          authorization: "Bearer valid-token",
+          "content-type": `multipart/form-data; boundary=${boundary}`,
+        },
+        payload,
+      });
+
+      expect(response.statusCode).toBe(201);
+      const data = response.json();
+      expect(data.reference.id).toBeDefined();
+      expect(data.reference.title).toBe("Cardiovascular Pharmacology and Heart Failure Management");
+      expect(data.reference.type).toBe("text");
+      expect(data.reference.bibliographic_metadata?.detectedDoi).toBe("10.1056/NEJMoa2024001");
+      expect(data.reference.bibliographic_metadata?.detectedPmid).toBe("32456789");
+      expect(data.reference.bibliographic_metadata?.detectedYear).toBe(2024);
+
+      // Verify stored in DB
+      const storedRefs = await referenceStore.findByProjectId(testProjectId);
+      const addedRef = storedRefs.find((r) => r.id === data.reference.id);
+      expect(addedRef).toBeDefined();
+      expect(addedRef?.extractedContent).toContain("SGLT2 inhibitors reduce mortality");
+    });
+
+    it("POST /references/upload rejects files with fake extension and invalid magic bytes", async () => {
+      const boundary = "----test-fake-boundary";
+      const fakePdfContent = "THIS_IS_NOT_A_PDF_DOCUMENT_OR_ZIP";
+      const payload = Buffer.concat([
+        Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="fake-document.pdf"\r\nContent-Type: application/pdf\r\n\r\n`,
+        ),
+        Buffer.from(fakePdfContent),
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/v1/presentation/projects/${testProjectId}/references/upload`,
+        headers: {
+          authorization: "Bearer valid-token",
+          "content-type": `multipart/form-data; boundary=${boundary}`,
+        },
+        payload,
+      });
+
+      expect(response.statusCode).toBe(400);
+      const errBody = response.json();
+      const errMsg = errBody.error?.message || errBody.message;
+      expect(errMsg).toContain("فرمت فایل نامعتبر است");
+    });
   });
 });
+

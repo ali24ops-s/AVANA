@@ -452,7 +452,7 @@ export function markdownToSafeHtml(markdown: string): string {
   // Sanitize non-printable encoding artifacts: soft hyphen (\u00AD), BOM (\uFEFF), replacement char (\uFFFD)
   normalized = normalized.replace(/[\u00AD\uFEFF\uFFFD]/g, "");
   // Normalize standalone single-line $$ math $$ into multiline display math blocks
-  normalized = normalized.replace(/^([ \t]*)\$\$(?!\$)([^\n]+?)\$\$([ \t]*)$/gm, "$1$$$$\n$2\n$$$$$3");
+  normalized = normalized.replace(/^([ \t]*)\$\$(?!\$)([^\n]+?)\$\$([ \t]*)$/gm, "$1$$$$\n$1$2\n$1$$$$$3");
   // Remove decorative divider lines (---) immediately preceding section headings
   normalized = normalized.replace(/^([ \t]*---[ \t]*\n+)+(?=[ \t]*#{1,6}\s)/gm, "");
 
@@ -848,7 +848,7 @@ export function markdownToSafeHtml(markdown: string): string {
   return ReactDOMServer.renderToStaticMarkup(element);
 }
 
-function getBaseStyles(fontBase64: string, katexCss: string): string {
+export function getBaseStyles(fontBase64: string, katexCss: string): string {
   return `
     @font-face {
       font-family: 'Estedad';
@@ -1332,10 +1332,12 @@ function getBaseStyles(fontBase64: string, katexCss: string): string {
       background: #f8fafc;
       border: 1px solid #e2e8f0;
       border-radius: 8px;
+      max-width: 100%;
       overflow-x: auto;
       overflow-y: visible !important;
       page-break-inside: avoid;
       break-inside: avoid;
+      box-sizing: border-box;
     }
     .katex-display > .katex {
       display: inline-block !important;
@@ -1655,7 +1657,7 @@ function getBaseStyles(fontBase64: string, katexCss: string): string {
   `;
 }
 
-function renderClosingPage(): string {
+export function renderClosingPage(): string {
   const logoBase64 = getAvanaLogoBase64();
   const logoTag = logoBase64
     ? `<img class="closing-logo" src="data:image/png;base64,${logoBase64}" alt="AVANA Logo" />`

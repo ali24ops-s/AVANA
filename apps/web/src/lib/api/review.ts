@@ -132,6 +132,50 @@ export function createReviewApi(client: ApiClient) {
         `/v1/organizations/${organizationId}/courses/${courseId}/generated/${contentId}/regenerate`,
       );
     },
+
+    /**
+     * POST /v1/organizations/:organizationId/courses/:courseId/generated/:contentId/unapprove
+     * Revokes approval for accepted generated content in unpublished courses.
+     */
+    unapproveContent(
+      organizationId: string,
+      courseId: string,
+      contentId: string,
+    ): Promise<{ content_id: string; status: "draft" }> {
+      return client.post<{ content_id: string; status: "draft" }>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/generated/${contentId}/unapprove`,
+      );
+    },
+
+    /**
+     * POST /v1/organizations/:organizationId/courses/:courseId/modules/:moduleId/unapprove-contents
+     * Bulk revokes approval for all accepted generated contents belonging to a module.
+     */
+    unapproveModuleContents(
+      organizationId: string,
+      courseId: string,
+      moduleId: string,
+    ): Promise<{ module_id: string; unapproved_count: number; unapproved_ids: string[]; status: "draft" }> {
+      return client.post<{ module_id: string; unapproved_count: number; unapproved_ids: string[]; status: "draft" }>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/modules/${moduleId}/unapprove-contents`,
+      );
+    },
+
+    /**
+     * DELETE /v1/organizations/:organizationId/courses/:courseId/generated/:contentId
+     * Permanently deletes a generated content and cascades attributable dependencies.
+     */
+    deleteGeneratedContent(
+      organizationId: string,
+      courseId: string,
+      contentId: string,
+      options?: { confirmPublishedDelete?: boolean },
+    ): Promise<{ success: boolean; content_id: string }> {
+      const qs = options?.confirmPublishedDelete ? "?confirm_published_delete=true" : "";
+      return client.delete<{ success: boolean; content_id: string }>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/generated/${contentId}${qs}`,
+      );
+    },
   };
 }
 

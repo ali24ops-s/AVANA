@@ -480,13 +480,26 @@ export class InMemoryQuizStore implements QuizStore {
     return { ...record };
   }
 
+  async delete(id: QuizId): Promise<void> {
+    const q = this.quizzes.get(id);
+    if (q) {
+      this.quizzes.set(id, {
+        ...q,
+        deletedAt: new Date().toISOString(),
+      });
+    }
+  }
+
   async findByGeneratedContent(
     generatedContentId: GeneratedContentId,
   ): Promise<QuizRecord | undefined> {
     // Look up question by generatedContentId to find the parent quiz
     for (const [quizId, questions] of this.questionsByQuiz.entries()) {
-      if (questions.some((q) => q.generatedContentId === generatedContentId)) {
-        return this.quizzes.get(quizId);
+      if (questions.some((q) => q.generatedContentId === generatedContentId && !q.deletedAt)) {
+        const quiz = this.quizzes.get(quizId);
+        if (quiz && !quiz.deletedAt) {
+          return { ...quiz };
+        }
       }
     }
     return undefined;
@@ -704,6 +717,21 @@ export class InMemoryQuizQuestionStore implements QuizQuestionStore {
       this.quizStore.setQuestionsForQuiz(record.quizId, quizQuestions);
     }
     return { ...record };
+  }
+
+  async delete(id: QuizQuestionId): Promise<void> {
+    const idx = this.questions.findIndex((q) => q.id === id);
+    if (idx >= 0) {
+      this.questions[idx] = {
+        ...this.questions[idx],
+        deletedAt: new Date().toISOString(),
+      };
+      if (this.quizStore) {
+        const quizId = this.questions[idx].quizId;
+        const quizQuestions = this.questions.filter((q) => q.quizId === quizId);
+        this.quizStore.setQuestionsForQuiz(quizId, quizQuestions);
+      }
+    }
   }
 
   /** Directly insert questions (used for seeding). */

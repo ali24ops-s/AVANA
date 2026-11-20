@@ -41,6 +41,8 @@ import { UserSubscriptionPage } from "../pages/account/UserSubscriptionPage.js";
 import { UserReferralPage } from "../pages/account/UserReferralPage.js";
 import { UserSupportPage } from "../pages/account/UserSupportPage.js";
 import { CardToCardPaymentPage } from "../pages/CardToCardPaymentPage.js";
+import { PresentationListPage } from "../pages/presentation/PresentationListPage.js";
+import { PresentationWorkspacePage } from "../pages/presentation/PresentationWorkspacePage.js";
 
 // Admin Imports
 import { AdminLayout } from "../components/shell/AdminLayout.js";
@@ -112,6 +114,20 @@ import { StudentClassroomDetailPage } from "../pages/student/StudentClassroomDet
 import { StudentExamDetailPage } from "../pages/student/StudentExamDetailPage.js";
 import { StudentExamTakingPage } from "../pages/student/StudentExamTakingPage.js";
 import { StudentExamResultsPage } from "../pages/student/StudentExamResultsPage.js";
+
+// AVANA Studio Imports
+import { StudioRouteGuard } from "../components/studio/StudioRouteGuard.js";
+import { StudioLayout } from "../components/studio/StudioLayout.js";
+import { StudioDashboardPage } from "../pages/studio/StudioDashboardPage.js";
+import { StudioQuizzesPage } from "../pages/studio/StudioQuizzesPage.js";
+import { StudioQuizEditorPage } from "../pages/studio/StudioQuizEditorPage.js";
+import { StudioQuestionBankPage } from "../pages/studio/StudioQuestionBankPage.js";
+import { StudioReportsPage } from "../pages/studio/StudioReportsPage.js";
+import { StudioPollsPage } from "../pages/studio/StudioPollsPage.js";
+import { StudioPollEditorPage } from "../pages/studio/StudioPollEditorPage.js";
+import { StudioPollResultsPage } from "../pages/studio/StudioPollResultsPage.js";
+import { PublicQuizPage } from "../pages/quiz/PublicQuizPage.js";
+import { PublicPollPage } from "../pages/poll/PublicPollPage.js";
 
 // Design Preview Imports (Isolated evaluation routes)
 import { StickerSystemPreviewPage } from "../design-preview/avana-stickers/StickerSystemPreviewPage.js";
@@ -218,6 +234,16 @@ export const router = createBrowserRouter(
       path: "/blog/tag/:slug",
       element: <BlogTagPage />,
     },
+    // Public Marketing Quiz Taking
+    {
+      path: "/quiz/:slug",
+      element: <PublicQuizPage />,
+    },
+    // Public Poll Taking
+    {
+      path: "/polls/:slug",
+      element: <PublicPollPage />,
+    },
     {
       path: "/design-preview/stickers",
       element: <StickerSystemPreviewPage />,
@@ -276,6 +302,10 @@ export const router = createBrowserRouter(
           element: <StudentExamTakingPage />,
         },
         {
+          path: "presentations/:projectId",
+          element: <PresentationWorkspacePage />,
+        },
+        {
           element: <AuthenticatedShell />,
           children: [
             {
@@ -321,6 +351,10 @@ export const router = createBrowserRouter(
             {
               path: "exams",
               element: <ExamsPage />,
+            },
+            {
+              path: "presentations",
+              element: <PresentationListPage />,
             },
             {
               path: "files",
@@ -453,6 +487,65 @@ export const router = createBrowserRouter(
             {
               path: "*",
               element: <Navigate to="/teacher" replace />,
+            },
+          ],
+        },
+        // AVANA Studio Platform Routes
+        {
+          path: "studio",
+          element: (
+            <StudioRouteGuard>
+              <StudioLayout />
+            </StudioRouteGuard>
+          ),
+          children: [
+            {
+              index: true,
+              element: <StudioDashboardPage />,
+            },
+            {
+              path: "dashboard",
+              element: <Navigate to="/studio" replace />,
+            },
+            {
+              path: "quizzes",
+              element: <StudioQuizzesPage />,
+            },
+            {
+              path: "quizzes/:quizId",
+              element: <StudioQuizEditorPage />,
+            },
+            {
+              path: "quizzes/:quizId/edit",
+              element: <StudioQuizEditorPage />,
+            },
+            {
+              path: "polls",
+              element: <StudioPollsPage />,
+            },
+            {
+              path: "polls/:pollId",
+              element: <StudioPollEditorPage />,
+            },
+            {
+              path: "polls/:pollId/edit",
+              element: <StudioPollEditorPage />,
+            },
+            {
+              path: "polls/:pollId/results",
+              element: <StudioPollResultsPage />,
+            },
+            {
+              path: "question-bank",
+              element: <StudioQuestionBankPage />,
+            },
+            {
+              path: "reports",
+              element: <StudioReportsPage />,
+            },
+            {
+              path: "*",
+              element: <Navigate to="/studio" replace />,
             },
           ],
         },

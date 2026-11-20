@@ -22,6 +22,7 @@ export type CourseRecord = {
   id: CourseId;
   organizationId: OrganizationId;
   name: string;
+  slug?: string | null;
   title?: string;
   description?: string | null;
   subject: string | null;
@@ -38,6 +39,12 @@ export type CourseRecord = {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+};
+
+export type CourseResolutionResult = {
+  course: CourseRecord;
+  isRedirect?: boolean;
+  canonicalSlug?: string;
 };
 
 export type CreateCourseRecords = {
@@ -57,12 +64,35 @@ export interface CourseStore {
   /** Find a course by ID directly without user scoping (used for internal existence/ownership validation). */
   findById(courseId: CourseId): Promise<CourseRecord | undefined>;
 
+  /**
+   * Find a course by either its UUID or public slug, resolving redirects if a historical slug is queried.
+   */
+  findByIdOrSlug(identifier: string): Promise<CourseResolutionResult | undefined>;
+
   /** Find a course through the requesting user's organization membership or system organization. */
   findByIdForUser(
     courseId: CourseId,
     userId: UserId,
     systemOrganizationId?: OrganizationId,
   ): Promise<CourseRecord | undefined>;
+
+  /**
+   * Find a course by UUID or public slug with org/user scoping, resolving historical slug redirects.
+   */
+  findByIdOrSlugForUser?(
+    identifier: string,
+    userId: UserId,
+    systemOrganizationId?: OrganizationId,
+  ): Promise<CourseResolutionResult | undefined>;
+
+  /** Check whether a candidate slug is currently taken by any active course or redirect. */
+  isSlugTaken?(slug: string, excludeCourseId?: CourseId): Promise<boolean>;
+
+  /** Update a course's slug, recording the previous slug for automatic 301 redirection without loops. */
+  updateCourseSlug?(
+    courseId: CourseId,
+    newSlug: string,
+  ): Promise<{ success: boolean; course: CourseRecord }>;
 
   /** Find a personal (non-official) course belonging to a user in their organization by trimmed name. */
   findUserPersonalCourseByName(
@@ -142,6 +172,9 @@ export interface CourseStore {
 
   /** Permanently delete a course record by ID. */
   delete?(courseId: CourseId): Promise<void>;
+
+  /** List official published courses for SEO sitemap generation. */
+  listOfficialPublished?(): Promise<Array<{ id: CourseId; slug: string | null; name: string; updatedAt?: string | null }>>;
 }
 
 export interface CoursePublicationStore {

@@ -183,7 +183,7 @@ describe("HomePage Component", () => {
 
     // Verify daily motivational quote in greeting header
     const expectedQuote = getDailyMotivationalQuote();
-    expect(screen.getByText(expectedQuote)).toBeInTheDocument();
+    expect(screen.getByText(`«${expectedQuote.text}»`)).toBeInTheDocument();
 
     // Verify user courses loaded from real API
     await waitFor(() => {

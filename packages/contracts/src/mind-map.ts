@@ -201,6 +201,8 @@ export interface GetMindMapResponse {
   mind_map: MindMapDto | null;
   source_available: boolean;
   source_type: MindMapSourceType | null;
+  is_paid: boolean;
+  cost_toman: number;
 }
 
 export interface GenerateMindMapResponse {

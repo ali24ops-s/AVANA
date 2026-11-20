@@ -27,7 +27,11 @@ import {
   validateGeneratedSlideSchema,
   extractAllSlideChunkIds,
 } from "../presentation-generation-schema.js";
-import { PresentationGenerationService } from "../presentation-generation-service.js";
+import {
+  PresentationGenerationService,
+  validateKeyPointsCoverage,
+  ensureKeyPointsInSpeech,
+} from "../presentation-generation-service.js";
 import type { OrganizationStore } from "../../organizations/organization-store.js";
 
 class MockGateway implements ModelGateway {
@@ -962,6 +966,158 @@ describe("Presentation Slide Generation & Gemini Citation Grounding (Phase 2A-2.
           slideId: testSlideId,
         }),
       ).rejects.toThrow(DomainError);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 7. Spoken Speech & Original Slide Preservation (Key Points & Invariants)
+  // -------------------------------------------------------------------------
+  describe("7. Spoken Speech & Original Slide Preservation", () => {
+    describe("validateKeyPointsCoverage", () => {
+      it("returns covered: true when all key points are naturally articulated in speechText", () => {
+        const speechText =
+          "در این اسلاید به بررسی مهارکننده‌های SGLT2 می‌پردازیم. این داروها موجب کاهش مورتالیتی قلبی و همچنین بهبود بارز کیفیت زندگی بیماران می‌شوند.";
+        const keyPoints = [
+          "کاهش مورتالیتی قلبی",
+          "بهبود کیفیت زندگی بیماران",
+        ];
+
+        const result = validateKeyPointsCoverage(speechText, keyPoints);
+        expect(result.covered).toBe(true);
+        expect(result.missingPoints).toHaveLength(0);
+        expect(result.coverageRatio).toBe(1);
+      });
+
+      it("detects missing key points accurately when terms are absent", () => {
+        const speechText =
+          "در این بخش فقط در مورد دوز اولیه داروها صحبت می‌کنیم و عوارض گوارشی را توضیح می‌دهیم.";
+        const keyPoints = [
+          "دوز اولیه داروها",
+          "کاهش مورتالیتی قلبی در کارآزمایی DAPA-HF",
+        ];
+
+        const result = validateKeyPointsCoverage(speechText, keyPoints);
+        expect(result.covered).toBe(false);
+        expect(result.missingPoints).toEqual([
+          "کاهش مورتالیتی قلبی در کارآزمایی DAPA-HF",
+        ]);
+        expect(result.coverageRatio).toBe(0.5);
+      });
+
+      it("handles empty keyPoints array gracefully", () => {
+        const result = validateKeyPointsCoverage("متن سخنرانی بدون نکته خاص", []);
+        expect(result.covered).toBe(true);
+        expect(result.missingPoints).toHaveLength(0);
+        expect(result.coverageRatio).toBe(1);
+      });
+
+      it("normalizes Persian characters (ي -> ی, ك -> ک, zero-width spaces)", () => {
+        const speechText = "بررسي تاثيرات كاهش مورتاليتي قلبي در بيماران";
+        const keyPoints = ["کاهش مورتالیتی قلبی"];
+
+        const result = validateKeyPointsCoverage(speechText, keyPoints);
+        expect(result.covered).toBe(true);
+        expect(result.missingPoints).toHaveLength(0);
+      });
+    });
+
+    describe("ensureKeyPointsInSpeech", () => {
+      it("returns unchanged speechContent if all key points are already covered", () => {
+        const speechContent = {
+          speechText: "این اسلاید به بررسی کاهش مورتالیتی قلبی و بهبود کیفیت زندگی می‌پردازد.",
+          supplementaryExplanation: "توضیحات تکمیلی",
+          keyPoints: ["کاهش مورتالیتی قلبی", "بهبود کیفیت زندگی"],
+          suggestedDurationSeconds: 60,
+          citations: [],
+          claims: [],
+        };
+
+        const result = ensureKeyPointsInSpeech(speechContent, "fa");
+        expect(result.speechText).toBe(speechContent.speechText);
+      });
+
+      it("appends missing key points seamlessly in Persian when coverage is incomplete", () => {
+        const speechContent = {
+          speechText: "این اسلاید درباره دوز مصرفی دارو است.",
+          supplementaryExplanation: "توضیحات تکمیلی",
+          keyPoints: ["کاهش مورتالیتی قلبی", "بهبود عملکرد کلیوی"],
+          suggestedDurationSeconds: 60,
+          citations: [],
+          claims: [],
+        };
+
+        const result = ensureKeyPointsInSpeech(speechContent, "fa");
+        expect(result.speechText).toContain(speechContent.speechText);
+        expect(result.speechText).toContain("همچنین در تکمیل این اسلاید، بر این نکات کلیدی تأکید می‌شود که");
+        expect(result.speechText).toContain("کاهش مورتالیتی قلبی");
+        expect(result.speechText).toContain("بهبود عملکرد کلیوی");
+
+        // Now validating coverage on the new speechText must return 100% covered!
+        const recheck = validateKeyPointsCoverage(result.speechText, speechContent.keyPoints);
+        expect(recheck.covered).toBe(true);
+        expect(recheck.missingPoints).toHaveLength(0);
+      });
+    });
+
+    describe("Preservation of original PPTX slide title and speaker notes", () => {
+      it("preserves original title and PPTX speaker notes without AI overwrite during speech generation", async () => {
+        await attachSnapshot([
+          { chunkId: validChunk1Id, content: validChunk1Content, contentHash: validChunk1Hash },
+        ]);
+
+        // Seed slide with original PPTX title and speaker notes
+        const originalTitle = "عنوان اصلی فایل پاورپوینت اسلاید ۳";
+        const originalNotes = "یادداشت اختصاصی استاد در فایل پاورپوینت: اسلاید بعدی خیلی مهمه.";
+        await slideStore.updateSlide(testSlideId, testProjectId, {
+          title: originalTitle,
+          speakerNotes: originalNotes,
+        });
+
+        // Mock gateway returning speaker format with different title in AI output
+        gateway.completeHandler = async () => {
+          return {
+            text: JSON.stringify({
+              speechText:
+                "همکاران گرامی، در این اسلاید به بررسی مکانیسم وارفارین و مهار ویتامین کا می‌پردازیم.\n\nاین دارو با مهار ویتامین کا اپوکسید ردوکتاز اثر ضدانعقادی خود را اعمال می‌کند.",
+              keyPoints: [
+                "مهار ویتامین کا اپوکسید ردوکتاز",
+              ],
+              transitionSentence: "در اسلاید بعد به بررسی محدوده هدف INR خواهیم پرداخت.",
+              suggestedDurationSeconds: 80,
+              citations: [{ chunkId: validChunk1Id }],
+              claims: [
+                {
+                  text: "Warfarin inhibits vitamin K",
+                  chunkIds: [validChunk1Id],
+                  evidenceStatus: "supported",
+                },
+              ],
+            }),
+            model: "gemini-3.5-flash-lite",
+            usage: { inputTokens: 100, outputTokens: 120 },
+            finishReason: "stop",
+          };
+        };
+
+        const result = await service.generateSlide({
+          actor: testActor,
+          projectId: testProjectId,
+          slideId: testSlideId,
+        });
+
+        expect(result.status).toBe("accepted");
+
+        // Assert that the persisted slide strictly maintains original PPTX title and original speaker notes!
+        const updatedSlide = (await slideStore.findById(testSlideId, testProjectId))!;
+        expect(updatedSlide.title).toBe(originalTitle);
+        expect(updatedSlide.speakerNotes).toBe(originalNotes);
+
+        // Assert that speechContent is stored in extractionMetadata without destroying the original fields
+        const metadata = updatedSlide.extractionMetadata as Record<string, any>;
+        expect(metadata.speechContent).toBeDefined();
+        expect(metadata.speechContent.speechText).toContain("مهار ویتامین کا اپوکسید ردوکتاز");
+        expect(metadata.speechContent.keyPoints).toContain("مهار ویتامین کا اپوکسید ردوکتاز");
+      });
     });
   });
 });

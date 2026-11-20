@@ -900,7 +900,11 @@ export function AdminCourseHubPage() {
       {/* Main Tab Panel Content */}
       <div className="animate-in fade-in">
         {activeTab === "structure" && (
-          <CourseStructurePanel courseId={course.id} />
+          <CourseStructurePanel
+            courseId={course.id}
+            organizationId={course.organizationId}
+            courseStatus={course.status}
+          />
         )}
 
         {isOfficial && officialCourseAdapter && (

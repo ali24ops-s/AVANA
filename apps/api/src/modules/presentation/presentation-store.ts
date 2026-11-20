@@ -9,6 +9,9 @@ import type {
   PresentationReferenceType,
   CreatePresentationReferenceInput,
   UpdatePresentationReferenceInput,
+  CreatePresentationProjectInput,
+  UpdatePresentationProjectInput,
+  UserId,
   PresentationSlideId,
   PresentationSlideRecord,
   CreatePresentationSlideInput,
@@ -66,6 +69,10 @@ export interface PresentationReferenceStore {
 }
 
 export interface PresentationProjectStore {
+  create(
+    input: CreatePresentationProjectInput,
+  ): Promise<PresentationProjectRecord>;
+
   findById(
     id: PresentationProjectId,
   ): Promise<PresentationProjectRecord | null>;
@@ -74,6 +81,20 @@ export interface PresentationProjectStore {
     id: PresentationProjectId,
     organizationId: OrganizationId,
   ): Promise<PresentationProjectRecord | null>;
+
+  listByUserId(
+    userId: UserId,
+    organizationId?: OrganizationId,
+  ): Promise<PresentationProjectRecord[]>;
+
+  update(
+    id: PresentationProjectId,
+    input: UpdatePresentationProjectInput,
+  ): Promise<PresentationProjectRecord>;
+
+  delete(
+    id: PresentationProjectId,
+  ): Promise<boolean>;
 }
 
 export interface PresentationSlideStore {
@@ -117,8 +138,16 @@ export interface PresentationSlideStore {
     projectId: PresentationProjectId,
   ): Promise<boolean>;
 
+  deleteByProjectId(
+    projectId: PresentationProjectId,
+  ): Promise<number>;
+
   countByProjectId(
     projectId: PresentationProjectId,
   ): Promise<number>;
+
+  findStaleGeneratingSlides(
+    staleThresholdMs: number,
+  ): Promise<PresentationSlideRecord[]>;
 }
 

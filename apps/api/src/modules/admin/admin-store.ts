@@ -112,6 +112,7 @@ export interface AdminCourseClassroomInfo {
 
 export interface AdminCourseRecord {
   id: string;
+  slug?: string | null;
   name: string;
   subject: string | null;
   description?: string | null;
@@ -238,6 +239,7 @@ export interface AdminLessonDetailRecord extends AdminLessonRecord {
   contentMarkdown: string;
   reference?: string | null;
   moduleId?: string;
+  generatedContentId?: string | null;
   flashcards?: Array<{
     id: string;
     front: string;
@@ -309,6 +311,7 @@ export interface AdminCourseHierarchyLesson {
   quizCount: number;
   hasContent: boolean;
   createdAt: string;
+  generatedContentId?: string | null;
 }
 
 export interface AdminCourseHierarchyGroup {
@@ -322,6 +325,7 @@ export interface AdminCourseHierarchyModule {
   title: string;
   sortOrder: number;
   subCourseGroupId?: string | null;
+  unapprovableContentCount?: number;
   lessons: AdminCourseHierarchyLesson[];
 }
 
@@ -576,7 +580,7 @@ export interface AdminStore {
   // Phase 4: Mutations
   updateUserRole(adminId: string, targetUserId: string, newRole: string): Promise<void>;
   deleteUser(adminId: string, targetUserId: string): Promise<void>;
-  updateCourseMetadata(adminId: string, courseId: string, payload: { name?: string; subject?: string; targetAcademicFields?: string[] }): Promise<void>;
+  updateCourseMetadata(adminId: string, courseId: string, payload: { name?: string; slug?: string; subject?: string; targetAcademicFields?: string[] }): Promise<void>;
   retryDocumentProcessing(adminId: string, documentId: string): Promise<void>;
   retryGenerationJob(adminId: string, jobId: string): Promise<void>;
 

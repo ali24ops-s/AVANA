@@ -29,6 +29,7 @@ import type {
   ExtractedTextBlock,
   ExtractedTable,
   ExtractedVisual,
+  SlideUnsupportedContent,
 } from "@avana/domain";
 
 /** PPTX MIME type. */
@@ -309,11 +310,17 @@ export async function extractPresentationFromPptx(
 
   let totalDecompressedSize = 0;
   for (const name of fileNames) {
+    // 1. Normalize separators: convert backslashes to forward slashes
+    const normalizedSeparators = name.replace(/\\/g, "/");
+
+    // 2. Strict Zip Slip, absolute paths, and invalid path validation (checks both original and normalized form)
     if (
-      name.includes("..") ||
+      normalizedSeparators.includes("..") ||
+      normalizedSeparators.startsWith("/") ||
       name.startsWith("/") ||
       name.startsWith("\\") ||
-      name.includes(":")
+      normalizedSeparators.includes(":") ||
+      normalizedSeparators.includes("//")
     ) {
       throw new ExtractionError(
         "zip_slip_detected",
@@ -321,10 +328,16 @@ export async function extractPresentationFromPptx(
       );
     }
 
-    // Macro detection (.pptm / vbaProject.bin)
+    // 3. Macro & VBA detection on normalized, lowercase path
+    const normalizedPath = normalizedSeparators.toLowerCase();
     if (
-      name.toLowerCase() === "ppt/vbaproject.bin" ||
-      name.toLowerCase().endsWith(".bin")
+      normalizedPath === "ppt/vbaproject.bin" ||
+      normalizedPath === "ppt/vbaprojectsignature.bin" ||
+      normalizedPath.startsWith("ppt/vba") ||
+      normalizedPath.includes("/vba") ||
+      normalizedPath.endsWith(".pptm") ||
+      normalizedPath.endsWith(".potm") ||
+      normalizedPath.endsWith(".ppam")
     ) {
       throw new ExtractionError(
         "macro_detected",
@@ -476,6 +489,8 @@ export async function extractPresentationFromPptx(
 
     let notesSlideZipPath: string | null = null;
     const imageMap = new Map<string, string>(); // rId -> ppt/media/xxx.png
+    let chartRelsCount = 0;
+    let smartArtRelsCount = 0;
 
     if (relsFile) {
       try {
@@ -509,6 +524,18 @@ export async function extractPresentationFromPptx(
             if (safeMediaPath) {
               imageMap.set(rId, safeMediaPath);
             }
+          } else if (
+            type.endsWith("/chart") ||
+            target.includes("/charts/chart") ||
+            target.endsWith(".chart")
+          ) {
+            chartRelsCount++;
+          } else if (
+            type.includes("/diagram") ||
+            target.includes("diagramData") ||
+            target.includes("diagramLayout")
+          ) {
+            smartArtRelsCount++;
           }
         }
       } catch (err) {
@@ -762,6 +789,39 @@ export async function extractPresentationFromPptx(
 
     const cleanRawText = sanitizeText(rawTextParts.join("\n\n"));
 
+    // F. Detect and record unsupported content (Charts, SmartArt, Grouped Shapes)
+    const chartXmlMatches = (xml.match(/<a:graphicData\b[^>]*\buri="[^"]*\/chart"/gi) || []).length;
+    const chartTagMatches = (xml.match(/<c:chart\b/gi) || []).length;
+    const chartCount = Math.max(chartRelsCount, chartXmlMatches, chartTagMatches);
+    const hasCharts = chartCount > 0;
+
+    const smartArtXmlMatches = (xml.match(/<a:graphicData\b[^>]*\buri="[^"]*\/diagram"/gi) || []).length;
+    const smartArtCount = Math.max(smartArtRelsCount, smartArtXmlMatches);
+    const hasSmartArt = smartArtCount > 0;
+
+    const groupedShapeMatches = (xml.match(/<p:grpSp\b/gi) || []).length;
+    const hasGroupedShapes = groupedShapeMatches > 0;
+
+    const warnings: string[] = [];
+    if (hasCharts || hasSmartArt) {
+      warnings.push(
+        "این اسلاید شامل نمودار یا دیاگرام SmartArt است. محتوای متنی داخلی این ساختارها در نسخه فعلی استخراج نمی‌شود و ممکن است بخشی از اطلاعات اسلاید در خروجی سخنرانی لحاظ نشود.",
+      );
+    }
+    if (hasGroupedShapes) {
+      warnings.push("این اسلاید شامل اَشکال گروه‌بندی‌شده (Grouped Shapes) است.");
+    }
+    const warningMessage = warnings.length > 0 ? warnings.join(" ") : undefined;
+
+    const unsupportedContent: SlideUnsupportedContent = {
+      hasCharts,
+      hasSmartArt,
+      hasGroupedShapes,
+      chartCount,
+      smartArtCount,
+      warningMessage,
+    };
+
     slides.push({
       slideIndex,
       title: slideTitle ? sanitizeText(slideTitle) : null,
@@ -770,11 +830,13 @@ export async function extractPresentationFromPptx(
       tables,
       speakerNotes: speakerNotes ? sanitizeText(speakerNotes) : null,
       visuals,
+      unsupportedContent,
       metadata: {
         textBlockCount: textBlocks.length,
         tableCount: tables.length,
         hasSpeakerNotes: Boolean(speakerNotes),
         visualCount: visuals.length,
+        unsupportedContent,
       },
     });
   }

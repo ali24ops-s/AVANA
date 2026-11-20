@@ -57,6 +57,8 @@ export interface CourseCardAccessData {
 export interface CourseCardProps {
   /** Unique course identifier */
   id: string;
+  /** SEO-friendly slug */
+  slug?: string | null;
   /** Course title (will be sanitized from technical filenames automatically) */
   title: string;
   /** Subject/Category (e.g. داروسازی, فیزیولوژی) */
@@ -339,6 +341,7 @@ function CourseHeaderRow({
  */
 export function CourseCard({
   id,
+  slug,
   title,
   subject,
   description,
@@ -374,7 +377,7 @@ export function CourseCard({
     }
   };
 
-  const targetHref = href || `/courses/${id}`;
+  const targetHref = href || `/courses/${slug || id}`;
   const cleanTitle = cleanEducationalTitle(title, "دوره آموزشی جامع");
   const cleanDesc = description ? cleanEducationalDescription(description, "") : null;
 
@@ -720,6 +723,7 @@ export function CourseCard({
         onClose={() => setInternalShareOpen(false)}
         course={{
           id,
+          slug,
           title: cleanTitle,
           subject,
           description: cleanDesc,
@@ -782,11 +786,12 @@ export function CourseLibraryCardAdapter({
   return (
     <CourseCard
       id={course.id}
+      slug={course.slug}
       title={course.title}
       subject={course.subject}
       description={course.description}
       coverImage={rawCourse.cover_image || rawCourse.thumbnail_url}
-      href={course.href || `/courses/${course.id}`}
+      href={course.href || `/courses/${course.slug || course.id}`}
       variant="library"
       access={{
         hasAccess: access?.hasAccess ?? true,
@@ -867,10 +872,11 @@ export function MyCourseCardAdapter({
   return (
     <CourseCard
       id={course.id}
+      slug={course.slug}
       title={course.title}
       subject={course.subject}
       coverImage={rawCourse.cover_image || rawCourse.thumbnail_url}
-      href={`/courses/${course.id}`}
+      href={`/courses/${course.slug || course.id}`}
       variant="my-courses"
       archived={course.archived}
       isOfficial={course.isOfficial ?? course.is_official}

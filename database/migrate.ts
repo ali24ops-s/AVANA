@@ -56,6 +56,9 @@ export const TARGETED_MIGRATION_IDS = [
   "0099_crm_campaigns",
   "0100_crm_campaign_dispatch",
   "0101_scope_documents_by_course",
+  "0102_marketing_quizzes_and_studio",
+  "0103_courses_slug_and_backfill",
+  "0104_polls_and_surveys",
 ] as const;
 
 export type TargetedMigrationId = (typeof TARGETED_MIGRATION_IDS)[number];

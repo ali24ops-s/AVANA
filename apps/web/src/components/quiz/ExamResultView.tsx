@@ -239,11 +239,12 @@ export function ExamResultView({
 
     const items = Array.from(map.entries()).map(([topic, stats]) => {
       const percent = Math.round((stats.earned / Math.max(1, stats.total)) * 100);
+      const courseIdentifier = (stats as any).courseSlug || stats.courseId;
       const studyUrl =
-        stats.courseId && stats.lessonId
-          ? `/courses/${stats.courseId}?lessonId=${stats.lessonId}`
-          : stats.courseId
-            ? `/courses/${stats.courseId}`
+        courseIdentifier && stats.lessonId
+          ? `/courses/${courseIdentifier}?lessonId=${stats.lessonId}`
+          : courseIdentifier
+            ? `/courses/${courseIdentifier}`
             : undefined;
 
       return {
@@ -683,11 +684,12 @@ export function ExamResultView({
             const hasTopic = Boolean(q.topic?.trim() && !isInternalIdentifier(q.topic.trim()));
             const hasSourceInfo = hasLesson || hasChapter || hasTopic;
 
+            const courseIdentifier = (q.course as any)?.slug || q.course?.id;
             const studyUrl =
-              q.course?.id && q.lesson?.id
-                ? `/courses/${q.course.id}?lessonId=${q.lesson.id}`
-                : q.course?.id
-                  ? `/courses/${q.course.id}`
+              courseIdentifier && q.lesson?.id
+                ? `/courses/${courseIdentifier}?lessonId=${q.lesson.id}`
+                : courseIdentifier
+                  ? `/courses/${courseIdentifier}`
                   : undefined;
 
             return (

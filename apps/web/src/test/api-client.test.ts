@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { createApiClient, generateUUID } from "../lib/api/client.js";
+import { createApiClient, generateUUID, downloadBlob } from "../lib/api/client.js";
 import { ApiError } from "../lib/api/errors.js";
 
 describe("API Client", () => {
@@ -460,6 +460,113 @@ describe("API Client", () => {
       } finally {
         globalThis.crypto.randomUUID = originalRandomUUID;
       }
+    });
+  });
+
+  describe("Blob and binary download handling (postBlob / getBlob / downloadBlob)", () => {
+    it("postBlob sends credentials: include, x-csrf-token, and parses binary blob with RFC 6266 filename", async () => {
+      let capturedInit: RequestInit | undefined;
+      const persianFilename = "ارائه_فارماکولوژی_بالینی.pdf";
+      const encoded = encodeURIComponent(persianFilename);
+      const mockBlob = new Blob(["%PDF-1.4 binary content"], { type: "application/pdf" });
+
+      vi.spyOn(globalThis, "fetch").mockImplementation((_, init) => {
+        capturedInit = init;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: new Headers({
+            "content-type": "application/pdf",
+            "content-disposition": `attachment; filename="fallback.pdf"; filename*=UTF-8''${encoded}`,
+          }),
+          blob: () => Promise.resolve(mockBlob),
+        } as unknown as Response);
+      });
+
+      const client = createApiClient({
+        baseUrl: "http://localhost:3000",
+        csrfToken: "active-csrf-test-token",
+      });
+
+      const result = await client.postBlob("/v1/presentation/projects/proj-123/export-pdf", {
+        options: { includeSpeechText: true },
+      });
+
+      expect(capturedInit?.method).toBe("POST");
+      expect(capturedInit?.credentials).toBe("include");
+      expect(capturedInit?.headers).toEqual(
+        expect.objectContaining({
+          "x-csrf-token": "active-csrf-test-token",
+          "Content-Type": "application/json",
+          "x-request-id": expect.any(String),
+        }),
+      );
+      expect(capturedInit?.body).toBe(JSON.stringify({ options: { includeSpeechText: true } }));
+
+      expect(result.blob).toBe(mockBlob);
+      expect(result.filename).toBe(persianFilename);
+      expect(result.contentType).toBe("application/pdf");
+    });
+
+    it("postBlob throws typed ApiError when server returns 403 CSRF token missing", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: false,
+        status: 403,
+        headers: new Headers({ "content-type": "application/json" }),
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              request_id: "req-csrf-err",
+              error: {
+                code: "forbidden",
+                message: "CSRF token missing",
+              },
+            }),
+          ),
+      } as unknown as Response);
+
+      const client = createApiClient({ baseUrl: "" });
+      let thrown: unknown;
+      try {
+        await client.postBlob("/v1/presentation/projects/proj-123/export-pdf", {});
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toBeInstanceOf(ApiError);
+      expect((thrown as ApiError).code).toBe("forbidden");
+      expect((thrown as ApiError).message).toBe("CSRF token missing");
+      expect((thrown as ApiError).requestId).toBe("req-csrf-err");
+    });
+
+    it("downloadBlob creates anchor, clicks, and cleans up object URL", () => {
+      const mockBlob = new Blob(["mock pdf"], { type: "application/pdf" });
+      const createObjectURLMock = vi.fn().mockReturnValue("blob:http://localhost/test-uuid");
+      const revokeObjectURLMock = vi.fn();
+      window.URL.createObjectURL = createObjectURLMock;
+      window.URL.revokeObjectURL = revokeObjectURLMock;
+
+      const mockAnchor = {
+        href: "",
+        download: "",
+        click: vi.fn(),
+      };
+      const createElementSpy = vi.spyOn(window.document, "createElement").mockReturnValue(mockAnchor as any);
+      const appendChildSpy = vi.spyOn(window.document.body, "appendChild").mockImplementation(() => mockAnchor as any);
+      const removeChildSpy = vi.spyOn(window.document.body, "removeChild").mockImplementation(() => mockAnchor as any);
+
+      downloadBlob(mockBlob, "ارائه.pdf");
+
+      expect(createObjectURLMock).toHaveBeenCalledWith(mockBlob);
+      expect(mockAnchor.href).toBe("blob:http://localhost/test-uuid");
+      expect(mockAnchor.download).toBe("ارائه.pdf");
+      expect(mockAnchor.click).toHaveBeenCalledTimes(1);
+      expect(removeChildSpy).toHaveBeenCalledWith(mockAnchor);
+      expect(revokeObjectURLMock).toHaveBeenCalledWith("blob:http://localhost/test-uuid");
+
+      createElementSpy.mockRestore();
+      appendChildSpy.mockRestore();
+      removeChildSpy.mockRestore();
     });
   });
 });

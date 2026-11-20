@@ -30,6 +30,7 @@ import {
   computeEffectiveMindMap,
   cleanStructuredDetails,
   MAX_MINDMAP_DEPTH,
+  MIND_MAP_COST_TOMAN,
 } from "@avana/domain";
 import type {
   MindMapDto,
@@ -51,6 +52,7 @@ import type { ModelGateway } from "../generation/gateway/types.js";
 import type { ModuleStore, LessonStore, DocumentChunkStore, DocumentStore } from "../learning/learning-store.js";
 import type { CourseStore } from "../courses/course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
+import type { WalletService } from "../wallet/wallet-service.js";
 import { cleanAndParseJson } from "../generation/engine/resilient-json-parser.js";
 import {
   enrichMindMapAiBaseChemicalsAsync,
@@ -59,6 +61,7 @@ import {
 
 export const PERSONAL_MINDMAP_LEASE_DURATION_MS = 180_000; // 3 minutes
 export const MINDMAP_HEARTBEAT_INTERVAL_MS = 10_000; // 10 seconds
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type MindMapLifecycleStage =
   | "REQUEST_RECEIVED"
@@ -270,6 +273,7 @@ export class MindMapService {
     private readonly policy: AuthorizationPolicy = defaultPolicy,
     private readonly systemOrganizationId?: OrganizationId,
     private readonly lifecycleLogger?: (event: MindMapLifecycleEvent) => void,
+    private readonly walletService?: WalletService,
   ) {}
 
   public emitLifecycle(event: MindMapLifecycleEvent): void {
@@ -288,15 +292,28 @@ export class MindMapService {
     identifier: string,
     expectedCourseId?: CourseId | string | null,
   ): Promise<{ moduleId: string; courseId: CourseId; organizationId: OrganizationId; moduleTitle: string; documentId: string | null }> {
+    let canonicalExpectedCourseId = expectedCourseId ? expectedCourseId.trim() : undefined;
+    if (canonicalExpectedCourseId && !UUID_REGEX.test(canonicalExpectedCourseId)) {
+      if (typeof this.courseStore.findByIdOrSlug === "function") {
+        const resolved = await this.courseStore.findByIdOrSlug(canonicalExpectedCourseId);
+        if (resolved) {
+          canonicalExpectedCourseId = resolved.course.id;
+        }
+      }
+    }
+
     let moduleRecord = await this.moduleStore.findById(identifier);
     if (!moduleRecord && typeof this.moduleStore.findByDocument === "function") {
-      moduleRecord = await this.moduleStore.findByDocument(identifier as DocumentId);
+      moduleRecord = await this.moduleStore.findByDocument(
+        identifier as DocumentId,
+        canonicalExpectedCourseId as CourseId | undefined,
+      );
     }
     if (!moduleRecord) {
       throw new DomainError("not_found", "سرفصل آموزشی مورد نظر یافت نشد.");
     }
 
-    if (expectedCourseId && moduleRecord.courseId !== expectedCourseId) {
+    if (canonicalExpectedCourseId && moduleRecord.courseId !== canonicalExpectedCourseId) {
       throw new DomainError(
         "bad_request",
         "سرفصل مورد نظر متعلق به این دوره نیست.",
@@ -1358,11 +1375,20 @@ export class MindMapService {
       sourceAvailable = false;
     }
 
+    const isPaid = await this.store.hasValidPaidRecord(
+      actor.userId,
+      resolvedModuleId,
+      "mind_map",
+    );
+    const costToman = isPaid ? 0 : MIND_MAP_COST_TOMAN;
+
     return {
       has_mind_map: Boolean(latest),
       mind_map: latest ? this.toDto(latest) : null,
       source_available: sourceAvailable,
       source_type: resolvedSourceType,
+      is_paid: isPaid,
+      cost_toman: costToman,
     };
   }
 
@@ -1921,6 +1947,8 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
     let courseId: CourseId | null = null;
     let recordId: string | null = null;
     let pendingCreated = false;
+    let debitTxId: string | null = null;
+    let costToman = 0;
     let heartbeatTimer: NodeJS.Timeout | null = null;
     let resolvedModuleId = moduleId;
 
@@ -2064,6 +2092,13 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
         items: [],
       };
 
+      const isAlreadyPaid = await this.store.hasValidPaidRecord(
+        actor.userId,
+        resolvedModuleId,
+        "mind_map",
+      );
+      costToman = isAlreadyPaid ? 0 : MIND_MAP_COST_TOMAN;
+
       await this.store.createPending({
         id: recordId,
         userId: actor.userId,
@@ -2075,13 +2110,37 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
         inputSnapshot: snapshot,
         highlightsCount: 0,
         notesCount: 0,
-        costToman: 0,
+        costToman,
         idempotencyKey: `mm_gen_${actor.userId}_${resolvedModuleId}_v${nextVersion}`,
         workerId,
         leaseExpiresAt,
       });
       pendingCreated = true;
       startHeartbeat(recordId, workerId);
+
+      if (costToman > 0 && this.walletService) {
+        try {
+          const debitResult = await this.walletService.debit({
+            userId: actor.userId,
+            amount: costToman,
+            source: "content_generation",
+            referenceType: "mind_map",
+            referenceId: recordId,
+            idempotencyKey: `debit_mm_${recordId}`,
+            metadata: {
+              moduleId: resolvedModuleId,
+              version: nextVersion,
+              contentType: "mind_map",
+            },
+          });
+          debitTxId = debitResult.transaction.id;
+          await this.store.updateTransactionId(recordId, debitTxId);
+        } catch (debitErr) {
+          const reason = debitErr instanceof Error ? debitErr.message : "wallet_debit_failed";
+          await this.store.markFailed(recordId, reason, null, "none");
+          throw debitErr;
+        }
+      }
 
       const systemPrompt = `شما موتور تخصصی طراحی نقشه‌های مفهومی عمیق، علمی و چندسطحی (Deep Multi-Level Concept Maps) در پلتفرم علوم پزشکی و داروشناسی آوانا (AVANA) هستید.
 وظیفه شما استخراج نقشه مفهومی غنی، ساختارمند و با معماری سلسله‌مراتبی معنادار از کل به جزء بر اساس متن آموزشی منبع است.
@@ -2524,7 +2583,32 @@ ${source.sourceText}
       const mappedErr = this.mapGatewayOrGenerationError(err, "generation");
       if (recordId && pendingCreated) {
         try {
-          await this.store.markFailed(recordId, mappedErr.message, null, "none");
+          if (debitTxId && this.walletService) {
+            try {
+              const refundResult = await this.walletService.refund({
+                userId: actor.userId,
+                amount: costToman,
+                source: "generation_refund",
+                referenceType: "mind_map",
+                referenceId: recordId,
+                idempotencyKey: `refund_mm_${recordId}`,
+                metadata: {
+                  reason: mappedErr.message,
+                  failed_operation_id: recordId,
+                },
+              });
+              await this.store.markFailed(
+                recordId,
+                mappedErr.message,
+                refundResult.transaction.id,
+                "refunded",
+              );
+            } catch {
+              await this.store.markFailed(recordId, mappedErr.message, null, "pending");
+            }
+          } else {
+            await this.store.markFailed(recordId, mappedErr.message, null, "none");
+          }
         } catch {
           // ignore markFailed error
         }
@@ -2951,11 +3035,20 @@ ${source.sourceText.slice(0, 15000)}
     }
 
     const payload = this.toMindMapPayload(record);
+    const isPaid = await this.store.hasValidPaidRecord(
+      actor.userId,
+      resolvedModuleId,
+      "mind_map",
+    );
+    const costToman = isPaid ? 0 : MIND_MAP_COST_TOMAN;
+
     return {
       has_mind_map: true,
       mind_map: this.toDto(record),
       source_available: true,
       source_type: payload.sourceType ?? null,
+      is_paid: isPaid,
+      cost_toman: costToman,
     };
   }
 
@@ -3063,15 +3156,7 @@ ${source.sourceText.slice(0, 15000)}
       throw new DomainError("forbidden", "شما به این مایندمپ دسترسی ندارید.");
     }
 
-    const moduleAccess = await this.verifyModuleAccess(actor, record.moduleId);
-
-    // 2.1. Strict Course-to-Module association guard (when called from course-scoped route)
-    if (options?.courseId) {
-      const normalizedReqCourseId = options.courseId.trim();
-      if (normalizedReqCourseId !== moduleAccess.courseId) {
-        throw new DomainError("bad_request", "سرفصل یا ماژول انتخاب‌شده متعلق به این دوره نیست.");
-      }
-    }
+    await this.verifyModuleAccess(actor, record.moduleId, options?.courseId);
 
     // 3. Status check: Only completed mind maps can be enriched retroactively
     if (record.status !== "completed") {

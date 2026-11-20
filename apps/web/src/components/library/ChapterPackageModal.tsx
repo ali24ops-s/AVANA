@@ -96,6 +96,8 @@ export function ChapterPackageModal({
 
   const targetItem = packageItem || courseItem;
   const effectiveCourseId = packageItem?.courseId || courseItem?.id || (packageItem as any)?.id;
+  const effectiveCourseSlug = (courseItem as any)?.slug || (packageItem as any)?.slug || (packageItem as any)?.courseSlug;
+  const effectiveCourseIdentifier = effectiveCourseSlug || effectiveCourseId;
   const targetModuleId = packageItem?.moduleId;
   const title = packageItem?.title || courseItem?.title || "";
   const courseTitle = packageItem?.courseTitle || courseItem?.title || "";
@@ -507,7 +509,7 @@ export function ChapterPackageModal({
 
                       {currentLesson.is_preview && (
                         <Link
-                          to={`/courses/${effectiveCourseId}?lessonId=${currentLesson.id}`}
+                          to={`/courses/${effectiveCourseIdentifier}?lessonId=${currentLesson.id}`}
                           data-testid="btn-view-preview-lesson"
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-bold bg-primary/10 text-primary hover:bg-primary hover:text-white transition-colors"
                         >
@@ -707,7 +709,7 @@ export function ChapterPackageModal({
                       پیش‌نمایش رایگان ({toPersianDigits(previewCards.length)} کارت)
                     </Badge>
                     <Link
-                      to={targetModuleId ? `/courses/${effectiveCourseId}/flashcards?moduleId=${targetModuleId}` : `/courses/${effectiveCourseId}/flashcards`}
+                      to={targetModuleId ? `/courses/${effectiveCourseIdentifier}/flashcards?moduleId=${targetModuleId}` : `/courses/${effectiveCourseIdentifier}/flashcards`}
                       data-testid="btn-view-preview-flashcards"
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[10px] text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500 hover:text-white transition-colors"
                     >
@@ -926,7 +928,7 @@ export function ChapterPackageModal({
                     </Badge>
                     {activeQuizId && (
                       <Link
-                        to={targetModuleId ? `/courses/${effectiveCourseId}?tab=quizzes&quizId=${activeQuizId}&moduleId=${targetModuleId}` : `/courses/${effectiveCourseId}?tab=quizzes&quizId=${activeQuizId}`}
+                        to={targetModuleId ? `/courses/${effectiveCourseIdentifier}?tab=quizzes&quizId=${activeQuizId}&moduleId=${targetModuleId}` : `/courses/${effectiveCourseIdentifier}?tab=quizzes&quizId=${activeQuizId}`}
                         data-testid="btn-view-preview-quiz"
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[10px] text-xs font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 hover:bg-purple-500 hover:text-white transition-colors"
                       >
@@ -1046,7 +1048,7 @@ export function ChapterPackageModal({
         <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
           {hasAccess ? (
             <Link
-              to={`/courses/${effectiveCourseId}/learn`}
+              to={`/courses/${effectiveCourseIdentifier}/learn`}
               className="w-full sm:w-auto text-decoration-none"
             >
               <Button

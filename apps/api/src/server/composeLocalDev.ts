@@ -98,6 +98,12 @@ import {
   InMemoryTeacherExamAttemptStore,
   InMemoryTeacherExamAttemptAnswerStore,
 } from "../modules/teacher-platform/index.js";
+import {
+  InMemoryPresentationProjectStore,
+  InMemoryPresentationSlideStore,
+  InMemoryPresentationReferenceStore,
+  InMemoryPresentationGenerationOperationStore,
+} from "../modules/presentation/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
 import type { ApiConfig } from "../config.js";
@@ -330,6 +336,8 @@ export async function composeLocalDev(
     organizationStore,
     defaultPolicy,
     config.systemOrganizationId as OrganizationId,
+    undefined,
+    walletService,
   );
 
   const v1Options: V1RouteOptions = {
@@ -395,6 +403,10 @@ export async function composeLocalDev(
     personalSummaryStore,
     personalSummaryService,
     mindMapService,
+    presentationProjectStore: new InMemoryPresentationProjectStore(),
+    presentationSlideStore: new InMemoryPresentationSlideStore(),
+    presentationReferenceStore: new InMemoryPresentationReferenceStore(),
+    presentationGenerationOperationStore: new InMemoryPresentationGenerationOperationStore(),
   };
 
   // Seed demo data for local development — awaited before routes register

@@ -20,7 +20,7 @@ import {
 import { useAdmin } from "../../../hooks/useAdmin.js";
 import type { OfficialCourse } from "../../../lib/api/admin.js";
 import { AdminCourseDeleteModal } from "../courses/AdminCourseDeleteModal.js";
-import { ACADEMIC_FIELDS } from "@avana/domain";
+import { ACADEMIC_FIELDS, normalizeCourseSlug, isValidCourseSlug } from "@avana/domain";
 
 export interface CourseSettingsPanelProps {
   course: OfficialCourse;
@@ -33,6 +33,7 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
 
   // Form state
   const [name, setName] = useState(course.name || "");
+  const [slug, setSlug] = useState(course.slug || "");
   const [subject, setSubject] = useState(course.subject || "");
   const [targetAcademicFields, setTargetAcademicFields] = useState<string[]>(
     course.targetAcademicFields || [],
@@ -56,9 +57,10 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
   // Sync internal form state if incoming course prop changes
   useEffect(() => {
     setName(course.name || "");
+    setSlug(course.slug || "");
     setSubject(course.subject || "");
     setTargetAcademicFields(course.targetAcademicFields || []);
-  }, [course.name, course.subject, course.targetAcademicFields]);
+  }, [course.name, course.slug, course.subject, course.targetAcademicFields]);
 
   const handleCopyId = async () => {
     try {
@@ -77,6 +79,15 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
       return;
     }
 
+    let cleanSlug: string | undefined = undefined;
+    if (slug.trim()) {
+      cleanSlug = normalizeCourseSlug(slug);
+      if (!isValidCourseSlug(cleanSlug)) {
+        setSaveError("فرمت اسلاگ معتبر نیست. از حروف کوچک انگلیسی، اعداد و خط فاصله استفاده کنید (مثال: pharmacology-2).");
+        return;
+      }
+    }
+
     try {
       setSaving(true);
       setSaveError(null);
@@ -84,6 +95,7 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
 
       const res = await adminApi.updateCourseMetadata(course.id, {
         name: name.trim(),
+        slug: cleanSlug,
         subject: subject.trim() || undefined,
         ...(targetAcademicFields.length > 0 ? { targetAcademicFields } : {}),
       });
@@ -96,8 +108,13 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
         throw new Error("خطا در ذخیره مشخصات دوره");
       }
     } catch (err: unknown) {
-      const e = err as Error;
-      setSaveError(e.message || "خطا در برقراری ارتباط با سرور");
+      const e = err as { message?: string; response?: { data?: { code?: string; message?: string } } };
+      const msg = e.response?.data?.message || e.message;
+      if (msg?.includes("قبلاً استفاده شده است") || e.response?.data?.code === "conflict") {
+        setSaveError("این شناسه (اسلاگ) قبلاً برای دوره دیگری استفاده شده است. لطفاً شناسه یکتای دیگری انتخاب کنید.");
+      } else {
+        setSaveError(msg || "خطا در برقراری ارتباط با سرور");
+      }
     } finally {
       setSaving(false);
     }
@@ -222,6 +239,26 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
                   disabled={saving}
                   className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 text-xs sm:text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)] focus:ring-1 focus:ring-[var(--color-primary-default)] transition-colors"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[var(--color-text)] mb-2">
+                  شناسه آدرس عمومی و سئو (URL Slug)
+                </label>
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value)}
+                  placeholder="e.g. pharmacology-2"
+                  disabled={saving}
+                  className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 text-xs sm:text-sm text-left text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)] focus:ring-1 focus:ring-[var(--color-primary-default)] transition-colors font-mono"
+                />
+                <p className="mt-1.5 text-[11px] text-[var(--color-text-muted)] leading-relaxed">
+                  آدرس عمومی دوره در سایت: <span className="font-mono text-primary font-medium" dir="ltr">{`https://aavana.ir/courses/${slug || course.slug || course.id}`}</span>
+                  <br />
+                  از حروف کوچک انگلیسی، اعداد و خط فاصله (-) استفاده کنید. در صورت تغییر، پیوند قبلی به آدرس جدید هدایت دائمی (301 Redirect) می‌شود.
+                </p>
               </div>
 
               <div>

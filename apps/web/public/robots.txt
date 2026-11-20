@@ -38,5 +38,6 @@ Allow: /terms
 Allow: /blog
 Allow: /blog/*
 Allow: /brand/
+Allow: /courses/*
 
 Sitemap: https://aavana.ir/sitemap.xml

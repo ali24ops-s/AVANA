@@ -140,6 +140,20 @@ import {
   reconcilePendingSupportNotifications,
   type SupportNotificationQueue,
 } from "../modules/support/index.js";
+import {
+  DrizzlePresentationProjectStore,
+  DrizzlePresentationSlideStore,
+  DrizzlePresentationReferenceStore,
+  DrizzlePresentationGenerationOperationStore,
+  PresentationGenerationService,
+  PresentationLayoutService,
+  PresentationGenerationOperationService,
+  PresentationRecoveryWorker,
+} from "../modules/presentation/index.js";
+import {
+  DrizzlePollStore,
+  DrizzlePollResponseStore,
+} from "../modules/studio/poll-stores.js";
 import { LocalStorageProvider } from "../modules/storage/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
@@ -158,6 +172,7 @@ export interface ProductionDependencies {
   telegramOutboxStore?: DrizzleTelegramOutboxStore;
   telegramOutboxDispatcher?: TelegramOutboxDispatcher;
   worker?: Worker;
+  presentationRecoveryWorker?: PresentationRecoveryWorker;
   errorStore?: ErrorMonitoringStore;
   errorMonitoringService?: ErrorMonitoringService;
   close: () => Promise<void>;
@@ -472,6 +487,11 @@ export async function composeProduction(
   // Library & Content Pack Stores
   const contentPackStore = new DrizzleContentPackStore(db);
   const contentPackUsageStore = new DrizzleContentPackUsageStore(db);
+
+  // Presentation Assistant Stores
+  const presentationProjectStore = new DrizzlePresentationProjectStore(db);
+  const presentationSlideStore = new DrizzlePresentationSlideStore(db);
+  const presentationReferenceStore = new DrizzlePresentationReferenceStore(db);
 
   // Unified central ModelGateway: user content generation and assistant/mentor
   // use the centralized Gemini API infrastructure sharing the same key pool and rate limiter.
@@ -806,7 +826,58 @@ export async function composeProduction(
     organizationStore,
     defaultPolicy,
     config.systemOrganizationId as OrganizationId,
+    undefined,
+    walletService,
   );
+
+  // Presentation Assistant Financial State Machine & Generation Services
+  const presentationGenerationOperationStore =
+    new DrizzlePresentationGenerationOperationStore(db);
+  const presentationGenerationService = new PresentationGenerationService({
+    projectStore: presentationProjectStore,
+    slideStore: presentationSlideStore,
+    organizationStore,
+    gateway: userGateway,
+  });
+  const presentationLayoutService = new PresentationLayoutService({
+    projectStore: presentationProjectStore,
+    slideStore: presentationSlideStore,
+    organizationStore,
+  });
+  const presentationGenerationOperationService =
+    new PresentationGenerationOperationService(
+      presentationGenerationOperationStore,
+      presentationSlideStore,
+      presentationGenerationService,
+      walletService,
+      presentationLayoutService,
+    );
+
+  // Autonomous Presentation Billing Recovery Worker
+  const presentationRecoveryWorker = new PresentationRecoveryWorker({
+    operationService: presentationGenerationOperationService,
+    logger: {
+      info: (obj, msg) => {
+        const payload = typeof obj === "string" ? { message: obj } : obj;
+        process.stdout.write(
+          `[presentation-recovery] INFO: ${msg ?? ""} ${JSON.stringify(payload)}\n`,
+        );
+      },
+      warn: (obj, msg) => {
+        const payload = typeof obj === "string" ? { message: obj } : obj;
+        process.stdout.write(
+          `[presentation-recovery] WARN: ${msg ?? ""} ${JSON.stringify(payload)}\n`,
+        );
+      },
+      error: (obj, msg) => {
+        const payload = typeof obj === "string" ? { message: obj } : obj;
+        process.stderr.write(
+          `[presentation-recovery] ERROR: ${msg ?? ""} ${JSON.stringify(payload)}\n`,
+        );
+      },
+    },
+  });
+  presentationRecoveryWorker.start();
 
   const v1Options: V1RouteOptions = {
     config,
@@ -883,6 +954,15 @@ export async function composeProduction(
     personalSummaryStore,
     personalSummaryService,
     mindMapService,
+    presentationProjectStore,
+    presentationSlideStore,
+    presentationReferenceStore,
+    presentationGenerationOperationStore,
+    presentationGenerationOperationService,
+    presentationGenerationService,
+    presentationLayoutService,
+    pollStore: new DrizzlePollStore(db),
+    pollResponseStore: new DrizzlePollResponseStore(db),
     db,
   };
 
@@ -1056,6 +1136,7 @@ export async function composeProduction(
       await telegramOpsBot.stop();
     }
     await telegramOutboxDispatcher.stop();
+    await presentationRecoveryWorker.stop();
     if ("destroy" in adminGateway && typeof adminGateway.destroy === "function") {
       adminGateway.destroy();
     }
@@ -1074,6 +1155,7 @@ export async function composeProduction(
     telegramOutboxStore,
     telegramOutboxDispatcher,
     worker,
+    presentationRecoveryWorker,
     errorStore,
     errorMonitoringService,
     close: enhancedClose,

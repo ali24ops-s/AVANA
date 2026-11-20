@@ -318,29 +318,31 @@ export function formatStudyPlannerTaskTitle(
 }
 
 export function resolveTaskNavigationUrl(task: StudyTaskResource): string | null {
+  const courseIdentifier = (task as any).courseSlug || (task as any).course_slug || task.courseId;
+
   switch (task.taskType) {
     case "read_lesson":
-      if (task.courseId && task.lessonId) {
-        return `/courses/${task.courseId}?tab=lessons&lessonId=${task.lessonId}`;
+      if (courseIdentifier && task.lessonId) {
+        return `/courses/${courseIdentifier}?tab=lessons&lessonId=${task.lessonId}`;
       }
-      if (task.courseId) {
-        return `/courses/${task.courseId}?tab=lessons`;
+      if (courseIdentifier) {
+        return `/courses/${courseIdentifier}?tab=lessons`;
       }
       return null;
 
     case "review_flashcards":
-      if (task.courseId) {
-        return `/flashcards/review?courses=${task.courseId}`;
+      if (courseIdentifier) {
+        return `/flashcards/review?courses=${courseIdentifier}`;
       }
       return "/flashcards/review";
 
     case "take_quiz":
     case "review_wrong_answers":
-      if (task.courseId && task.quizId) {
-        return `/courses/${task.courseId}?tab=quizzes&quizId=${task.quizId}`;
+      if (courseIdentifier && task.quizId) {
+        return `/courses/${courseIdentifier}?tab=quizzes&quizId=${task.quizId}`;
       }
-      if (task.courseId) {
-        return `/courses/${task.courseId}?tab=quizzes`;
+      if (courseIdentifier) {
+        return `/courses/${courseIdentifier}?tab=quizzes`;
       }
       return "/exams";
 

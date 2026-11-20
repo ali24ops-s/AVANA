@@ -31,6 +31,8 @@ import type {
   ModuleRecord,
 } from "./learning-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import { generatedContents } from "@avana/database/schema";
+import { eq, and, isNull } from "drizzle-orm";
 
 type ContentMetadata = { length: number; hash: string };
 
@@ -558,12 +560,34 @@ export class ContentService {
       moduleId,
       lessonId,
     });
-    await this.resolveCourse(courseId, organizationId, actor.userId);
+    const course = await this.resolveCourse(courseId, organizationId, actor.userId);
     await this.resolveModule(moduleId, courseId);
     const lesson = await this.resolveLesson(lessonId, moduleId);
-    lesson.deletedAt = new Date().toISOString();
+    const now = new Date();
+    lesson.deletedAt = now.toISOString();
     lesson.updatedAt = lesson.deletedAt;
     await this.lessonStore.update(lesson);
+
+    // Sync generated content record if this lesson was materialized from AI generation
+    const db = (this.lessonStore as unknown as { db?: any })?.db;
+    if (db && course.status !== "published") {
+      await db
+        .update(generatedContents)
+        .set({
+          status: "draft",
+          acceptedAt: null,
+          acceptedBy: null,
+          materializedLessonId: null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(generatedContents.materializedLessonId, lessonId as any),
+            isNull(generatedContents.deletedAt),
+          ),
+        );
+    }
+
     if (this.auditService) {
       await this.auditService.emit([
         auditLessonDeleted(

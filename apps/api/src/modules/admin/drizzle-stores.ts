@@ -35,6 +35,7 @@ import {
   walletTransactions,
   courseReleases,
   feedbacks,
+  courseSlugRedirects,
 } from "@avana/database/schema";
 import { DrizzleErrorStore } from "../../observability/drizzle-error-store.js";
 import type { ErrorMonitoringStore } from "../../observability/error-monitoring-store.js";
@@ -59,11 +60,14 @@ import {
   SUBSCRIPTION_CREDIT_BONUSES_CONFIG_KEY,
   asPromotionId,
   normalizeAcademicFields,
+  normalizeCourseSlug,
+  isValidCourseSlug,
   toPersianDigits,
   DomainError,
 } from "@avana/domain";
 import { PromotionService } from "../commerce/promotion-service.js";
 import { checkRedisHealth } from "./redis-health.js";
+import { isContentOwnedByModule } from "../generation/module-content-ownership.js";
 import type {
   AdminStore,
   AdminPromotionDetail,
@@ -930,6 +934,7 @@ export class DrizzleAdminStore implements AdminStore {
 
       return {
         id: c.id,
+        slug: c.slug ?? null,
         name: c.name,
         subject: c.subject,
         description: c.description,
@@ -1407,7 +1412,7 @@ export class DrizzleAdminStore implements AdminStore {
     if (rows.length === 0) return null;
     const r = rows[0];
 
-    const [fcRows, qqRows] = await Promise.all([
+    const [fcRows, qqRows, gcRows] = await Promise.all([
       this.db
         .select({
           id: flashcards.id,
@@ -1430,6 +1435,17 @@ export class DrizzleAdminStore implements AdminStore {
         .from(quizQuestions)
         .where(and(eq(quizQuestions.lessonId, id), isNull(quizQuestions.deletedAt)))
         .orderBy(quizQuestions.sortOrder),
+      this.db
+        .select({ id: generatedContents.id })
+        .from(generatedContents)
+        .where(
+          and(
+            eq(generatedContents.materializedLessonId, id),
+            eq(generatedContents.status, "accepted"),
+            isNull(generatedContents.deletedAt),
+          ),
+        )
+        .limit(1),
     ]);
 
     return {
@@ -1442,6 +1458,7 @@ export class DrizzleAdminStore implements AdminStore {
       contentMarkdown: r.lesson.contentMarkdown,
       reference: r.lesson.reference || undefined,
       createdAt: r.lesson.createdAt.toISOString(),
+      generatedContentId: gcRows[0]?.id || null,
       flashcards: fcRows.map((fc) => ({
         id: fc.id,
         front: fc.question,
@@ -1593,9 +1610,18 @@ export class DrizzleAdminStore implements AdminStore {
       hasContent: boolean;
       flashcards?: number;
       quizzes?: number;
+      generatedContentId?: string | null;
+    }> = [];
+    let dbLessons: Array<{
+      id: string;
+      moduleId: string;
+      title: string;
+      publicationStatus: string;
+      createdAt: Date;
+      hasContent: boolean;
     }> = [];
     if (moduleIds.length > 0) {
-      const dbLessons = await this.db.select({
+      dbLessons = await this.db.select({
         id: lessons.id,
         moduleId: lessons.moduleId,
         title: lessons.title,
@@ -1609,24 +1635,43 @@ export class DrizzleAdminStore implements AdminStore {
       const lessonIds = dbLessons.map((l) => l.id);
 
       if (lessonIds.length > 0) {
-        const fcCounts = await this.db.select({ lessonId: flashcards.lessonId, count: count() })
-          .from(flashcards)
-          .where(and(inArray(flashcards.lessonId, lessonIds), isNull(flashcards.deletedAt)))
-          .groupBy(flashcards.lessonId);
-
-        const qCounts = await this.db.select({ lessonId: quizQuestions.lessonId, count: count() })
-          .from(quizQuestions)
-          .where(and(inArray(quizQuestions.lessonId, lessonIds), isNull(quizQuestions.deletedAt)))
-          .groupBy(quizQuestions.lessonId);
+        const [fcCounts, qCounts, gcRows] = await Promise.all([
+          this.db.select({ lessonId: flashcards.lessonId, count: count() })
+            .from(flashcards)
+            .where(and(inArray(flashcards.lessonId, lessonIds), isNull(flashcards.deletedAt)))
+            .groupBy(flashcards.lessonId),
+          this.db.select({ lessonId: quizQuestions.lessonId, count: count() })
+            .from(quizQuestions)
+            .where(and(inArray(quizQuestions.lessonId, lessonIds), isNull(quizQuestions.deletedAt)))
+            .groupBy(quizQuestions.lessonId),
+          this.db.select({
+            id: generatedContents.id,
+            materializedLessonId: generatedContents.materializedLessonId,
+          })
+            .from(generatedContents)
+            .where(
+              and(
+                inArray(generatedContents.materializedLessonId, lessonIds),
+                eq(generatedContents.status, "accepted"),
+                isNull(generatedContents.deletedAt),
+              ),
+            ),
+        ]);
 
         const fcMap = new Map(fcCounts.map((r) => [r.lessonId, r.count]));
         const qMap = new Map(qCounts.map((r) => [r.lessonId, r.count]));
+        const gcMap = new Map(
+          gcRows
+            .filter((g) => g.materializedLessonId)
+            .map((g) => [g.materializedLessonId!, g.id]),
+        );
 
         courseLessons = dbLessons.map((l) => ({
           ...l,
           flashcards: fcMap.get(l.id) || 0,
           quizzes: qMap.get(l.id) || 0,
           hasContent: Boolean(l.hasContent),
+          generatedContentId: gcMap.get(l.id) || null,
         }));
       } else {
         courseLessons = dbLessons.map((l) => ({
@@ -1634,6 +1679,7 @@ export class DrizzleAdminStore implements AdminStore {
           flashcards: 0,
           quizzes: 0,
           hasContent: Boolean(l.hasContent),
+          generatedContentId: null,
         }));
       }
     }
@@ -1681,6 +1727,122 @@ export class DrizzleAdminStore implements AdminStore {
         ),
     ]);
 
+    const acceptedCourseContents = await this.db
+      .select({
+        id: generatedContents.id,
+        type: generatedContents.type,
+        documentId: generatedContents.documentId,
+        materializedLessonId: generatedContents.materializedLessonId,
+      })
+      .from(generatedContents)
+      .where(
+        and(
+          eq(generatedContents.courseId, courseId),
+          eq(generatedContents.status, "accepted"),
+          isNull(generatedContents.deletedAt),
+        ),
+      );
+
+    const moduleUnapprovableCountMap = new Map<string, number>();
+
+    if (acceptedCourseContents.length > 0) {
+      const candidateGcIds = acceptedCourseContents.map((g) => g.id);
+      const [fcRows, qqRows] = await Promise.all([
+        this.db
+          .select({
+            generatedContentId: flashcards.generatedContentId,
+            lessonId: flashcards.lessonId,
+          })
+          .from(flashcards)
+          .where(
+            and(
+              inArray(flashcards.generatedContentId, candidateGcIds),
+              isNull(flashcards.deletedAt),
+            ),
+          ),
+        this.db
+          .select({
+            generatedContentId: quizQuestions.generatedContentId,
+            lessonId: quizQuestions.lessonId,
+          })
+          .from(quizQuestions)
+          .where(
+            and(
+              inArray(quizQuestions.generatedContentId, candidateGcIds),
+              isNull(quizQuestions.deletedAt),
+            ),
+          ),
+      ]);
+
+      const flashcardsByGc = new Map<string, Array<{ lessonId: string | null }>>();
+      for (const fc of fcRows) {
+        if (fc.generatedContentId) {
+          const list = flashcardsByGc.get(fc.generatedContentId) || [];
+          list.push({ lessonId: fc.lessonId });
+          flashcardsByGc.set(fc.generatedContentId, list);
+        }
+      }
+
+      const quizQuestionsByGc = new Map<string, Array<{ lessonId: string | null }>>();
+      for (const qq of qqRows) {
+        if (qq.generatedContentId) {
+          const list = quizQuestionsByGc.get(qq.generatedContentId) || [];
+          list.push({ lessonId: qq.lessonId });
+          quizQuestionsByGc.set(qq.generatedContentId, list);
+        }
+      }
+
+      const lessonsByModule = new Map<string, Set<string>>();
+      for (const m of courseModules) {
+        lessonsByModule.set(m.id, new Set());
+      }
+      for (const l of dbLessons) {
+        lessonsByModule.get(l.moduleId)?.add(l.id);
+      }
+
+      for (const m of courseModules) {
+        const moduleLessonIds = lessonsByModule.get(m.id) || new Set<string>();
+        const otherModules = courseModules.filter((om) => om.id !== m.id);
+        const otherLessonIds = new Set<string>();
+        for (const om of otherModules) {
+          const oIds = lessonsByModule.get(om.id) || new Set<string>();
+          for (const id of oIds) otherLessonIds.add(id);
+        }
+
+        const otherModuleDocIds = new Set<string>();
+        for (const om of otherModules) {
+          if (om.documentId) otherModuleDocIds.add(om.documentId);
+        }
+        const isDocumentShared = Boolean(
+          m.documentId && otherModuleDocIds.has(m.documentId),
+        );
+
+        const ownershipContext = {
+          targetModuleId: m.id,
+          targetModuleDocId: m.documentId,
+          moduleLessonIds,
+          otherLessonIds,
+          otherModuleDocIds,
+          isDocumentShared,
+        };
+
+        let count = 0;
+        for (const gc of acceptedCourseContents) {
+          if (
+            isContentOwnedByModule(
+              gc,
+              ownershipContext,
+              flashcardsByGc,
+              quizQuestionsByGc,
+            )
+          ) {
+            count++;
+          }
+        }
+        moduleUnapprovableCountMap.set(m.id, count);
+      }
+    }
+
     return {
       id: course.id,
       name: course.name,
@@ -1699,6 +1861,7 @@ export class DrizzleAdminStore implements AdminStore {
         title: m.title,
         sortOrder: m.sortOrder,
         subCourseGroupId: m.subCourseGroupId ?? null,
+        unapprovableContentCount: moduleUnapprovableCountMap.get(m.id) || 0,
         lessons: courseLessons.filter((l) => l.moduleId === m.id).map((l) => ({
           id: l.id,
           title: l.title,
@@ -1706,7 +1869,8 @@ export class DrizzleAdminStore implements AdminStore {
           flashcardCount: l.flashcards || 0,
           quizCount: l.quizzes || 0,
           hasContent: l.hasContent || false,
-          createdAt: l.createdAt.toISOString()
+          createdAt: l.createdAt.toISOString(),
+          generatedContentId: l.generatedContentId || null,
         })),
       }))
     };
@@ -2346,12 +2510,13 @@ export class DrizzleAdminStore implements AdminStore {
   async updateCourseMetadata(
     adminId: string,
     courseId: string,
-    payload: { name?: string; subject?: string; targetAcademicFields?: string[] },
+    payload: { name?: string; slug?: string; subject?: string; targetAcademicFields?: string[] },
   ): Promise<void> {
     await this.db.transaction(async (tx) => {
       const updateData: {
         updatedAt: Date;
         name?: string;
+        slug?: string;
         subject?: string;
         targetAcademicFields?: any;
       } = { updatedAt: new Date() };
@@ -2359,6 +2524,51 @@ export class DrizzleAdminStore implements AdminStore {
       if (payload.subject !== undefined) updateData.subject = payload.subject;
       if (payload.targetAcademicFields !== undefined) {
         updateData.targetAcademicFields = normalizeAcademicFields(payload.targetAcademicFields);
+      }
+
+      if (payload.slug !== undefined) {
+        const cleanSlug = normalizeCourseSlug(payload.slug);
+        if (!isValidCourseSlug(cleanSlug)) {
+          throw new DomainError("bad_request", "Invalid course slug format");
+        }
+        const [curr] = await tx
+          .select({ slug: courses.slug })
+          .from(courses)
+          .where(and(eq(courses.id, courseId), isNull(courses.deletedAt)))
+          .limit(1);
+
+        if (!curr) throw new Error("not_found");
+
+        if (curr.slug !== cleanSlug) {
+          const existing = await tx
+            .select({ id: courses.id })
+            .from(courses)
+            .where(and(eq(courses.slug, cleanSlug), isNull(courses.deletedAt)))
+            .limit(1);
+          if (existing.length > 0 && existing[0].id !== courseId) {
+            throw new DomainError("conflict", "این شناسه (اسلاگ) قبلاً استفاده شده است.");
+          }
+          // Prevent redirect loop: remove cleanSlug from redirects for this course
+          await tx
+            .delete(courseSlugRedirects)
+            .where(
+              and(
+                eq(courseSlugRedirects.courseId, courseId),
+                eq(courseSlugRedirects.slug, cleanSlug),
+              ),
+            );
+          // Insert previous slug into historical redirects
+          if (curr.slug && curr.slug.trim()) {
+            await tx
+              .insert(courseSlugRedirects)
+              .values({
+                courseId,
+                slug: curr.slug.trim(),
+              })
+              .onConflictDoNothing();
+          }
+          updateData.slug = cleanSlug;
+        }
       }
 
       const [res] = await tx.update(courses)

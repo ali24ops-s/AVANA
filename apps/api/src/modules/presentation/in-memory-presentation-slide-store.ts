@@ -68,6 +68,8 @@ export class InMemoryPresentationSlideStore implements PresentationSlideStore {
         extractionMetadata: input.extractionMetadata
           ? cloneRecord(input.extractionMetadata)
           : {},
+        paymentTransactionId: input.paymentTransactionId ?? null,
+        paidAt: input.paidAt ?? null,
         createdAt: now,
         updatedAt: now,
       };
@@ -156,6 +158,12 @@ export class InMemoryPresentationSlideStore implements PresentationSlideStore {
           ...(existing.extractionMetadata ?? {}),
           ...cloneRecord(input.extractionMetadata),
         };
+      }
+      if (input.paymentTransactionId !== undefined) {
+        existing.paymentTransactionId = input.paymentTransactionId;
+      }
+      if (input.paidAt !== undefined) {
+        existing.paidAt = input.paidAt;
       }
       existing.updatedAt = now;
 
@@ -246,6 +254,22 @@ export class InMemoryPresentationSlideStore implements PresentationSlideStore {
     }
   }
 
+  async deleteByProjectId(projectId: PresentationProjectId): Promise<number> {
+    const release = await this.acquireProjectLock(projectId);
+    try {
+      let count = 0;
+      for (const [id, slide] of this.slides.entries()) {
+        if (slide.projectId === projectId) {
+          this.slides.delete(id);
+          count++;
+        }
+      }
+      return count;
+    } finally {
+      release();
+    }
+  }
+
   async countByProjectId(projectId: PresentationProjectId): Promise<number> {
     let count = 0;
     for (const slide of this.slides.values()) {
@@ -254,5 +278,23 @@ export class InMemoryPresentationSlideStore implements PresentationSlideStore {
       }
     }
     return count;
+  }
+
+  async findStaleGeneratingSlides(
+    staleThresholdMs: number,
+  ): Promise<PresentationSlideRecord[]> {
+    const thresholdDate = Date.now() - staleThresholdMs;
+    const stale: PresentationSlideRecord[] = [];
+    for (const slide of this.slides.values()) {
+      const status = (slide.extractionMetadata as Record<string, unknown> | undefined)?.generationStatus;
+      if (
+        status === "generating" &&
+        !slide.paidAt &&
+        Date.parse(slide.updatedAt) <= thresholdDate
+      ) {
+        stale.push(cloneRecord(slide));
+      }
+    }
+    return stale;
   }
 }

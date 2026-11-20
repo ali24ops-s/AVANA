@@ -15,7 +15,6 @@ import {
   type CourseStatus,
 } from "@avana/domain";
 import {
-  defaultCourseCardCache,
   CourseCardCache,
 } from "../routes/course-card-renderer.js";
 
@@ -372,6 +371,9 @@ describe("Course Share & Open Graph Endpoints (/share/courses/:id)", () => {
     const response = await app.inject({
       method: "GET",
       url: `/courses/${courseId}`,
+      headers: {
+        "user-agent": "TelegramBot (like TwitterBot)",
+      },
     });
 
     expect(response.statusCode).toBe(200);

@@ -35,6 +35,10 @@ export class InMemoryOrganizationStore implements OrganizationStore {
     this.memberships.set(membership.id, membership);
   }
 
+  addOrganization(organization: OrganizationRecord): void {
+    this.organizations.set(organization.id, organization);
+  }
+
   async findByIdForUser(
     id: OrganizationId,
     userId: UserId,

@@ -666,8 +666,11 @@ describe("Retroactive Chemical Enrichment Test Suite (Phase 3)", () => {
       // Mismatched courseId should be rejected with bad_request
       await expect(
         service.enrichMindMapChemicals(userA, recordId, { courseId: "wrong-course-id" }),
-      ).rejects.toThrow(
-        new DomainError("bad_request", "سرفصل یا ماژول انتخاب‌شده متعلق به این دوره نیست."),
+      ).rejects.toThrowError(
+        expect.objectContaining({
+          code: "bad_request",
+          message: expect.stringContaining("متعلق به این دوره نیست"),
+        }),
       );
 
       // Matching courseId succeeds

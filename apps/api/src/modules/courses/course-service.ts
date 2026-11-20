@@ -37,6 +37,8 @@ import {
   buildActor,
   scoreCourseRelevance,
   normalizeAcademicFields,
+  normalizeCourseSlug,
+  isValidCourseSlug,
 } from "@avana/domain";
 import type { CourseStore, CourseRecord, CoursePublicationStore } from "./course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
@@ -53,6 +55,7 @@ export type CourseUpdateInput = {
   description?: string | null;
   subject?: string | null;
   targetAcademicFields?: string[] | null;
+  slug?: string | null;
   examAt?: string | null;
   examScope?: ExamScope | null;
 };
@@ -798,6 +801,24 @@ export class CourseService {
       course.examScope = input.examScope;
       course.officialExamScope = input.examScope;
       changes.exam_scope = input.examScope as never;
+    }
+
+    if (input.slug !== undefined) {
+      if (input.slug === null || input.slug.trim() === "") {
+        throw new DomainError("bad_request", "Course slug cannot be empty");
+      }
+      const normalized = normalizeCourseSlug(input.slug);
+      if (!isValidCourseSlug(normalized)) {
+        throw new DomainError(
+          "bad_request",
+          "Invalid course slug format. Use lowercase English letters, numbers, and hyphens.",
+        );
+      }
+      if (this.store.updateCourseSlug && normalized !== course.slug) {
+        const res = await this.store.updateCourseSlug(course.id, normalized);
+        course.slug = res.course.slug;
+        changes.slug = normalized;
+      }
     }
 
     course.updatedAt = new Date().toISOString();

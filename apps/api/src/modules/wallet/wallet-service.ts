@@ -219,6 +219,20 @@ export class WalletService {
   }
 
   /**
+   * Internal service method to find an existing transaction by idempotency key.
+   */
+  async findTransactionByIdempotencyKey(key: string): Promise<WalletTransactionRecord | null> {
+    return this.store.findTransactionByIdempotencyKey(key);
+  }
+
+  /**
+   * Internal service method to find an existing transaction by ID.
+   */
+  async findTransactionById(id: import("@avana/domain").WalletTransactionId): Promise<WalletTransactionRecord | null> {
+    return this.store.findTransactionById(id);
+  }
+
+  /**
    * Internal service method to debit a user's wallet atomically.
    * Throws DomainError('INSUFFICIENT_FUNDS') if user has insufficient credits.
    */

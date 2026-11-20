@@ -50,6 +50,9 @@ Thumbs.db
 # Test & E2E artifacts
 playwright-report/
 test-results/
+screenshots/
+**/screenshots/
+output/
 
 # Local document storage & user uploads
 storage/uploads/

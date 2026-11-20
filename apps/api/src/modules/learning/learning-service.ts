@@ -611,6 +611,7 @@ export class LearningService {
       request_id: requestId,
       course: {
         id: course.id,
+        slug: course.slug ?? null,
         organization_id: course.organizationId,
         title: (pubForContent && !canEditContent ? pubForContent.snapshot?.title : null) || course.name,
         subject: (pubForContent && !canEditContent ? pubForContent.snapshot?.subject : null) ?? course.subject,

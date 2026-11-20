@@ -49,7 +49,7 @@ import {
   calculateExamDaysRemaining,
 } from "../utils/date.js";
 import { PersianDatePicker } from "../components/ui/PersianDatePicker.js";
-import { useDailyMotivationalQuote } from "../utils/dailyQuote.js";
+import { useDailyMotivationalQuote, formatQuoteAttribution } from "../utils/dailyQuote.js";
 import { StudyAssistantModal } from "../components/ai/StudyAssistantModal.js";
 import { WelcomeGiftModal } from "../components/welcome/WelcomeGiftModal.js";
 import { DashboardOnboardingModal } from "../components/onboarding/DashboardOnboardingModal.js";
@@ -300,6 +300,7 @@ export function HomePage() {
 
   const currentDate = useCurrentPersianDate();
   const dailyQuote = useDailyMotivationalQuote();
+  const quoteAttribution = formatQuoteAttribution(dailyQuote);
 
   return (
     <div className="space-y-6 sm:space-y-8 pb-12">
@@ -316,9 +317,16 @@ export function HomePage() {
             <span className="text-[var(--color-text-muted)]">{currentDate.year}</span>
           </div>
         </div>
-        <p className="text-xs sm:text-sm md:text-base text-[var(--color-text-muted)] leading-relaxed max-w-2xl text-center sm:text-right">
-          {dailyQuote}
-        </p>
+        <div className="flex flex-col gap-1 max-w-2xl text-center sm:text-right">
+          <p className="text-xs sm:text-sm md:text-base text-[var(--color-text-muted)] leading-relaxed">
+            «{dailyQuote.text}»
+          </p>
+          {quoteAttribution ? (
+            <span className="text-[11px] sm:text-xs text-[var(--color-text-muted)] opacity-75 font-medium">
+              {quoteAttribution}
+            </span>
+          ) : null}
+        </div>
       </div>
 
       {/* 2. Main 12-Column Grid */}

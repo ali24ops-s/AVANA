@@ -173,6 +173,36 @@ export const SPECIAL_EVIDENCE_CRITERIA: Record<string, EvidenceCriteria> = {
             WHERE table_name='crm_campaign_executions' AND column_name='job_id';`,
     verify: (rows) => (rows[0]?.count === 1 ? "proven" : "missing"),
   },
+  "0101_scope_documents_by_course": {
+    id: "0101_scope_documents_by_course",
+    description: "Indexes: idx_documents_org_course_hash, idx_documents_org_unattached_hash",
+    query: `SELECT count(*)::int AS count FROM pg_indexes 
+            WHERE schemaname='public' AND indexname IN ('idx_documents_org_course_hash', 'idx_documents_org_unattached_hash');`,
+    verify: (rows) => (rows[0]?.count === 2 ? "proven" : "missing"),
+  },
+  "0102_marketing_quizzes_and_studio": {
+    id: "0102_marketing_quizzes_and_studio",
+    description: "Tables: marketing_quizzes, marketing_question_bank, marketing_quiz_questions, marketing_quiz_attempts",
+    query: `SELECT count(*)::int AS count FROM information_schema.tables 
+            WHERE table_schema='public' AND table_name IN ('marketing_quizzes', 'marketing_question_bank', 'marketing_quiz_questions', 'marketing_quiz_attempts');`,
+    verify: (rows) => (rows[0]?.count === 4 ? "proven" : "missing"),
+  },
+  "0103_courses_slug_and_backfill": {
+    id: "0103_courses_slug_and_backfill",
+    description: "Column: courses.slug and table: course_slug_redirects",
+    query: `SELECT (
+              (SELECT count(*)::int FROM information_schema.columns WHERE table_name='courses' AND column_name='slug') +
+              (SELECT count(*)::int FROM information_schema.tables WHERE table_schema='public' AND table_name='course_slug_redirects')
+            )::int AS count;`,
+    verify: (rows) => (rows[0]?.count === 2 ? "proven" : "missing"),
+  },
+  "0104_polls_and_surveys": {
+    id: "0104_polls_and_surveys",
+    description: "Tables: polls, poll_questions, poll_options, poll_responses, poll_answers, poll_answer_options",
+    query: `SELECT count(*)::int AS count FROM information_schema.tables 
+            WHERE table_schema='public' AND table_name IN ('polls', 'poll_questions', 'poll_options', 'poll_responses', 'poll_answers', 'poll_answer_options');`,
+    verify: (rows) => (rows[0]?.count === 6 ? "proven" : "missing"),
+  },
 };
 
 /**

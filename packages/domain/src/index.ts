@@ -51,3 +51,4 @@ export * from "./mind-map.js";
 export * from "./presentation.js";
 export * from "./presentation-layout.js";
 export * from "./crm.js";
+export * from "./course-slug.js";

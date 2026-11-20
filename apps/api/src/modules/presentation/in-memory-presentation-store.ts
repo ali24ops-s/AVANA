@@ -8,12 +8,17 @@ import {
   type PresentationReferenceRecord,
   type CreatePresentationReferenceInput,
   type UpdatePresentationReferenceInput,
+  type CreatePresentationProjectInput,
+  type UpdatePresentationProjectInput,
+  type UserId,
+  asPresentationProjectId,
   asDocumentId,
   DomainError,
   isDuplicateReference,
   normalizeSourceIdentifier,
   normalizeTitle,
   validatePresentationReferenceInput,
+  validatePresentationProjectInput,
 } from "@avana/domain";
 import type {
   PresentationProjectStore,
@@ -295,6 +300,39 @@ export class InMemoryPresentationProjectStore
 {
   private readonly projects = new Map<string, PresentationProjectRecord>();
 
+  async create(
+    input: CreatePresentationProjectInput,
+  ): Promise<PresentationProjectRecord> {
+    validatePresentationProjectInput(input);
+
+    const now = new Date().toISOString();
+    const id = asPresentationProjectId(randomUUID());
+
+    const record: PresentationProjectRecord = {
+      id,
+      organizationId: input.organizationId,
+      ownerUserId: input.ownerUserId,
+      title: input.title.trim(),
+      pptxDocumentId: input.pptxDocumentId ? asDocumentId(input.pptxDocumentId) : null,
+      targetDurationMinutes: input.targetDurationMinutes ?? 15,
+      academicLevel: input.academicLevel ?? "intermediate",
+      tone: input.tone ?? "formal_scientific",
+      elaborationDepth: input.elaborationDepth ?? "balanced",
+      status: input.status ?? "created",
+      currentStage: input.currentStage ?? null,
+      totalSlides: input.totalSlides ?? 0,
+      overallIntroduction: input.overallIntroduction ?? null,
+      overallConclusion: input.overallConclusion ?? null,
+      totalEstimatedSeconds: input.totalEstimatedSeconds ?? 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+
+    this.projects.set(id, record);
+    return { ...record };
+  }
+
   async findById(
     id: PresentationProjectId,
   ): Promise<PresentationProjectRecord | null> {
@@ -318,6 +356,57 @@ export class InMemoryPresentationProjectStore
       return null;
     }
     return { ...project };
+  }
+
+  async listByUserId(
+    userId: UserId,
+    organizationId?: OrganizationId,
+  ): Promise<PresentationProjectRecord[]> {
+    const list: PresentationProjectRecord[] = [];
+    for (const project of this.projects.values()) {
+      if (project.deletedAt) continue;
+      if (project.ownerUserId === userId) {
+        if (!organizationId || project.organizationId === organizationId) {
+          list.push({ ...project });
+        }
+      }
+    }
+    return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async update(
+    id: PresentationProjectId,
+    input: UpdatePresentationProjectInput,
+  ): Promise<PresentationProjectRecord> {
+    validatePresentationProjectInput(input);
+
+    const existing = this.projects.get(id);
+    if (!existing || existing.deletedAt) {
+      throw new DomainError("not_found", "Presentation project not found");
+    }
+
+    const updated: PresentationProjectRecord = {
+      ...existing,
+      title: input.title !== undefined ? input.title.trim() : existing.title,
+      targetDurationMinutes: input.targetDurationMinutes ?? existing.targetDurationMinutes,
+      academicLevel: input.academicLevel ?? existing.academicLevel,
+      tone: input.tone ?? existing.tone,
+      elaborationDepth: input.elaborationDepth ?? existing.elaborationDepth,
+      status: input.status ?? existing.status,
+      currentStage: input.currentStage !== undefined ? input.currentStage : existing.currentStage,
+      totalSlides: input.totalSlides !== undefined ? input.totalSlides : existing.totalSlides,
+      overallIntroduction: input.overallIntroduction !== undefined ? input.overallIntroduction : existing.overallIntroduction,
+      overallConclusion: input.overallConclusion !== undefined ? input.overallConclusion : existing.overallConclusion,
+      totalEstimatedSeconds: input.totalEstimatedSeconds !== undefined ? input.totalEstimatedSeconds : existing.totalEstimatedSeconds,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.projects.set(id, updated);
+    return { ...updated };
+  }
+
+  async delete(id: PresentationProjectId): Promise<boolean> {
+    return this.projects.delete(id);
   }
 
   seed(record: PresentationProjectRecord): void {

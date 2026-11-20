@@ -160,8 +160,8 @@ export interface ModuleStore {
   /** List all active (non-deleted) modules for a course, ordered by sort_order. */
   listByCourse(courseId: CourseId): Promise<ModuleRecord[]>;
 
-  /** Find an active module by document ID. */
-  findByDocument(documentId: DocumentId): Promise<ModuleRecord | undefined>;
+  /** Find an active module by document ID. Optionally filter by courseId. */
+  findByDocument(documentId: DocumentId, courseId?: CourseId): Promise<ModuleRecord | undefined>;
 
   /** Find a module by ID. */
   findById(moduleId: ModuleId): Promise<ModuleRecord | undefined>;

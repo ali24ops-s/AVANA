@@ -170,7 +170,8 @@ export function AddToCourseModal({
     if (onNavigateToCourse) {
       onNavigateToCourse(courseId);
     } else {
-      navigate(`/courses/${courseId}`);
+      const target = courses.find((c) => c.id === courseId);
+      navigate(`/courses/${(target as any)?.slug || courseId}`);
     }
   };
 

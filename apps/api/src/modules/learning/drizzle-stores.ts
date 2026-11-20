@@ -240,11 +240,15 @@ export class DrizzleModuleStore implements ModuleStore {
     return rows.map(toModuleRecord);
   }
 
-  async findByDocument(documentId: DocumentId): Promise<ModuleRecord | undefined> {
+  async findByDocument(documentId: DocumentId, courseId?: CourseId): Promise<ModuleRecord | undefined> {
+    const conditions = [eq(modules.documentId, documentId), isNull(modules.deletedAt)];
+    if (courseId) {
+      conditions.push(eq(modules.courseId, courseId));
+    }
     const row = await this.db
       .select()
       .from(modules)
-      .where(and(eq(modules.documentId, documentId), isNull(modules.deletedAt)))
+      .where(and(...conditions))
       .limit(1)
       .then((rows) => rows[0]);
 

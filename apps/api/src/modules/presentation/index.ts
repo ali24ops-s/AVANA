@@ -13,3 +13,10 @@ export * from "./server-citation-validator.js";
 export * from "./presentation-generation-schema.js";
 export * from "./presentation-prompt-builder.js";
 export * from "./presentation-generation-service.js";
+export * from "./presentation-layout-service.js";
+export * from "./presentation-project-routes.js";
+export * from "./presentation-import-service.js";
+export * from "./presentation-generation-operation-store.js";
+export * from "./presentation-generation-operation-service.js";
+export * from "./presentation-recovery-worker.js";
+

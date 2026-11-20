@@ -19,6 +19,7 @@ export interface CourseShareModalProps {
   onClose: () => void;
   course: {
     id: string;
+    slug?: string | null;
     title: string;
     subject?: string | null;
     description?: string | null;
@@ -39,7 +40,8 @@ export function CourseShareModal({
 
   const currentOrigin =
     typeof window !== "undefined" ? window.location.origin : "https://aavana.ir";
-  const canonicalUrl = `${currentOrigin}/courses/${encodeURIComponent(course.id)}`;
+  const courseIdentifier = course.slug || course.id;
+  const canonicalUrl = `${currentOrigin}/courses/${encodeURIComponent(courseIdentifier)}`;
 
   // Public base URL: ensures crawlers are not sent unreachable localhost URLs during local testing
   const isLocalhost =
@@ -50,7 +52,7 @@ export function CourseShareModal({
   const publicBaseUrl = isLocalhost ? "https://aavana.ir" : currentOrigin;
 
   // Standard canonical course URL: https://aavana.ir/courses/:id
-  const standardCourseUrl = `${publicBaseUrl}/courses/${encodeURIComponent(course.id)}`;
+  const standardCourseUrl = `${publicBaseUrl}/courses/${encodeURIComponent(courseIdentifier)}`;
   const cleanTitle = cleanEducationalTitle(course.title);
 
   const shareText = `دوره آموزشی «${cleanTitle}» در پلتفرم یادگیری آوانا\n${standardCourseUrl}`;

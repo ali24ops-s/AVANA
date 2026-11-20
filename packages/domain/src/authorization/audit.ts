@@ -60,6 +60,8 @@ export type AuditAction =
   | "content.rejected"
   | "content.regenerated"
   | "content.edited"
+  | "content.approval_revoked"
+  | "content.deleted"
   | "generation.failed"
   | "flashcard.reviewed"
   | "quiz.attempted"
@@ -820,6 +822,64 @@ export function auditContentEdited(
       document_id: details.documentId,
       type: details.type,
       changed_fields: details.changedFields,
+    },
+    createdAt: utcNow(),
+  };
+}
+
+/**
+ * Create an audit event for revoking approval of generated content.
+ */
+export function auditContentApprovalRevoked(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  contentId: GeneratedContentId,
+  details: {
+    courseId: string;
+    documentId: string;
+    type: string;
+    previousMaterializedLessonId?: string | null;
+  },
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "content.approval_revoked",
+    entityType: "generated_content",
+    entityId: contentId,
+    details: {
+      course_id: details.courseId,
+      document_id: details.documentId,
+      type: details.type,
+      previous_materialized_lesson_id: details.previousMaterializedLessonId ?? null,
+    },
+    createdAt: utcNow(),
+  };
+}
+
+/**
+ * Create an audit event for deleting generated content.
+ */
+export function auditContentDeleted(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  contentId: GeneratedContentId,
+  details: {
+    courseId: string;
+    documentId: string;
+    type: string;
+  },
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "content.deleted",
+    entityType: "generated_content",
+    entityId: contentId,
+    details: {
+      course_id: details.courseId,
+      document_id: details.documentId,
+      type: details.type,
     },
     createdAt: utcNow(),
   };

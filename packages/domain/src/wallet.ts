@@ -92,7 +92,9 @@ export type WalletReferenceType =
   | "promotion"
   | "referral"
   | "special_exam"
-  | "welcome_gift";
+  | "welcome_gift"
+  | "presentation_slide"
+  | "mind_map";
 
 export const WALLET_REFERENCE_TYPES: readonly WalletReferenceType[] = [
   "order",
@@ -105,7 +107,12 @@ export const WALLET_REFERENCE_TYPES: readonly WalletReferenceType[] = [
   "referral",
   "special_exam",
   "welcome_gift",
+  "presentation_slide",
+  "mind_map",
 ] as const;
+
+export const MIND_MAP_COST_TOMAN = 2500;
+export const PRESENTATION_SLIDE_COST_TOMAN = 1500;
 
 export function isWalletReferenceType(v: string): v is WalletReferenceType {
   return (WALLET_REFERENCE_TYPES as readonly string[]).includes(v);

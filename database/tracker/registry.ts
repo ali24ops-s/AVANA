@@ -1,3 +1,4 @@
+/* eslint-disable no-secrets/no-secrets */
 import type { MigrationDefinition } from "./types.js";
 
 import { up as up0001 } from "../migrations/0001_init.js";
@@ -98,6 +99,11 @@ import { up as up0098 } from "../migrations/0098_error_monitoring_core.js";
 import { up as up0099 } from "../migrations/0099_crm_campaigns.js";
 import { up as up0100 } from "../migrations/0100_crm_campaign_dispatch.js";
 import { up as up0101 } from "../migrations/0101_scope_documents_by_course.js";
+import { up as up0102 } from "../migrations/0102_marketing_quizzes_and_studio.js";
+import { up as up0103 } from "../migrations/0103_courses_slug_and_backfill.js";
+import { up as up0104 } from "../migrations/0104_polls_and_surveys.js";
+import { up as up0105 } from "../migrations/0105_presentation_slide_payments.js";
+import { up as up0106 } from "../migrations/0106_presentation_generation_operations.js";
 
 export const ALL_MIGRATIONS: MigrationDefinition[] = [
   {
@@ -687,5 +693,35 @@ export const ALL_MIGRATIONS: MigrationDefinition[] = [
     sequence: 101,
     up: up0101,
     sourceFile: "0101_scope_documents_by_course.ts",
+  },
+  {
+    id: "0102_marketing_quizzes_and_studio",
+    sequence: 102,
+    up: up0102,
+    sourceFile: "0102_marketing_quizzes_and_studio.ts",
+  },
+  {
+    id: "0103_courses_slug_and_backfill",
+    sequence: 103,
+    up: up0103,
+    sourceFile: "0103_courses_slug_and_backfill.ts",
+  },
+  {
+    id: "0104_polls_and_surveys",
+    sequence: 104,
+    up: up0104,
+    sourceFile: "0104_polls_and_surveys.ts",
+  },
+  {
+    id: "0105_presentation_slide_payments",
+    sequence: 105,
+    up: up0105,
+    sourceFile: "0105_presentation_slide_payments.ts",
+  },
+  {
+    id: "0106_presentation_generation_operations",
+    sequence: 106,
+    up: up0106,
+    sourceFile: "0106_presentation_generation_operations.ts",
   },
 ];

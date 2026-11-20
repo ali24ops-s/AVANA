@@ -12,7 +12,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
+import { useParams, Link, useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
@@ -150,6 +150,8 @@ function useOrganization() {
 export function LearningPage({ initialCourseId }: { initialCourseId?: string } = {}) {
   const { courseId: routeCourseId } = useParams<{ courseId: string }>();
   const courseId = routeCourseId || initialCourseId;
+  const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get("tab") as LearningTab | "mindmap" | null;
   const rawChapterId = searchParams.get("chapterId");
@@ -230,6 +232,14 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       );
     }
   }, [isLoading, isContentRestricted, rawTab, setSearchParams]);
+
+  // Soft-replace UUID in URL with canonical slug if available
+  useEffect(() => {
+    const courseSlug = (data?.course as { slug?: string | null } | undefined)?.slug;
+    if (courseSlug && routeCourseId && routeCourseId !== courseSlug) {
+      navigate(`/courses/${courseSlug}${location.search}`, { replace: true });
+    }
+  }, [data?.course, routeCourseId, location.search, navigate]);
 
   // Review queue query for badge count (only polled if generation is permitted and course is not restricted official)
   const reviewQueueQuery = useQuery({
@@ -720,7 +730,13 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       <CourseSEO
         title={course.title}
         subject={course.subject}
-        description={(course as any).description}
+        description={(course as { description?: string }).description}
+        canonicalUrl={
+          isOfficial && (data?.course as { status?: string } | undefined)?.status === "published"
+            ? (typeof window !== "undefined" ? `${window.location.origin}/courses/${(course as { slug?: string }).slug || course.id}` : null)
+            : null
+        }
+        isPublic={isOfficial && (data?.course as { status?: string } | undefined)?.status === "published"}
       />
 
       {/* Course header with progress bar */}
@@ -847,9 +863,9 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       <AppErrorBoundary compact={true}>
         {effectiveActiveTab === "review_summary" && (
         <CourseReviewSummaryView
-          key={courseId}
+          key={data?.course?.id || courseId}
           organizationId={data?.course?.organization_id || organization.id}
-          courseId={courseId!}
+          courseId={data?.course?.id || courseId!}
           modules={data?.modules}
           previewDocumentId={data?.preview?.preview_document_id}
           isPreview={isCourseLocked}

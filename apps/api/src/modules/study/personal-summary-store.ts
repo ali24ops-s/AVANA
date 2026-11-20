@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { eq, and, or, desc, sql, lte, gt } from "drizzle-orm";
+import { eq, and, or, desc, sql, lte, gt, isNotNull, ne } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   userPersonalContents,
@@ -75,6 +75,12 @@ export interface PersonalSummaryStore {
     moduleId: string,
     contentType?: PersonalContentType,
   ): Promise<PersonalSummaryRecord | null>;
+
+  hasValidPaidRecord(
+    userId: UserId,
+    moduleId: string,
+    contentType?: PersonalContentType,
+  ): Promise<boolean>;
 
   findActivePending(
     userId: UserId,
@@ -222,6 +228,33 @@ export class DrizzlePersonalSummaryStore implements PersonalSummaryStore {
       .limit(1);
 
     return row ? this.mapRow(row) : null;
+  }
+
+  async hasValidPaidRecord(
+    userId: UserId,
+    moduleId: string,
+    contentType: PersonalContentType = "review_summary",
+  ): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: userPersonalContents.id })
+      .from(userPersonalContents)
+      .where(
+        and(
+          eq(userPersonalContents.userId, userId),
+          eq(userPersonalContents.moduleId, moduleId),
+          eq(userPersonalContents.contentType, contentType),
+          eq(userPersonalContents.status, "completed"),
+          isNotNull(userPersonalContents.transactionId),
+          gt(userPersonalContents.costToman, 0),
+          or(
+            sql`${userPersonalContents.refundStatus} IS NULL`,
+            ne(userPersonalContents.refundStatus, "refunded"),
+          ),
+        ),
+      )
+      .limit(1);
+
+    return Boolean(row);
   }
 
   async findActivePending(
@@ -722,6 +755,23 @@ export class InMemoryPersonalSummaryStore implements PersonalSummaryStore {
       .sort((a, b) => b.version - a.version);
 
     return filtered[0] ?? null;
+  }
+
+  async hasValidPaidRecord(
+    userId: UserId,
+    moduleId: string,
+    contentType: PersonalContentType = "review_summary",
+  ): Promise<boolean> {
+    return this.records.some(
+      (r) =>
+        r.userId === userId &&
+        r.moduleId === moduleId &&
+        r.contentType === contentType &&
+        r.status === "completed" &&
+        r.transactionId != null &&
+        r.costToman > 0 &&
+        r.refundStatus !== "refunded",
+    );
   }
 
   async findActivePending(

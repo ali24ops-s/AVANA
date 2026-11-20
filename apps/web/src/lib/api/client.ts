@@ -29,7 +29,15 @@ export type RequestOptions = {
   headers?: Record<string, string>;
   params?: Record<string, unknown>;
   signal?: AbortSignal;
+  responseType?: "json" | "blob";
 };
+
+export interface BlobResponse {
+  blob: Blob;
+  filename?: string;
+  contentType: string;
+  headers?: Headers;
+}
 
 /**
  * Generate a UUID v4 string safely across all environments:
@@ -237,6 +245,42 @@ export function createApiClient(options: ApiClientOptions) {
       return undefined as T;
     }
 
+    if (opts.responseType === "blob" && response.ok) {
+      const disposition =
+        (typeof response.headers?.get === "function"
+          ? response.headers.get("content-disposition")
+          : null) || "";
+      let filename: string | undefined;
+      if (disposition) {
+        const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match?.[1]) {
+          try {
+            filename = decodeURIComponent(utf8Match[1].trim());
+          } catch {
+            // fallback
+          }
+        } else {
+          const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+          if (asciiMatch?.[1]) {
+            filename = asciiMatch[1].trim();
+          }
+        }
+      }
+      const blob = typeof response.blob === "function" ? await response.blob() : new Blob();
+      const contentType =
+        (typeof response.headers?.get === "function"
+          ? response.headers.get("content-type")
+          : null) ||
+        (blob as Blob).type ||
+        "application/octet-stream";
+      return {
+        blob,
+        filename,
+        contentType,
+        headers: response.headers,
+      } as unknown as T;
+    }
+
     let data: unknown;
     try {
       if (typeof response.text === "function") {
@@ -362,8 +406,35 @@ export function createApiClient(options: ApiClientOptions) {
     delete<T>(path: string, opts?: Omit<RequestOptions, "method">): Promise<T> {
       return request<T>(path, { ...opts, method: "DELETE" });
     },
+    postBlob(
+      path: string,
+      body?: unknown,
+      opts?: Omit<RequestOptions, "method" | "body" | "responseType">,
+    ): Promise<BlobResponse> {
+      return request<BlobResponse>(path, { ...opts, method: "POST", body, responseType: "blob" });
+    },
+    getBlob(
+      path: string,
+      opts?: Omit<RequestOptions, "method" | "responseType">,
+    ): Promise<BlobResponse> {
+      return request<BlobResponse>(path, { ...opts, method: "GET", responseType: "blob" });
+    },
   };
 }
 
+/**
+ * Safely triggers browser file download for a Blob with object URL cleanup.
+ */
+export function downloadBlob(blob: Blob, filename: string): void {
+  if (typeof window === "undefined" || !window.document || !window.URL) return;
+  const url = window.URL.createObjectURL(blob);
+  const a = window.document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  window.document.body.appendChild(a);
+  a.click();
+  window.document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+}
 
 export type ApiClient = ReturnType<typeof createApiClient>;

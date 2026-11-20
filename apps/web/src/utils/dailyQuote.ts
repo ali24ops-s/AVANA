@@ -1,42 +1,25 @@
 import { useEffect, useState } from "react";
+import {
+  CURATED_DAILY_QUOTES,
+  DAILY_QUOTE_CYCLE_PERMUTATION,
+  type DailyQuote,
+  type QuoteCategory,
+  type AttributionType,
+} from "./dailyQuotesData.js";
+
+export {
+  CURATED_DAILY_QUOTES,
+  DAILY_QUOTE_CYCLE_PERMUTATION,
+  type DailyQuote,
+  type QuoteCategory,
+  type AttributionType,
+};
 
 /**
- * Curated list of friendly, encouraging Persian motivational quotes
- * tailored for studying, learning, continuous improvement, and focus.
- * Contains 30 quotes (exceeding the >= 20 requirement).
+ * Backward-compatible array of quote texts for any legacy references.
  */
-export const MOTIVATIONAL_QUOTES: readonly string[] = [
-  "هر قدم کوچک امروز، موفقیت بزرگ فردای توست.",
-  "استمرار و پیوستگی، کلید یادگیری عمیق و ماندگار است.",
-  "یادگیری یک سفر بی‌پایان است؛ از هر لحظه مسیر لذت ببر.",
-  "تلاش و تمرکز امروزت، آینده‌ات را روشن‌تر از همیشه می‌سازد.",
-  "ذهن تو با هر کلمه‌ای که یاد می‌گیری، قدرتمندتر می‌شود.",
-  "حتی بیست دقیقه مطالعه متمرکز، تغییری بزرگ ایجاد می‌کند.",
-  "پشتکار یعنی ادامه دادن، حتی زمانی که مباحث آسان نیستند.",
-  "امروز بهترین فرصت برای یاد گرفتن چیزهایی است که دیروز نمی‌دانستی.",
-  "به توانایی‌های خودت ایمان داشته باش؛ تو از پسش برمی‌آیی.",
-  "پیشرفت‌های کوچکِ هر روزه، نتایج شگفت‌انگیز می‌آفرینند.",
-  "دانش تنها سرمایه‌ای است که با به اشتراک گذاشتن، بیشتر می‌شود.",
-  "کیفیت مطالعه مهم‌تر از ساعت‌های آن است؛ هوشمندانه یاد بگیر.",
-  "اشتباهات، نشانه‌های شجاعت تو در درک مفاهیم جدید هستند.",
-  "به خودت افتخار کن که هر روز برای رشد فکری‌ات وقت می‌گذاری.",
-  "با هر پرسش و چالش جدید، درک عمیق‌تری پیدا می‌کنی.",
-  "انگیزه تو را به حرکت درمی‌آورد و عادت‌ها تو را به مقصد می‌رسانند.",
-  "امروز با آرامش، اشتیاق و تمرکز کامل مطالعه را شروع کن.",
-  "موفقیت یعنی تکرار منظم کارهای درست در طول زمان.",
-  "هر صفحه‌ای که می‌خوانی، دریچه‌ای رو به افق‌های روشن‌تر است.",
-  "فرصت‌های بزرگ در دل تلاش‌های روزمره و مداوم شکل می‌گیرند.",
-  "ذهنت را برای یادگیری باز نگه دار؛ شگفتی‌ها در انتظار تو هستند.",
-  "پیروزی از آنِ کسانی است که یادگیری را متوقف نمی‌کنند.",
-  "امروز گامی هرچند کوچک به سوی هدف‌های ارزشمندت بردار.",
-  "صبور باش؛ دانه‌های تلاشت به مرور به درختی تنومند تبدیل می‌شوند.",
-  "لذت کشف و فهمیدن، بهترین پاداش مطالعه متمرکز است.",
-  "برای شروع نیازی نیست عالی باشی، اما برای عالی شدن باید شروع کنی.",
-  "قدرت اراده‌ات بیشتر از هر چالش و امتحان سختی است.",
-  "هر روز با انگیزه یادگیری آغاز کن و با رضایت از پیشرفت به پایان برسان.",
-  "آینده به کسانی تعلق دارد که به ارزش آموزش و رشد باور دارند.",
-  "مطالعه امروز، سرمایه‌گذاری برای فردایی پربارتر و مطمئن‌تر است.",
-];
+export const MOTIVATIONAL_QUOTES: readonly string[] =
+  CURATED_DAILY_QUOTES.map((q) => q.text);
 
 /**
  * Returns a deterministic date key (YYYY-MM-DD) based on Asia/Tehran timezone.
@@ -101,31 +84,138 @@ export function hashString(key: string): number {
 }
 
 /**
- * Calculates a deterministic zero-based index for the day's quote.
+ * Converts a Tehran date (or Date object) into consecutive days since epoch.
+ * Monotonically increments by 1 for each successive calendar day in Tehran.
  */
-export function getDailyQuoteIndex(
-  dateKey: string,
-  totalQuotes: number = MOTIVATIONAL_QUOTES.length,
-): number {
-  if (totalQuotes <= 0) return 0;
-  const hash = hashString(dateKey);
-  return hash % totalQuotes;
+export function getTehranDaysSinceEpoch(date: Date = new Date()): number {
+  const dateKey = getTehranDateKey(date);
+  const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    const year = parseInt(match[1]!, 10);
+    const month = parseInt(match[2]!, 10);
+    const day = parseInt(match[3]!, 10);
+    return Math.floor(Date.UTC(year, month - 1, day) / 86400000);
+  }
+  // Graceful fallback
+  return Math.floor(date.getTime() / 86400000);
 }
 
 /**
- * Retrieves the daily motivational quote for a given date in Asia/Tehran timezone.
+ * Calculates a deterministic zero-based index for the day's quote.
+ *
+ * Algorithm guarantees:
+ * 1. Successive calendar days are mathematically guaranteed to never repeat.
+ * 2. All users and tabs on the same day resolve to the identical index.
+ * 3. The cycle repeats from the start every 100 days (or totalQuotes count).
+ * 4. Indices are mapped through DAILY_QUOTE_CYCLE_PERMUTATION for an alternating,
+ *    richly mixed experience across books, cinema, and philosophy.
+ */
+export function getDailyQuoteIndex(
+  dateOrKey: Date | string = new Date(),
+  totalQuotes: number = CURATED_DAILY_QUOTES.length,
+): number {
+  if (totalQuotes <= 0) return 0;
+
+  let daysCount: number;
+  if (typeof dateOrKey === "string") {
+    const match = dateOrKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (match) {
+      const year = parseInt(match[1]!, 10);
+      const month = parseInt(match[2]!, 10);
+      const day = parseInt(match[3]!, 10);
+      daysCount = Math.floor(Date.UTC(year, month - 1, day) / 86400000);
+    } else {
+      daysCount = hashString(dateOrKey);
+    }
+  } else {
+    daysCount = getTehranDaysSinceEpoch(dateOrKey);
+  }
+
+  const cycleDay = ((daysCount % totalQuotes) + totalQuotes) % totalQuotes;
+
+  if (
+    totalQuotes === DAILY_QUOTE_CYCLE_PERMUTATION.length &&
+    DAILY_QUOTE_CYCLE_PERMUTATION[cycleDay] !== undefined
+  ) {
+    return DAILY_QUOTE_CYCLE_PERMUTATION[cycleDay]!;
+  }
+
+  return cycleDay;
+}
+
+/**
+ * Retrieves the daily quote for a given date in Asia/Tehran timezone.
  * Pure and deterministic: identical date input always produces the identical quote.
  */
 export function getDailyMotivationalQuote(
   date: Date = new Date(),
-  quotes: readonly string[] = MOTIVATIONAL_QUOTES,
-): string {
+  quotes: readonly DailyQuote[] = CURATED_DAILY_QUOTES,
+): DailyQuote {
   if (!quotes || quotes.length === 0) {
-    return "";
+    return {
+      id: "q-fallback",
+      text: "هر قدم کوچک امروز، موفقیت بزرگ فردای توست.",
+      category: "original",
+      attributionType: "original",
+    };
   }
-  const dateKey = getTehranDateKey(date);
-  const index = getDailyQuoteIndex(dateKey, quotes.length);
-  return quotes[index] ?? quotes[0] ?? "";
+  const index = getDailyQuoteIndex(date, quotes.length);
+  return quotes[index] ?? quotes[0]!;
+}
+
+/**
+ * Formats attribution source line for a quote according to its category and metadata:
+ * - Book: «نام کتاب — نویسنده»
+ * - Movie: «نام فیلم — شخصیت» (یا فقط «نام فیلم»)
+ * - Philosophy: «نام متفکر — اثر» (یا فقط «نام متفکر»)
+ * - Inspired: «با الهام از [نام اثر یا نویسنده]»
+ * - Original: «آوانا»
+ */
+export function formatQuoteAttribution(quote: DailyQuote): string {
+  if (!quote) return "";
+
+  if (quote.category === "original" || quote.attributionType === "original") {
+    return "آوانا";
+  }
+
+  let baseSource = "";
+  switch (quote.category) {
+    case "book":
+      if (quote.sourceTitle && quote.author) {
+        baseSource = `${quote.sourceTitle} — ${quote.author}`;
+      } else {
+        baseSource = quote.sourceTitle || quote.author || "";
+      }
+      break;
+
+    case "movie":
+      if (quote.sourceTitle && quote.speaker) {
+        baseSource = `${quote.sourceTitle} — ${quote.speaker}`;
+      } else if (quote.sourceTitle && quote.author) {
+        baseSource = `${quote.sourceTitle} — ${quote.author}`;
+      } else {
+        baseSource = quote.sourceTitle || quote.author || quote.speaker || "";
+      }
+      break;
+
+    case "philosophy":
+      if (quote.author && quote.sourceTitle) {
+        baseSource = `${quote.author} — ${quote.sourceTitle}`;
+      } else {
+        baseSource = quote.author || quote.sourceTitle || "";
+      }
+      break;
+
+    default:
+      baseSource = quote.author || quote.sourceTitle || "";
+      break;
+  }
+
+  if (quote.attributionType === "inspired" && baseSource) {
+    return `با الهام از ${baseSource}`;
+  }
+
+  return baseSource;
 }
 
 /**
@@ -170,15 +260,15 @@ export function getMsUntilNextTehranMidnight(now: Date = new Date()): number {
 }
 
 /**
- * React hook that returns the dynamic Persian motivational quote for the current day.
+ * React hook that returns the curated DailyQuote for the current day.
  *
  * Automatically updates at Tehran midnight without polling or unnecessary re-renders.
  * Also refreshes immediately when the tab becomes active or visible.
  */
 export function useDailyMotivationalQuote(
-  quotes: readonly string[] = MOTIVATIONAL_QUOTES,
-): string {
-  const [quote, setQuote] = useState<string>(() =>
+  quotes: readonly DailyQuote[] = CURATED_DAILY_QUOTES,
+): DailyQuote {
+  const [quote, setQuote] = useState<DailyQuote>(() =>
     getDailyMotivationalQuote(new Date(), quotes),
   );
 

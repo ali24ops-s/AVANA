@@ -3,13 +3,18 @@ import {
   type CitationClaimInput,
   type CitationValidationStatus,
   type GeneratedPresentationSlide,
+  type GeneratedSlideClaim,
   type PresentationProjectId,
   type PresentationSlideId,
+  type PresentationSpeakerContent,
   type ServerCitationValidationResult,
   type SingleCitationValidationResult,
   type SlideReferenceContextSnapshot,
   type SnapshotReferenceChunk,
   type SnapshotState,
+  type ThreeTierCitationEvaluation,
+  isValidDoi,
+  formatDoiUrl,
   DomainError,
   SLIDE_REFERENCE_SNAPSHOT_SCHEMA_VERSION,
 } from "@avana/domain";
@@ -641,5 +646,546 @@ export class ServerCitationValidator {
       authoritativeSlide,
     };
   }
+
+  /**
+   * Validate a complete PresentationSpeakerContent against the slide's historical snapshot.
+   *
+   * Enforces Speech Citation Integrity Rules:
+   * 1. Every Claim with evidenceStatus="supported" must have at least 1 valid chunkId.
+   * 2. Claims with evidenceStatus="insufficient_evidence" must NOT have chunkIds.
+   * 3. All chunkIds in claims and citations must be validated against the snapshot.
+   * 4. Extra/unused citations in the citations list must be rejected (unused_extra_citation).
+   * 5. Citations claimed in text but missing from the citations array are rejected (claim_citation_mismatch).
+   * 6. referenceId from model is untrusted; authoritative referenceId is injected from snapshot.
+   * 7. Empty snapshot requires empty citations and zero supported claims with chunkIds.
+   */
+  async validateSpeakerContent(params: {
+    projectId: PresentationProjectId;
+    slideId: PresentationSlideId;
+    content: PresentationSpeakerContent;
+  }): Promise<
+    ServerCitationValidationResult & {
+      authoritativeContent?: PresentationSpeakerContent;
+      snapshotState: SnapshotState;
+    }
+  > {
+    const { projectId, slideId, content } = params;
+
+    const slideRecord = await this.deps.slideStore.findById(slideId, projectId);
+    if (!slideRecord) {
+      throw new DomainError("not_found", "Presentation slide not found");
+    }
+
+    const snapshot = await this.deps.slideStore.getReferenceSnapshot(
+      slideId,
+      projectId,
+    );
+
+    const snapshotEvaluation = ServerCitationValidator.evaluateSnapshotState(snapshot);
+    const snapshotState = snapshotEvaluation.state;
+
+    // Handle missing or corrupted snapshot
+    if (snapshotState === "missing_snapshot" || snapshotState === "corrupted_snapshot") {
+      const status: CitationValidationStatus =
+        snapshotState === "missing_snapshot"
+          ? "unknown_snapshot"
+          : "snapshot_integrity_failure";
+
+      return {
+        valid: false,
+        status,
+        slideIndex: slideRecord.slideIndex,
+        projectId,
+        evaluatedCitations: [
+          {
+            chunkId: "",
+            status,
+            detail: snapshotEvaluation.error ?? "Snapshot validation failed.",
+          },
+        ],
+        validCount: 0,
+        invalidCount: 1,
+        snapshotState,
+      };
+    }
+
+    // Snapshot integrity check against project and slide index
+    if (snapshot!.projectId !== projectId) {
+      return {
+        valid: false,
+        status: "project_mismatch",
+        slideIndex: slideRecord.slideIndex,
+        projectId,
+        evaluatedCitations: [
+          {
+            chunkId: "",
+            status: "project_mismatch",
+            detail: `Snapshot project ID (${snapshot!.projectId}) does not match expected project ID (${projectId}).`,
+          },
+        ],
+        validCount: 0,
+        invalidCount: 1,
+        snapshotState,
+      };
+    }
+
+    if (snapshot!.slideIndex !== slideRecord.slideIndex) {
+      return {
+        valid: false,
+        status: "snapshot_integrity_failure",
+        slideIndex: slideRecord.slideIndex,
+        projectId,
+        evaluatedCitations: [
+          {
+            chunkId: "",
+            status: "snapshot_integrity_failure",
+            detail: `Snapshot slide index (${snapshot!.slideIndex}) does not match slide index (${slideRecord.slideIndex}).`,
+          },
+        ],
+        validCount: 0,
+        invalidCount: 1,
+        snapshotState,
+      };
+    }
+
+    // Case A: Valid Empty Snapshot
+    if (snapshotState === "valid_empty") {
+      const evaluated: SingleCitationValidationResult[] = [];
+
+      for (const claim of content.claims ?? []) {
+        if (claim.evidenceStatus === "supported" || (claim.chunkIds && claim.chunkIds.length > 0)) {
+          evaluated.push({
+            chunkId: claim.chunkIds?.[0] ?? "",
+            status: "chunk_not_in_slide_context",
+            detail: `Claim "${claim.text}" claims evidence but slide snapshot is empty (no references exist).`,
+          });
+        }
+      }
+
+      for (const cit of content.citations ?? []) {
+        evaluated.push({
+          chunkId: cit.chunkId,
+          status: "chunk_not_in_slide_context",
+          detail: `Speaker citation "${cit.chunkId}" cannot be grounded because slide snapshot is empty.`,
+        });
+      }
+
+      if (evaluated.length > 0) {
+        return {
+          valid: false,
+          status: evaluated[0].status,
+          slideIndex: slideRecord.slideIndex,
+          projectId,
+          evaluatedCitations: evaluated,
+          validCount: 0,
+          invalidCount: evaluated.length,
+          snapshotState,
+        };
+      }
+
+      return {
+        valid: true,
+        status: "valid",
+        slideIndex: slideRecord.slideIndex,
+        projectId,
+        evaluatedCitations: [],
+        validCount: 0,
+        invalidCount: 0,
+        snapshotState,
+        authoritativeContent: {
+          ...content,
+          citations: [],
+        },
+      };
+    }
+
+    // Case B: Valid Snapshot with References
+    const chunksById = new Map<string, SnapshotReferenceChunk>();
+    for (const sc of snapshot!.chunks) {
+      chunksById.set(sc.chunkId, sc);
+    }
+
+    const evaluatedCitations: SingleCitationValidationResult[] = [];
+    const usedChunkIdsInClaims = new Set<string>();
+
+    // 1. Validate all claims in content.claims
+    for (const claim of content.claims ?? []) {
+      if (claim.evidenceStatus === "supported") {
+        if (!Array.isArray(claim.chunkIds) || claim.chunkIds.length === 0) {
+          evaluatedCitations.push({
+            chunkId: "",
+            status: "unsupported_claim_missing_citation",
+            detail: `Claim "${claim.text}" has evidenceStatus="supported" but has no chunkIds attached.`,
+          });
+          continue;
+        }
+
+        for (const rawChunkId of claim.chunkIds) {
+          const chunkId = rawChunkId?.trim() ?? "";
+          if (!chunkId) {
+            evaluatedCitations.push({
+              chunkId: "",
+              status: "malformed_citation",
+              detail: `Claim "${claim.text}" specifies an empty chunkId.`,
+            });
+            continue;
+          }
+
+          if (!/^[a-zA-Z0-9_\-:]+$/.test(chunkId) || chunkId.length < 5) {
+            evaluatedCitations.push({
+              chunkId,
+              status: "invalid_chunk_id",
+              detail: `Claim specifies syntactically invalid chunkId "${chunkId}".`,
+            });
+            continue;
+          }
+
+          const matched = chunksById.get(chunkId);
+          if (!matched) {
+            evaluatedCitations.push({
+              chunkId,
+              status: "chunk_not_in_slide_context",
+              detail: `Claim references chunk "${chunkId}" which does not exist in slide snapshot.`,
+            });
+            continue;
+          }
+
+          usedChunkIdsInClaims.add(chunkId);
+        }
+      } else if (claim.evidenceStatus === "insufficient_evidence") {
+        if (Array.isArray(claim.chunkIds) && claim.chunkIds.length > 0) {
+          evaluatedCitations.push({
+            chunkId: claim.chunkIds[0],
+            status: "claim_citation_mismatch",
+            detail: `Claim "${claim.text}" is marked insufficient_evidence but includes chunk citations.`,
+          });
+        }
+      }
+    }
+
+    // 2. Validate top-level citations list
+    const contentCitationsSet = new Set<string>();
+    for (const cit of content.citations ?? []) {
+      const chunkId = cit?.chunkId?.trim() ?? "";
+      if (!chunkId) {
+        evaluatedCitations.push({
+          chunkId: "",
+          status: "malformed_citation",
+          detail: "Speaker citation has empty chunkId.",
+        });
+        continue;
+      }
+
+      contentCitationsSet.add(chunkId);
+
+      const matched = chunksById.get(chunkId);
+      if (!matched) {
+        evaluatedCitations.push({
+          chunkId,
+          status: "chunk_not_in_slide_context",
+          detail: `Speaker citation "${chunkId}" was not selected in this slide's snapshot.`,
+        });
+        continue;
+      }
+
+      // Check for unused/extra citations
+      if (!usedChunkIdsInClaims.has(chunkId)) {
+        evaluatedCitations.push({
+          chunkId,
+          status: "unused_extra_citation",
+          detail: `Speaker citation "${chunkId}" is present in citations array but never referenced by any supported claim.`,
+          matchedChunk: matched,
+        });
+        continue;
+      }
+
+      evaluatedCitations.push({
+        chunkId,
+        status: "valid",
+        detail: `Verified against slide snapshot. Source: "${matched.sourceTitle}" (${matched.citationLabel}).`,
+        matchedChunk: matched,
+      });
+    }
+
+    // 3. Check for claim-citation mismatch
+    for (const chunkId of usedChunkIdsInClaims) {
+      if (chunksById.has(chunkId) && !contentCitationsSet.has(chunkId)) {
+        evaluatedCitations.push({
+          chunkId,
+          status: "claim_citation_mismatch",
+          detail: `Chunk "${chunkId}" is cited in supported claim, but omitted from the citations array.`,
+        });
+      }
+    }
+
+    const validCount = evaluatedCitations.filter((c) => c.status === "valid").length;
+    const invalidCount = evaluatedCitations.length - validCount;
+    const firstInvalid = evaluatedCitations.find((c) => c.status !== "valid");
+
+    const isFullyValid = invalidCount === 0 && (evaluatedCitations.length > 0 || usedChunkIdsInClaims.size === 0);
+
+    let authoritativeContent: PresentationSpeakerContent | undefined;
+    if (isFullyValid) {
+      authoritativeContent = {
+        ...content,
+        citations: Array.from(usedChunkIdsInClaims).map((chunkId) => {
+          const matched = chunksById.get(chunkId)!;
+          return {
+            chunkId,
+            referenceId: matched.referenceId,
+          };
+        }),
+      };
+    }
+
+    return {
+      valid: isFullyValid,
+      status: firstInvalid ? firstInvalid.status : "valid",
+      slideIndex: slideRecord.slideIndex,
+      projectId,
+      evaluatedCitations,
+      validCount,
+      invalidCount,
+      snapshotState,
+      authoritativeContent,
+    };
+  }
+
+  /**
+   * Evaluate claims according to the 3-tier scientific validation model:
+   * 1. Real source existence in snapshot/project
+   * 2. Bibliographic metadata & identifier accuracy (authors, title, journal, year, valid DOI)
+   * 3. Substantive claim support (grounded evidence vs insufficient evidence)
+   */
+  async evaluateThreeTierCitations(params: {
+    projectId: PresentationProjectId;
+    slideId: PresentationSlideId;
+    claims: GeneratedSlideClaim[];
+  }): Promise<{
+    allSupported: boolean;
+    evaluations: ThreeTierCitationEvaluation[];
+  }> {
+    const { projectId, slideId, claims } = params;
+
+    const slideRecord = await this.deps.slideStore.findById(slideId, projectId);
+    if (!slideRecord) {
+      throw new DomainError("not_found", "Presentation slide not found");
+    }
+
+    const snapshot = await this.deps.slideStore.getReferenceSnapshot(
+      slideId,
+      projectId,
+    );
+
+    const snapshotEvaluation = ServerCitationValidator.evaluateSnapshotState(snapshot);
+    const isSnapshotUsable =
+      snapshotEvaluation.state === "valid_with_references" ||
+      snapshotEvaluation.state === "valid_empty";
+
+    const chunksById = new Map<string, SnapshotReferenceChunk>();
+    if (snapshot?.chunks && Array.isArray(snapshot.chunks)) {
+      for (const sc of snapshot.chunks) {
+        chunksById.set(sc.chunkId, sc);
+      }
+    }
+
+    const evaluations: ThreeTierCitationEvaluation[] = [];
+
+    for (const claim of claims ?? []) {
+      const claimText = claim?.text ?? "";
+      const chunkIds = Array.isArray(claim?.chunkIds) ? claim.chunkIds : [];
+
+      if (!isSnapshotUsable) {
+        evaluations.push({
+          claimText,
+          evidenceStatus: claim?.evidenceStatus ?? "insufficient_evidence",
+          sourceExistence: {
+            verified: false,
+            status: "missing_from_snapshot",
+            detail: snapshotEvaluation.error ?? "اسنپ‌شات مراجع این اسلاید ثبت یا تأیید نشده است.",
+          },
+          bibliographicAccuracy: {
+            accurate: false,
+            status: "unverified_identifier",
+            detail: "به دلیل فقدان اسنپ‌شات، متادیتا قابل اعتبارسنجی نیست.",
+          },
+          claimSupport: {
+            supported: false,
+            status: "unsupported",
+            groundedChunkIds: [],
+            detail: "اسنپ‌شات مراجع برای این اسلاید وجود ندارد.",
+          },
+        });
+        continue;
+      }
+
+      // Case 1: Claim explicitly marked with insufficient evidence
+      if (claim.evidenceStatus === "insufficient_evidence") {
+        if (chunkIds.length > 0) {
+          // Illegal: claim with insufficient_evidence must NOT have chunkIds
+          evaluations.push({
+            claimText,
+            evidenceStatus: "insufficient_evidence",
+            sourceExistence: {
+              verified: false,
+              status: "invalid_chunk",
+              detail: "ادعای فاقد شواهد کافی نباید شناسه تکه متن داشته باشد.",
+            },
+            bibliographicAccuracy: {
+              accurate: false,
+              status: "unverified_identifier",
+              detail: "ناسازگاری شناسه با وضعیت شواهد ناکافی.",
+            },
+            claimSupport: {
+              supported: false,
+              status: "insufficient_evidence",
+              groundedChunkIds: [],
+              detail: "ادعا با شواهد ناکافی به اشتباه دارای ارجاع تکه متن است.",
+            },
+          });
+        } else {
+          // Valid insufficient evidence claim
+          evaluations.push({
+            claimText,
+            evidenceStatus: "insufficient_evidence",
+            sourceExistence: {
+              verified: true,
+              status: "verified_in_snapshot",
+              detail: "ادعا صریحاً و بدون جعل منبع، به عنوان فاقد شواهد کافی علامت‌گذاری شده است.",
+            },
+            bibliographicAccuracy: {
+              accurate: true,
+              status: "accurate",
+              detail: "بدون نیاز به شناسه استنادی خارجی.",
+            },
+            claimSupport: {
+              supported: true,
+              status: "insufficient_evidence",
+              groundedChunkIds: [],
+              detail: "تأییدشده به عنوان ادعای فاقد شواهد کافی.",
+            },
+          });
+        }
+        continue;
+      }
+
+      // Case 2: Claim marked as supported
+      if (chunkIds.length === 0) {
+        evaluations.push({
+          claimText,
+          evidenceStatus: "supported",
+          sourceExistence: {
+            verified: false,
+            status: "invalid_chunk",
+            detail: "ادعای دارای شواهد کافی فاقد شناسه تکه متن (chunkId) است.",
+          },
+          bibliographicAccuracy: {
+            accurate: false,
+            status: "unverified_identifier",
+            detail: "متادیتا و منبعی برای این ادعا ثبت نشده است.",
+          },
+          claimSupport: {
+            supported: false,
+            status: "unsupported",
+            groundedChunkIds: [],
+            detail: "ادعا بدون پیوند به تکه متن معتبر نمی‌تواند پشتیبانی شود.",
+          },
+        });
+        continue;
+      }
+
+      // Verify all chunkIds exist in snapshot
+      const missingChunk = chunkIds.find((cid) => !chunksById.has(cid.trim()));
+      if (missingChunk) {
+        evaluations.push({
+          claimText,
+          evidenceStatus: "supported",
+          sourceExistence: {
+            verified: false,
+            status: "missing_from_snapshot",
+            chunkId: missingChunk,
+            detail: `شناسه تکه متن "${missingChunk}" در اسنپ‌شات مراجع پروژه وجود ندارد.`,
+          },
+          bibliographicAccuracy: {
+            accurate: false,
+            status: "unverified_identifier",
+            detail: "شناسه نامعتبر است و در اسنپ‌شات یافت نشد.",
+          },
+          claimSupport: {
+            supported: false,
+            status: "unsupported",
+            groundedChunkIds: [],
+            detail: "ادعا بر پایه‌ای غیر از مراجع تأییدشده پروژه استوار است.",
+          },
+        });
+        continue;
+      }
+
+      // All chunks exist! Check first chunk for bibliographic metadata
+      const firstChunk = chunksById.get(chunkIds[0].trim())!;
+
+      // Check DOI or bibliographic identifier
+      let isBioAccurate = true;
+      let bioStatus: "accurate" | "partial_metadata" | "invalid_doi_format" = "accurate";
+      let bioDetail = "متادیتا و مشخصات کتاب‌شناختی معتبر است.";
+      let detectedDoi: string | null = null;
+
+      // Extract DOI if present in sourceTitle, citationLabel or location
+      const doiMatch = (firstChunk.citationLabel + " " + firstChunk.sourceTitle).match(
+        /10\.\d{4,9}\/[-._;()/:a-zA-Z0-9]+/,
+      );
+      if (doiMatch) {
+        detectedDoi = doiMatch[0];
+        if (!isValidDoi(detectedDoi)) {
+          isBioAccurate = false;
+          bioStatus = "invalid_doi_format";
+          bioDetail = `فرمت شناسه DOI (${detectedDoi}) معتبر نیست.`;
+        }
+      }
+
+      evaluations.push({
+        claimText,
+        evidenceStatus: "supported",
+        sourceExistence: {
+          verified: true,
+          status: "verified_in_snapshot",
+          chunkId: firstChunk.chunkId,
+          referenceId: firstChunk.referenceId,
+          sourceTitle: firstChunk.sourceTitle,
+          detail: `منبع "${firstChunk.sourceTitle}" (${firstChunk.citationLabel}) در اسنپ‌شات تأیید شد.`,
+        },
+        bibliographicAccuracy: {
+          accurate: isBioAccurate,
+          status: bioStatus,
+          doi: detectedDoi,
+          doiUrl: detectedDoi ? formatDoiUrl(detectedDoi) : null,
+          title: firstChunk.sourceTitle,
+          sourceType: firstChunk.sourceType,
+          detail: bioDetail,
+        },
+        claimSupport: {
+          supported: isBioAccurate,
+          status: isBioAccurate ? "supported" : "unsupported",
+          groundedChunkIds: chunkIds,
+          detail: `ادعا مستند به تکه متن "${firstChunk.chunkId}" با رتبه ${firstChunk.rank} است.`,
+        },
+      });
+    }
+
+    const allSupported =
+      evaluations.length > 0 &&
+      evaluations.every(
+        (e) =>
+          e.sourceExistence.verified &&
+          e.bibliographicAccuracy.accurate &&
+          e.claimSupport.supported,
+      );
+
+    return {
+      allSupported,
+      evaluations,
+    };
+  }
 }
+
 

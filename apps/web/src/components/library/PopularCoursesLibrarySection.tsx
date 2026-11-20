@@ -113,10 +113,11 @@ export function PopularCoursesLibrarySection({
               <CourseCard
                 key={course.id}
                 id={course.id}
+                slug={course.slug}
                 title={course.title}
                 subject={course.subject}
                 coverImage={rawCourse.cover_image || rawCourse.thumbnail_url}
-                href={`/courses/${course.id}`}
+                href={`/courses/${course.slug || course.id}`}
                 variant="compact"
                 isOfficial={course.isOfficial ?? (course as any).is_official}
                 isUserPublished={course.isUserPublished ?? (course as any).is_user_published ?? (course.isOfficial === false || (course as any).is_official === false)}

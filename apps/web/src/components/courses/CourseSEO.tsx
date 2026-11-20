@@ -6,6 +6,7 @@ export interface CourseSEOProps {
   canonicalUrl?: string | null;
   image?: string | null;
   subject?: string | null;
+  isPublic?: boolean;
 }
 
 /**
@@ -18,6 +19,7 @@ export function CourseSEO({
   canonicalUrl,
   image,
   subject,
+  isPublic = true,
 }: CourseSEOProps) {
   useEffect(() => {
     const siteTitle = "آوانا | پلتفرم هوشمند یادگیری";
@@ -51,13 +53,19 @@ export function CourseSEO({
       el.setAttribute("content", contentValue);
     };
 
+    // Robots meta tag
+    if (isPublic) {
+      setMetaTag("name", "robots", "index, follow");
+    } else {
+      setMetaTag("name", "robots", "noindex, nofollow");
+    }
+
     // Standard Meta
     setMetaTag("name", "description", effectiveDesc);
 
     // OpenGraph
     setMetaTag("property", "og:title", fullTitle);
     setMetaTag("property", "og:description", effectiveDesc);
-    setMetaTag("property", "og:url", effectiveCanonical);
     setMetaTag("property", "og:type", "website");
     setMetaTag("property", "og:image", effectiveImage);
     setMetaTag("property", "og:site_name", "آوانا (AVANA)");
@@ -69,48 +77,68 @@ export function CourseSEO({
     setMetaTag("name", "twitter:description", effectiveDesc);
     setMetaTag("name", "twitter:image", effectiveImage);
 
-    // Canonical link
+    // Canonical link management
     let canonicalLink = document.querySelector(
       'link[rel="canonical"]',
-    ) as HTMLLinkElement;
-    if (!canonicalLink) {
-      canonicalLink = document.createElement("link");
-      canonicalLink.setAttribute("rel", "canonical");
-      document.head.appendChild(canonicalLink);
+    ) as HTMLLinkElement | null;
+
+    if (isPublic && effectiveCanonical) {
+      setMetaTag("property", "og:url", effectiveCanonical);
+      if (!canonicalLink) {
+        canonicalLink = document.createElement("link");
+        canonicalLink.setAttribute("rel", "canonical");
+        document.head.appendChild(canonicalLink);
+      }
+      canonicalLink.setAttribute("href", effectiveCanonical);
+    } else {
+      // Non-public courses MUST NOT advertise canonical indexing
+      if (canonicalLink) {
+        canonicalLink.remove();
+      }
+      const ogUrl = document.querySelector('meta[property="og:url"]');
+      if (ogUrl) {
+        ogUrl.remove();
+      }
     }
-    canonicalLink.setAttribute("href", effectiveCanonical);
 
     // JSON-LD Structured Data Schema (schema.org/Course)
     let jsonLdScript = document.getElementById(
       "course-schema-jsonld",
-    ) as HTMLScriptElement;
-    if (!jsonLdScript) {
-      jsonLdScript = document.createElement("script");
-      jsonLdScript.id = "course-schema-jsonld";
-      jsonLdScript.type = "application/ld+json";
-      document.head.appendChild(jsonLdScript);
+    ) as HTMLScriptElement | null;
+
+    if (isPublic) {
+      if (!jsonLdScript) {
+        jsonLdScript = document.createElement("script");
+        jsonLdScript.id = "course-schema-jsonld";
+        jsonLdScript.type = "application/ld+json";
+        document.head.appendChild(jsonLdScript);
+      }
+
+      const schemaData = {
+        "@context": "https://schema.org",
+        "@type": "Course",
+        name: title,
+        description: effectiveDesc,
+        provider: {
+          "@type": "Organization",
+          name: "آوانا | AVANA",
+          url: typeof window !== "undefined" ? window.location.origin : "",
+        },
+        image: effectiveImage,
+        inLanguage: "fa",
+      };
+
+      jsonLdScript.textContent = JSON.stringify(schemaData);
+    } else {
+      if (jsonLdScript) {
+        jsonLdScript.remove();
+      }
     }
 
-    const schemaData = {
-      "@context": "https://schema.org",
-      "@type": "Course",
-      name: title,
-      description: effectiveDesc,
-      provider: {
-        "@type": "Organization",
-        name: "آوانا | AVANA",
-        url: typeof window !== "undefined" ? window.location.origin : "",
-      },
-      image: effectiveImage,
-      inLanguage: "fa",
-    };
-
-    jsonLdScript.textContent = JSON.stringify(schemaData);
-
     return () => {
-      // Optional cleanup on unmount
+      // Cleanup on unmount if needed
     };
-  }, [title, description, canonicalUrl, image, subject]);
+  }, [title, description, canonicalUrl, image, subject, isPublic]);
 
   return null;
 }

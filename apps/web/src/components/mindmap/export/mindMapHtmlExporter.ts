@@ -510,9 +510,9 @@ export function exportMindMapToHtml(
 
       return `
         <g class="node-group" data-id="${escapeHtml(node.id)}" transform="translate(${x}, ${y})">
-          <rect class="node-rect" width="${w}" height="${h}" rx="${rx}" ry="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" filter="url(#nodeShadow)" />
+          <rect class="node-rect" width="${w}" height="${h}" rx="${rx}" ry="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" />
           <foreignObject class="node-foreign-object" x="0" y="0" width="${w}" height="${h}">
-            <div xmlns="http://www.w3.org/1999/xhtml" class="node-card-content" data-node-id="${escapeHtml(node.id)}" style="padding: ${padY} ${padX};">
+            <div xmlns="http://www.w3.org/1999/xhtml" class="node-card-content" data-node-id="${escapeHtml(node.id)}" style="padding: ${padY} ${padX}; border-radius: ${rx}px;">
               <div class="node-card-title" style="font-size: ${titleSize}px; font-weight: ${titleWeight}; color: ${titleFill};">${escapeHtml(data?.title || "")}</div>
               ${hasDesc ? `<div class="node-card-desc" style="font-size: ${depth === 1 ? 11.5 : 11}px;">${escapeHtml(data?.shortDescription || "")}</div>` : ""}
             </div>
@@ -535,7 +535,7 @@ export function exportMindMapToHtml(
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
   <title>${escapeHtml(title)} - AVANA</title>
   <style>
     @font-face {
@@ -575,13 +575,18 @@ export function exportMindMapToHtml(
       -webkit-tap-highlight-color: transparent;
     }
 
+    html, body {
+      width: 100%;
+      max-width: 100%;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
+    }
+
     body {
       font-family: var(--font-family);
       background-color: var(--color-bg);
       color: var(--color-text);
-      width: 100vw;
-      height: 100vh;
-      overflow: hidden;
       display: flex;
       flex-direction: column;
       user-select: none;
@@ -591,6 +596,7 @@ export function exportMindMapToHtml(
     /* Top Toolbar */
     .toolbar {
       height: 56px;
+      max-width: 100%;
       background: var(--color-surface);
       border-bottom: 1px solid var(--color-border);
       display: flex;
@@ -607,6 +613,8 @@ export function exportMindMapToHtml(
       display: flex;
       align-items: center;
       gap: 8px;
+      min-width: 0;
+      flex-shrink: 1;
     }
 
     /* Brand Link (Official Logo & Website URL) */
@@ -784,6 +792,10 @@ export function exportMindMapToHtml(
       overflow: hidden;
       cursor: grab;
       touch-action: none;
+      overscroll-behavior: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
       background-color: var(--color-bg);
       background-image: radial-gradient(#cbd5e1 0.75px, transparent 0.75px);
       background-size: 20px 20px;
@@ -800,57 +812,114 @@ export function exportMindMapToHtml(
       touch-action: none;
     }
 
-    /* Floating Zoom Controls */
+    #viewportGroup {
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+
+    /* Floating Zoom & Navigation Controls Dock (42px touch targets) */
     .floating-controls {
       position: absolute;
-      bottom: 20px;
+      bottom: 24px;
       right: 20px;
-      background: var(--color-surface);
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
       border: 1px solid var(--color-border);
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      border-radius: 14px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
       display: flex;
       flex-direction: column;
-      gap: 4px;
-      padding: 6px;
-      z-index: 20;
+      align-items: center;
+      gap: 3px;
+      padding: 5px;
+      z-index: 25;
+      touch-action: auto;
+      user-select: none;
+      -webkit-user-select: none;
     }
 
     .tool-btn {
-      width: 32px;
-      height: 32px;
+      width: 42px;
+      height: 42px;
+      min-width: 42px;
+      min-height: 42px;
       display: flex;
       align-items: center;
       justify-content: center;
-      border-radius: 8px;
-      border: none;
+      border-radius: 10px;
+      border: 1px solid transparent;
       background: transparent;
       color: var(--color-text);
       cursor: pointer;
-      transition: background 0.15s;
+      transition: all 0.15s ease;
+      -webkit-tap-highlight-color: transparent;
+      padding: 0;
     }
 
     .tool-btn:hover {
-      background: #f1f5f9;
+      background: var(--color-primary-light);
       color: var(--color-primary);
+      border-color: var(--color-primary-border);
+    }
+
+    .tool-btn:active {
+      background: #ccfbf1;
+      transform: scale(0.94);
+    }
+
+    .tool-divider {
+      width: 26px;
+      height: 1px;
+      background: var(--color-border);
+      margin: 2px 0;
     }
 
     .zoom-level-text {
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 700;
       color: var(--color-text-muted);
       text-align: center;
       padding: 2px 0;
+      min-width: 42px;
+      font-family: inherit;
+    }
+
+    @media (max-height: 500px) and (orientation: landscape) {
+      .floating-controls {
+        flex-direction: row;
+        bottom: 12px;
+        right: 12px;
+      }
+      .tool-divider {
+        width: 1px;
+        height: 26px;
+        margin: 0 2px;
+      }
+      .drawer {
+        max-height: 94vh;
+        max-height: 94dvh;
+      }
+      .drawer-header {
+        padding: 6px 14px 8px 14px;
+      }
+      .drawer-drag-handle {
+        margin: 4px auto 2px auto;
+      }
+      .drawer-body {
+        padding: 10px 14px;
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+      }
     }
 
     /* Node Card Styles */
     .node-group {
       cursor: pointer;
-      transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s;
+      -webkit-tap-highlight-color: transparent;
     }
 
     .node-rect {
-      transition: stroke 0.15s, stroke-width 0.15s, filter 0.15s;
+      transition: stroke 0.15s ease, stroke-width 0.15s ease;
     }
 
     .node-foreign-object {
@@ -869,8 +938,12 @@ export function exportMindMapToHtml(
       text-align: center;
       direction: rtl;
       user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
       cursor: pointer;
       pointer-events: auto;
+      box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+      transition: box-shadow 0.15s ease;
     }
 
     .node-card-title {
@@ -899,35 +972,47 @@ export function exportMindMapToHtml(
     .node-group:hover .node-rect {
       stroke: var(--color-primary);
       stroke-width: 2px;
-      filter: drop-shadow(0 4px 8px rgba(0, 128, 128, 0.18));
+    }
+
+    .node-group:hover .node-card-content {
+      box-shadow: 0 4px 12px 0 rgba(0, 128, 128, 0.14), 0 2px 4px -1px rgba(0, 128, 128, 0.08);
     }
 
     .node-group.search-match .node-rect {
       stroke: var(--color-amber) !important;
       stroke-width: 2.5px !important;
-      filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.4)) !important;
+    }
+
+    .node-group.search-match .node-card-content {
+      box-shadow: 0 0 0 1px var(--color-amber), 0 4px 14px 0 rgba(245, 158, 11, 0.35) !important;
     }
 
     .node-group.selected .node-rect {
       stroke: var(--color-primary) !important;
       stroke-width: 2.5px !important;
-      filter: drop-shadow(0 0 10px rgba(0, 128, 128, 0.3)) !important;
+    }
+
+    .node-group.selected .node-card-content {
+      box-shadow: 0 0 0 1px var(--color-primary), 0 4px 14px 0 rgba(0, 128, 128, 0.28) !important;
     }
 
     /* Detail Drawer */
     .drawer-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(15, 23, 42, 0.25);
+      background: rgba(15, 23, 42, 0.3);
       backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
       z-index: 50;
       opacity: 0;
+      visibility: hidden;
       pointer-events: none;
-      transition: opacity 0.2s ease;
+      transition: opacity 0.25s ease, visibility 0.25s ease;
     }
 
     .drawer-overlay.open {
       opacity: 1;
+      visibility: visible;
       pointer-events: auto;
     }
 
@@ -940,10 +1025,14 @@ export function exportMindMapToHtml(
       max-width: 90vw;
       background: var(--color-surface);
       border-left: 1px solid var(--color-border);
-      box-shadow: -8px 0 24px rgba(0, 0, 0, 0.1);
+      box-shadow: none;
       z-index: 51;
       transform: translateX(100%);
-      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      visibility: hidden;
+      pointer-events: none;
+      transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+                  visibility 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+                  box-shadow 0.28s ease;
       display: flex;
       flex-direction: column;
       user-select: text;
@@ -951,6 +1040,13 @@ export function exportMindMapToHtml(
 
     .drawer.open {
       transform: translateX(0);
+      visibility: visible;
+      pointer-events: auto;
+      box-shadow: -8px 0 24px rgba(0, 0, 0, 0.1);
+    }
+
+    .drawer-drag-handle {
+      display: none;
     }
 
     .drawer-header {
@@ -960,6 +1056,7 @@ export function exportMindMapToHtml(
       align-items: center;
       justify-content: space-between;
       gap: 12px;
+      flex-shrink: 0;
     }
 
     .drawer-title-wrap {
@@ -986,8 +1083,8 @@ export function exportMindMapToHtml(
     }
 
     .close-btn {
-      width: 32px;
-      height: 32px;
+      width: 34px;
+      height: 34px;
       border-radius: 8px;
       border: 1px solid var(--color-border);
       background: #f8fafc;
@@ -996,6 +1093,7 @@ export function exportMindMapToHtml(
       align-items: center;
       justify-content: center;
       cursor: pointer;
+      flex-shrink: 0;
       transition: all 0.15s;
     }
 
@@ -1005,8 +1103,9 @@ export function exportMindMapToHtml(
     }
 
     .drawer-body {
-      flex: 1;
+      flex: 1 1 auto;
       overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
       padding: 20px;
       display: flex;
       flex-direction: column;
@@ -1066,7 +1165,7 @@ export function exportMindMapToHtml(
       margin-bottom: 6px;
     }
 
-    /* Responsive Mobile Toolbar Optimizations */
+    /* Responsive Mobile Toolbar & Drawer Optimizations */
     @media (max-width: 768px) {
       .toolbar {
         padding: 0 10px;
@@ -1084,6 +1183,74 @@ export function exportMindMapToHtml(
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      /* Mobile Detail Bottom Sheet */
+      .drawer {
+        top: auto;
+        bottom: 0;
+        right: 0;
+        left: 0;
+        width: 100%;
+        max-width: 100%;
+        height: auto;
+        min-height: 180px;
+        max-height: 85vh;
+        max-height: 85dvh;
+        border-left: none;
+        border-top: 1px solid var(--color-border);
+        border-radius: 20px 20px 0 0;
+        transform: translateY(100%);
+        box-shadow: none;
+        visibility: hidden;
+        pointer-events: none;
+        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                    visibility 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                    box-shadow 0.3s ease;
+      }
+
+      .drawer.open {
+        transform: translateY(0);
+        visibility: visible;
+        pointer-events: auto;
+        box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.16);
+      }
+
+      .drawer-drag-handle {
+        display: block;
+        width: 38px;
+        height: 4px;
+        background: #cbd5e1;
+        border-radius: 9999px;
+        margin: 8px auto 2px auto;
+        flex-shrink: 0;
+      }
+
+      .drawer-header {
+        padding: 8px 16px 12px 16px;
+        flex-shrink: 0;
+      }
+
+      .close-btn {
+        width: 36px;
+        height: 36px;
+      }
+
+      .drawer-body {
+        padding: 14px 16px;
+        padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+        overscroll-behavior: contain;
+        touch-action: pan-y;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .toolbar-end {
+        display: none;
+      }
+      .toolbar {
+        padding: 0 8px;
+        gap: 6px;
       }
     }
 
@@ -1165,11 +1332,11 @@ export function exportMindMapToHtml(
     </div>
 
     <div class="toolbar-end">
-      <button type="button" id="fitViewBtn" class="btn btn-primary" title="تطبیق با صفحه">
+      <button type="button" id="headerFitViewBtn" class="btn btn-primary" title="تطبیق با صفحه">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
         <span>تطبیق نما</span>
       </button>
-      <button type="button" id="resetViewBtn" class="btn" title="نمای ۱۰۰٪ اولیه">
+      <button type="button" id="headerResetViewBtn" class="btn" title="نمای ۱۰۰٪ اولیه">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
         <span>بازنشانی</span>
       </button>
@@ -1191,27 +1358,35 @@ export function exportMindMapToHtml(
       </g>
     </svg>
 
-    <!-- Floating Zoom Toolbar -->
-    <div class="floating-controls">
-      <button type="button" id="zoomInBtn" class="tool-btn" title="بزرگ‌نمایی">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    <!-- Floating Zoom & Navigation Controls Dock (42px touch targets) -->
+    <div class="floating-controls" id="floatingControls" role="toolbar" aria-label="ابزارهای بزرگ‌نمایی و ناوبری نقشه">
+      <button type="button" id="zoomInBtn" class="tool-btn" title="بزرگ‌نمایی (+)" aria-label="بزرگ‌نمایی">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
-      <div id="zoomLevelText" class="zoom-level-text">100%</div>
-      <button type="button" id="zoomOutBtn" class="tool-btn" title="کوچک‌نمایی">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <div id="zoomLevelText" class="zoom-level-text" aria-live="polite">100%</div>
+      <button type="button" id="zoomOutBtn" class="tool-btn" title="کوچک‌نمایی (-)" aria-label="کوچک‌نمایی">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <div class="tool-divider"></div>
+      <button type="button" id="fitViewBtn" class="tool-btn" title="تطبیق با صفحه" aria-label="تطبیق با صفحه">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+      </button>
+      <button type="button" id="resetViewBtn" class="tool-btn" title="نمای ۱۰۰٪ اولیه" aria-label="بازنشانی نما">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
       </button>
     </div>
   </main>
 
   <!-- Detail Drawer -->
-  <div class="drawer-overlay" id="drawerOverlay"></div>
-  <aside class="drawer" id="drawer">
+  <div class="drawer-overlay" id="drawerOverlay" aria-hidden="true"></div>
+  <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="drawerTitle">
+    <div class="drawer-drag-handle" aria-hidden="true"></div>
     <div class="drawer-header">
       <div class="drawer-title-wrap">
         <h2 id="drawerTitle" class="drawer-title">عنوان شاخه</h2>
         <span id="drawerTag" class="drawer-tag">مفهوم</span>
       </div>
-      <button type="button" id="closeDrawerBtn" class="close-btn" title="بستن (Esc)">
+      <button type="button" id="closeDrawerBtn" class="close-btn" title="بستن (Esc)" aria-label="بستن پنل جزئیات">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
       </button>
     </div>
@@ -1248,11 +1423,24 @@ export function exportMindMapToHtml(
       // Viewport Transform State: x, y, scale
       let transform = { x: 0, y: 0, scale: 1 };
       let isPanning = false;
+      let isPinching = false;
       let hasDragged = false;
+      let suppressNextClick = false;
       let activePointerId = null;
       let downTarget = null;
       let startPointer = { x: 0, y: 0 };
-      let startTransform = { x: 0, y: 0 };
+      let startTransform = { x: 0, y: 0, scale: 1 };
+
+      // Multi-pointer tracking map for seamless 2-finger pinch & 1-finger pan
+      const activePointers = new Map();
+      let initialPinchDist = 0;
+      let initialPinchScale = 1;
+      let initialFocalPoint = { x: 0, y: 0 };
+      let initialTransform = { x: 0, y: 0, scale: 1 };
+
+      // High-performance requestAnimationFrame scheduler
+      let rafId = null;
+      let rafPending = false;
 
       // DOM Elements
       const container = document.getElementById("canvasContainer");
@@ -2168,9 +2356,9 @@ export function exportMindMapToHtml(
 
           nodesHtml += \`
             <g class="\${groupClass}" data-id="\${escapeText(id)}" transform="translate(\${pos.x}, \${pos.y})">
-              <rect class="node-rect" width="\${dim.width}" height="\${dim.height}" rx="\${rx}" ry="\${rx}" fill="\${fill}" stroke="\${stroke}" stroke-width="\${strokeWidth}" filter="url(#nodeShadow)" />
+              <rect class="node-rect" width="\${dim.width}" height="\${dim.height}" rx="\${rx}" ry="\${rx}" fill="\${fill}" stroke="\${stroke}" stroke-width="\${strokeWidth}" />
               <foreignObject class="node-foreign-object" x="0" y="0" width="\${dim.width}" height="\${dim.height}">
-                <div xmlns="http://www.w3.org/1999/xhtml" class="node-card-content" data-node-id="\${escapeText(id)}" style="padding: \${padY} \${padX};">
+                <div xmlns="http://www.w3.org/1999/xhtml" class="node-card-content" data-node-id="\${escapeText(id)}" style="padding: \${padY} \${padX}; border-radius: \${rx}px;">
                   <div class="node-card-title" style="font-size: \${titleSize}px; font-weight: \${titleWeight}; color: \${titleFill};">\${escapeText(node.title)}</div>
                   \${hasDesc ? \`<div class="node-card-desc" style="font-size: \${depth === 1 ? 11.5 : 11}px;">\${escapeText(node.shortDescription)}</div>\` : ''}
                 </div>
@@ -2181,13 +2369,47 @@ export function exportMindMapToHtml(
         nodesLayer.innerHTML = nodesHtml;
       }
 
-      // Update Viewport Matrix
-      function updateViewport() {
+      // RAF-Throttled Viewport Matrix Update
+      function applyViewportTransform() {
         viewportGroup.setAttribute(
           "transform",
           \`translate(\${transform.x}, \${transform.y}) scale(\${transform.scale})\`
         );
         zoomText.textContent = Math.round(transform.scale * 100) + "%";
+      }
+
+      function updateViewport(immediate = false) {
+        if (immediate) {
+          if (rafPending && rafId !== null) {
+            cancelAnimationFrame(rafId);
+            rafPending = false;
+            rafId = null;
+          }
+          applyViewportTransform();
+        } else {
+          if (!rafPending) {
+            rafPending = true;
+            rafId = requestAnimationFrame(() => {
+              applyViewportTransform();
+              rafPending = false;
+              rafId = null;
+            });
+          }
+        }
+      }
+
+      // Multi-Touch Distance & Midpoint (Focal Point) Math
+      function getPointerDistance(p1, p2) {
+        const dx = p1.clientX - p2.clientX;
+        const dy = p1.clientY - p2.clientY;
+        return Math.hypot(dx, dy);
+      }
+
+      function getPointerFocalPoint(p1, p2, containerRect) {
+        return {
+          x: (p1.clientX + p2.clientX) / 2 - containerRect.left,
+          y: (p1.clientY + p2.clientY) / 2 - containerRect.top,
+        };
       }
 
       // Fit All Visible Nodes to Viewport
@@ -2208,15 +2430,17 @@ export function exportMindMapToHtml(
 
         const cw = container.clientWidth || window.innerWidth;
         const ch = container.clientHeight || window.innerHeight;
-        const gw = maxX - minX + 120;
-        const gh = maxY - minY + 120;
+        const padX = cw < 640 ? 40 : 80;
+        const padY = ch < 640 ? 40 : 80;
+        const gw = maxX - minX + padX * 2;
+        const gh = maxY - minY + padY * 2;
 
-        const scale = Math.min(1.4, Math.max(0.2, Math.min(cw / gw, ch / gh)));
-        const targetX = cw / 2 - (minX + gw / 2 - 60) * scale;
-        const targetY = ch / 2 - (minY + gh / 2 - 60) * scale;
+        const scale = Math.min(1.4, Math.max(0.15, Math.min(cw / gw, ch / gh)));
+        const targetX = cw / 2 - (minX + gw / 2 - padX) * scale;
+        const targetY = ch / 2 - (minY + gh / 2 - padY) * scale;
 
         transform = { x: targetX, y: targetY, scale };
-        updateViewport();
+        updateViewport(true);
       }
 
       // Zoom functions
@@ -2227,10 +2451,10 @@ export function exportMindMapToHtml(
         transform.x = cw - (cw - transform.x) * (newScale / transform.scale);
         transform.y = ch - (ch - transform.y) * (newScale / transform.scale);
         transform.scale = newScale;
-        updateViewport();
+        updateViewport(true);
       }
 
-      // Pan & Drag Handlers (Pointer Events + Pointer Capture)
+      // Advanced Multi-Pointer & Pinch-to-Zoom Engine
       container.addEventListener("pointerdown", (e) => {
         if (e.button !== 0) return;
         if (
@@ -2242,43 +2466,117 @@ export function exportMindMapToHtml(
           return;
         }
 
-        isPanning = true;
-        hasDragged = false;
-        activePointerId = e.pointerId;
-        downTarget = e.target;
-        startPointer = { x: e.clientX, y: e.clientY };
-        startTransform = { x: transform.x, y: transform.y };
+        activePointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+
+        if (activePointers.size === 1) {
+          isPanning = true;
+          isPinching = false;
+          hasDragged = false;
+          suppressNextClick = false;
+          activePointerId = e.pointerId;
+          downTarget = e.target;
+          startPointer = { x: e.clientX, y: e.clientY };
+          startTransform = { x: transform.x, y: transform.y, scale: transform.scale };
+        } else if (activePointers.size === 2) {
+          // Switch smoothly to dual-finger Pinch-to-Zoom + Pan
+          isPinching = true;
+          isPanning = false;
+          hasDragged = true;
+          suppressNextClick = true;
+
+          const ptrs = Array.from(activePointers.values());
+          initialPinchDist = getPointerDistance(ptrs[0], ptrs[1]);
+          initialPinchScale = transform.scale;
+          const rect = container.getBoundingClientRect();
+          initialFocalPoint = getPointerFocalPoint(ptrs[0], ptrs[1], rect);
+          initialTransform = { x: transform.x, y: transform.y, scale: transform.scale };
+        }
       });
 
       container.addEventListener("pointermove", (e) => {
-        if (!isPanning) return;
-        const dx = e.clientX - startPointer.x;
-        const dy = e.clientY - startPointer.y;
-        if (!hasDragged && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
-          hasDragged = true;
-          container.classList.add("grabbing");
-          try {
-            container.setPointerCapture(activePointerId);
-          } catch (err) {}
-        }
-        if (hasDragged) {
-          transform.x = startTransform.x + dx;
-          transform.y = startTransform.y + dy;
-          updateViewport();
+        if (!activePointers.has(e.pointerId)) return;
+        activePointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+
+        if (isPinching && activePointers.size >= 2) {
+          const ptrs = Array.from(activePointers.values());
+          const curDist = getPointerDistance(ptrs[0], ptrs[1]);
+
+          if (initialPinchDist > 5 && curDist > 5) {
+            const factor = curDist / initialPinchDist;
+            const newScale = Math.min(3.0, Math.max(0.12, initialPinchScale * factor));
+            const rect = container.getBoundingClientRect();
+            const curFocal = getPointerFocalPoint(ptrs[0], ptrs[1], rect);
+
+            // True Focal-Point Zoom + Combined Pan math:
+            const effectiveRatio = newScale / initialTransform.scale;
+            transform.x = curFocal.x - (initialFocalPoint.x - initialTransform.x) * effectiveRatio;
+            transform.y = curFocal.y - (initialFocalPoint.y - initialTransform.y) * effectiveRatio;
+            transform.scale = newScale;
+            updateViewport();
+          }
+        } else if (isPanning && activePointers.size === 1) {
+          const dx = e.clientX - startPointer.x;
+          const dy = e.clientY - startPointer.y;
+          if (!hasDragged && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+            hasDragged = true;
+            container.classList.add("grabbing");
+            try {
+              container.setPointerCapture(activePointerId);
+            } catch (err) {}
+          }
+          if (hasDragged) {
+            transform.x = startTransform.x + dx;
+            transform.y = startTransform.y + dy;
+            updateViewport();
+          }
         }
       });
 
       function handlePointerEnd(e) {
-        if (!isPanning) return;
-        isPanning = false;
-        container.classList.remove("grabbing");
-        if (activePointerId !== null) {
-          try {
-            if (container.hasPointerCapture(activePointerId)) {
-              container.releasePointerCapture(activePointerId);
-            }
-          } catch (err) {}
-          activePointerId = null;
+        if (e && e.pointerId !== undefined) {
+          activePointers.delete(e.pointerId);
+        }
+
+        if (activePointers.size === 2) {
+          // Re-anchor remaining 2 pointers to eliminate pinch jump when lifting extra fingers
+          isPinching = true;
+          isPanning = false;
+          const ptrs = Array.from(activePointers.values());
+          initialPinchDist = getPointerDistance(ptrs[0], ptrs[1]);
+          initialPinchScale = transform.scale;
+          const rect = container.getBoundingClientRect();
+          initialFocalPoint = getPointerFocalPoint(ptrs[0], ptrs[1], rect);
+          initialTransform = { x: transform.x, y: transform.y, scale: transform.scale };
+        } else if (activePointers.size === 1) {
+          // Seamless transition from 2 fingers to 1 finger: re-anchor immediately to eliminate jump
+          isPinching = false;
+          isPanning = true;
+          const remainingEntry = Array.from(activePointers.entries())[0];
+          activePointerId = remainingEntry[0];
+          const remainingPointer = remainingEntry[1];
+          startPointer = { x: remainingPointer.clientX, y: remainingPointer.clientY };
+          startTransform = { x: transform.x, y: transform.y, scale: transform.scale };
+        } else if (activePointers.size === 0) {
+          isPanning = false;
+          isPinching = false;
+          container.classList.remove("grabbing");
+
+          if (activePointerId !== null) {
+            try {
+              if (container.hasPointerCapture(activePointerId)) {
+                container.releasePointerCapture(activePointerId);
+              }
+            } catch (err) {}
+            activePointerId = null;
+          }
+
+          if (hasDragged) {
+            suppressNextClick = true;
+            setTimeout(() => {
+              suppressNextClick = false;
+              hasDragged = false;
+            }, 60);
+          }
         }
       }
 
@@ -2286,7 +2584,41 @@ export function exportMindMapToHtml(
       container.addEventListener("pointercancel", handlePointerEnd);
       window.addEventListener("pointerup", handlePointerEnd);
       window.addEventListener("pointercancel", handlePointerEnd);
+      window.addEventListener("blur", () => {
+        activePointers.clear();
+        handlePointerEnd();
+      });
 
+      // Prevent mobile Chrome & Safari default gesture collision specifically inside map canvas
+      container.addEventListener("touchstart", (e) => {
+        if (
+          e.target.closest(".floating-controls") ||
+          e.target.closest(".drawer") ||
+          e.target.closest(".drawer-overlay") ||
+          e.target.closest(".toolbar")
+        ) {
+          return;
+        }
+        if (e.touches.length >= 2) {
+          e.preventDefault();
+        }
+      }, { passive: false });
+
+      container.addEventListener("touchmove", (e) => {
+        if (
+          e.target.closest(".floating-controls") ||
+          e.target.closest(".drawer") ||
+          e.target.closest(".drawer-overlay") ||
+          e.target.closest(".toolbar")
+        ) {
+          return;
+        }
+        if (e.touches.length > 0) {
+          e.preventDefault();
+        }
+      }, { passive: false });
+
+      // Cursor-anchored Desktop Wheel Zoom
       container.addEventListener("wheel", (e) => {
         e.preventDefault();
         const factor = e.deltaY < 0 ? 1.12 : 0.88;
@@ -2461,27 +2793,51 @@ export function exportMindMapToHtml(
         }
 
         drawerBody.innerHTML = bodyHtml || '<div style="color: #94a3b8; font-size: 12px; text-align: center; padding: 20px;">توضیحات بیشتری برای این گره ثبت نشده است.</div>';
+        drawerBody.scrollTop = 0;
 
         drawer.classList.add("open");
         drawerOverlay.classList.add("open");
+        drawer.setAttribute("aria-hidden", "false");
+        drawerOverlay.setAttribute("aria-hidden", "false");
+        closeDrawerBtn.focus({ preventScroll: true });
       }
 
       function closeDrawer() {
+        if (drawer.contains(document.activeElement)) {
+          closeDrawerBtn.blur();
+        }
         drawer.classList.remove("open");
         drawerOverlay.classList.remove("open");
+        drawer.setAttribute("aria-hidden", "true");
+        drawerOverlay.setAttribute("aria-hidden", "true");
         selectedNodeId = null;
         renderGraph();
       }
 
       closeDrawerBtn.addEventListener("click", closeDrawer);
-      drawerOverlay.addEventListener("click", closeDrawer);
+      drawerOverlay.addEventListener("click", (e) => {
+        drawerOverlay.style.pointerEvents = "none";
+        const elUnderneath = document.elementFromPoint(e.clientX, e.clientY);
+        drawerOverlay.style.pointerEvents = "";
+
+        const nodeEl = elUnderneath && (elUnderneath.closest(".node-group") || elUnderneath.closest("[data-node-id]"));
+        if (nodeEl) {
+          const nodeId = nodeEl.getAttribute("data-node-id") || nodeEl.getAttribute("data-id");
+          if (nodeId) {
+            openDrawer(nodeId);
+            return;
+          }
+        }
+        closeDrawer();
+      });
       window.addEventListener("keydown", (e) => {
         if (e.key === "Escape") closeDrawer();
       });
 
       // Node Click Dispatcher
       container.addEventListener("click", (e) => {
-        if (hasDragged) {
+        if (suppressNextClick || hasDragged) {
+          suppressNextClick = false;
           hasDragged = false;
           downTarget = null;
           return;
@@ -2607,7 +2963,24 @@ export function exportMindMapToHtml(
           y: ch - (rootPos.y + rootDim.height / 2),
           scale: 1
         };
-        updateViewport();
+        updateViewport(true);
+      });
+
+      const headerFit = document.getElementById("headerFitViewBtn");
+      if (headerFit) headerFit.addEventListener("click", () => fitToView());
+      const headerReset = document.getElementById("headerResetViewBtn");
+      if (headerReset) headerReset.addEventListener("click", () => {
+        const cw = (container.clientWidth || window.innerWidth) / 2;
+        const ch = (container.clientHeight || window.innerHeight) / 2;
+        const rootDim = getNodeDimensions(rootNodeId);
+        const { positions } = computeLayout();
+        const rootPos = positions.get(rootNodeId) || { x: 0, y: 0 };
+        transform = {
+          x: cw - (rootPos.x + rootDim.width / 2),
+          y: ch - (rootPos.y + rootDim.height / 2),
+          scale: 1
+        };
+        updateViewport(true);
       });
 
       // Initial Bootstrap

@@ -10,14 +10,18 @@ import {
   Trash2,
   UploadCloud,
   ChevronLeft,
+  X,
 } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../../../lib/api/client.js";
 import { createDocumentsApi } from "../../../lib/api/documents.js";
 import { createGenerationApi, type DocumentContentStatusResponse } from "../../../lib/api/generation.js";
 import type { OfficialCourse } from "../../../lib/api/admin.js";
 import { useAdmin } from "../../../hooks/useAdmin.js";
+import { useAuth } from "../../../providers/AuthProvider.js";
+import { isContentManagerOrAdmin } from "../../../utils/generationPermissions.js";
 import { DocumentUploader } from "../../documents/DocumentUploader.js";
 import { GenerateContentModal } from "../../documents/GenerateContentModal.js";
+import { PurgeGeneratedContentModal } from "./PurgeGeneratedContentModal.js";
 import type { DocumentResource, DocumentStatus } from "@avana/contracts";
 import { formatPersianOf, toPersianDigits } from "@avana/domain";
 import { getUserFriendlyErrorMessage } from "../../../lib/api/error-mapper.js";
@@ -149,6 +153,50 @@ export function SourceProductionPanel({
       void queryClient.invalidateQueries({
         queryKey: ["document-content-status"],
       });
+    },
+  });
+
+  const { user, memberships } = useAuth();
+  const canPurge = isContentManagerOrAdmin(user, memberships);
+
+  const [purgeConfirmDoc, setPurgeConfirmDoc] = useState<DocumentResource | null>(null);
+  const [purgeError, setPurgeError] = useState<string | null>(null);
+  const [purgeSuccessMessage, setPurgeSuccessMessage] = useState<string | null>(null);
+
+  // Purge generated content mutation
+  const purgeMutation = useMutation({
+    mutationFn: async (documentId: string) => {
+      setPurgeError(null);
+      return await adminApi.officialContentStudio.purgeGeneratedContent(
+        course.id,
+        documentId,
+      );
+    },
+    onSuccess: (_, _documentId) => {
+      const docName = purgeConfirmDoc?.original_name || "انتخاب‌شده";
+      setPurgeConfirmDoc(null);
+      setPurgeError(null);
+      setPurgeSuccessMessage(
+        `تمام محتوای تولیدشده از فایل «${docName}» با موفقیت حذف شد. فایل منبع حفظ گردید.`,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["course-documents", effectiveOrgId, course.id],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["official-review-workspace", course.id],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["document-content-status"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["course-hierarchy", course.id],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["official-courses"],
+      });
+    },
+    onError: (err: Error) => {
+      setPurgeError(err.message || "خطا در حذف محتوای تولیدشده");
     },
   });
 
@@ -346,6 +394,24 @@ export function SourceProductionPanel({
           </div>
         </div>
 
+        {/* Purge Success Banner */}
+        {purgeSuccessMessage && (
+          <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-200 text-xs flex items-center justify-between gap-3 animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <span className="font-medium">{purgeSuccessMessage}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPurgeSuccessMessage(null)}
+              className="p-1 text-emerald-700 hover:text-emerald-900 dark:text-emerald-300 rounded-lg transition-colors"
+              aria-label="بستن پیام"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Global Error Banner */}
         {generateError && (
           <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-3">
@@ -404,6 +470,12 @@ export function SourceProductionPanel({
               onCloseDeleteConfirm={() => setDeleteConfirmDocId(null)}
               onConfirmDelete={() => deleteMutation.mutate(doc.id)}
               isDeleting={deleteMutation.isPending}
+              onOpenPurgeConfirm={(targetDoc) => {
+                setPurgeError(null);
+                setPurgeConfirmDoc(targetDoc);
+              }}
+              isPurging={purgeMutation.isPending && purgeConfirmDoc?.id === doc.id}
+              canPurge={canPurge}
               onRetryExtract={() => extractMutation.mutate(doc.id)}
               isExtractingRetry={extractMutation.isPending}
             />
@@ -426,6 +498,23 @@ export function SourceProductionPanel({
           onConfirmGenerate={handleConfirmGenerate}
         />
       )}
+
+      {/* Purge Generated Content Confirmation Modal */}
+      {purgeConfirmDoc && (
+        <PurgeGeneratedContentModal
+          isOpen={Boolean(purgeConfirmDoc)}
+          onClose={() => {
+            if (!purgeMutation.isPending) {
+              setPurgeConfirmDoc(null);
+              setPurgeError(null);
+            }
+          }}
+          documentName={purgeConfirmDoc.original_name}
+          onConfirm={() => purgeMutation.mutate(purgeConfirmDoc.id)}
+          isPurging={purgeMutation.isPending}
+          error={purgeError}
+        />
+      )}
     </div>
   );
 }
@@ -443,6 +532,9 @@ function SourceDocumentCard({
   onCloseDeleteConfirm,
   onConfirmDelete,
   isDeleting,
+  onOpenPurgeConfirm,
+  isPurging,
+  canPurge,
   onRetryExtract,
   isExtractingRetry,
 }: {
@@ -458,6 +550,9 @@ function SourceDocumentCard({
   onCloseDeleteConfirm: () => void;
   onConfirmDelete: () => void;
   isDeleting: boolean;
+  onOpenPurgeConfirm: (doc: DocumentResource) => void;
+  isPurging: boolean;
+  canPurge: boolean;
   onRetryExtract: () => void;
   isExtractingRetry: boolean;
 }) {
@@ -485,7 +580,10 @@ function SourceDocumentCard({
     contentStatus?.lesson?.generated ||
       contentStatus?.flashcards?.generated ||
       contentStatus?.exam?.generated ||
-      contentStatus?.review_summary?.generated,
+      contentStatus?.review_summary?.generated ||
+      (contentStatus?.progress && contentStatus.progress.completed > 0) ||
+      doc.status === "review_pending" ||
+      doc.status === "ready",
   );
 
   const completedCount = [
@@ -534,7 +632,7 @@ function SourceDocumentCard({
           </div>
         </div>
 
-        {/* Status badge */}
+        {/* Status badge & top-level actions */}
         <div className="flex items-center gap-2 shrink-0">
           {isWaiting && (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
@@ -578,19 +676,19 @@ function SourceDocumentCard({
             onClick={onOpenDeleteConfirm}
             disabled={isDeleting}
             className="p-1.5 text-[var(--color-text-muted)] hover:text-rose-600 hover:bg-rose-500/10 rounded-xl transition-colors"
-            title="حذف سند"
-            aria-label="حذف سند"
+            title="حذف فایل منبع (حذف کل سند از سیستم)"
+            aria-label="حذف فایل منبع"
           >
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* Delete Confirmation Box */}
+      {/* Delete Source Document Confirmation Box */}
       {isDeleteConfirmOpen && (
         <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl space-y-3">
           <p className="text-xs text-rose-700 dark:text-rose-300 font-bold">
-            آیا از حذف این منبع اطمینان دارید؟
+            آیا از حذف کامل این فایل منبع از دوره اطمینان دارید؟ با حذف فایل، متن استخراج‌شده و تمام فایل اصلی از سیستم حذف خواهند شد.
           </p>
           <div className="flex items-center gap-2 justify-end">
             <button
@@ -609,7 +707,7 @@ function SourceDocumentCard({
               {isDeleting && (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
               )}
-              <span>تایید حذف</span>
+              <span>حذف فایل منبع</span>
             </button>
           </div>
         </div>
@@ -637,6 +735,36 @@ function SourceDocumentCard({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Delete Generated Content Action Button */}
+          {hasAnyGenerated && canPurge && (
+            <div className="relative group">
+              <button
+                type="button"
+                onClick={() => onOpenPurgeConfirm(doc)}
+                disabled={Boolean(isBusyGenerating || isPurging)}
+                className="px-3 sm:px-4 py-2.5 rounded-xl border border-rose-500/25 bg-rose-500/10 hover:bg-rose-500/20 active:bg-rose-500/25 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                title={
+                  isBusyGenerating
+                    ? "تا پایان تولید محتوا امکان حذف وجود ندارد."
+                    : "حذف محتوای تولیدشده از این فایل"
+                }
+                aria-label="حذف محتوا"
+              >
+                {isPurging ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                <span>حذف محتوا</span>
+              </button>
+              {isBusyGenerating && (
+                <div className="absolute bottom-full right-0 mb-1.5 hidden group-hover:block z-10 whitespace-nowrap bg-neutral-900 text-white text-[10px] px-2.5 py-1 rounded-md shadow-lg pointer-events-none">
+                  تا پایان تولید محتوا امکان حذف وجود ندارد.
+                </div>
+              )}
+            </div>
+          )}
+
           {isFailed && (
             <button
               type="button"

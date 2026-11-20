@@ -198,6 +198,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
     const isUserPublished = !isOfficial && course.status === "published";
     return {
       id: course.id,
+      slug: course.slug ?? null,
       title: course.name,
       subject: course.subject,
       target_academic_fields: course.targetAcademicFields ?? [],
@@ -512,6 +513,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
       const courseId = getCourseId(params);
       const body = request.body as {
         title?: string;
+        slug?: string | null;
         subject?: string | null;
         target_academic_fields?: string[] | null;
         targetAcademicFields?: string[] | null;
@@ -528,6 +530,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
         courseId,
         {
           title: body.title,
+          slug: body.slug !== undefined ? body.slug : undefined,
           subject: body.subject !== undefined ? body.subject : undefined,
           targetAcademicFields:
             body.target_academic_fields !== undefined

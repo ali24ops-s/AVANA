@@ -188,6 +188,7 @@ export const courses = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 255 }).notNull(),
+    slug: varchar("slug", { length: 255 }),
     description: text("description"),
     subject: varchar("subject", { length: 255 }),
     status: varchar("status", { length: 30 }).notNull().default("published"),
@@ -216,6 +217,27 @@ export const courses = pgTable(
       table.organizationId,
       table.status,
     ),
+    slugIdx: uniqueIndex("idx_courses_slug")
+      .on(table.slug)
+      .where(sql`${table.deletedAt} IS NULL AND ${table.slug} IS NOT NULL`),
+  }),
+);
+
+export const courseSlugRedirects = pgTable(
+  "course_slug_redirects",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    slug: varchar("slug", { length: 255 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    courseIdx: index("idx_course_slug_redirects_course").on(table.courseId),
+    slugIdx: uniqueIndex("idx_course_slug_redirects_slug").on(table.slug),
   }),
 );
 
@@ -4113,6 +4135,11 @@ export const presentationSlides = pgTable(
       .$type<Record<string, unknown>>()
       .notNull()
       .default({}),
+    paymentTransactionId: uuid("payment_transaction_id").references(
+      () => walletTransactions.id,
+      { onDelete: "set null" },
+    ),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -4126,6 +4153,9 @@ export const presentationSlides = pgTable(
       table.slideIndex,
     ),
     projectIdx: index("idx_presentation_slides_project").on(table.projectId),
+    paymentTxIdx: index("idx_presentation_slides_payment_tx").on(
+      table.paymentTransactionId,
+    ),
     slideIndexCheck: check(
       "chk_presentation_slides_index",
       sql`${table.slideIndex} > 0`,
@@ -4188,6 +4218,74 @@ export const presentationReferences = pgTable(
 
 export type PresentationReference = typeof presentationReferences.$inferSelect;
 export type NewPresentationReference = typeof presentationReferences.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Presentation Generation Operations (Migration 0106 - Financial Audit & State Machine)
+// ---------------------------------------------------------------------------
+
+export const presentationGenerationOperations = pgTable(
+  "presentation_generation_operations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    projectId: uuid("project_id").references(() => presentationProjects.id, {
+      onDelete: "set null",
+    }),
+    slideId: uuid("slide_id").references(() => presentationSlides.id, {
+      onDelete: "set null",
+    }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    batchId: uuid("batch_id"),
+    status: varchar("status", { length: 32 }).notNull().default("pending"),
+    costToman: integer("cost_toman").notNull().default(1500),
+    debitTransactionId: uuid("debit_transaction_id").references(
+      () => walletTransactions.id,
+      { onDelete: "set null" },
+    ),
+    refundTransactionId: uuid("refund_transaction_id").references(
+      () => walletTransactions.id,
+      { onDelete: "set null" },
+    ),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+    recoveryWorkerId: varchar("recovery_worker_id", { length: 128 }),
+    recoveryLockedUntil: timestamp("recovery_locked_until", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    refundedAt: timestamp("refunded_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    idempotencyIdx: uniqueIndex("idx_pres_gen_ops_idempotency").on(
+      table.idempotencyKey,
+    ),
+    activeSlideIdx: uniqueIndex("idx_pres_gen_ops_active_slide")
+      .on(table.slideId)
+      .where(sql`status IN ('pending', 'debited', 'generating', 'refund_pending')`),
+    projectStatusIdx: index("idx_pres_gen_ops_project_status").on(
+      table.projectId,
+      table.status,
+    ),
+    batchIdx: index("idx_pres_gen_ops_batch").on(table.batchId),
+    slideIdx: index("idx_pres_gen_ops_slide").on(table.slideId),
+    statusStartedIdx: index("idx_pres_gen_ops_status_started").on(
+      table.status,
+      table.startedAt,
+    ),
+  }),
+);
+
+export type PresentationGenerationOperation =
+  typeof presentationGenerationOperations.$inferSelect;
+export type NewPresentationGenerationOperation =
+  typeof presentationGenerationOperations.$inferInsert;
+
 
 // ---------------------------------------------------------------------------
 // User Personal Contents (Personal Summaries, Flashcards, Quizzes) (Migration 0096)
@@ -4415,5 +4513,363 @@ export type ErrorEvent = typeof errorEvents.$inferSelect;
 export type NewErrorEvent = typeof errorEvents.$inferInsert;
 export type ErrorAdminNote = typeof errorAdminNotes.$inferSelect;
 export type NewErrorAdminNote = typeof errorAdminNotes.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// AVANA Studio & Marketing Quizzes Module (Migration 0102)
+// ---------------------------------------------------------------------------
+
+export const marketingQuizzes = pgTable(
+  "marketing_quizzes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    slug: varchar("slug", { length: 64 }).notNull().unique(),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    coverImageUrl: text("cover_image_url"),
+    status: varchar("status", { length: 20 }).notNull().default("draft"),
+    settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    slugIdx: index("idx_marketing_quizzes_slug")
+      .on(table.slug)
+      .where(sql`${table.deletedAt} IS NULL`),
+    statusIdx: index("idx_marketing_quizzes_status")
+      .on(table.status)
+      .where(sql`${table.deletedAt} IS NULL`),
+    orgCreatedIdx: index("idx_marketing_quizzes_org_created").on(
+      table.organizationId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export const marketingQuestionBank = pgTable(
+  "marketing_question_bank",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    sourceType: varchar("source_type", { length: 30 }).notNull().default("manual"),
+    sourceQuestionId: uuid("source_question_id").references(() => quizQuestions.id, {
+      onDelete: "set null",
+    }),
+    sourceCourseId: uuid("source_course_id").references(() => courses.id, {
+      onDelete: "set null",
+    }),
+    question: text("question").notNull(),
+    choices: jsonb("choices").$type<Array<{ id: string; text: string }>>().notNull(),
+    correctAnswer: jsonb("correct_answer").$type<{ choiceId: string } | string>().notNull(),
+    explanation: text("explanation"),
+    difficulty: varchar("difficulty", { length: 20 }).notNull().default("medium"),
+    topic: varchar("topic", { length: 255 }),
+    questionType: varchar("question_type", { length: 50 }).notNull().default("multiple_choice"),
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    topicIdx: index("idx_marketing_qbank_topic")
+      .on(table.topic)
+      .where(sql`${table.deletedAt} IS NULL`),
+    diffIdx: index("idx_marketing_qbank_difficulty")
+      .on(table.difficulty)
+      .where(sql`${table.deletedAt} IS NULL`),
+  }),
+);
+
+export const marketingQuizQuestions = pgTable(
+  "marketing_quiz_questions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    marketingQuizId: uuid("marketing_quiz_id")
+      .notNull()
+      .references(() => marketingQuizzes.id, { onDelete: "cascade" }),
+    sourceQuestionId: uuid("source_question_id").references(() => quizQuestions.id, {
+      onDelete: "set null",
+    }),
+    sourceBankQuestionId: uuid("source_bank_question_id").references(
+      () => marketingQuestionBank.id,
+      { onDelete: "set null" },
+    ),
+    question: text("question").notNull(),
+    choices: jsonb("choices").$type<Array<{ id: string; text: string }>>().notNull(),
+    correctAnswer: jsonb("correct_answer").$type<{ choiceId: string } | string>().notNull(),
+    explanation: text("explanation"),
+    difficulty: varchar("difficulty", { length: 20 }).notNull().default("medium"),
+    topic: varchar("topic", { length: 255 }),
+    questionType: varchar("question_type", { length: 50 }).notNull().default("multiple_choice"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    quizOrderIdx: index("idx_marketing_quiz_questions_quiz_order").on(
+      table.marketingQuizId,
+      table.sortOrder,
+    ),
+  }),
+);
+
+export const marketingQuizAttempts = pgTable(
+  "marketing_quiz_attempts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    marketingQuizId: uuid("marketing_quiz_id")
+      .notNull()
+      .references(() => marketingQuizzes.id, { onDelete: "cascade" }),
+    attemptToken: varchar("attempt_token", { length: 64 }).notNull().unique(),
+    idempotencyKey: varchar("idempotency_key", { length: 128 }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    status: varchar("status", { length: 20 }).notNull().default("completed"),
+    score: numeric("score", { precision: 5, scale: 2 }).notNull().default("0"),
+    correctCount: integer("correct_count").notNull().default(0),
+    wrongCount: integer("wrong_count").notNull().default(0),
+    totalQuestions: integer("total_questions").notNull().default(0),
+    answers: jsonb("answers").$type<Record<string, string>>().notNull().default({}),
+    questionSnapshots: jsonb("question_snapshots").$type<Array<{
+      id: string;
+      question: string;
+      choices: Array<{ id: string; text: string }>;
+    }>>(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    quizTimeIdx: index("idx_marketing_quiz_attempts_quiz_time").on(
+      table.marketingQuizId,
+      table.completedAt,
+    ),
+    tokenIdx: index("idx_marketing_quiz_attempts_token").on(table.attemptToken),
+    quizIdempotencyIdx: uniqueIndex("uq_marketing_quiz_attempts_quiz_idempotency").on(
+      table.marketingQuizId,
+      table.idempotencyKey,
+    ),
+  }),
+);
+
+export type MarketingQuizRecord = typeof marketingQuizzes.$inferSelect;
+export type NewMarketingQuizRecord = typeof marketingQuizzes.$inferInsert;
+export type MarketingQuestionBankRecord = typeof marketingQuestionBank.$inferSelect;
+export type NewMarketingQuestionBankRecord = typeof marketingQuestionBank.$inferInsert;
+export type MarketingQuizQuestionRecord = typeof marketingQuizQuestions.$inferSelect;
+export type NewMarketingQuizQuestionRecord = typeof marketingQuizQuestions.$inferInsert;
+export type MarketingQuizAttemptRecord = typeof marketingQuizAttempts.$inferSelect;
+export type NewMarketingQuizAttemptRecord = typeof marketingQuizAttempts.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// AVANA Studio & Polls & Surveys Module (Migration 0104)
+// ---------------------------------------------------------------------------
+
+export const polls = pgTable(
+  "polls",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    slug: varchar("slug", { length: 64 }).notNull().unique(),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    coverImageUrl: text("cover_image_url"),
+    status: varchar("status", { length: 20 }).notNull().default("draft"),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    slugIdx: index("idx_polls_slug")
+      .on(table.slug)
+      .where(sql`${table.deletedAt} IS NULL`),
+    statusIdx: index("idx_polls_status")
+      .on(table.status)
+      .where(sql`${table.deletedAt} IS NULL`),
+    orgCreatedIdx: index("idx_polls_org_created").on(
+      table.organizationId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export const pollQuestions = pgTable(
+  "poll_questions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    pollId: uuid("poll_id")
+      .notNull()
+      .references(() => polls.id, { onDelete: "cascade" }),
+    questionText: text("question_text").notNull(),
+    description: text("description"),
+    questionType: varchar("question_type", { length: 30 }).notNull(),
+    isRequired: boolean("is_required").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    minChoices: integer("min_choices"),
+    maxChoices: integer("max_choices"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    pollOrderIdx: index("idx_poll_questions_poll_order").on(
+      table.pollId,
+      table.sortOrder,
+    ),
+  }),
+);
+
+export const pollOptions = pgTable(
+  "poll_options",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    questionId: uuid("question_id")
+      .notNull()
+      .references(() => pollQuestions.id, { onDelete: "cascade" }),
+    optionText: varchar("option_text", { length: 500 }).notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    questionOrderIdx: index("idx_poll_options_question_order").on(
+      table.questionId,
+      table.sortOrder,
+    ),
+  }),
+);
+
+export const pollResponses = pgTable(
+  "poll_responses",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    pollId: uuid("poll_id")
+      .notNull()
+      .references(() => polls.id, { onDelete: "cascade" }),
+    participantId: varchar("participant_id", { length: 64 }).notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    ipHash: varchar("ip_hash", { length: 64 }),
+    userAgent: text("user_agent"),
+    completedAt: timestamp("completed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    pollTimeIdx: index("idx_poll_responses_poll_time").on(
+      table.pollId,
+      table.completedAt,
+    ),
+    participantIdx: index("idx_poll_responses_participant").on(table.participantId),
+    pollParticipantIdx: uniqueIndex("uq_poll_responses_poll_participant").on(
+      table.pollId,
+      table.participantId,
+    ),
+  }),
+);
+
+export const pollAnswers = pgTable(
+  "poll_answers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    responseId: uuid("response_id")
+      .notNull()
+      .references(() => pollResponses.id, { onDelete: "cascade" }),
+    questionId: uuid("question_id")
+      .notNull()
+      .references(() => pollQuestions.id, { onDelete: "cascade" }),
+    textAnswer: text("text_answer"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    responseIdx: index("idx_poll_answers_response").on(table.responseId),
+    questionIdx: index("idx_poll_answers_question").on(table.questionId),
+    responseQuestionIdx: uniqueIndex("uq_poll_answers_response_question").on(
+      table.responseId,
+      table.questionId,
+    ),
+  }),
+);
+
+export const pollAnswerOptions = pgTable(
+  "poll_answer_options",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    answerId: uuid("answer_id")
+      .notNull()
+      .references(() => pollAnswers.id, { onDelete: "cascade" }),
+    optionId: uuid("option_id")
+      .notNull()
+      .references(() => pollOptions.id, { onDelete: "cascade" }),
+  },
+  (table) => ({
+    answerIdx: index("idx_poll_answer_options_answer").on(table.answerId),
+    optionIdx: index("idx_poll_answer_options_option").on(table.optionId),
+    answerOptionIdx: uniqueIndex("uq_poll_answer_options_answer_option").on(
+      table.answerId,
+      table.optionId,
+    ),
+  }),
+);
+
+export type PollRecord = typeof polls.$inferSelect;
+export type NewPollRecord = typeof polls.$inferInsert;
+export type PollQuestionRecord = typeof pollQuestions.$inferSelect;
+export type NewPollQuestionRecord = typeof pollQuestions.$inferInsert;
+export type PollOptionRecord = typeof pollOptions.$inferSelect;
+export type NewPollOptionRecord = typeof pollOptions.$inferInsert;
+export type PollResponseRecord = typeof pollResponses.$inferSelect;
+export type NewPollResponseRecord = typeof pollResponses.$inferInsert;
+export type PollAnswerRecord = typeof pollAnswers.$inferSelect;
+export type NewPollAnswerRecord = typeof pollAnswers.$inferInsert;
+export type PollAnswerOptionRecord = typeof pollAnswerOptions.$inferSelect;
+export type NewPollAnswerOptionRecord = typeof pollAnswerOptions.$inferInsert;
+
+
 
 

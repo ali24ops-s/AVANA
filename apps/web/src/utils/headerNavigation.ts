@@ -23,6 +23,7 @@ import {
   HelpCircle,
   Layers,
   FolderOpen,
+  Presentation,
 } from "lucide-react";
 import type { Role, UserMembership, UserResource } from "@avana/contracts";
 import { isUserAdmin } from "./adminPermissions.js";
@@ -36,6 +37,7 @@ export type HeaderNavId =
   | "library"
   | "exams"
   | "flashcards"
+  | "presentations"
   | "files";
 
 export interface HeaderNavItem {
@@ -108,6 +110,14 @@ export function getHeaderNavItems(filesEnabled = false): HeaderNavItem[] {
       icon: Layers,
       dataTour: "nav-flashcards",
       isActive: (pathname) => pathname.startsWith("/flashcards"),
+    },
+    {
+      id: "presentations",
+      to: "/presentations",
+      label: "دستیار ارائه",
+      icon: Presentation,
+      dataTour: "nav-presentations",
+      isActive: (pathname) => pathname.startsWith("/presentations"),
     },
   ];
 
