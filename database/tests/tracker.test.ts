@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, no-secrets/no-secrets */
 import { describe, it, expect, vi } from "vitest";
 import path from "path";
 import { computeCanonicalSha256, resolveBuildManifest } from "../tracker/checksum.js";
@@ -83,7 +84,7 @@ describe("AVANA Migration Tracking System Unit & Integration Tests", () => {
       expect(hash1).toHaveLength(64);
     });
 
-    it("resolves build manifest containing all 98 migrations across cwd and path scenarios", () => {
+    it("resolves build manifest containing all 103 migrations across cwd and path scenarios", () => {
       const databaseDir = process.cwd().endsWith("database")
         ? process.cwd()
         : path.join(process.cwd(), "database");
@@ -94,23 +95,23 @@ describe("AVANA Migration Tracking System Unit & Integration Tests", () => {
 
       // 1. From database directory
       const manifestFromDb = resolveBuildManifest(databaseDir);
-      expect(manifestFromDb.migrations.length).toBe(98);
+      expect(manifestFromDb.migrations.length).toBe(103);
       expect(manifestFromDb.migrations[0].id).toBe("0001_init");
-      expect(manifestFromDb.migrations[97].id).toBe("0101_scope_documents_by_course");
+      expect(manifestFromDb.migrations[102].id).toBe("0106_presentation_generation_operations");
 
       // 2. From monorepo root
       const manifestFromRoot = resolveBuildManifest(monorepoRoot);
-      expect(manifestFromRoot.migrations.length).toBe(98);
+      expect(manifestFromRoot.migrations.length).toBe(103);
       expect(manifestFromRoot.migrations[0].id).toBe("0001_init");
-      expect(manifestFromRoot.migrations[97].id).toBe("0101_scope_documents_by_course");
+      expect(manifestFromRoot.migrations[102].id).toBe("0106_presentation_generation_operations");
 
       // 3. From dist directory
       const manifestFromDist = resolveBuildManifest(distDir);
-      expect(manifestFromDist.migrations.length).toBe(98);
+      expect(manifestFromDist.migrations.length).toBe(103);
 
       // 4. Without passing baseDir (independent of process.cwd())
       const manifestDefault = resolveBuildManifest();
-      expect(manifestDefault.migrations.length).toBe(98);
+      expect(manifestDefault.migrations.length).toBe(103);
 
       // 5. Throws clear error if path does not exist
       expect(() => resolveBuildManifest("/non/existent/manifest/path")).toThrow(

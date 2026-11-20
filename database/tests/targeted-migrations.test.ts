@@ -14,7 +14,7 @@ import type { MigrationDefinition } from "../tracker/types.js";
 
 describe("AVANA Targeted Migrations Execution Suite", () => {
   describe("Scope & Registry Whitelist Verification", () => {
-    it("contains strictly and exactly the 15 pre-approved migrations", () => {
+    it("contains strictly and exactly the 17 pre-approved migrations", () => {
       expect(TARGETED_MIGRATION_IDS).toEqual([
         "0088_crm_core",
         "0089_crm_segments",
@@ -31,8 +31,10 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
         "0102_marketing_quizzes_and_studio",
         "0103_courses_slug_and_backfill",
         "0104_polls_and_surveys",
+        "0105_presentation_slide_payments",
+        "0106_presentation_generation_operations",
       ]);
-      expect(TARGETED_MIGRATION_IDS.length).toBe(15);
+      expect(TARGETED_MIGRATION_IDS.length).toBe(17);
     });
 
     it("strictly excludes 0042, 0071, 0092, 0093, and all historical/out-of-scope migrations", () => {
@@ -48,17 +50,19 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
       expect(targetedSet.has("0095_presentation_assistant_core")).toBe(true);
       expect(targetedSet.has("0098_error_monitoring_core")).toBe(true);
       expect(targetedSet.has("0104_polls_and_surveys")).toBe(true);
+      expect(targetedSet.has("0105_presentation_slide_payments")).toBe(true);
+      expect(targetedSet.has("0106_presentation_generation_operations")).toBe(true);
     });
 
-    it("resolves all 15 migrations from ALL_MIGRATIONS in exact registry order", () => {
+    it("resolves all 17 migrations from ALL_MIGRATIONS in exact registry order", () => {
       const targeted = resolveTargetedMigrations(ALL_MIGRATIONS);
-      expect(targeted.length).toBe(15);
+      expect(targeted.length).toBe(17);
 
       const resolvedIds = targeted.map((m) => m.id);
       expect(resolvedIds).toEqual([...TARGETED_MIGRATION_IDS]);
 
       const sequences = targeted.map((m) => m.sequence);
-      expect(sequences).toEqual([88, 89, 90, 91, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104]);
+      expect(sequences).toEqual([88, 89, 90, 91, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106]);
 
       // Every targeted migration must have an up function
       for (const m of targeted) {
@@ -163,7 +167,7 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
   });
 
   describe("Official Manifest Checksums Integrity", () => {
-    it("ensures all 15 targeted migrations exist with valid SHA-256 in official manifest", () => {
+    it("ensures all 17 targeted migrations exist with valid SHA-256 in official manifest", () => {
       const databaseDir = process.cwd().endsWith("database")
         ? process.cwd()
         : path.join(process.cwd(), "database");
@@ -178,7 +182,7 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
       }
     });
 
-    it("verifies that actual on-disk migration file SHA-256 matches official manifest source_sha256 for all 15 migrations", () => {
+    it("verifies that actual on-disk migration file SHA-256 matches official manifest source_sha256 for all 17 migrations", () => {
       const databaseDir = process.cwd().endsWith("database")
         ? process.cwd()
         : path.join(process.cwd(), "database");
@@ -199,7 +203,7 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
   });
 
   describe("Mock Stateful Runner Execution for Targeted Migrations", () => {
-    it("executes ONLY the 15 targeted migrations and ignores all 86 other migrations", async () => {
+    it("executes ONLY the 17 targeted migrations and ignores all 86 other migrations", async () => {
       const executionLog: string[] = [];
       const dbState = {
         applied: new Set<string>(),
@@ -258,12 +262,12 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
         injectedClient: mockClient,
       });
 
-      // 1. Result reports exactly the 15 applied
+      // 1. Result reports exactly the 17 applied
       expect(res.applied).toEqual([...TARGETED_MIGRATION_IDS]);
       expect(res.skipped).toEqual([]);
       expect(res.failed).toBeNull();
 
-      // 2. Execution log shows only the 15 executed in exact order
+      // 2. Execution log shows only the 17 executed in exact order
       expect(executionLog).toEqual([...TARGETED_MIGRATION_IDS]);
 
       // 3. Out-of-scope migrations were NEVER called
@@ -280,7 +284,7 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
       });
       expect(res2.applied).toEqual([]);
       expect(res2.skipped).toEqual([...TARGETED_MIGRATION_IDS]);
-      expect(executionLog.length).toBe(15); // No additional up() calls
+      expect(executionLog.length).toBe(17); // No additional up() calls
     });
 
     it("skips already applied migrations and applies only unapplied ones (Real Production State Simulation)", async () => {
@@ -358,6 +362,8 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
         "0102_marketing_quizzes_and_studio",
         "0103_courses_slug_and_backfill",
         "0104_polls_and_surveys",
+        "0105_presentation_slide_payments",
+        "0106_presentation_generation_operations",
       ]);
       expect(executionLog).toEqual([
         "0090_course_membership_exam_schedules",
@@ -368,6 +374,8 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
         "0102_marketing_quizzes_and_studio",
         "0103_courses_slug_and_backfill",
         "0104_polls_and_surveys",
+        "0105_presentation_slide_payments",
+        "0106_presentation_generation_operations",
       ]);
     });
 
@@ -555,11 +563,15 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
       expect(committedMigrations.has("0102_marketing_quizzes_and_studio")).toBe(false);
       expect(committedMigrations.has("0103_courses_slug_and_backfill")).toBe(false);
       expect(committedMigrations.has("0104_polls_and_surveys")).toBe(false);
+      expect(committedMigrations.has("0105_presentation_slide_payments")).toBe(false);
+      expect(committedMigrations.has("0106_presentation_generation_operations")).toBe(false);
       expect(executionHistory).not.toContain("0095_presentation_assistant_core");
       expect(executionHistory).not.toContain("0098_error_monitoring_core");
       expect(executionHistory).not.toContain("0102_marketing_quizzes_and_studio");
       expect(executionHistory).not.toContain("0103_courses_slug_and_backfill");
       expect(executionHistory).not.toContain("0104_polls_and_surveys");
+      expect(executionHistory).not.toContain("0105_presentation_slide_payments");
+      expect(executionHistory).not.toContain("0106_presentation_generation_operations");
 
       // Verify attempt log entries
       const att0090 = committedAttempts.find((a) => a.migration_id === "0090_course_membership_exam_schedules");
@@ -583,7 +595,7 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
       expect(resRun2.skipped).toContain("0090_course_membership_exam_schedules");
       expect(resRun2.skipped).toContain("0091_backfill_personal_course_exam_schedules");
 
-      // 0094, 0095, 0098, 0102, 0103, 0104 applied in Run 2
+      // 0094, 0095, 0098, 0102, 0103, 0104, 0105, 0106 applied in Run 2
       expect(resRun2.applied).toEqual([
         "0094_course_publications_unique_version",
         "0095_presentation_assistant_core",
@@ -591,6 +603,8 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
         "0102_marketing_quizzes_and_studio",
         "0103_courses_slug_and_backfill",
         "0104_polls_and_surveys",
+        "0105_presentation_slide_payments",
+        "0106_presentation_generation_operations",
       ]);
 
       // 0094 is now successfully applied in schema_migrations
@@ -600,6 +614,8 @@ describe("AVANA Targeted Migrations Execution Suite", () => {
       expect(committedMigrations.get("0102_marketing_quizzes_and_studio")?.status).toBe("applied");
       expect(committedMigrations.get("0103_courses_slug_and_backfill")?.status).toBe("applied");
       expect(committedMigrations.get("0104_polls_and_surveys")?.status).toBe("applied");
+      expect(committedMigrations.get("0105_presentation_slide_payments")?.status).toBe("applied");
+      expect(committedMigrations.get("0106_presentation_generation_operations")?.status).toBe("applied");
     });
   });
 });
