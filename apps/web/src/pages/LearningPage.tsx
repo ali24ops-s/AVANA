@@ -436,6 +436,9 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       void queryClient.invalidateQueries({
         queryKey: ["course-learning", courseId],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["flashcards-queue"],
+      });
       if (organization?.id) {
         void queryClient.invalidateQueries({
           queryKey: ["study-analytics", organization.id, courseId],
@@ -748,7 +751,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
         availablePurchaseOptions={(data as any).access?.availablePurchaseOptions}
         onShare={() => setIsShareModalOpen(true)}
         manageLink={
-          courseId && canEditCourse ? (
+          courseId && isManagerOrAdmin ? (
             <Link
               to={`/admin/courses/${courseId}`}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-primary border border-primary/30 hover:bg-primary/10 transition-colors flex-shrink-0"
@@ -1124,7 +1127,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
                     lesson={selectedLesson}
                     moduleTitle={selectedModuleTitle}
                     courseTitle={course.title}
-                    courseId={courseId}
+                    courseId={canonicalCourseId || courseId}
                     coursePurchaseOptions={(data as any).access?.availablePurchaseOptions}
                     onComplete={() => completeMutation.mutate(selectedLesson.id)}
                     isCompleting={completeMutation.isPending}
@@ -1878,7 +1881,7 @@ function LessonViewer({
             <StudyAssistantChat
               contextType="lesson"
               lessonId={lesson.id}
-              courseId={canonicalCourseId || courseId}
+              courseId={courseId}
               lessonTitle={lesson.title}
               moduleTitle={moduleTitle}
               courseTitle={courseTitle}

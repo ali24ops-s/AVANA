@@ -1634,4 +1634,236 @@ describe("Course Ownership, Permission Isolation, and Unpublishing Lifecycle", (
       }),
     ).rejects.toThrowError(/نسخه 3/);
   });
+
+  test("Personal course creator without publication record receives can_edit=true and is_owner=true, while non-owner student receives false", async () => {
+    // 1. Create a regular student who creates a personal course
+    const studentUser = await userStore.createUserWithPassword({
+      email: "creator-student@avana.ir",
+      passwordHash: "hash123",
+      name: "دانشجوی سازنده",
+    });
+    studentUser.role = "student";
+    userStore.insert({ ...studentUser });
+
+    const studentOrgId = randomUUID() as OrganizationId;
+    await orgStore.createWithAdminMembership({
+      organization: {
+        id: studentOrgId,
+        name: "فضای یادگیری من",
+        slug: `org-${studentUser.id}`,
+        status: "active",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      membership: {
+        id: randomUUID() as any,
+        organizationId: studentOrgId,
+        userId: studentUser.id as UserId,
+        role: "student",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+    const studentSession = await sessionService.createSession(studentUser.id);
+    const studentToken = studentSession.sessionToken;
+
+    // 2. Student creates a personal course (WITHOUT any publication record)
+    const personalCourseId = randomUUID() as CourseId;
+    await courseStore.create({
+      course: {
+        id: personalCourseId,
+        organizationId: studentOrgId,
+        name: "دوره شخصی هوش مصنوعی من",
+        description: "دوره آزمایشی",
+        subject: "کامپیوتر",
+        targetAcademicFields: [],
+        status: "draft",
+        isOfficial: false,
+        examDate: null,
+        examScope: null,
+        officialExamDate: null,
+        officialExamScope: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      creatorUserId: studentUser.id as UserId,
+    });
+
+    await moduleStore.create({
+      id: `mod-p1-${randomUUID()}`,
+      courseId: personalCourseId,
+      title: "فصل اول دوره شخصی",
+      description: null,
+      documentId: null,
+      sortOrder: 1,
+      subCourseGroupId: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    // 3. Creator student calls GET /v1/courses/:courseId/learn:
+    // MUST return can_edit=true, canEdit=true, is_owner=true, isOwner=true
+    const creatorRes = await app.inject({
+      method: "GET",
+      url: `/v1/courses/${personalCourseId}/learn`,
+      headers: {
+        Cookie: `avana_session=${studentToken}`,
+      },
+    });
+    expect(creatorRes.statusCode).toBe(200);
+    const creatorData = creatorRes.json();
+    expect(creatorData.course.can_edit).toBe(true);
+    expect(creatorData.course.canEdit).toBe(true);
+    expect(creatorData.course.is_owner).toBe(true);
+    expect(creatorData.course.isOwner).toBe(true);
+
+    // 4. Create another student (non-owner) who tries to access creator's draft personal course
+    const otherStudent = await userStore.createUserWithPassword({
+      email: "other-student@avana.ir",
+      passwordHash: "hash123",
+      name: "دانشجوی دیگر",
+    });
+    otherStudent.role = "student";
+    userStore.insert({ ...otherStudent });
+    const otherOrgId = randomUUID() as OrganizationId;
+    await orgStore.createWithAdminMembership({
+      organization: {
+        id: otherOrgId,
+        name: "فضای یادگیری دیگر",
+        slug: `org-${otherStudent.id}`,
+        status: "active",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      membership: {
+        id: randomUUID() as any,
+        organizationId: otherOrgId,
+        userId: otherStudent.id as UserId,
+        role: "student",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+    const otherSession = await sessionService.createSession(otherStudent.id);
+    const otherToken = otherSession.sessionToken;
+
+    // A. Non-owner enrolled student accessing unpublished personal course MUST get 404
+    await courseStore.addUserCourse(otherStudent.id as UserId, personalCourseId);
+    const otherDraftRes = await app.inject({
+      method: "GET",
+      url: `/v1/courses/${personalCourseId}/learn`,
+      headers: {
+        Cookie: `avana_session=${otherToken}`,
+      },
+    });
+    expect(otherDraftRes.statusCode).toBe(404);
+
+    // B. Publish course with publication snapshot: non-owner enrolled student gets 200 with can_edit=false
+    await courseStore.update({
+      id: personalCourseId,
+      organizationId: studentOrgId,
+      name: "دوره شخصی هوش مصنوعی من",
+      description: "دوره آزمایشی",
+      subject: "کامپیوتر",
+      targetAcademicFields: [],
+      status: "published",
+      isOfficial: false,
+      examDate: null,
+      examScope: null,
+      officialExamDate: null,
+      officialExamScope: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+    await coursePublicationStore.create({
+      id: asCoursePublicationId(randomUUID()),
+      courseId: personalCourseId,
+      creatorUserId: studentUser.id as UserId,
+      organizationId: studentOrgId,
+      title: "دوره شخصی هوش مصنوعی من",
+      description: "دوره آزمایشی",
+      subject: "کامپیوتر",
+      version: 1,
+      status: "published",
+      publishedAt: new Date().toISOString(),
+      metadata: {} as any,
+      snapshot: {
+        title: "دوره شخصی هوش مصنوعی من",
+        subject: "کامپیوتر",
+        chapters: [{ id: "ch-1", title: "فصل اول", lessons: [] }],
+        stats: { totalLessons: 0 },
+      } as any,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    const otherPublishedRes = await app.inject({
+      method: "GET",
+      url: `/v1/courses/${personalCourseId}/learn`,
+      headers: {
+        Cookie: `avana_session=${otherToken}`,
+      },
+    });
+    expect(otherPublishedRes.statusCode).toBe(200);
+    const otherData = otherPublishedRes.json();
+    expect(otherData.course.can_edit).toBe(false);
+    expect(otherData.course.canEdit).toBe(false);
+    expect(otherData.course.is_owner).toBe(false);
+    expect(otherData.course.isOwner).toBe(false);
+
+    // 5. Official course check: student must get can_edit=false, while platform admin gets can_edit=true
+    const officialCourseId = randomUUID() as CourseId;
+    await courseStore.create({
+      course: {
+        id: officialCourseId,
+        organizationId: studentOrgId,
+        name: "دوره رسمی آوانا",
+        description: "دوره رسمی",
+        subject: "عمومی",
+        targetAcademicFields: [],
+        status: "published",
+        isOfficial: true,
+        examDate: null,
+        examScope: null,
+        officialExamDate: null,
+        officialExamScope: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+    });
+
+    const officialStudentRes = await app.inject({
+      method: "GET",
+      url: `/v1/courses/${officialCourseId}/learn`,
+      headers: {
+        Cookie: `avana_session=${studentToken}`,
+      },
+    });
+    expect(officialStudentRes.statusCode).toBe(200);
+    const officialStudentData = officialStudentRes.json();
+    expect(officialStudentData.course.can_edit).toBe(false);
+    expect(officialStudentData.course.is_owner).toBe(false);
+
+    const officialAdminRes = await app.inject({
+      method: "GET",
+      url: `/v1/courses/${officialCourseId}/learn`,
+      headers: {
+        Cookie: `avana_session=${adminUserToken}`,
+      },
+    });
+    expect(officialAdminRes.statusCode).toBe(200);
+    const officialAdminData = officialAdminRes.json();
+    expect(officialAdminData.course.can_edit).toBe(true);
+  });
 });

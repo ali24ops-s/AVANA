@@ -621,6 +621,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
 
           validCourseSummaries.push({
             course_id: course.id,
+            slug: (course as { slug?: string | null }).slug ?? null,
             title: course.name,
             total_cards: cTotal,
             due_cards: cDue,
@@ -818,6 +819,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
 
         return {
           course_id: course.id,
+          slug: (course as { slug?: string | null }).slug ?? null,
           title: course.name,
           total_cards: cTotal,
           due_cards: cDue,

@@ -599,7 +599,8 @@ export class LearningService {
       }
     }
 
-    const isOwner = Boolean(
+    const isOwner = !isOfficialCourse && Boolean(
+      isCourseCreator ||
       (publishedPub?.creatorUserId && actor.userId === publishedPub.creatorUserId) ||
       (latestPub?.creatorUserId && actor.userId === latestPub.creatorUserId)
     );

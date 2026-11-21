@@ -213,6 +213,7 @@ export function FlashcardExperience({
     const rawCourses = summaryQuery.data?.courses as Array<{
       course_id?: string;
       id?: string;
+      slug?: string;
       total_cards?: number;
       due_cards?: number;
       new_cards?: number;
@@ -233,7 +234,14 @@ export function FlashcardExperience({
     }
 
     const relevantCourses = effectiveCourseIds.length > 0
-      ? rawCourses.filter((c) => effectiveCourseIds.includes(c.course_id || c.id || ""))
+      ? rawCourses.filter((c) =>
+          effectiveCourseIds.some(
+            (id) =>
+              id === c.course_id ||
+              id === c.id ||
+              (Boolean(c.slug) && id === c.slug),
+          ),
+        )
       : rawCourses;
 
     return {
@@ -959,7 +967,12 @@ export function FlashcardExperience({
     const totalCount = scopedSummary.total;
 
     // Course has no flashcards at all
-    if (scopedSummary.hasCourseData && totalCount === 0) {
+    if (
+      scopedSummary.hasCourseData &&
+      totalCount === 0 &&
+      newCardsList.length === 0 &&
+      dueCardsList.length === 0
+    ) {
       return (
         <div className="w-full h-full h-[100dvh] flex items-center justify-center p-4 overflow-y-auto">
           <Card variant="solid" className="max-w-lg w-full p-6 sm:p-10 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-6 shadow-[var(--shadow-card)]">

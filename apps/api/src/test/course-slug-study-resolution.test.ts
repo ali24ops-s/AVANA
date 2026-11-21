@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import type {
   CourseId,
   FlashcardId,
+  LessonId,
+  ModuleId,
   OrganizationId,
   UserId,
 } from "@avana/domain";
@@ -550,11 +552,176 @@ describe("Course Slug vs UUID Boundary & Study Resolution Audit", () => {
     expect(bodySlug.session.course_id).toBe(validCourseUUID);
   });
 
-  describe("Store Hardening Guards (DrizzleCourseStore)", () => {
-    it("returns undefined without querying DB when courseId is an invalid UUID slug", async () => {
+  // -------------------------------------------------------------------------
+  // 12. New flashcards after completing lesson with course slug & onlyStudied=true
+  // -------------------------------------------------------------------------
+
+  it("12. retrieves new flashcards after completing lesson with course slug and onlyStudied=true, and summary contains slug", async () => {
+    const app = await buildTestApp();
+    const { userToken, userId, orgId } = await setupFixtures(app);
+
+    const now = new Date().toISOString();
+    const testModuleId = "22222222-2222-4222-8222-222222222222" as ModuleId;
+    const lesson1Id = "33333333-3333-4333-8333-333333333331" as LessonId;
+    const lesson2Id = "33333333-3333-4333-8333-333333333332" as LessonId;
+
+    moduleStore.insert({
+      id: testModuleId,
+      courseId: validCourseUUID,
+      documentId: null,
+      subCourseGroupId: null,
+      title: "Module 1",
+      description: "Module 1 desc",
+      sortOrder: 1,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    lessonStore.insert({
+      id: lesson1Id,
+      moduleId: testModuleId,
+      title: "Lesson 1",
+      slug: "lesson-1",
+      contentType: "text",
+      contentUrl: null,
+      durationMinutes: 10,
+      sortOrder: 1,
+      isFreePreview: false,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    lessonStore.insert({
+      id: lesson2Id,
+      moduleId: testModuleId,
+      title: "Lesson 2",
+      slug: "lesson-2",
+      contentType: "text",
+      contentUrl: null,
+      durationMinutes: 10,
+      sortOrder: 2,
+      isFreePreview: false,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    const newCard1Id = "cccccccc-1111-4ccc-8ccc-cccccccccccc" as FlashcardId;
+    const newCard2Id = "cccccccc-2222-4ccc-8ccc-cccccccccccc" as FlashcardId;
+
+    flashcardStore.insert({
+      id: newCard1Id,
+      organizationId: orgId,
+      courseId: validCourseUUID,
+      lessonId: lesson1Id,
+      documentId: null,
+      generatedContentId: null,
+      question: "Lesson 1 Question",
+      answer: "Lesson 1 Answer",
+      cardType: "definition",
+      difficulty: "medium",
+      dueAt: now,
+      intervalDays: 0,
+      easeFactor: 2.5,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    flashcardStore.insert({
+      id: newCard2Id,
+      organizationId: orgId,
+      courseId: validCourseUUID,
+      lessonId: lesson2Id,
+      documentId: null,
+      generatedContentId: null,
+      question: "Lesson 2 Question",
+      answer: "Lesson 2 Answer",
+      cardType: "definition",
+      difficulty: "medium",
+      dueAt: now,
+      intervalDays: 0,
+      easeFactor: 2.5,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // 1. Verify summary returns slug alongside course_id
+    const summaryRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgId}/study/flashcard-summary`,
+      cookies: { avana_session: userToken },
+    });
+    expect(summaryRes.statusCode).toBe(200);
+    const summaryBody = JSON.parse(summaryRes.body);
+    const validCourseSummary = summaryBody.courses.find((c: any) => c.course_id === validCourseUUID);
+    expect(validCourseSummary).toBeDefined();
+    expect(validCourseSummary.slug).toBe(validCourseSlug);
+
+    // 2. Before completing any lesson: custom-queue with onlyStudied=true returns 0 cards
+    const queueBefore = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgId}/study/flashcards/custom-queue?courseIds=${validCourseSlug}&mode=new&onlyStudied=true`,
+      cookies: { avana_session: userToken },
+    });
+    expect(queueBefore.statusCode).toBe(200);
+    const bodyBefore = JSON.parse(queueBefore.body);
+    expect(bodyBefore.items).toHaveLength(0);
+
+    // 3. Mark Lesson 1 as completed
+    await progressStore.upsert({
+      id: "prog-1",
+      userId,
+      lessonId: lesson1Id,
+      completed: true,
+      completedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // 4. After completing Lesson 1: custom-queue returns card from Lesson 1, but NOT Lesson 2
+    const queueAfterLesson1 = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgId}/study/flashcards/custom-queue?courseIds=${validCourseSlug}&mode=new&onlyStudied=true`,
+      cookies: { avana_session: userToken },
+    });
+    expect(queueAfterLesson1.statusCode).toBe(200);
+    const bodyAfterLesson1 = JSON.parse(queueAfterLesson1.body);
+    expect(bodyAfterLesson1.items).toHaveLength(1);
+    expect(bodyAfterLesson1.items[0].id).toBe(newCard1Id);
+
+    // 5. Mark Lesson 2 as completed
+    await progressStore.upsert({
+      id: "prog-2",
+      userId,
+      lessonId: lesson2Id,
+      completed: true,
+      completedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // 6. After completing Lesson 2: custom-queue returns cards from both lessons
+    const queueAfterLesson2 = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgId}/study/flashcards/custom-queue?courseIds=${validCourseSlug}&mode=new&onlyStudied=true`,
+      cookies: { avana_session: userToken },
+    });
+    expect(queueAfterLesson2.statusCode).toBe(200);
+    const bodyAfterLesson2 = JSON.parse(queueAfterLesson2.body);
+    expect(bodyAfterLesson2.items).toHaveLength(2);
+    const returnedIds = bodyAfterLesson2.items.map((c: any) => c.id);
+    expect(returnedIds).toContain(newCard1Id);
+    expect(returnedIds).toContain(newCard2Id);
+  });
+
+  describe("Store Hardening Guards", () => {
+    it("returns undefined without querying DB when courseId is an invalid UUID slug (DrizzleCourseStore)", async () => {
       const { DrizzleCourseStore } = await import("../modules/courses/drizzle-stores.js");
 
-      // Mock DB that throws if any query is attempted
       const explodingDb: any = {
         select: () => {
           throw new Error("DB should never be queried for invalid UUID format");
@@ -563,20 +730,36 @@ describe("Course Slug vs UUID Boundary & Study Resolution Audit", () => {
 
       const drizzleStore = new DrizzleCourseStore(explodingDb);
 
-      // 1. findById with invalid slug
-      const result1 = await drizzleStore.findById("course-81924dec" as any);
-      expect(result1).toBeUndefined();
-
-      // 2. findByIdForUser with invalid slug
-      const result2 = await drizzleStore.findByIdForUser(
-        "course-81924dec" as any,
-        "11111111-1111-4111-8111-111111111111" as UserId,
-      );
-      expect(result2).toBeUndefined();
-
-      // 3. findById with empty or malformed strings
+      expect(await drizzleStore.findById("course-81924dec" as any)).toBeUndefined();
+      expect(
+        await drizzleStore.findByIdForUser(
+          "course-81924dec" as any,
+          "11111111-1111-4111-8111-111111111111" as UserId,
+        ),
+      ).toBeUndefined();
       expect(await drizzleStore.findById("" as any)).toBeUndefined();
       expect(await drizzleStore.findById(null as any)).toBeUndefined();
+    });
+
+    it("returns empty array without querying DB when courseId is non-UUID (DrizzleModuleStore & DrizzleProgressStore)", async () => {
+      const { DrizzleModuleStore, DrizzleProgressStore } = await import("../modules/learning/drizzle-stores.js");
+
+      const explodingDb: any = {
+        select: () => {
+          throw new Error("DB should never be queried for invalid UUID format");
+        },
+      };
+
+      const moduleStore = new DrizzleModuleStore(explodingDb);
+      const progressStore = new DrizzleProgressStore(explodingDb);
+
+      expect(await moduleStore.listByCourse("course-slug" as any)).toEqual([]);
+      expect(
+        await progressStore.listByUserAndCourse(
+          "11111111-1111-4111-8111-111111111111" as UserId,
+          "course-slug" as any,
+        ),
+      ).toEqual([]);
     });
   });
 });

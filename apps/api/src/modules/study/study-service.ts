@@ -1069,11 +1069,13 @@ export class StudyService {
   }> {
     await this.authorizeRead(actor, organizationId);
 
+    const resolvedCourseIdMap = new Map<string, CourseId>();
     const flashcardsPromise =
       courseIds && courseIds.length > 0
         ? Promise.all(
             courseIds.map(async (cId) => {
               let targetOrg = organizationId;
+              let canonicalId = cId;
               if (this.courseStore) {
                 const c = await (this.courseStore.findByIdOrSlugForUser
                   ? this.courseStore.findByIdOrSlugForUser(
@@ -1088,9 +1090,11 @@ export class StudyService {
                     ));
                 if (c) {
                   targetOrg = c.organizationId;
+                  canonicalId = c.id;
+                  resolvedCourseIdMap.set(cId, c.id);
                 }
               }
-              return this.flashcardStore.listByCourse(cId, targetOrg, this.systemOrganizationId);
+              return this.flashcardStore.listByCourse(canonicalId, targetOrg, this.systemOrganizationId);
             }),
           ).then((res) => res.flat())
         : this.flashcardStore.listByOrganization(organizationId, this.systemOrganizationId);
@@ -1117,7 +1121,10 @@ export class StudyService {
       (documentIds && documentIds.length > 0),
     );
 
-    const courseSet = courseIds && courseIds.length > 0 ? new Set(courseIds) : null;
+    const courseSet =
+      courseIds && courseIds.length > 0
+        ? new Set([...courseIds, ...Array.from(resolvedCourseIdMap.values())])
+        : null;
     const modSet = moduleIds && moduleIds.length > 0 ? new Set(moduleIds) : null;
     const lesSet = lessonIds && lessonIds.length > 0 ? new Set(lessonIds) : null;
     const docSet = documentIds && documentIds.length > 0 ? new Set(documentIds) : null;
@@ -1151,9 +1158,10 @@ export class StudyService {
     let completedLessonIds = new Set<string>();
     let completedLessonsCount = 0;
     if (onlyStudied || mode === "new") {
-      const coursesToCheck = courseIds && courseIds.length > 0
-        ? courseIds
-        : Array.from(new Set(allowedCards.map((f) => f.courseId as CourseId)));
+      const coursesToCheck =
+        courseIds && courseIds.length > 0
+          ? courseIds.map((id) => (resolvedCourseIdMap.get(id) ?? id) as CourseId)
+          : Array.from(new Set(allowedCards.map((f) => f.courseId as CourseId)));
 
       const progressResults = await Promise.all(
         coursesToCheck.map((cId) =>

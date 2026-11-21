@@ -32,15 +32,16 @@ import type {
   DocumentStore,
   DocumentChunkStore,
 } from "./learning-store.js";
-import type {
-  CourseId,
-  DocumentChunkId,
-  DocumentId,
-  LessonId,
-  ModuleId,
-  OrganizationId,
-  SubCourseGroupId,
-  UserId,
+import {
+  type CourseId,
+  type DocumentChunkId,
+  type DocumentId,
+  type LessonId,
+  type ModuleId,
+  type OrganizationId,
+  type SubCourseGroupId,
+  type UserId,
+  isUUID,
 } from "@avana/domain";
 
 // ---------------------------------------------------------------------------
@@ -231,6 +232,9 @@ export class DrizzleModuleStore implements ModuleStore {
   constructor(private readonly db: DbClient) {}
 
   async listByCourse(courseId: CourseId): Promise<ModuleRecord[]> {
+    if (!courseId || !isUUID(courseId)) {
+      return [];
+    }
     const rows = await this.db
       .select()
       .from(modules)
@@ -565,6 +569,9 @@ export class DrizzleProgressStore implements ProgressStore {
     userId: UserId,
     courseId: CourseId,
   ): Promise<LessonProgressRecord[]> {
+    if (!courseId || !isUUID(courseId) || !userId || !isUUID(userId)) {
+      return [];
+    }
     const rows = await this.db
       .select({
         id: lessonProgress.id,

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { LearningPage } from "../pages/LearningPage.js";
@@ -27,6 +27,8 @@ describe("Official Course UI Permissions vs Personal Course", () => {
     isOfficial: boolean;
     courseId: string;
     totalLessons?: number;
+    canEdit?: boolean;
+    isOwner?: boolean;
   }) => {
     vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
       const urlStr = url.toString();
@@ -88,6 +90,9 @@ describe("Official Course UI Permissions vs Personal Course", () => {
                 is_official: options.isOfficial,
                 isOfficial: options.isOfficial,
                 locked: false,
+                can_edit: options.canEdit,
+                canEdit: options.canEdit,
+                is_owner: options.isOwner,
               },
               modules: [
                 {
@@ -243,4 +248,95 @@ describe("Official Course UI Permissions vs Personal Course", () => {
     expect(screen.getByText(/خلاصه مروری این دوره آموزشی به زودی پس از انتشار در دسترس قرار خواهد گرفت/i)).toBeInTheDocument();
     expect(screen.queryByText(/در بخش «منابع و اسناد \(PDF\)» بارگذاری کنید/i)).not.toBeInTheDocument();
   });
+
+  it("Personal course owner (student with can_edit: true, is_official: false): Documents and Review tabs are visible, but admin manageLink is hidden", async () => {
+    setupFetchMock({
+      role: "student",
+      isOfficial: false,
+      courseId: personalCourseId,
+      totalLessons: 1,
+      canEdit: true,
+      isOwner: true,
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/courses/${personalCourseId}`]}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/courses/:courseId" element={<LearningPage />} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // Lessons, Documents, and Review tabs must be visible to personal course creator
+    expect(await screen.findByRole("tab", { name: "درس‌ها" })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: /منابع و اسناد/i })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: /صف بررسی محتوا/i })).toBeInTheDocument();
+
+    // The admin management link (/admin/courses/:id) should NOT be displayed for student owner
+    expect(screen.queryByText("مدیریت محتوا و سرفصل‌ها")).not.toBeInTheDocument();
+  });
+
+  it("Non-owner student on personal course (can_edit: false, is_official: false): Documents and Review tabs are hidden, and admin manageLink is hidden", async () => {
+    setupFetchMock({
+      role: "student",
+      isOfficial: false,
+      courseId: personalCourseId,
+      totalLessons: 1,
+      canEdit: false,
+      isOwner: false,
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/courses/${personalCourseId}`]}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/courses/:courseId" element={<LearningPage />} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("tab", { name: "درس‌ها" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /منابع و اسناد/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /صف بررسی محتوا/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("مدیریت محتوا و سرفصل‌ها")).not.toBeInTheDocument();
+  });
+
+  it("Platform admin viewing personal course: tabs and admin manageLink are visible", async () => {
+    setupFetchMock({
+      role: "platform_admin",
+      isOfficial: false,
+      courseId: personalCourseId,
+      totalLessons: 1,
+      canEdit: true,
+      isOwner: false,
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/courses/${personalCourseId}`]}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/courses/:courseId" element={<LearningPage />} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("tab", { name: "درس‌ها" })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: /منابع و اسناد/i })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: /صف بررسی محتوا/i })).toBeInTheDocument();
+    expect(await screen.findByText("مدیریت محتوا و سرفصل‌ها")).toBeInTheDocument();
+  });
 });
+
