@@ -331,8 +331,8 @@ export function resolveTaskNavigationUrl(task: StudyTaskResource): string | null
       return null;
 
     case "review_flashcards":
-      if (courseIdentifier) {
-        return `/flashcards/review?courses=${courseIdentifier}`;
+      if (task.courseId) {
+        return `/flashcards/review?courses=${task.courseId}`;
       }
       return "/flashcards/review";
 

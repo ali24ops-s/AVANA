@@ -51,6 +51,7 @@ import {
   toPersianDigits,
   detectActiveLearningStreams,
   filterAndDistributeQuestions,
+  isUUID,
 } from "@avana/domain";
 import type {
   FlashcardRating,
@@ -1074,11 +1075,17 @@ export class StudyService {
             courseIds.map(async (cId) => {
               let targetOrg = organizationId;
               if (this.courseStore) {
-                const c = await this.courseStore.findByIdForUser(
-                  cId as CourseId,
-                  actor.userId,
-                  this.systemOrganizationId,
-                );
+                const c = await (this.courseStore.findByIdOrSlugForUser
+                  ? this.courseStore.findByIdOrSlugForUser(
+                      cId,
+                      actor.userId,
+                      this.systemOrganizationId,
+                    ).then((r) => r?.course)
+                  : this.courseStore.findByIdForUser(
+                      cId as CourseId,
+                      actor.userId,
+                      this.systemOrganizationId,
+                    ));
                 if (c) {
                   targetOrg = c.organizationId;
                 }
@@ -5209,12 +5216,31 @@ export class StudyService {
     // Finalize any previous open session for this user to avoid double counting
     await this.studySessionStore.closeActiveSessionsForUser(actor.userId, now);
 
+    let safeCourseId: CourseId | null = null;
+    if (input.courseId) {
+      if (isUUID(input.courseId)) {
+        safeCourseId = input.courseId as CourseId;
+      } else if (this.courseStore && typeof this.courseStore.findByIdOrSlugForUser === "function") {
+        const resolved = await this.courseStore.findByIdOrSlugForUser(
+          input.courseId,
+          actor.userId,
+          this.systemOrganizationId,
+        );
+        if (!resolved || !resolved.course || resolved.course.deletedAt !== null) {
+          throw new DomainError("not_found", "Course not found");
+        }
+        safeCourseId = resolved.course.id;
+      } else {
+        throw new DomainError("not_found", "Course not found");
+      }
+    }
+
     const id = randomUUID();
     const record = await this.studySessionStore.create({
       id,
       userId: actor.userId,
       activityType: input.activityType,
-      courseId: input.courseId ? (input.courseId as CourseId) : null,
+      courseId: safeCourseId,
       moduleId: input.moduleId ?? null,
       lessonId: input.lessonId ? (input.lessonId as LessonId) : null,
       startedAt: now,

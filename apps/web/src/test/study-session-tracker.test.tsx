@@ -18,6 +18,7 @@ describe("useStudySessionTracker Hook & Study Time Display", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.useFakeTimers();
+    document.cookie = "avana_csrf=test-token";
   });
 
   afterEach(() => {

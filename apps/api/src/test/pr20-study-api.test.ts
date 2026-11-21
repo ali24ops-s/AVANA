@@ -192,6 +192,23 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
     const past = new Date(now.getTime() - 1000 * 60).toISOString();
     const future = new Date(now.getTime() + 1000 * 60 * 60 * 24).toISOString();
 
+    courseStore.create({
+      course: {
+        id: cId,
+        organizationId: orgId,
+        name: "Cardiovascular Pharmacology",
+        description: "Course for study test",
+        subject: "Medical",
+        status: "published",
+        isOfficial: false,
+        examDate: null,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        deletedAt: null,
+      },
+      auditEvents: [],
+    }).catch(() => {});
+
     const dueCard: FlashcardId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as FlashcardId;
     const futureCard: FlashcardId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as FlashcardId;
 
@@ -246,7 +263,7 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
         userId,
         flashcardId: dueCard,
         dueAt: past,
-        intervalDays: 1,
+        intervalDays: 0,
         easeFactor: 2.5,
         reviewCount: 1,
       });
@@ -409,9 +426,9 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
 
     it("POST .../flashcards/:flashcardId/review advances schedule and emits audit log", async () => {
       const app = await buildApp();
-      const { token } = await signIn(app, "student@example.com", "student");
+      const { token, userId } = await signIn(app, "student@example.com", "student");
       const orgId = await createOrg(app, token, "Health Org");
-      const { dueCard } = seedFlashcards(orgId);
+      const { dueCard } = seedFlashcards(orgId, courseId, userId);
 
       const res = await app.inject({
         method: "POST",

@@ -226,6 +226,9 @@ export class DrizzleCourseStore implements CourseStore {
   }
 
   async findById(courseId: CourseId): Promise<CourseRecord | undefined> {
+    if (!courseId || !isUUID(courseId)) {
+      return undefined;
+    }
     const row = await this.db
       .select({
         id: courses.id,
@@ -374,6 +377,9 @@ export class DrizzleCourseStore implements CourseStore {
     userId: UserId,
     systemOrganizationId?: OrganizationId,
   ): Promise<CourseRecord | undefined> {
+    if (!courseId || !isUUID(courseId)) {
+      return undefined;
+    }
     const isPublicApproved = and(
       eq(courses.status, "published"),
       or(

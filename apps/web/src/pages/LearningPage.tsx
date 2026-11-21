@@ -196,6 +196,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
         : undefined));
 
   const { data, isLoading, isError, error, refetch } = useCourseLearning(courseId);
+  const canonicalCourseId = data?.course?.id;
   const queryClient = useQueryClient();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const learningApi = createLearningApi(apiClient);
@@ -513,9 +514,9 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
   // Track active educational study time for lessons
   useStudySessionTracker({
     activityType: "lesson",
-    courseId,
+    courseId: canonicalCourseId,
     lessonId: selectedLessonId,
-    enabled: effectiveActiveTab === "lessons" && Boolean(selectedLessonId),
+    enabled: effectiveActiveTab === "lessons" && Boolean(selectedLessonId) && Boolean(canonicalCourseId),
   });
 
   // Loading state
@@ -888,7 +889,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
               می‌خواهید هدف مطالعه را تغییر داده یا سرفصل‌های خاصی را برای شب امتحان تیک بزنید؟
             </span>
             <Link
-              to={`/flashcards?courses=${courseId}`}
+              to={`/flashcards?courses=${canonicalCourseId || courseId}`}
               className="px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
             >
               <span>تنظیم هدف مطالعه و انتخاب سرفصل‌ها</span>
@@ -898,7 +899,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
 
           <FlashcardExperience
             organizationId={data?.course?.organization_id || organization.id}
-            courseId={courseId!}
+            courseId={canonicalCourseId || courseId!}
             onBack={() => setTab("lessons")}
             isPreview={isCourseLocked}
             onUnlock={() => setIsCoursePaywallOpen(true)}
@@ -909,7 +910,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       {effectiveActiveTab === "quizzes" && (
         <QuizListView
           organizationId={data?.course?.organization_id || organization.id}
-          courseId={courseId!}
+          courseId={canonicalCourseId || courseId!}
           initialQuizId={searchParams.get("quizId")}
           isPreview={isCourseLocked}
           onUnlock={() => setIsCoursePaywallOpen(true)}
@@ -919,7 +920,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       {effectiveActiveTab === "analytics" && (
         <StudyAnalyticsView
           organizationId={organization.id}
-          courseId={courseId!}
+          courseId={canonicalCourseId || courseId!}
           onNavigateToTab={(t) => setTab(t)}
         />
       )}
@@ -928,7 +929,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
         isGenerationPermitted ? (
           <CourseDocumentsView
             organizationId={organization.id}
-            courseId={courseId!}
+            courseId={canonicalCourseId || courseId!}
             onNavigateToReview={() => setTab("review")}
             isActiveTab={effectiveActiveTab === "documents"}
           />
@@ -988,7 +989,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
 
             <ReviewQueueList
               organizationId={organization.id}
-              courseId={courseId!}
+              courseId={canonicalCourseId || courseId!}
             />
           </div>
         ) : (
@@ -1877,7 +1878,7 @@ function LessonViewer({
             <StudyAssistantChat
               contextType="lesson"
               lessonId={lesson.id}
-              courseId={courseId}
+              courseId={canonicalCourseId || courseId}
               lessonTitle={lesson.title}
               moduleTitle={moduleTitle}
               courseTitle={courseTitle}

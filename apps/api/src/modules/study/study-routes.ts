@@ -243,6 +243,94 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     };
   }
 
+  /**
+   * Helper to resolve a required course identifier (UUID or SEO slug) with user authorization.
+   * Throws DomainError if identifier is missing, invalid, deleted, or inaccessible to the actor.
+   */
+  async function resolveCourseIdForUser(
+    rawParam: string | undefined,
+    actor: Actor,
+  ): Promise<CourseId> {
+    if (!rawParam || !rawParam.trim()) {
+      throw new DomainError("bad_request", "Missing course ID");
+    }
+    const clean = rawParam.trim();
+
+    if (courseStore && typeof courseStore.findByIdOrSlugForUser === "function") {
+      const resolved = await courseStore.findByIdOrSlugForUser(
+        clean,
+        actor.userId,
+        systemOrganizationId,
+      );
+      if (!resolved || !resolved.course || resolved.course.deletedAt !== null) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      return resolved.course.id;
+    }
+
+    if (courseStore && typeof courseStore.findByIdForUser === "function") {
+      if (UUID_RE.test(clean)) {
+        const course = await courseStore.findByIdForUser(
+          clean as CourseId,
+          actor.userId,
+          systemOrganizationId,
+        );
+        if (!course || course.deletedAt !== null) {
+          throw new DomainError("not_found", "Course not found");
+        }
+        return course.id;
+      }
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    if (UUID_RE.test(clean)) {
+      return clean as CourseId;
+    }
+    throw new DomainError("bad_request", "Invalid course ID");
+  }
+
+  /**
+   * Helper to resolve an optional course identifier.
+   * Returns undefined ONLY when no identifier was provided.
+   * If an identifier was provided, it MUST resolve with user authorization or throw.
+   */
+  async function resolveOptionalCourseIdForUser(
+    rawParam: string | undefined,
+    actor: Actor,
+  ): Promise<CourseId | undefined> {
+    if (rawParam === undefined || rawParam === null || !rawParam.trim()) {
+      return undefined;
+    }
+    return await resolveCourseIdForUser(rawParam, actor);
+  }
+
+  /**
+   * Helper to resolve multiple course identifiers (comma-separated string).
+   * Returns undefined ONLY when no identifiers were provided.
+   * Every provided identifier must resolve with authorization; if any is invalid, throws.
+   */
+  async function resolveCourseIdsForUser(
+    rawParam: string | undefined,
+    actor: Actor,
+  ): Promise<CourseId[] | undefined> {
+    if (rawParam === undefined || rawParam === null || !rawParam.trim()) {
+      return undefined;
+    }
+    const tokens = rawParam
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tokens.length === 0) {
+      return undefined;
+    }
+    const resolved: CourseId[] = [];
+    for (const token of tokens) {
+      const courseId = await resolveCourseIdForUser(token, actor);
+      resolved.push(courseId);
+    }
+    return resolved;
+  }
+
   /** Helper to validate and extract course ID from params. */
   function getCourseId(params: { courseId: string }): CourseId {
     if (!params.courseId || !UUID_RE.test(params.courseId)) {
@@ -256,16 +344,16 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     if (!rawParam) return undefined;
     const clean = rawParam.trim();
     if (!clean) return undefined;
-    if (UUID_RE.test(clean)) {
-      return clean as CourseId;
-    }
     if (courseStore && typeof courseStore.findByIdOrSlug === "function") {
       const resolved = await courseStore.findByIdOrSlug(clean);
-      if (resolved) {
+      if (resolved && resolved.course && resolved.course.deletedAt === null) {
         return resolved.course.id;
       }
     }
-    return clean as CourseId;
+    if (UUID_RE.test(clean)) {
+      return clean as CourseId;
+    }
+    return undefined;
   }
 
   /** Helper to resolve organization ID from params or course store. */
@@ -277,13 +365,19 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       return params.organizationId as OrganizationId;
     }
     if (courseStore && params.courseId) {
-      const course = await courseStore.findByIdForUser(
-        params.courseId as CourseId,
-        actor.userId,
-        systemOrganizationId,
-      );
-      if (course) {
-        return course.organizationId;
+      const resolvedCourseId = await resolveOptionalCourseIdForUser(
+        params.courseId,
+        actor,
+      ).catch(() => undefined);
+      if (resolvedCourseId) {
+        const course = await courseStore.findByIdForUser(
+          resolvedCourseId,
+          actor.userId,
+          systemOrganizationId,
+        );
+        if (course) {
+          return course.organizationId;
+        }
       }
     }
     if (params.organizationId) {
@@ -766,8 +860,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       id: string;
     };
     const actor = getActor(req);
-    const courseId = getCourseId(req.params);
-    const organizationId = await resolveOrganizationId(actor, req.params);
+    const courseId = await resolveCourseIdForUser(req.params.courseId, actor);
+    const organizationId = await resolveOrganizationId(actor, { organizationId: req.params.organizationId, courseId });
     const query = req.query || {};
 
     let targetOrgId = organizationId;
@@ -856,8 +950,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       id: string;
     };
     const actor = getActor(req);
-    const courseId = getCourseId(req.params);
-    const organizationId = await resolveOrganizationId(actor, req.params);
+    const courseId = await resolveCourseIdForUser(req.params.courseId, actor);
+    const organizationId = await resolveOrganizationId(actor, { organizationId: req.params.organizationId, courseId });
     const query = req.query || {};
 
     let targetOrgId = organizationId;
@@ -920,8 +1014,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   const handleFlashcardReviewQueue = async (request: unknown) => {
     const req = request as { params: { organizationId?: string; courseId: string }; id: string };
     const actor = getActor(req);
-    const courseId = getCourseId(req.params);
-    const organizationId = await resolveOrganizationId(actor, req.params);
+    const courseId = await resolveCourseIdForUser(req.params.courseId, actor);
+    const organizationId = await resolveOrganizationId(actor, { organizationId: req.params.organizationId, courseId });
 
     const dueCards = await service.listFlashcardsForReview(
       actor,
@@ -956,7 +1050,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const actor = getActor(req);
     const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
 
-    const courseIds = req.query.courseIds ? req.query.courseIds.split(",").map(id => id.trim() as CourseId) : undefined;
+    const courseIds = await resolveCourseIdsForUser(req.query.courseIds, actor);
     const documentIds = req.query.documentIds ? req.query.documentIds.split(",").map(id => id.trim()) : undefined;
 
     const dueCards = await service.listFlashcardsForReviewMulti(
@@ -988,7 +1082,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const actor = getActor(req);
     const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
 
-    const courseIds = req.query.courseIds ? req.query.courseIds.split(",").map(id => id.trim() as CourseId) : undefined;
+    const courseIds = await resolveCourseIdsForUser(req.query.courseIds, actor);
     const documentIds = req.query.documentIds ? req.query.documentIds.split(",").map(id => id.trim()) : undefined;
     const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
 
@@ -1035,7 +1129,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const actor = getActor(req);
     const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
 
-    const courseIds = req.query.courseIds ? req.query.courseIds.split(",").map(id => id.trim() as CourseId) : undefined;
+    const courseIds = await resolveCourseIdsForUser(req.query.courseIds, actor);
     const documentIds = req.query.documentIds ? req.query.documentIds.split(",").map(id => id.trim()) : undefined;
     const moduleIds = req.query.moduleIds ? req.query.moduleIds.split(",").map(id => id.trim()) : undefined;
     const lessonIds = req.query.lessonIds ? req.query.lessonIds.split(",").map(id => id.trim()) : undefined;
@@ -1099,12 +1193,17 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const actor = getActor(req);
     const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
 
+    const resolvedCourseId = await resolveOptionalCourseIdForUser(req.body?.courseId, actor);
+    const resolvedCourseIds = req.body?.courseIds && req.body.courseIds.length > 0
+      ? await Promise.all(req.body.courseIds.map((id) => resolveCourseIdForUser(id, actor)))
+      : undefined;
+
     const session = await service.createFlashcardStudySession(
       actor,
       organizationId,
       {
-        courseId: req.body?.courseId as CourseId,
-        courseIds: req.body?.courseIds as CourseId[],
+        courseId: resolvedCourseId,
+        courseIds: resolvedCourseIds,
         moduleIds: req.body?.moduleIds,
         lessonIds: req.body?.lessonIds,
         documentIds: req.body?.documentIds,
@@ -1274,12 +1373,16 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   // -------------------------------------------------------------------------
   const handleSubmitFlashcardReview = async (request: unknown) => {
     const req = request as {
-      params: { organizationId?: string; courseId: string; flashcardId: string };
+      params: { organizationId?: string; courseId?: string; flashcardId: string };
       body: unknown;
       id: string;
     };
     const actor = getActor(req);
-    const organizationId = await resolveOrganizationId(actor, req.params);
+    const resolvedCourseId = await resolveOptionalCourseIdForUser(req.params.courseId, actor);
+    const organizationId = await resolveOrganizationId(actor, {
+      organizationId: req.params.organizationId,
+      courseId: resolvedCourseId,
+    });
     const flashcardId = parseFlashcardId(req.params.flashcardId, "flashcardId");
 
     const body = req.body as {
@@ -1300,7 +1403,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       rating: body.rating as FlashcardRating,
       reactionMs: body.reaction_ms,
       isExamMode: body.is_exam_mode,
-      courseId: req.params.courseId ? (req.params.courseId as any) : undefined,
+      courseId: resolvedCourseId,
     });
 
     return {
@@ -1655,8 +1758,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       id: string;
     };
     const actor = getActor(req);
-    const courseId = getCourseId(req.params);
-    const organizationId = await resolveOrganizationId(actor, req.params);
+    const courseId = await resolveCourseIdForUser(req.params.courseId, actor);
+    const organizationId = await resolveOrganizationId(actor, { organizationId: req.params.organizationId, courseId });
     const limit = req.query?.limit ? Math.max(1, Math.min(100, parseInt(req.query.limit, 10))) : 15;
     const offset = req.query?.offset ? Math.max(0, parseInt(req.query.offset, 10)) : 0;
 
@@ -1742,8 +1845,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       id: string;
     };
     const actor = getActor(req);
-    const courseId = getCourseId(req.params);
-    const organizationId = await resolveOrganizationId(actor, req.params);
+    const courseId = await resolveCourseIdForUser(req.params.courseId, actor);
+    const organizationId = await resolveOrganizationId(actor, { organizationId: req.params.organizationId, courseId });
     const query = req.query || {};
     const limit = query.limit ? parseInt(query.limit, 10) : 5;
 
@@ -1800,14 +1903,15 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       id: string;
     };
     const actor = getActor(req);
-    const organizationId = await resolveOrganizationId(actor, req.params);
+    const resolvedCourseId = await resolveCourseIdForUser(req.params.courseId, actor);
+    const organizationId = await resolveOrganizationId(actor, { organizationId: req.params.organizationId, courseId: resolvedCourseId });
     const quizId = parseQuizId(req.params.quizId, "quizId");
     const query = req.query || {};
 
     let targetOrgId = organizationId;
-    if (courseStore && req.params.courseId) {
+    if (courseStore) {
       const course = await courseStore.findByIdForUser(
-        req.params.courseId as CourseId,
+        resolvedCourseId,
         actor.userId,
         systemOrganizationId,
       );
@@ -2137,9 +2241,11 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
         throw new DomainError("bad_request", "Missing required field: activityType");
       }
 
+      const resolvedCourseId = await resolveOptionalCourseIdForUser(req.body.courseId, actor);
+
       const session = await service.startStudySession(actor, {
         activityType: req.body.activityType as StudyActivityType,
-        courseId: req.body.courseId,
+        courseId: resolvedCourseId,
         moduleId: req.body.moduleId,
         lessonId: req.body.lessonId,
       });

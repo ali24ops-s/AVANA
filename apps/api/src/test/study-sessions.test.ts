@@ -43,7 +43,7 @@ describe("Study Sessions & Active Study Time Tracking", () => {
     role: "student",
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     userStore = new InMemoryUserStore();
     sessionStore = new InMemorySessionStore();
     organizationStore = new InMemoryOrganizationStore();
@@ -75,6 +75,19 @@ describe("Study Sessions & Active Study Time Tracking", () => {
       undefined,
       studySessionStore,
     );
+
+    await courseStore.create({
+      course: {
+        id: "course-1" as CourseId,
+        organizationId: "org-1" as any,
+        name: "Test Course 1",
+        slug: "course-1",
+        description: "Test Course Description",
+        status: "published",
+        isOfficial: true,
+        deletedAt: null,
+      },
+    });
   });
 
   describe("Service Layer", () => {
