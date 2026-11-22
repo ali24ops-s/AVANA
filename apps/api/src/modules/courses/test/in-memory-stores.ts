@@ -371,6 +371,7 @@ export class InMemoryCourseStore implements CourseStore {
     const updatedBase: CourseRecord = {
       ...existing,
       name: course.name,
+      slug: course.slug !== undefined ? course.slug : existing.slug,
       description: course.description ?? null,
       subject: course.subject,
       targetAcademicFields: course.targetAcademicFields ?? [],

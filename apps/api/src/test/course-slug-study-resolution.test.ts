@@ -718,6 +718,60 @@ describe("Course Slug vs UUID Boundary & Study Resolution Audit", () => {
     expect(returnedIds).toContain(newCard2Id);
   });
 
+  // -------------------------------------------------------------------------
+  // 13. Study Analytics endpoint resolves Slug to Course UUID (200 OK)
+  // -------------------------------------------------------------------------
+
+  it("13. retrieves study analytics with Course Slug and UUID (200 OK)", async () => {
+    const app = await buildTestApp();
+    const { userToken, orgId: _orgId } = await setupFixtures(app);
+
+    // With Slug
+    const resSlug = await app.inject({
+      method: "GET",
+      url: `/v1/courses/${validCourseSlug}/study/analytics`,
+      cookies: { avana_session: userToken },
+    });
+    expect(resSlug.statusCode).toBe(200);
+    const bodySlug = JSON.parse(resSlug.body);
+    expect(bodySlug.request_id).toBeDefined();
+
+    // With UUID
+    const resUuid = await app.inject({
+      method: "GET",
+      url: `/v1/courses/${validCourseUUID}/study/analytics`,
+      cookies: { avana_session: userToken },
+    });
+    expect(resUuid.statusCode).toBe(200);
+  });
+
+  // -------------------------------------------------------------------------
+  // 14. Study Recommendations endpoint resolves Slug to Course UUID (200 OK)
+  // -------------------------------------------------------------------------
+
+  it("14. retrieves study recommendations with Course Slug and UUID (200 OK)", async () => {
+    const app = await buildTestApp();
+    const { userToken, orgId: _orgId } = await setupFixtures(app);
+
+    // With Slug
+    const resSlug = await app.inject({
+      method: "GET",
+      url: `/v1/courses/${validCourseSlug}/study/recommendations`,
+      cookies: { avana_session: userToken },
+    });
+    expect(resSlug.statusCode).toBe(200);
+    const bodySlug = JSON.parse(resSlug.body);
+    expect(bodySlug.request_id).toBeDefined();
+
+    // With UUID
+    const resUuid = await app.inject({
+      method: "GET",
+      url: `/v1/courses/${validCourseUUID}/study/recommendations`,
+      cookies: { avana_session: userToken },
+    });
+    expect(resUuid.statusCode).toBe(200);
+  });
+
   describe("Store Hardening Guards", () => {
     it("returns undefined without querying DB when courseId is an invalid UUID slug (DrizzleCourseStore)", async () => {
       const { DrizzleCourseStore } = await import("../modules/courses/drizzle-stores.js");

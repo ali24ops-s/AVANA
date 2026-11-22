@@ -548,4 +548,132 @@ describe("AI Study Assistant API Integration Tests (POST /v1/ai/ask)", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().answer).toBeTruthy();
   });
+
+  it("POST /v1/ai/ask accepts course slug in context.courseId and resolves cleanly without format error", async () => {
+    // Set a slug on the course
+    const courseSlug = "pharmacology-basics";
+    const existingCourse = await courseStore.findById(courseId);
+    if (existingCourse) {
+      await courseStore.update({
+        ...existingCourse,
+        slug: courseSlug,
+      });
+    }
+
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/ai/ask",
+      headers: {
+        "content-type": "application/json",
+        cookie: sessionCookie,
+      },
+      body: JSON.stringify({
+        message: "آیا اسلاگ دوره شناسایی می‌شود؟",
+        context: {
+          type: "lesson",
+          lessonId,
+          courseId: courseSlug, // Slug instead of UUID
+        },
+      }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.answer).toBeDefined();
+    expect(body.sources?.courseTitle).toBe("فارماکولوژی");
+  });
+
+  it("POST /v1/ai/ask accepts fallback course slug format (e.g. course-550379aa)", async () => {
+    const fallbackSlug = `course-${courseId.slice(0, 8)}`;
+    const existingCourse = await courseStore.findById(courseId);
+    if (existingCourse) {
+      await courseStore.update({
+        ...existingCourse,
+        slug: fallbackSlug,
+      });
+    }
+
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/ai/ask",
+      headers: {
+        "content-type": "application/json",
+        cookie: sessionCookie,
+      },
+      body: JSON.stringify({
+        message: "تست فال‌بک اسلاگ",
+        context: {
+          type: "lesson",
+          lessonId,
+          courseId: fallbackSlug,
+        },
+      }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().answer).toBeDefined();
+  });
+
+  it("POST /v1/ai/ask rejects mismatched courseId and lessonId", async () => {
+    // Create a second course
+    const otherCourseId = randomUUID() as CourseId;
+    await courseStore.create({
+      course: {
+        id: otherCourseId,
+        organizationId: orgId,
+        name: "فیزیولوژی",
+        subject: "پزشکی",
+        examDate: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/ai/ask",
+      headers: {
+        "content-type": "application/json",
+        cookie: sessionCookie,
+      },
+      body: JSON.stringify({
+        message: "تست عدم تعلق درس به دوره",
+        context: {
+          type: "lesson",
+          lessonId, // belongs to courseId (فارماکولوژی)
+          courseId: otherCourseId, // points to فیزیولوژی
+        },
+      }),
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.message).toContain("The specified lesson does not belong to the provided course");
+  });
+
+  it("POST /v1/ai/ask returns 404 for unknown course slug", async () => {
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/ai/ask",
+      headers: {
+        "content-type": "application/json",
+        cookie: sessionCookie,
+      },
+      body: JSON.stringify({
+        message: "تست اسلاگ ناموجود",
+        context: {
+          type: "lesson",
+          lessonId,
+          courseId: "completely-non-existent-course-slug",
+        },
+      }),
+    });
+
+    expect(res.statusCode).toBe(404);
+  });
 });

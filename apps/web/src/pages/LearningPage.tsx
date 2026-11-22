@@ -244,9 +244,9 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
 
   // Review queue query for badge count (only polled if generation is permitted and course is not restricted official)
   const reviewQueueQuery = useQuery({
-    queryKey: ["review-queue", organization?.id, courseId],
-    queryFn: () => reviewApi.getReviewQueue(organization!.id, courseId!),
-    enabled: !!organization?.id && !!courseId && isGenerationPermitted && !isOfficialCourseRestricted,
+    queryKey: ["review-queue", organization?.id, canonicalCourseId],
+    queryFn: () => reviewApi.getReviewQueue(organization!.id, canonicalCourseId!),
+    enabled: !!organization?.id && !!canonicalCourseId && isGenerationPermitted && !isOfficialCourseRestricted,
     refetchInterval: 5000,
   });
   const pendingReviewCount = reviewQueueQuery.data?.pending?.length ?? 0;
@@ -377,7 +377,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
   // --- Mutation: mark lesson as completed (optimistic UI) ---
   const completeMutation = useMutation({
     mutationFn: (lessonId: string) =>
-      learningApi.markLessonComplete(courseId!, lessonId),
+      learningApi.markLessonComplete(canonicalCourseId || courseId!, lessonId),
     onMutate: async (lessonId: string) => {
       await queryClient.cancelQueries({
         queryKey: ["course-learning", courseId],
@@ -436,16 +436,31 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       void queryClient.invalidateQueries({
         queryKey: ["course-learning", courseId],
       });
+      if (canonicalCourseId && canonicalCourseId !== courseId) {
+        void queryClient.invalidateQueries({
+          queryKey: ["course-learning", canonicalCourseId],
+        });
+      }
       void queryClient.invalidateQueries({
         queryKey: ["flashcards-queue"],
       });
       if (organization?.id) {
-        void queryClient.invalidateQueries({
-          queryKey: ["study-analytics", organization.id, courseId],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["study-recommendations", organization.id, courseId],
-        });
+        if (canonicalCourseId) {
+          void queryClient.invalidateQueries({
+            queryKey: ["study-analytics", organization.id, canonicalCourseId],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["study-recommendations", organization.id, canonicalCourseId],
+          });
+        }
+        if (courseId && courseId !== canonicalCourseId) {
+          void queryClient.invalidateQueries({
+            queryKey: ["study-analytics", organization.id, courseId],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["study-recommendations", organization.id, courseId],
+          });
+        }
       }
     },
   });
@@ -751,9 +766,9 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
         availablePurchaseOptions={(data as any).access?.availablePurchaseOptions}
         onShare={() => setIsShareModalOpen(true)}
         manageLink={
-          courseId && isManagerOrAdmin ? (
+          canonicalCourseId && isManagerOrAdmin ? (
             <Link
-              to={`/admin/courses/${courseId}`}
+              to={`/admin/courses/${canonicalCourseId}`}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-primary border border-primary/30 hover:bg-primary/10 transition-colors flex-shrink-0"
             >
               <Sparkles className="w-3.5 h-3.5" />
@@ -768,7 +783,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
         course={{
-          id: courseId!,
+          id: (data?.course as { slug?: string | null })?.slug || canonicalCourseId || courseId!,
           title: course.title,
           subject: course.subject,
           description: (course as any).description,
@@ -777,10 +792,10 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       />
 
       {/* Library Publication Request & Status Banner for user-owned courses */}
-      {!Boolean((course as any)?.isOfficial || (course as any)?.is_official) && (
+      {!Boolean((course as any)?.isOfficial || (course as any)?.is_official) && canonicalCourseId && (
         <CoursePublicationBanner
           organizationId={((data?.course as any)?.organization_id) || organization.id}
-          courseId={courseId!}
+          courseId={canonicalCourseId}
           courseTitle={course.title}
           courseDescription={(course as any).description}
           courseSubject={course.subject}
@@ -867,9 +882,9 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       <AppErrorBoundary compact={true}>
         {effectiveActiveTab === "review_summary" && (
         <CourseReviewSummaryView
-          key={data?.course?.id || courseId}
+          key={canonicalCourseId || courseId}
           organizationId={data?.course?.organization_id || organization.id}
-          courseId={data?.course?.id || courseId!}
+          courseId={canonicalCourseId!}
           modules={data?.modules}
           previewDocumentId={data?.preview?.preview_document_id}
           isPreview={isCourseLocked}
@@ -892,7 +907,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
               می‌خواهید هدف مطالعه را تغییر داده یا سرفصل‌های خاصی را برای شب امتحان تیک بزنید؟
             </span>
             <Link
-              to={`/flashcards?courses=${canonicalCourseId || courseId}`}
+              to={`/flashcards?courses=${canonicalCourseId}`}
               className="px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
             >
               <span>تنظیم هدف مطالعه و انتخاب سرفصل‌ها</span>
@@ -902,7 +917,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
 
           <FlashcardExperience
             organizationId={data?.course?.organization_id || organization.id}
-            courseId={canonicalCourseId || courseId!}
+            courseId={canonicalCourseId!}
             onBack={() => setTab("lessons")}
             isPreview={isCourseLocked}
             onUnlock={() => setIsCoursePaywallOpen(true)}
@@ -913,7 +928,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       {effectiveActiveTab === "quizzes" && (
         <QuizListView
           organizationId={data?.course?.organization_id || organization.id}
-          courseId={canonicalCourseId || courseId!}
+          courseId={canonicalCourseId!}
           initialQuizId={searchParams.get("quizId")}
           isPreview={isCourseLocked}
           onUnlock={() => setIsCoursePaywallOpen(true)}
@@ -923,7 +938,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       {effectiveActiveTab === "analytics" && (
         <StudyAnalyticsView
           organizationId={organization.id}
-          courseId={canonicalCourseId || courseId!}
+          courseId={canonicalCourseId!}
           onNavigateToTab={(t) => setTab(t)}
         />
       )}
@@ -932,7 +947,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
         isGenerationPermitted ? (
           <CourseDocumentsView
             organizationId={organization.id}
-            courseId={canonicalCourseId || courseId!}
+            courseId={canonicalCourseId!}
             onNavigateToReview={() => setTab("review")}
             isActiveTab={effectiveActiveTab === "documents"}
           />
@@ -992,7 +1007,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
 
             <ReviewQueueList
               organizationId={organization.id}
-              courseId={canonicalCourseId || courseId!}
+              courseId={canonicalCourseId!}
             />
           </div>
         ) : (
@@ -1127,7 +1142,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
                     lesson={selectedLesson}
                     moduleTitle={selectedModuleTitle}
                     courseTitle={course.title}
-                    courseId={canonicalCourseId || courseId}
+                    courseId={canonicalCourseId!}
                     coursePurchaseOptions={(data as any).access?.availablePurchaseOptions}
                     onComplete={() => completeMutation.mutate(selectedLesson.id)}
                     isCompleting={completeMutation.isPending}

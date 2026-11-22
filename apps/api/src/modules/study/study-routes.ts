@@ -331,13 +331,6 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     return resolved;
   }
 
-  /** Helper to validate and extract course ID from params. */
-  function getCourseId(params: { courseId: string }): CourseId {
-    if (!params.courseId || !UUID_RE.test(params.courseId)) {
-      throw new DomainError("bad_request", "Invalid course ID");
-    }
-    return params.courseId as CourseId;
-  }
 
   /** Helper to resolve optional course ID from params (supports canonical UUID or public slug/redirect). */
   async function resolveOptionalCourseId(rawParam?: string): Promise<CourseId | undefined> {
@@ -2084,7 +2077,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   const handleGetStudyAnalytics = async (request: unknown) => {
     const req = request as { params: { organizationId?: string; courseId: string }; id: string };
     const actor = getActor(req);
-    const courseId = getCourseId(req.params);
+    const courseId = await resolveCourseIdForUser(req.params.courseId, actor);
     const organizationId = await resolveOrganizationId(actor, req.params);
 
     const analytics = await service.getStudyAnalytics(
@@ -2122,7 +2115,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   const handleGetStudyRecommendations = async (request: unknown) => {
     const req = request as { params: { organizationId?: string; courseId: string }; id: string };
     const actor = getActor(req);
-    const courseId = getCourseId(req.params);
+    const courseId = await resolveCourseIdForUser(req.params.courseId, actor);
     const organizationId = await resolveOrganizationId(actor, req.params);
 
     const recommendations = await service.getStudyRecommendations(

@@ -13,6 +13,8 @@ import type { FastifyPluginAsync } from "fastify";
 import {
   DomainError,
   type Actor,
+  type CourseId,
+  type LessonId,
   type OrganizationId,
 } from "@avana/domain";
 import { StudyAssistantService } from "./assistant-service.js";
@@ -88,6 +90,69 @@ export const assistantRoutes: FastifyPluginAsync<
     };
   }
 
+  async function resolveCourseIdForActor(
+    rawParam: string,
+    actor: Actor,
+  ): Promise<CourseId> {
+    const clean = rawParam.trim();
+    if (!clean) {
+      throw new DomainError("bad_request", "Invalid courseId format");
+    }
+
+    if (courseStore && typeof courseStore.findByIdOrSlugForUser === "function") {
+      const resolved = await courseStore.findByIdOrSlugForUser(
+        clean,
+        actor.userId,
+        systemOrganizationId,
+      );
+      if (!resolved || !resolved.course || resolved.course.deletedAt !== null) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      return resolved.course.id;
+    }
+
+    if (courseStore && typeof courseStore.findByIdForUser === "function") {
+      if (UUID_RE.test(clean)) {
+        const course = await courseStore.findByIdForUser(
+          clean as CourseId,
+          actor.userId,
+          systemOrganizationId,
+        );
+        if (!course || course.deletedAt !== null) {
+          throw new DomainError("not_found", "Course not found");
+        }
+        return course.id;
+      }
+      if (typeof courseStore.findByIdOrSlug === "function") {
+        const resolved = await courseStore.findByIdOrSlug(clean);
+        if (resolved && resolved.course && resolved.course.deletedAt === null) {
+          const userCourse = await courseStore.findByIdForUser(
+            resolved.course.id,
+            actor.userId,
+            systemOrganizationId,
+          );
+          if (!userCourse || userCourse.deletedAt !== null) {
+            throw new DomainError("forbidden", "You do not have access to this course");
+          }
+          return userCourse.id;
+        }
+      }
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    if (courseStore && typeof courseStore.findByIdOrSlug === "function") {
+      const resolved = await courseStore.findByIdOrSlug(clean);
+      if (resolved && resolved.course && resolved.course.deletedAt === null) {
+        return resolved.course.id;
+      }
+    }
+
+    if (UUID_RE.test(clean)) {
+      return clean as CourseId;
+    }
+    throw new DomainError("bad_request", "Invalid courseId format");
+  }
+
   // ---------------------------------------------------------------------------
   // POST /v1/ai/ask — Canonical Ask endpoint
   // ---------------------------------------------------------------------------
@@ -129,8 +194,8 @@ export const assistantRoutes: FastifyPluginAsync<
       if (body.context) {
         const type = body.context.type === "lesson" ? "lesson" : "dashboard";
         let lessonId: string | undefined;
-        let courseId: string | undefined;
 
+        let lessonDerivedCourseId: string | undefined;
         if (body.context.lessonId !== undefined) {
           if (
             typeof body.context.lessonId !== "string" ||
@@ -139,17 +204,34 @@ export const assistantRoutes: FastifyPluginAsync<
             throw new DomainError("bad_request", "Invalid lessonId UUID format");
           }
           lessonId = body.context.lessonId;
+
+          const lesson = await lessonStore.findById(lessonId as LessonId);
+          if (lesson && lesson.deletedAt === null) {
+            const moduleRecord = await moduleStore.findById(lesson.moduleId);
+            if (moduleRecord && moduleRecord.deletedAt === null) {
+              lessonDerivedCourseId = moduleRecord.courseId;
+            }
+          }
         }
 
+        let resolvedCourseId: string | undefined;
         if (body.context.courseId !== undefined) {
           if (
             typeof body.context.courseId !== "string" ||
-            !UUID_RE.test(body.context.courseId)
+            !body.context.courseId.trim()
           ) {
-            throw new DomainError("bad_request", "Invalid courseId UUID format");
+            throw new DomainError("bad_request", "Invalid courseId format");
           }
-          courseId = body.context.courseId;
+          resolvedCourseId = await resolveCourseIdForActor(body.context.courseId, actor);
         }
+
+        if (lessonDerivedCourseId && resolvedCourseId) {
+          if (lessonDerivedCourseId !== resolvedCourseId) {
+            throw new DomainError("bad_request", "The specified lesson does not belong to the provided course");
+          }
+        }
+
+        const courseId = resolvedCourseId || lessonDerivedCourseId;
 
         context = { type, lessonId, courseId };
       }

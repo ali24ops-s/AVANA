@@ -464,7 +464,7 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
       const actor = getActor(request);
       const body = request.body || {};
 
-      const courseId = body.courseId?.trim();
+      let courseId = body.courseId?.trim();
       if (!courseId) {
         throw new DomainError("bad_request", "شناسه دوره (courseId) الزامی است.");
       }
@@ -480,14 +480,23 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
 
       // Verify course exists
       if (courseStore) {
-        const course = await courseStore.findByIdForUser(
-          asCourseId(courseId),
-          actor.userId,
-          opts.systemOrganizationId,
-        ).catch(() => undefined);
+        let course = typeof courseStore.findByIdOrSlugForUser === "function"
+          ? (await courseStore.findByIdOrSlugForUser(courseId, actor.userId, opts.systemOrganizationId).catch(() => undefined))?.course
+          : undefined;
+        if (!course && typeof courseStore.findByIdOrSlug === "function") {
+          course = (await courseStore.findByIdOrSlug(courseId).catch(() => undefined))?.course;
+        }
+        if (!course) {
+          course = await courseStore.findByIdForUser(
+            asCourseId(courseId),
+            actor.userId,
+            opts.systemOrganizationId,
+          ).catch(() => undefined);
+        }
         if (!course) {
           throw new DomainError("not_found", "دوره مورد نظر یافت نشد.");
         }
+        courseId = course.id;
       }
 
       // Verify module scope belongs to this course
@@ -564,7 +573,7 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
       const actor = getActor(request);
       const body = request.body || {};
 
-      const courseId = body.courseId?.trim();
+      let courseId = body.courseId?.trim();
       if (!courseId) {
         throw new DomainError("bad_request", "شناسه دوره (courseId) الزامی است.");
       }
@@ -580,14 +589,23 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
 
       let courseTitle = "دوره آموزشی";
       if (courseStore) {
-        const course = await courseStore.findByIdForUser(
-          asCourseId(courseId),
-          actor.userId,
-          opts.systemOrganizationId,
-        ).catch(() => undefined);
+        let course = typeof courseStore.findByIdOrSlugForUser === "function"
+          ? (await courseStore.findByIdOrSlugForUser(courseId, actor.userId, opts.systemOrganizationId).catch(() => undefined))?.course
+          : undefined;
+        if (!course && typeof courseStore.findByIdOrSlug === "function") {
+          course = (await courseStore.findByIdOrSlug(courseId).catch(() => undefined))?.course;
+        }
+        if (!course) {
+          course = await courseStore.findByIdForUser(
+            asCourseId(courseId),
+            actor.userId,
+            opts.systemOrganizationId,
+          ).catch(() => undefined);
+        }
         if (!course) {
           throw new DomainError("not_found", "دوره مورد نظر یافت نشد.");
         }
+        courseId = course.id;
         courseTitle = (course as { title?: string }).title || course.name || courseTitle;
       }
 

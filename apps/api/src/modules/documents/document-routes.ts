@@ -181,6 +181,65 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
     return parseDocumentId(params.documentId, "documentId");
   }
 
+  async function resolveCourseIdParam(
+    rawCourse: string | null | undefined,
+    actor: Actor,
+  ): Promise<string | null> {
+    if (!rawCourse || typeof rawCourse !== "string" || !rawCourse.trim()) {
+      return null;
+    }
+    const clean = rawCourse.trim();
+    if (courseStore && typeof courseStore.findByIdOrSlugForUser === "function") {
+      const resolved = await courseStore.findByIdOrSlugForUser(
+        clean,
+        actor.userId,
+        systemOrganizationId,
+      );
+      if (!resolved || !resolved.course || resolved.course.deletedAt !== null) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      return resolved.course.id;
+    }
+    if (courseStore && typeof courseStore.findByIdForUser === "function") {
+      if (UUID_RE.test(clean)) {
+        const course = await courseStore.findByIdForUser(
+          clean as import("@avana/domain").CourseId,
+          actor.userId,
+          systemOrganizationId,
+        );
+        if (!course || course.deletedAt !== null) {
+          throw new DomainError("not_found", "Course not found");
+        }
+        return course.id;
+      }
+      if (typeof courseStore.findByIdOrSlug === "function") {
+        const resolved = await courseStore.findByIdOrSlug(clean);
+        if (resolved && resolved.course && resolved.course.deletedAt === null) {
+          const userCourse = await courseStore.findByIdForUser(
+            resolved.course.id,
+            actor.userId,
+            systemOrganizationId,
+          );
+          if (!userCourse || userCourse.deletedAt !== null) {
+            throw new DomainError("forbidden", "You do not have access to this course");
+          }
+          return userCourse.id;
+        }
+      }
+      throw new DomainError("not_found", "Course not found");
+    }
+    if (courseStore && typeof courseStore.findByIdOrSlug === "function") {
+      const resolved = await courseStore.findByIdOrSlug(clean);
+      if (resolved && resolved.course && resolved.course.deletedAt === null) {
+        return resolved.course.id;
+      }
+    }
+    if (UUID_RE.test(clean)) {
+      return clean;
+    }
+    throw new DomainError("bad_request", "Invalid course ID format");
+  }
+
   // ---------------------------------------------------------------------------
   // POST /v1/organizations/:organizationId/documents/upload-intent
   // ---------------------------------------------------------------------------
@@ -214,7 +273,7 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
       const queryCourse = (request.query as { course_id?: string })?.course_id;
       const bodyWithCourse = body as { course_id?: string; courseId?: string };
       const rawCourse = bodyWithCourse.course_id ?? bodyWithCourse.courseId ?? queryCourse;
-      const courseId = rawCourse && UUID_RE.test(rawCourse) ? rawCourse : null;
+      const courseId = await resolveCourseIdParam(rawCourse, actor);
 
       const intent = await documentService.createUploadIntent(
         actor,
@@ -266,26 +325,25 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
       const sizeBytes = data.length;
 
       // Optional course_id field (from query or multipart form field).
-      let courseId: string | null = null;
+      let rawCourse: string | null = null;
       const queryCourse = (request.query as { course_id?: string })?.course_id;
-      if (queryCourse && UUID_RE.test(queryCourse)) {
-        courseId = queryCourse;
+      if (queryCourse) {
+        rawCourse = queryCourse;
       }
       const rawCourseField = parts.fields?.course_id;
       if (rawCourseField) {
         if (Array.isArray(rawCourseField)) {
           const field = rawCourseField[0];
           if (field && typeof field === "object" && "value" in field) {
-            const value = (field as { value: string }).value;
-            if (value && UUID_RE.test(value)) courseId = value;
+            rawCourse = (field as { value: string }).value;
           }
         } else if (typeof rawCourseField === "object" && "value" in rawCourseField) {
-          const value = (rawCourseField as { value: string }).value;
-          if (value && UUID_RE.test(value)) courseId = value;
-        } else if (typeof rawCourseField === "string" && UUID_RE.test(rawCourseField)) {
-          courseId = rawCourseField;
+          rawCourse = (rawCourseField as { value: string }).value;
+        } else if (typeof rawCourseField === "string") {
+          rawCourse = rawCourseField;
         }
       }
+      const courseId = await resolveCourseIdParam(rawCourse, actor);
 
       const result = await documentService.confirmUpload(
         actor,
@@ -358,11 +416,16 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
         limit?: string;
       };
 
+      let resolvedQueryCourseId: string | undefined = undefined;
+      if (query.course_id) {
+        resolvedQueryCourseId = (await resolveCourseIdParam(query.course_id, actor)) ?? undefined;
+      }
+
       const filter: DocumentListFilter = {
         search: query.search?.trim() || undefined,
         status: query.status as DocumentListFilter["status"] | undefined,
         type: query.type || undefined,
-        courseId: query.course_id && UUID_RE.test(query.course_id) ? query.course_id : undefined,
+        courseId: resolvedQueryCourseId,
         used: (query.used === "used" || query.used === "unused") ? query.used : undefined,
         sort: query.sort as DocumentListFilter["sort"] | undefined,
         page: query.page ? parseInt(query.page, 10) : undefined,
@@ -475,9 +538,7 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
       const courseId =
         body.course_id === null || body.course_id === undefined
           ? null
-          : UUID_RE.test(body.course_id)
-          ? (body.course_id as import("@avana/domain").CourseId)
-          : null;
+          : ((await resolveCourseIdParam(body.course_id, actor)) as import("@avana/domain").CourseId | null);
 
       const documentIds = body.document_ids
         .filter((id) => typeof id === "string" && UUID_RE.test(id))

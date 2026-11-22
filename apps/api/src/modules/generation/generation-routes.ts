@@ -241,14 +241,63 @@ export const generationRoutes: FastifyPluginAsync<
     return parseDocumentId(params.documentId, "documentId");
   }
 
-  /**
-   * Helper to validate and extract course ID from params.
-   */
-  function getCourseId(params: { courseId?: string }): CourseId {
-    if (!params.courseId || !UUID_RE.test(params.courseId)) {
+  async function resolveCourseIdForActor(
+    rawParam: string,
+    actor: Actor,
+  ): Promise<CourseId> {
+    if (!rawParam || !rawParam.trim()) {
       throw new DomainError("bad_request", "Invalid course ID");
     }
-    return params.courseId as CourseId;
+    const clean = rawParam.trim();
+    if (opts.courseStore && typeof opts.courseStore.findByIdOrSlugForUser === "function") {
+      const resolved = await opts.courseStore.findByIdOrSlugForUser(
+        clean,
+        actor.userId,
+        opts.systemOrganizationId,
+      );
+      if (!resolved || !resolved.course || resolved.course.deletedAt !== null) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      return resolved.course.id;
+    }
+    if (opts.courseStore && typeof opts.courseStore.findByIdForUser === "function") {
+      if (UUID_RE.test(clean)) {
+        const course = await opts.courseStore.findByIdForUser(
+          clean as CourseId,
+          actor.userId,
+          opts.systemOrganizationId,
+        );
+        if (!course || course.deletedAt !== null) {
+          throw new DomainError("not_found", "Course not found");
+        }
+        return course.id;
+      }
+      if (typeof opts.courseStore.findByIdOrSlug === "function") {
+        const resolved = await opts.courseStore.findByIdOrSlug(clean);
+        if (resolved && resolved.course && resolved.course.deletedAt === null) {
+          const userCourse = await opts.courseStore.findByIdForUser(
+            resolved.course.id,
+            actor.userId,
+            opts.systemOrganizationId,
+          );
+          if (!userCourse || userCourse.deletedAt !== null) {
+            throw new DomainError("forbidden", "You do not have access to this course");
+          }
+          return userCourse.id;
+        }
+      }
+      throw new DomainError("not_found", "Course not found");
+    }
+    if (opts.courseStore && typeof opts.courseStore.findByIdOrSlug === "function") {
+      const resolved = await opts.courseStore.findByIdOrSlug(clean);
+      if (resolved && resolved.course && resolved.course.deletedAt === null) {
+        return resolved.course.id;
+      }
+    }
+    if (UUID_RE.test(clean)) {
+      return clean as CourseId;
+    }
+    throw new DomainError("bad_request", "Invalid course ID");
   }
 
   /**
@@ -274,7 +323,7 @@ export const generationRoutes: FastifyPluginAsync<
     const actor = getActor(req);
     const organizationId = getOrganizationId(req.params);
     const documentId = getDocumentId(req.params);
-    const courseId = req.params.courseId ? getCourseId(req.params) : undefined;
+    const courseId = req.params.courseId ? await resolveCourseIdForActor(req.params.courseId, actor) : undefined;
 
     const status = await service.getDocumentContentStatus(
       actor,
@@ -324,7 +373,7 @@ export const generationRoutes: FastifyPluginAsync<
     const actor = getActor(req);
     const organizationId = getOrganizationId(req.params);
     const documentId = getDocumentId(req.params);
-    const courseId = req.params.courseId ? getCourseId(req.params) : undefined;
+    const courseId = req.params.courseId ? await resolveCourseIdForActor(req.params.courseId, actor) : undefined;
 
     const body = req.body ?? {};
     let requestedTypes: GeneratedContentType[] = [];
@@ -406,7 +455,7 @@ export const generationRoutes: FastifyPluginAsync<
       };
       const organizationId = getOrganizationId(params);
       const documentId = getDocumentId(params);
-      const courseId = getCourseId(params);
+      const courseId = await resolveCourseIdForActor(params.courseId, actor);
 
       const body = (request.body ?? {}) as {
         types?: string[];
@@ -703,7 +752,7 @@ export const generationRoutes: FastifyPluginAsync<
         courseId: string;
       };
       const organizationId = getOrganizationId(params);
-      const courseId = getCourseId(params);
+      const courseId = await resolveCourseIdForActor(params.courseId, actor);
 
       const body = (request.body ?? {}) as {
         sources?: Array<{ documentId: string; order?: number }>;
@@ -990,7 +1039,7 @@ export const generationRoutes: FastifyPluginAsync<
         courseId: string;
       };
       const organizationId = getOrganizationId(params);
-      const courseId = getCourseId(params);
+      const courseId = await resolveCourseIdForActor(params.courseId, actor);
 
       if (opts.courseStore) {
         const sysOrgId =
@@ -1215,7 +1264,7 @@ export const generationRoutes: FastifyPluginAsync<
     const actor = getActor(req);
     const organizationId = getOrganizationId(req.params);
     const documentId = getDocumentId(req.params);
-    const courseId = req.params.courseId ? getCourseId(req.params) : undefined;
+    const courseId = req.params.courseId ? await resolveCourseIdForActor(req.params.courseId, actor) : undefined;
 
     const content = await service.getReviewSummaryForDocument(
       actor,
@@ -1259,7 +1308,7 @@ export const generationRoutes: FastifyPluginAsync<
     const actor = getActor(req);
     const organizationId = getOrganizationId(req.params);
     const documentId = getDocumentId(req.params);
-    const courseId = req.params.courseId ? getCourseId(req.params) : undefined;
+    const courseId = req.params.courseId ? await resolveCourseIdForActor(req.params.courseId, actor) : undefined;
 
     const sysOrgId =
       opts.systemOrganizationId ??
@@ -1401,7 +1450,7 @@ export const generationRoutes: FastifyPluginAsync<
     };
     const actor = getActor(req);
     const organizationId = getOrganizationId(req.params);
-    const courseId = req.params.courseId ? getCourseId(req.params) : undefined;
+    const courseId = req.params.courseId ? await resolveCourseIdForActor(req.params.courseId, actor) : undefined;
 
     const items = await service.getActiveGenerations(
       actor,
@@ -1463,7 +1512,7 @@ export const generationRoutes: FastifyPluginAsync<
     const actor = getActor(req);
     const organizationId = getOrganizationId(req.params);
     const documentId = getDocumentId(req.params);
-    const courseId = req.params.courseId ? getCourseId(req.params) : undefined;
+    const courseId = req.params.courseId ? await resolveCourseIdForActor(req.params.courseId, actor) : undefined;
 
     const result = await service.getDocumentGenerationProgress(
       actor,

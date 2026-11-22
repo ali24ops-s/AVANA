@@ -240,6 +240,60 @@ describe("PR6-2: Document upload API", () => {
       expect(res.statusCode).toBe(401);
       await app.close();
     });
+
+    it("resolves course slug to canonical UUID and attaches to document instead of null", async () => {
+      const app = await buildApp();
+      const { token } = await signIn(app, "uploader-slug@example.com");
+      const organizationId = await createOrg(app, token, "Upload Org Slug");
+
+      const courseId = "77777777-7777-4777-8777-777777777777" as CourseId;
+      const courseSlug = "test-doc-course-slug";
+      await courseStore.create({
+        course: {
+          id: courseId,
+          organizationId,
+          name: "دوره تستی اسناد",
+          slug: courseSlug,
+          subject: "پزشکی",
+          examDate: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        },
+        auditEvents: [],
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${organizationId}/documents/upload-intent`,
+        cookies: { avana_session: token },
+        payload: {
+          original_name: "notes-with-slug.pdf",
+          mime_type: "application/pdf",
+          size_bytes: pdfBytes.length,
+          course_id: courseSlug,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.document_id).toBeDefined();
+
+      // Test with unknown slug -> returns 404 (does not silently swallow into null)
+      const resUnknown = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${organizationId}/documents/upload-intent`,
+        cookies: { avana_session: token },
+        payload: {
+          original_name: "notes-with-slug.pdf",
+          mime_type: "application/pdf",
+          size_bytes: pdfBytes.length,
+          course_id: "unknown-slug-not-found",
+        },
+      });
+      expect(resUnknown.statusCode).toBe(404);
+      await app.close();
+    });
   });
 
   describe("POST /v1/organizations/:organizationId/documents", () => {
@@ -273,6 +327,50 @@ describe("PR6-2: Document upload API", () => {
       expect(body.duplicate).toBe(false);
       expect(body.document.status).toBe("uploaded");
       expect(body.document.original_name).toBe("notes.pdf");
+      await app.close();
+    });
+
+    it("attaches document to course when course slug is provided in multipart upload", async () => {
+      const app = await buildApp();
+      const { token } = await signIn(app, "uploader-multipart@example.com");
+      const organizationId = await createOrg(app, token, "Multipart Org");
+
+      const courseId = "88888888-8888-4888-8888-888888888888" as CourseId;
+      const courseSlug = "test-multipart-course-slug";
+      await courseStore.create({
+        course: {
+          id: courseId,
+          organizationId,
+          name: "دوره مالتی‌پارت",
+          slug: courseSlug,
+          subject: "پزشکی",
+          examDate: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        },
+        auditEvents: [],
+      });
+
+      const multipart = buildMultipartBody({
+        filename: "course-notes.pdf",
+        contentType: "application/pdf",
+        data: pdfBytes,
+        courseId: courseSlug,
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${organizationId}/documents`,
+        cookies: { avana_session: token },
+        headers: { "content-type": multipart.contentType },
+        payload: multipart.body,
+      });
+
+      expect(res.statusCode).toBe(201);
+      const body = JSON.parse(res.body);
+      const storedDoc = await documentStore.findById(body.document.id);
+      expect(storedDoc?.courseId).toBe(courseId);
       await app.close();
     });
 

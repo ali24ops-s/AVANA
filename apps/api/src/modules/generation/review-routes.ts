@@ -159,12 +159,64 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
     return params.organizationId as OrganizationId;
   }
 
-  /** Helper to validate and extract course ID from params. */
-  function getCourseId(params: { courseId: string }): CourseId {
-    if (!params.courseId || !UUID_RE.test(params.courseId)) {
+
+  async function resolveCourseIdForActor(
+    rawParam: string,
+    actor: Actor,
+  ): Promise<CourseId> {
+    if (!rawParam || !rawParam.trim()) {
       throw new DomainError("bad_request", "Invalid course ID");
     }
-    return params.courseId as CourseId;
+    const clean = rawParam.trim();
+    if (courseStore && typeof courseStore.findByIdOrSlugForUser === "function") {
+      const resolved = await courseStore.findByIdOrSlugForUser(
+        clean,
+        actor.userId,
+        systemOrganizationId,
+      );
+      if (!resolved || !resolved.course || resolved.course.deletedAt !== null) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      return resolved.course.id;
+    }
+    if (courseStore && typeof courseStore.findByIdForUser === "function") {
+      if (UUID_RE.test(clean)) {
+        const course = await courseStore.findByIdForUser(
+          clean as CourseId,
+          actor.userId,
+          systemOrganizationId,
+        );
+        if (!course || course.deletedAt !== null) {
+          throw new DomainError("not_found", "Course not found");
+        }
+        return course.id;
+      }
+      if (typeof courseStore.findByIdOrSlug === "function") {
+        const resolved = await courseStore.findByIdOrSlug(clean);
+        if (resolved && resolved.course && resolved.course.deletedAt === null) {
+          const userCourse = await courseStore.findByIdForUser(
+            resolved.course.id,
+            actor.userId,
+            systemOrganizationId,
+          );
+          if (!userCourse || userCourse.deletedAt !== null) {
+            throw new DomainError("forbidden", "You do not have access to this course");
+          }
+          return userCourse.id;
+        }
+      }
+      throw new DomainError("not_found", "Course not found");
+    }
+    if (courseStore && typeof courseStore.findByIdOrSlug === "function") {
+      const resolved = await courseStore.findByIdOrSlug(clean);
+      if (resolved && resolved.course && resolved.course.deletedAt === null) {
+        return resolved.course.id;
+      }
+    }
+    if (UUID_RE.test(clean)) {
+      return clean as CourseId;
+    }
+    throw new DomainError("bad_request", "Invalid course ID");
   }
 
   /** Helper to validate and extract document ID from params. */
@@ -201,7 +253,7 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
         courseId: string;
       };
       const organizationId = getOrganizationId(params);
-      const courseId = getCourseId(params);
+      const courseId = await resolveCourseIdForActor(params.courseId, actor);
 
       const query = (request.query as {
         page?: string;
@@ -294,7 +346,7 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
         contentId: string;
       };
       const organizationId = getOrganizationId(params);
-      const courseId = getCourseId(params);
+      const courseId = await resolveCourseIdForActor(params.courseId, actor);
       const contentId = getContentId(params);
 
       const result = await service.unapproveContent(
@@ -328,7 +380,7 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
         moduleId: string;
       };
       const organizationId = getOrganizationId(params);
-      const courseId = getCourseId(params);
+      const courseId = await resolveCourseIdForActor(params.courseId, actor);
       const moduleId = getModuleId(params);
 
       const result = await service.unapproveModuleContents(
@@ -362,7 +414,7 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
         contentId: string;
       };
       const organizationId = getOrganizationId(params);
-      const courseId = getCourseId(params);
+      const courseId = await resolveCourseIdForActor(params.courseId, actor);
       const contentId = getContentId(params);
       const query = request.query as { confirm_published_delete?: string } | undefined;
       const confirmPublishedDelete = query?.confirm_published_delete === "true";
@@ -399,7 +451,7 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
         documentId: string;
       };
       const organizationId = getOrganizationId(params);
-      const courseId = getCourseId(params);
+      const courseId = await resolveCourseIdForActor(params.courseId, actor);
       const documentId = getDocumentId(params);
 
       const result = await service.acceptPack(

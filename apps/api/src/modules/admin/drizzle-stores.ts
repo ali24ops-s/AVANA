@@ -1060,13 +1060,18 @@ export class DrizzleAdminStore implements AdminStore {
   }
 
   async getCourseById(courseId: string): Promise<AdminCourseRecord | null> {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(courseId);
-    if (!isUuid) return null;
+    const clean = courseId?.trim();
+    if (!clean) return null;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean);
+
+    const condition = isUuid
+      ? and(eq(courses.id, clean), isNull(courses.deletedAt))
+      : and(eq(courses.slug, clean), isNull(courses.deletedAt));
 
     const courseRows = await this.db
       .select()
       .from(courses)
-      .where(and(eq(courses.id, courseId), isNull(courses.deletedAt)))
+      .where(condition)
       .limit(1);
 
     if (courseRows.length === 0) return null;
