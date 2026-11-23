@@ -98,11 +98,16 @@ export function getEstedadFontBase64(): string {
   if (cachedEstedadFontBase64) return cachedEstedadFontBase64;
   const candidates = [
     path.resolve(process.cwd(), "apps/web/src/assets/fonts/Estedad-v5.0-Fontjo.com/Estedad[wght,kshd].woff2"),
+    path.resolve(process.cwd(), "apps/web/dist/assets/fonts/Estedad-v5.0-Fontjo.com/Estedad[wght,kshd].woff2"),
     path.resolve(__dirname, "../../../../../apps/web/src/assets/fonts/Estedad-v5.0-Fontjo.com/Estedad[wght,kshd].woff2"),
+    path.resolve(__dirname, "../../../../../apps/web/dist/assets/fonts/Estedad-v5.0-Fontjo.com/Estedad[wght,kshd].woff2"),
     path.resolve(__dirname, "../../../../web/src/assets/fonts/Estedad-v5.0-Fontjo.com/Estedad[wght,kshd].woff2"),
+    path.resolve(__dirname, "../../../../web/dist/assets/fonts/Estedad-v5.0-Fontjo.com/Estedad[wght,kshd].woff2"),
     path.resolve(__dirname, "../../../../../web/src/assets/fonts/Estedad-v5.0-Fontjo.com/Estedad[wght,kshd].woff2"),
+    path.resolve(__dirname, "../../../../../web/dist/assets/fonts/Estedad-v5.0-Fontjo.com/Estedad[wght,kshd].woff2"),
     // Also candidate for ttf if woff2 is absent
     path.resolve(process.cwd(), "apps/web/src/assets/fonts/Estedad-v5.0-Fontjo.com/Estedad[wght,kshd].ttf"),
+    path.resolve(process.cwd(), "apps/web/dist/assets/fonts/Estedad-v5.0-Fontjo.com/Estedad[wght,kshd].ttf"),
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) {
@@ -111,9 +116,9 @@ export function getEstedadFontBase64(): string {
     }
   }
 
-  const errorMsg = `[PDF Generation] ERROR: Primary font Estedad (Estedad[wght,kshd].woff2) not found across paths: ${candidates.join(", ")}`;
+  const warnMsg = `[PDF Generation] Primary font Estedad (Estedad[wght,kshd].woff2) not found across paths: ${candidates.join(", ")}`;
   // eslint-disable-next-line no-console
-  console.error(errorMsg);
+  console.warn(warnMsg);
 
   // Fallback to Vazirmatn if available in node_modules
   const fallback = getVazirmatnFontBase64();
@@ -122,14 +127,21 @@ export function getEstedadFontBase64(): string {
     console.warn("[PDF Generation] Falling back to secondary font (Vazirmatn).");
     return fallback;
   }
-  throw new Error(errorMsg);
+  // eslint-disable-next-line no-console
+  console.warn("[PDF Generation] Neither Estedad nor Vazirmatn found; falling back to system fonts.");
+  return "";
 }
 
 export function getVazirmatnFontBase64(): string {
   if (cachedFontBase64) return cachedFontBase64;
   const candidates = [
     path.resolve(__dirname, "../../../../../../node_modules/@fontsource-variable/vazirmatn/files/vazirmatn-arabic-wght-normal.woff2"),
+    path.resolve(__dirname, "../../../../../node_modules/@fontsource-variable/vazirmatn/files/vazirmatn-arabic-wght-normal.woff2"),
+    path.resolve(__dirname, "../../../../node_modules/@fontsource-variable/vazirmatn/files/vazirmatn-arabic-wght-normal.woff2"),
+    path.resolve(__dirname, "../../../node_modules/@fontsource-variable/vazirmatn/files/vazirmatn-arabic-wght-normal.woff2"),
+    path.resolve(__dirname, "../../node_modules/@fontsource-variable/vazirmatn/files/vazirmatn-arabic-wght-normal.woff2"),
     path.resolve(process.cwd(), "node_modules/@fontsource-variable/vazirmatn/files/vazirmatn-arabic-wght-normal.woff2"),
+    path.resolve(process.cwd(), "apps/api/node_modules/@fontsource-variable/vazirmatn/files/vazirmatn-arabic-wght-normal.woff2"),
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) {
@@ -143,12 +155,19 @@ export function getVazirmatnFontBase64(): string {
 export function getAvanaLogoBase64(): string {
   const candidates = [
     path.resolve(process.cwd(), "apps/web/public/brand/avana-logo.png"),
+    path.resolve(process.cwd(), "apps/web/dist/brand/avana-logo.png"),
     path.resolve(process.cwd(), "../web/public/brand/avana-logo.png"),
+    path.resolve(process.cwd(), "../web/dist/brand/avana-logo.png"),
     path.resolve(process.cwd(), "web/public/brand/avana-logo.png"),
+    path.resolve(process.cwd(), "web/dist/brand/avana-logo.png"),
     path.resolve(__dirname, "../../../../web/public/brand/avana-logo.png"),
+    path.resolve(__dirname, "../../../../web/dist/brand/avana-logo.png"),
     path.resolve(__dirname, "../../../../../apps/web/public/brand/avana-logo.png"),
+    path.resolve(__dirname, "../../../../../apps/web/dist/brand/avana-logo.png"),
     path.resolve(__dirname, "../../../web/public/brand/avana-logo.png"),
+    path.resolve(__dirname, "../../../web/dist/brand/avana-logo.png"),
     path.resolve(__dirname, "../../../../apps/web/public/brand/avana-logo.png"),
+    path.resolve(__dirname, "../../../../apps/web/dist/brand/avana-logo.png"),
   ];
 
   let resolvedPath: string | null = null;
@@ -161,7 +180,7 @@ export function getAvanaLogoBase64(): string {
 
   if (!resolvedPath) {
     // eslint-disable-next-line no-console
-    console.error(`[PDF Generation] ERROR: Avana brand logo (avana-logo.png) not found across candidate paths: ${candidates.join(", ")}`);
+    console.warn(`[PDF Generation] WARNING: Avana brand logo (avana-logo.png) not found across candidate paths: ${candidates.join(", ")}`);
     return "";
   }
 
@@ -176,7 +195,7 @@ export function getAvanaLogoBase64(): string {
     return cachedLogoBase64;
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.error(`[PDF Generation] ERROR: Failed reading logo file at ${resolvedPath}:`, err);
+    console.warn(`[PDF Generation] WARNING: Failed reading logo file at ${resolvedPath}:`, err);
     return "";
   }
 }

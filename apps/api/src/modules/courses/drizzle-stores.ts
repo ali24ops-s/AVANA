@@ -390,10 +390,13 @@ export class DrizzleCourseStore implements CourseStore {
 
     const isEnrolledInCourse = eq(courseMemberships.userId, userId);
 
+    const isPlatformAdmin = sql`EXISTS (SELECT 1 FROM ${users} u WHERE u.id = ${userId} AND u.global_role = 'platform_admin' AND u.deleted_at IS NULL)`;
+
     const accessConditions = [
       eq(organizationMemberships.userId, userId),
       isPublicApproved,
       isEnrolledInCourse,
+      isPlatformAdmin,
     ];
 
     if (systemOrganizationId) {

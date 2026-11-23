@@ -622,11 +622,23 @@ export class DocumentService {
     });
     const sha256 = sha256Hex(input.data);
 
-    // Duplicate detection: same org + same sha256
-    const existing = await this.store.findByOrganizationAndSha256(
+    // Duplicate detection:
+    // 1. Look for existing document in the same course (or unattached if inputCourseId is null)
+    let existing = await this.store.findByOrganizationAndSha256(
       organizationId,
       sha256,
+      inputCourseId ?? null,
     );
+
+    // 2. If uploading into a course and not found, check if an unattached document exists in this organization
+    if (!existing && inputCourseId) {
+      existing = await this.store.findByOrganizationAndSha256(
+        organizationId,
+        sha256,
+        null,
+      );
+    }
+
     if (existing) {
       // Validate actor has permission to access this existing document
       const canAccess = await this.canActorAccessDocument(

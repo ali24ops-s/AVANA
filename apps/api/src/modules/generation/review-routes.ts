@@ -168,6 +168,22 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
       throw new DomainError("bad_request", "Invalid course ID");
     }
     const clean = rawParam.trim();
+    if (actor.role === "platform_admin" || actor.globalRole === "platform_admin") {
+      if (courseStore && typeof courseStore.findByIdOrSlug === "function") {
+        const resolved = await courseStore.findByIdOrSlug(clean);
+        if (resolved && resolved.course && resolved.course.deletedAt === null) {
+          return resolved.course.id;
+        }
+      }
+      if (courseStore && typeof courseStore.findById === "function" && UUID_RE.test(clean)) {
+        const course = await courseStore.findById(clean as CourseId);
+        if (course && course.deletedAt === null) {
+          return course.id;
+        }
+      }
+      throw new DomainError("not_found", "Course not found");
+    }
+
     if (courseStore && typeof courseStore.findByIdOrSlugForUser === "function") {
       const resolved = await courseStore.findByIdOrSlugForUser(
         clean,

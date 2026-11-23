@@ -45,8 +45,15 @@ export class PdfGenerationService {
     const timeout = options?.timeoutMs ?? this.defaultTimeoutMs;
 
     try {
+      const executablePath =
+        process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ||
+        process.env.CHROME_BIN ||
+        process.env.CHROMIUM_PATH ||
+        undefined;
+
       browser = await chromium.launch({
         headless: true,
+        executablePath,
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",

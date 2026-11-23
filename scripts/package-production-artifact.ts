@@ -61,6 +61,10 @@ const ALLOWLIST: AllowlistEntry[] = [
 
   // Infra
   { source: "infra/nginx-course-preview.conf", target: "infra/nginx-course-preview.conf", required: true },
+
+  // PDF & brand assets required for server rendering
+  { source: "apps/web/src/assets/fonts", target: "apps/web/src/assets/fonts", required: false },
+  { source: "apps/web/public/brand", target: "apps/web/public/brand", required: false },
 ];
 
 // -----------------------------------------------------------------------------

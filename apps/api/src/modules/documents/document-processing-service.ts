@@ -79,6 +79,7 @@ export class DocumentProcessingService {
     private readonly progressService?: GenerationProgressService,
     private readonly generationChunkStore?: GenerationChunkStore,
     private readonly generatedContentStore?: GeneratedContentStore,
+    private readonly systemOrganizationId?: OrganizationId,
   ) {}
 
   /**
@@ -98,6 +99,10 @@ export class DocumentProcessingService {
         throw new DomainError("not_found", "Organization not found");
       }
     }
+
+    const isSystemResource =
+      !!this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId;
 
     let memberships = actor.memberships;
     if (
@@ -131,7 +136,13 @@ export class DocumentProcessingService {
       userId: actor.userId,
       globalRole:
         actor.globalRole ??
-        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+        (actor.role === "platform_admin"
+          ? "platform_admin"
+          : actor.role === "content_worker"
+            ? "content_worker"
+            : actor.role === "course_editor"
+              ? "course_editor"
+              : undefined),
       role: actor.role,
       memberships,
     });
@@ -139,6 +150,7 @@ export class DocumentProcessingService {
     const resourceContext: ResourceContext = {
       organizationId,
       resourceType: "document",
+      isSystemResource,
     };
 
     if (!this.policy.can(fullActor, action, resourceContext)) {
@@ -198,6 +210,11 @@ export class DocumentProcessingService {
       existingChunks.length > 0 && isExtractionCompletedStatus;
 
     if (isAlreadyExtracted) {
+      return this.toStatus(doc, existingChunks.length);
+    }
+
+    // Prevent concurrent duplicate processing runs
+    if (doc.status === "extracting") {
       return this.toStatus(doc, existingChunks.length);
     }
 
