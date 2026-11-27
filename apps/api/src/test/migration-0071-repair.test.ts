@@ -274,6 +274,16 @@ describe("Migration 0071: Legacy Registration Org Admin Repair Validation", () =
     }
   });
 
+  it("safely skips when none of the 3 legacy target memberships exist (0/3 on clean or production DB)", async () => {
+    mockState.memberships = mockState.memberships.filter(
+      (m) => !TARGET_MEMBERSHIPS.some((t) => t.membershipId === m.id),
+    );
+
+    const db = createMockDb(mockState);
+    await expect(up0071(db)).resolves.not.toThrow();
+    expect(mockState.audit_logs.length).toBe(0);
+  });
+
   it("fail-closed guard: throws and aborts if any target membership is missing", async () => {
     // Remove one target membership
     mockState.memberships = mockState.memberships.filter(

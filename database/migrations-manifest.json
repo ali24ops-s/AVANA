@@ -1,5 +1,5 @@
 {
-  "build_timestamp": "2026-11-27T11:59:19.404Z",
+  "build_timestamp": "2026-11-27T13:48:04.014Z",
   "migrations": [
     {
       "id": "0001_init",
@@ -566,8 +566,8 @@
       "sequence": 71,
       "source_file": "0071_repair_legacy_registration_org_admins.ts",
       "dist_file": "0071_repair_legacy_registration_org_admins.js",
-      "source_sha256": "44d7e7a006af5e2a884e08c4f54ad6ddcb54de845268b1d4ae292ecf98ba7189",
-      "dist_sha256": "b6635a5907d0582fcfa394b1b817b0a4b8d0bf907c8618d806e9b99a7eb01dc1"
+      "source_sha256": "f9ad3da00aa2ea0450ccc514d5343b597ae7a793c0752282636fb5cb262a3a06",
+      "dist_sha256": "6b57d61281594f6871b716df992928389c50130d410b04e8639e22b4f45d5ce9"
     },
     {
       "id": "0072_teacher_exam_attempt_integrity",

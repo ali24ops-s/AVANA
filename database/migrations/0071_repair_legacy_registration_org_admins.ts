@@ -90,7 +90,17 @@ export async function up(db: any) {
     return;
   }
 
-  // Pre-condition 2: Strict fail-closed verification
+  if (rows.length === 0) {
+    // Clean or non-affected database: none of the 3 legacy incident memberships exist.
+    // Safe, idempotent no-op without creating artificial records or modifying unrelated data.
+    // eslint-disable-next-line no-console
+    console.info(
+      "[Migration 0071] No legacy target membership rows found (0/3); skipping incident repair.",
+    );
+    return;
+  }
+
+  // Pre-condition 2: Strict fail-closed verification for partial/unexpected states
   if (rows.length !== 3) {
     throw new Error(
       `[Migration 0071] Precondition failed: Expected exactly 3 target membership rows, found ${rows.length}`,
