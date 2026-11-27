@@ -15,7 +15,8 @@ import {
 } from "../modules/generation/question-patterns-store.js";
 import { MockModelGateway } from "../modules/generation/gateway/index.js";
 import { v1Routes } from "../routes/v1.js";
-import { Roles, type UserId, type OrganizationId, type QuestionPatternId } from "@avana/domain";
+import { Roles, type UserId, type OrganizationId, type CourseId, type DocumentId, type QuestionPatternId } from "@avana/domain";
+import { InMemoryCourseStore } from "../modules/courses/test/in-memory-stores.js";
 import { randomUUID } from "node:crypto";
 import { createDbClient, type AppDatabase } from "@avana/database/client";
 import { questionPatternExamples } from "@avana/database/schema";
@@ -101,6 +102,7 @@ describe("Question Patterns API & Store", () => {
     const studentSession = await sessionService.createSession(studentUser.id);
 
     const documentStore = new InMemoryDocumentStore();
+    const courseStore = new InMemoryCourseStore(orgStore);
     const documentChunkStore = new InMemoryDocumentChunkStore();
     const generatedContentStore = new InMemoryGeneratedContentStore();
     const generatedContentCitationStore = new InMemoryGeneratedContentCitationStore();
@@ -115,6 +117,7 @@ describe("Question Patterns API & Store", () => {
       userStore,
       adminStore,
       organizationStore: orgStore,
+      courseStore,
       questionPatternStore,
       gateway,
       adminGateway: gateway,
@@ -133,6 +136,7 @@ describe("Question Patterns API & Store", () => {
       workerSessionToken: workerSession.sessionToken,
       studentSessionToken: studentSession.sessionToken,
       orgId,
+      courseStore,
       documentStore,
       documentChunkStore,
       generationJobStore,
@@ -497,23 +501,10 @@ describe("Question Patterns API & Store", () => {
   });
 
   test("regression: PostgreSQL schema integration: DrizzleQuestionPatternStore executes real queries for List Patterns and Pattern Detail", async () => {
-    const config = loadApiConfig();
-    const dbUrl =
-      process.env.DATABASE_URL ||
-      config.database?.url;
-
-    if (!dbUrl) {
-      return;
-    }
-
-    let dbClient: ReturnType<typeof createDbClient> | undefined;
-    try {
-      dbClient = createDbClient(dbUrl);
-      await dbClient.db.execute(sql`SELECT 1;`);
-    } catch {
-      // In offline sandbox or environments without running PostgreSQL, gracefully skip
-      return;
-    }
+    const { resolveSafePostgresTestUrl } = await import("./pg-test-guard.js");
+    const dbUrl = resolveSafePostgresTestUrl();
+    const dbClient = createDbClient(dbUrl);
+    await dbClient.db.execute(sql`SELECT 1;`);
 
     try {
       const realDrizzleStore = new DrizzleQuestionPatternStore(dbClient.db);
@@ -747,6 +738,7 @@ describe("Question Patterns API & Store", () => {
       adminSessionToken,
       studentSessionToken,
       questionPatternStore,
+      courseStore,
       documentStore,
       queue,
       orgId,
@@ -754,6 +746,20 @@ describe("Question Patterns API & Store", () => {
     } = await setupTestApp();
 
     const courseId = randomUUID() as CourseId;
+    await courseStore.create({
+      course: {
+        id: courseId,
+        organizationId: orgId,
+        slug: `course-${courseId.slice(0, 8)}`,
+        name: "Test Course",
+        description: null,
+        status: "published",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
     const docId = randomUUID() as DocumentId;
     await documentStore.insert({
       id: docId,

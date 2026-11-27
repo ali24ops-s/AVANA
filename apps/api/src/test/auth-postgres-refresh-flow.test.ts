@@ -21,25 +21,29 @@ function extractCookie(res: { headers: Record<string, string | string[] | number
 }
 
 describe("Real PostgreSQL Auth Refresh & Re-Authentication E2E Flow", () => {
-  const dbUrl = process.env.DATABASE_URL || `postgres://${"avana"}:${"avana"}@127.0.0.1:5432/avana?sslmode=disable`;
   let client: ReturnType<typeof createDbClient>;
   let isConnected = false;
   let app: FastifyInstance;
 
   const testEmail = `test_refresh_${Date.now()}@gmail.com`;
+  const testPhoneNumber = `0912${String(Math.floor(1000000 + Math.random() * 9000000))}`;
   const testPassword = "StrongPassword123!";
+  let dbUrl = "";
 
   beforeAll(async () => {
-    try {
-      client = createDbClient(dbUrl);
-      await client.db.execute(sql`SELECT 1;`);
-      isConnected = true;
-    } catch {
-      isConnected = false;
-    }
+    const { resolveSafePostgresTestUrl } = await import("./pg-test-guard.js");
+    dbUrl = resolveSafePostgresTestUrl();
+    client = createDbClient(dbUrl);
+    await client.db.execute(sql`SELECT 1;`);
+    isConnected = true;
   });
 
   afterAll(async () => {
+    if (client && isConnected && dbUrl) {
+      const { assertSafeDestructiveTestOperation } = await import("./pg-test-guard.js");
+      assertSafeDestructiveTestOperation("DELETE", dbUrl);
+      await client.db.execute(sql`DELETE FROM users WHERE email = ${testEmail};`).catch(() => {});
+    }
     if (app) {
       await app.close().catch(() => {});
     }
@@ -78,7 +82,7 @@ describe("Real PostgreSQL Auth Refresh & Re-Authentication E2E Flow", () => {
         email: testEmail,
         password: testPassword,
         name: "Postgres Refresh User",
-        phoneNumber: "09121110025",
+        phoneNumber: testPhoneNumber,
       },
     });
 

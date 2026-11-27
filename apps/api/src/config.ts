@@ -526,7 +526,9 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     return `postgres://${user}:${password}@${host}:${port}/${db}?sslmode=disable`;
   }
 
-  const databaseUrl = getOptionalString(env, "DATABASE_URL", localDatabaseUrl());
+  const databaseUrl =
+    getOptionalString(env, "RUNTIME_DATABASE_URL", "") ||
+    getOptionalString(env, "DATABASE_URL", localDatabaseUrl());
 
   // Fail-closed Worker safety guard: Worker mode MUST NEVER connect to remote/production database
   if (env.WORKER_MODE === "true" || Boolean(env.WORKER_ID)) {

@@ -33,7 +33,8 @@ describe("Document Generated Content Purge Tests", () => {
   };
 
   beforeEach(async () => {
-    const databaseUrl = process.env.DATABASE_URL || "postgres://avana:avana@localhost:5432/avana";
+    const { resolveSafePostgresTestUrl } = await import("./pg-test-guard.js");
+    const databaseUrl = resolveSafePostgresTestUrl();
     const client = createDbClient(databaseUrl);
     db = client.db;
 

@@ -15,12 +15,13 @@ import {
   DrizzlePollStore,
   DrizzlePollResponseStore,
 } from "../modules/studio/poll-stores.js";
+import {
+  assertSafeDestructiveTestOperation,
+  resolveSafePostgresTestUrl,
+} from "./pg-test-guard.js";
 
 describe("PostgreSQL Real Row-Level Locking & Concurrency Invariants", () => {
-  const dbUrl =
-    process.env.DATABASE_URL ||
-    "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
-
+  let dbUrl = "";
   let client: ReturnType<typeof createDbClient> | null = null;
   let isConnected = false;
   let pollStore: DrizzlePollStore;
@@ -32,20 +33,17 @@ describe("PostgreSQL Real Row-Level Locking & Concurrency Invariants", () => {
   const testOpt2Id = randomUUID();
 
   beforeAll(async () => {
-    try {
-      client = createDbClient(dbUrl);
-      await client.db.execute(sql`SELECT 1;`);
-      isConnected = true;
-      pollStore = new DrizzlePollStore(client.db);
-      responseStore = new DrizzlePollResponseStore(client.db);
-    } catch {
-      isConnected = false;
-      // Database not reachable in this test environment
-    }
+    dbUrl = resolveSafePostgresTestUrl();
+    client = createDbClient(dbUrl);
+    await client.db.execute(sql`SELECT 1;`);
+    isConnected = true;
+    pollStore = new DrizzlePollStore(client.db);
+    responseStore = new DrizzlePollResponseStore(client.db);
   });
 
   afterAll(async () => {
     if (isConnected && client) {
+      assertSafeDestructiveTestOperation("poll_database_concurrency_cleanup", dbUrl);
       try {
         await client.db.delete(pollAnswerOptions);
         await client.db.delete(pollAnswers);
@@ -60,16 +58,11 @@ describe("PostgreSQL Real Row-Level Locking & Concurrency Invariants", () => {
     }
   });
 
-  it("transparently reports PostgreSQL connectivity status in test environment", () => {
-    if (!isConnected) {
-      // Documenting the environment status per architectural audit requirements
-      expect(isConnected).toBe(false);
-    } else {
-      expect(isConnected).toBe(true);
-    }
+  it("verifies PostgreSQL connectivity status on isolated test database", () => {
+    expect(isConnected).toBe(true);
   });
 
-  it.skipIf(!isConnected)(
+  it(
     "serializes concurrent vote submission and question deletion via SELECT FOR UPDATE row lock",
     async () => {
       if (!client) return;

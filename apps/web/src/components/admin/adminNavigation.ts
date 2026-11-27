@@ -11,6 +11,7 @@ import {
   GraduationCap,
   Sparkles,
   UserCheck,
+  Stethoscope,
 } from "lucide-react";
 
 export interface AdminNavItem {
@@ -118,6 +119,14 @@ export const PLATFORM_ADMIN_NAV_ITEMS: AdminNavItem[] = [
     description: "نمایه ۳۶۰ درجه، برچسب‌ها، یادداشت‌ها و رفتار کاربران",
     matchPrefixes: ["/admin/crm"],
   },
+  {
+    id: "pocket",
+    name: "مدیریت Pocket",
+    href: "/admin/pocket",
+    icon: Stethoscope,
+    description: "مدیریت داوران بالینی، اعتبارنامه‌ها و Safety Overrideها",
+    matchPrefixes: ["/admin/pocket"],
+  },
 ];
 
 /**
@@ -203,6 +212,14 @@ export const SUPPORT_AGENT_NAV_ITEMS: AdminNavItem[] = [
     icon: UserCheck,
     description: "نمایه ۳۶۰ درجه، برچسب‌ها، یادداشت‌ها و رفتار کاربران",
     matchPrefixes: ["/admin/crm"],
+  },
+  {
+    id: "pocket",
+    name: "مدیریت Pocket",
+    href: "/admin/pocket",
+    icon: Stethoscope,
+    description: "مدیریت داوران بالینی، اعتبارنامه‌ها و Safety Overrideها",
+    matchPrefixes: ["/admin/pocket"],
   },
 ];
 

@@ -20,6 +20,7 @@ import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createAuthApi } from "../lib/api/auth.js";
 import { ApiError } from "../lib/api/errors.js";
 import { useQueryClient } from "@tanstack/react-query";
+import { resetPocketEtagRegistry } from "../hooks/pocketEtagRegistry.js";
 import type {
   MeResponse,
   PhoneVerifyOtpResponse,
@@ -102,6 +103,46 @@ export type AuthState = {
 
 const AuthContext = createContext<AuthState | null>(null);
 
+/**
+ * Safely cleans up all user-specific and sensitive clinical Pocket caches.
+ * Cancels active in-flight queries first to ensure aborted promises cannot repopulate stale data,
+ * then purges sensitive cached queries and resets the ETag registry.
+ */
+export function cleanupUserSessionCache(
+  queryClient: ReturnType<typeof useQueryClient> | null,
+): void {
+  if (queryClient) {
+    try {
+      // 1. Cancel in-flight queries immediately
+      void queryClient.cancelQueries({ queryKey: ["pocket"] });
+      void queryClient.cancelQueries({ queryKey: ["my-courses"] });
+      void queryClient.cancelQueries({ queryKey: ["daily-study-plan"] });
+      void queryClient.cancelQueries({ queryKey: ["study-plans"] });
+      void queryClient.cancelQueries({ queryKey: ["me"] });
+      void queryClient.cancelQueries({ queryKey: ["admin"] });
+      void queryClient.cancelQueries({ queryKey: ["teacher"] });
+
+      // 2. Remove sensitive queries from React Query cache
+      queryClient.removeQueries({ queryKey: ["pocket"] });
+      queryClient.removeQueries({ queryKey: ["my-courses"] });
+      queryClient.removeQueries({ queryKey: ["daily-study-plan"] });
+      queryClient.removeQueries({ queryKey: ["study-plans"] });
+      queryClient.removeQueries({ queryKey: ["me"] });
+      queryClient.removeQueries({ queryKey: ["admin"] });
+      queryClient.removeQueries({ queryKey: ["teacher"] });
+    } catch {
+      // Ignore if queryClient is unavailable
+    }
+  }
+
+  // 3. Clear Pocket ETag registry
+  try {
+    resetPocketEtagRegistry();
+  } catch {
+    // Ignore in non-browser contexts
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   let queryClient: ReturnType<typeof useQueryClient> | null = null;
   try {
@@ -111,9 +152,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const [user, setUser] = useState<UserResource | null>(null);
+  const currentUserIdRef = useRef<string | null>(null);
   const [memberships, setMemberships] = useState<UserMembership[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Synchronously purges previous user's sensitive queries before updating state
+   * to ensure no render window where the new user identity can read cached sensitive data.
+   */
+  const setAuthenticatedUser = useCallback(
+    (nextUser: UserResource | null) => {
+      const prevId = currentUserIdRef.current;
+      const nextId = nextUser?.id ?? null;
+
+      if (prevId && prevId !== nextId) {
+        cleanupUserSessionCache(queryClient);
+      }
+      currentUserIdRef.current = nextId;
+      setUser(nextUser);
+    },
+    [queryClient],
+  );
 
   const isMountedRef = useRef(true);
   useEffect(() => {
@@ -122,6 +182,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isMountedRef.current = false;
     };
   }, []);
+
+  // Defense-in-depth watcher for any external user ID transition
+  useEffect(() => {
+    const nextId = user?.id ?? null;
+    if (currentUserIdRef.current && currentUserIdRef.current !== nextId) {
+      cleanupUserSessionCache(queryClient);
+      currentUserIdRef.current = nextId;
+    }
+  }, [user?.id, queryClient]);
 
   // Stable API references across renders (useRef to avoid infinite loops)
   const authApiRef = useRef(
@@ -139,7 +208,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const response = await authApi.getMe();
       if (!isMountedRef.current) return;
-      setUser(response.user);
+      setAuthenticatedUser(response.user);
       setMemberships(response.memberships ?? []);
       setError(null);
     } catch (err) {
@@ -157,7 +226,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           try {
             const autoLoginRes = await authApi.workerAutoLogin();
             if (!isMountedRef.current) return;
-            setUser(autoLoginRes.user);
+            setAuthenticatedUser(autoLoginRes.user);
             setMemberships(autoLoginRes.memberships ?? []);
             setError(null);
             return;
@@ -166,12 +235,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        setUser(null);
+        setAuthenticatedUser(null);
         setMemberships([]);
         setError(null);
       } else {
         // Real error
-        setUser(null);
+        setAuthenticatedUser(null);
         setMemberships([]);
         setError(err instanceof ApiError ? err.message : "Failed to load user");
       }
@@ -180,7 +249,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(false);
       }
     }
-  }, [authApi]);
+  }, [authApi, setAuthenticatedUser]);
 
   // Check auth state on mount
   useEffect(() => {
@@ -195,7 +264,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       const response = await authApi.workerAutoLogin();
-      setUser(response.user);
+      setAuthenticatedUser(response.user);
       setMemberships(response.memberships ?? []);
       return response;
     } catch (err) {
@@ -206,7 +275,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [authApi]);
+  }, [authApi, setAuthenticatedUser]);
 
   const signIn = useCallback(
     async (email: string, password: string) => {
@@ -217,7 +286,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       try {
         const response = await authApi.signIn(email, password);
-        setUser(response.user);
+        setAuthenticatedUser(response.user);
         setMemberships(response.memberships ?? []);
         return response;
       } catch (err) {
@@ -233,7 +302,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(false);
       }
     },
-    [authApi],
+    [authApi, setAuthenticatedUser],
   );
 
   const sendPhoneLoginOtp = useCallback(
@@ -259,7 +328,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError(null);
       try {
         const response = await authApi.verifyPhoneLoginOtp(phoneNumber, code);
-        setUser(response.user);
+        setAuthenticatedUser(response.user);
         setMemberships(response.memberships ?? []);
         return response;
       } catch (err) {
@@ -273,7 +342,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(false);
       }
     },
-    [authApi],
+    [authApi, setAuthenticatedUser],
   );
 
   const signUp = useCallback(
@@ -310,7 +379,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           role,
           autoSendVerification,
         );
-        setUser(response.user);
+        setAuthenticatedUser(response.user);
         setMemberships(response.memberships ?? []);
       } catch (err) {
         const message =
@@ -321,7 +390,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(false);
       }
     },
-    [authApi],
+    [authApi, setAuthenticatedUser],
   );
 
   const sendVerification = useCallback(
@@ -472,21 +541,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (typeof window !== "undefined") {
       window.sessionStorage?.setItem("avana_worker_logged_out", "true");
     }
-    try {
-      await authApi.signOut();
-    } catch {
-      // Even if the API call fails, clear local state
-    }
-    try {
-      queryClient?.removeQueries({ queryKey: ["my-courses"] });
-      queryClient?.removeQueries({ queryKey: ["daily-study-plan"] });
-      queryClient?.removeQueries({ queryKey: ["study-plans"] });
-    } catch {
-      // Ignore if queryClient is not available
-    }
+    // Synchronously cancel in-flight queries and purge sensitive caches before anything else
+    cleanupUserSessionCache(queryClient);
+    currentUserIdRef.current = null;
     setUser(null);
     setMemberships([]);
     setError(null);
+
+    try {
+      await authApi.signOut();
+    } catch {
+      // Even if the API call fails, local state and sensitive cache are already purged
+    }
   }, [authApi, queryClient]);
 
   const isEmailVerified = user ? user.emailVerified === true : false;

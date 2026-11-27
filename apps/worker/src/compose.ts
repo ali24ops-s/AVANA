@@ -40,6 +40,10 @@ import { DrizzleWalletStore } from "@avana/api/wallet/wallet-store";
 import { WalletService } from "@avana/api/wallet/wallet-service";
 import { TelegramClient } from "@avana/api/observability/telegram-client";
 import { AdminAlertService } from "@avana/api/observability/admin-alert-service";
+import { DrizzleAssertionPublishingStore } from "@avana/api/pocket/drizzle-assertion-publishing-store";
+import { PocketEventHandlerRegistry } from "@avana/api/pocket/pocket-event-handler";
+import { AssertionPublishedHandler } from "@avana/api/pocket/assertion-published-handler";
+import { DrizzleStudioExamStore } from "./processors/studio-exam-processor.js";
 import type { WorkerConfig } from "./config.js";
 
 export interface WorkerDependencies {
@@ -57,6 +61,9 @@ export interface WorkerDependencies {
   userGateway: ModelGateway;
   gateway: ModelGateway;
   adminAlertService: AdminAlertService;
+  pocketPublishingStore: DrizzleAssertionPublishingStore;
+  pocketHandlerRegistry: PocketEventHandlerRegistry;
+  studioExamStore: DrizzleStudioExamStore;
   close: () => Promise<void>;
 }
 
@@ -79,6 +86,14 @@ export async function composeWorker(
   const generationJobStore = new DrizzleGenerationJobStore(db);
   const generationChunkStore = new DrizzleGenerationChunkStore(db);
   const walletStore = new DrizzleWalletStore(db);
+  const pocketPublishingStore = new DrizzleAssertionPublishingStore(db);
+  const studioExamStore = new DrizzleStudioExamStore(db);
+  const pocketHandlerRegistry = new PocketEventHandlerRegistry();
+  pocketHandlerRegistry.register(
+    new AssertionPublishedHandler({
+      logger: (msg) => process.stdout.write(`${msg}\n`),
+    }),
+  );
 
   // Admin Model gateway: strictly Gemini with multi-key pool, zero fallback to external providers.
   const geminiRedis =
@@ -235,6 +250,9 @@ export async function composeWorker(
     userGateway,
     gateway: userGateway,
     adminAlertService,
+    pocketPublishingStore,
+    pocketHandlerRegistry,
+    studioExamStore,
     close: workerClose,
   };
 }

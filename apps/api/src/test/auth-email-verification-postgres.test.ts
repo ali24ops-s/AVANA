@@ -12,26 +12,28 @@ import {
 } from "../modules/identity/index.js";
 import { DrizzleOrganizationStore } from "../modules/organizations/drizzle-stores.js";
 import { sql } from "drizzle-orm";
-
-const postgresUrl =
-  process.env.DATABASE_URL ??
-  `postgres://${"avana"}:${"avana"}@127.0.0.1:5432/avana?sslmode=disable`;
+import { resolveSafePostgresTestUrl, assertSafeDestructiveTestOperation } from "./pg-test-guard.js";
 
 describe("Real PostgreSQL Integration - Email Verification Flow", () => {
   let dbClient: ReturnType<typeof createDbClient>;
+  let postgresUrl = "";
   let isConnected = false;
+  const createdEmails: string[] = [];
 
   beforeAll(async () => {
-    try {
-      dbClient = createDbClient(postgresUrl);
-      await dbClient.db.execute(sql`SELECT 1;`);
-      isConnected = true;
-    } catch {
-      isConnected = false;
-    }
+    postgresUrl = resolveSafePostgresTestUrl();
+    dbClient = createDbClient(postgresUrl);
+    await dbClient.db.execute(sql`SELECT 1;`);
+    isConnected = true;
   });
 
   afterAll(async () => {
+    if (dbClient && isConnected && postgresUrl && createdEmails.length > 0) {
+      assertSafeDestructiveTestOperation("DELETE", postgresUrl);
+      for (const email of createdEmails) {
+        await dbClient.db.execute(sql`DELETE FROM users WHERE email = ${email};`).catch(() => {});
+      }
+    }
     if (dbClient) {
       await dbClient.close().catch(() => {});
     }
@@ -58,6 +60,8 @@ describe("Real PostgreSQL Integration - Email Verification Flow", () => {
     const organizationStore = new DrizzleOrganizationStore(dbClient.db);
 
     const testEmail = `realpg_${Date.now()}@example.com`;
+    createdEmails.push(testEmail);
+    const testPhone = `0912${String(Math.floor(1000000 + Math.random() * 9000000))}`;
     const testPassword = "password123!";
 
     // 1. App Instance 1: Register User
@@ -78,7 +82,7 @@ describe("Real PostgreSQL Integration - Email Verification Flow", () => {
         email: testEmail,
         password: testPassword,
         name: "PG User",
-        phoneNumber: "09121110005",
+        phoneNumber: testPhone,
       },
     });
 
@@ -164,7 +168,7 @@ describe("Real PostgreSQL Integration - Email Verification Flow", () => {
     await app2.close();
   });
 
-  it("verifies registration failure rollback in real PostgreSQL DB when Email Provider fails", async (ctx) => {
+  it("preserves registration (200) without rollback in real PostgreSQL DB when Email Provider fails and allows resend", async (ctx) => {
     if (!isConnected) {
       ctx.skip();
       return;
@@ -184,6 +188,8 @@ describe("Real PostgreSQL Integration - Email Verification Flow", () => {
     const organizationStore = new DrizzleOrganizationStore(dbClient.db);
 
     const failEmail = `realpg_fail_${Date.now()}@unregistered-domain.org`;
+    createdEmails.push(failEmail);
+    const failPhone = `0912${String(Math.floor(1000000 + Math.random() * 9000000))}`;
     const password = "Password123!";
 
     const app = createApp({ config });
@@ -196,34 +202,39 @@ describe("Real PostgreSQL Integration - Email Verification Flow", () => {
       organizationStore,
     });
 
-    // A & B & C: Register with email, email provider fails -> 500 error returned
+    // A & B & C: Register with email; even if initial email provider fails, registration succeeds (200)
     const regRes = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
       payload: {
         email: failEmail,
         password,
-        name: "Failed User",
-        phoneNumber: "09121110006",
+        name: "Failed Email User",
+        phoneNumber: failPhone,
       },
     });
-    expect(regRes.statusCode).toBe(500);
+    expect(regRes.statusCode).toBe(200);
+    const regBody = JSON.parse(regRes.body);
+    expect(regBody.user.emailVerified).toBe(false);
+    const sessionToken = extractSessionToken(regRes);
+    expect(sessionToken).toBeDefined();
 
-    // D & E: Directly query PostgreSQL database to verify user does NOT exist
+    // D & E: Directly query PostgreSQL database to verify user EXISTS with email_verified_at = NULL
     const userDbRow = await dbClient.db.execute(
-      sql`SELECT id FROM users WHERE email = ${failEmail};`,
+      sql`SELECT id, email_verified_at FROM users WHERE email = ${failEmail};`,
     );
-    expect(userDbRow.rows.length).toBe(0);
+    expect(userDbRow.rows.length).toBe(1);
+    expect(userDbRow.rows[0].email_verified_at).toBeNull();
 
-    // F: Attempt login with that email and password -> 401 Unauthorized
+    // F: Sign-in with that email and password succeeds (200)
     const loginRes = await app.inject({
       method: "POST",
       url: "/v1/auth/sign-in",
       payload: { email: failEmail, password },
     });
-    expect(loginRes.statusCode).toBe(401);
+    expect(loginRes.statusCode).toBe(200);
 
-    // G: Re-register with the exact same email -> Registration succeeds!
+    // G: Sign in on app2 (with working EmailService) and retry verification email via POST /v1/auth/verification/send -> 200
     const mockEmailService = new MockEmailService();
     const app2 = createApp({ config });
     await app2.register(v1Routes, {
@@ -235,23 +246,23 @@ describe("Real PostgreSQL Integration - Email Verification Flow", () => {
       organizationStore,
     });
 
-    const retryRes = await app2.inject({
+    const app2LoginRes = await app2.inject({
       method: "POST",
-      url: "/v1/auth/register",
-      payload: {
-        email: failEmail,
-        password,
-        name: "Retried User",
-        phoneNumber: "09121110006",
-      },
+      url: "/v1/auth/sign-in",
+      payload: { email: failEmail, password },
     });
-    expect(retryRes.statusCode).toBe(200);
+    expect(app2LoginRes.statusCode).toBe(200);
+    const app2SessionToken = extractSessionToken(app2LoginRes);
+    expect(app2SessionToken).toBeDefined();
 
-    // Verify user now exists in PostgreSQL
-    const retryDbRow = await dbClient.db.execute(
-      sql`SELECT id FROM users WHERE email = ${failEmail};`,
-    );
-    expect(retryDbRow.rows.length).toBe(1);
+    const resendRes = await app2.inject({
+      method: "POST",
+      url: "/v1/auth/verification/send",
+      cookies: { avana_session: app2SessionToken! },
+      payload: { channel: "email" },
+    });
+    expect(resendRes.statusCode).toBe(200);
+    expect(mockEmailService.getLastCodeFor(failEmail)).toMatch(/^\d{6}$/);
 
     await app.close();
     await app2.close();

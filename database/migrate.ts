@@ -41,7 +41,10 @@ function localConnectionString(): string {
 }
 
 loadMonorepoEnv();
-const connectionString = process.env.DATABASE_URL ?? localConnectionString();
+const connectionString =
+  process.env.MIGRATION_DATABASE_URL ??
+  process.env.DATABASE_URL ??
+  localConnectionString();
 
 export const TARGETED_MIGRATION_IDS = [
   "0088_crm_core",

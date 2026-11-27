@@ -389,6 +389,7 @@ function toQuestionSnapshot(r: MarketingQuizQuestionRecord): MarketingQuizQuesti
     marketingQuizId: r.marketingQuizId,
     sourceQuestionId: r.sourceQuestionId,
     sourceBankQuestionId: r.sourceBankQuestionId,
+    sourceStagingQuestionId: r.sourceStagingQuestionId ?? null,
     question: r.question,
     choices: r.choices as Array<{ id: string; text: string }>,
     correctAnswer: r.correctAnswer as { choiceId: string } | string,

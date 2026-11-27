@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { DomainError, asUserId, type Actor } from "@avana/domain";
+import { DomainError, asUserId, type Actor, type StudioExamOperationStatus } from "@avana/domain";
 import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
 import { makeAuthMiddleware } from "../../http/authMiddleware.js";
 import type { StudioService } from "./studio-service.js";
@@ -12,7 +12,9 @@ import type {
   BatchAddQuestionsInput,
   SearchQuestionBankFilters,
   QuestionSourceType,
+  CreateExamGenerationInput,
 } from "./types.js";
+import { isUuid, type StagingQuestionReviewDecision } from "./studio-exam-store.js";
 
 export interface StudioRouteOptions extends AuthMiddlewareDeps {
   studioService: StudioService;
@@ -438,6 +440,315 @@ export const studioRoutes: FastifyPluginAsync<StudioRouteOptions> = async (
 
       const questions = await studioAiService.generateQuestions(body);
       return { questions };
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // Multi-Chapter AI Exam Generation Endpoints
+  // -------------------------------------------------------------------------
+
+  // 1. Create exam generation operation for a quiz
+  app.post(
+    "/v1/studio/quizzes/:id/exam-operations",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const actor = getActor(request);
+      const { id } = request.params as { id: string };
+      if (!isUuid(id)) {
+        throw new DomainError("not_found", "آزمون مورد نظر یافت نشد.", { quizId: id });
+      }
+
+      const body = (request.body as CreateExamGenerationInput) ?? {};
+      if (body.totalQuestions === undefined || body.totalQuestions === null) {
+        throw new DomainError("bad_request", "تعداد کل سؤالات الزامی است.");
+      }
+      if (
+        (!Array.isArray(body.moduleIds) || body.moduleIds.length === 0) &&
+        (!Array.isArray(body.chapterAllocations) || body.chapterAllocations.length === 0)
+      ) {
+        throw new DomainError(
+          "bad_request",
+          "حداقل باید یک فصل برای تولید سؤالات آزمون انتخاب شود.",
+        );
+      }
+
+      const result = await studioService.createExamGenerationOperation(
+        actor,
+        id,
+        body,
+      );
+      reply.status(201);
+      return result;
+    },
+  );
+
+  // 2. Get active exam generation operation for a quiz (reconnect after refresh)
+  app.get(
+    "/v1/studio/quizzes/:id/exam-operations/active",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      const { id } = request.params as { id: string };
+      if (!isUuid(id)) {
+        throw new DomainError("not_found", "آزمون مورد نظر یافت نشد.", { quizId: id });
+      }
+
+      const operation = await studioService.getActiveExamGenerationOperation(actor, id);
+      return { operation };
+    },
+  );
+
+  // 2b. List persistent exam generation operation history for a quiz
+  app.get(
+    "/v1/studio/quizzes/:id/exam-operations",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      const { id } = request.params as { id: string };
+      if (!isUuid(id)) {
+        throw new DomainError("not_found", "آزمون مورد نظر یافت نشد.", { quizId: id });
+      }
+
+      const query = (request.query as Record<string, string | undefined>) ?? {};
+      const validStatuses: StudioExamOperationStatus[] = [
+        "pending",
+        "processing",
+        "completed",
+        "partial",
+        "failed",
+        "cancelled",
+      ];
+
+      let status: StudioExamOperationStatus | undefined;
+      if (query.status !== undefined && query.status !== "") {
+        if (!validStatuses.includes(query.status as StudioExamOperationStatus)) {
+          throw new DomainError("bad_request", "فیلتر وضعیت عملیات نامعتبر است.");
+        }
+        status = query.status as StudioExamOperationStatus;
+      }
+
+      let limit = 20;
+      if (query.limit !== undefined && query.limit !== "") {
+        const parsedLimit = Number(query.limit);
+        if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 50) {
+          throw new DomainError("bad_request", "پارامتر limit باید عدد صحیح بین ۱ تا ۵۰ باشد.");
+        }
+        limit = parsedLimit;
+      }
+
+      let offset = 0;
+      if (query.offset !== undefined && query.offset !== "") {
+        const parsedOffset = Number(query.offset);
+        if (!Number.isInteger(parsedOffset) || parsedOffset < 0) {
+          throw new DomainError("bad_request", "پارامتر offset باید عدد صحیح غیرمنفی باشد.");
+        }
+        offset = parsedOffset;
+      }
+
+      return await studioService.listQuizExamGenerationOperations(actor, id, {
+        status,
+        limit,
+        offset,
+      });
+    },
+  );
+
+  // 3. Get full details of an operation (status, tasks, batches, sanitized errors)
+  app.get(
+    "/v1/studio/exam-operations/:operationId",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      const { operationId } = request.params as { operationId: string };
+      if (!isUuid(operationId)) {
+        throw new DomainError("not_found", "عملیات تولید هوشمند آزمون یافت نشد.", { operationId });
+      }
+
+      const details = await studioService.getExamGenerationOperationDetails(
+        actor,
+        operationId,
+      );
+      return details;
+    },
+  );
+
+  // 4. Get lightweight progress summary for polling
+  app.get(
+    "/v1/studio/exam-operations/:operationId/progress",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      const { operationId } = request.params as { operationId: string };
+      if (!isUuid(operationId)) {
+        throw new DomainError("not_found", "عملیات تولید هوشمند آزمون یافت نشد.", { operationId });
+      }
+
+      const progress = await studioService.getExamGenerationProgress(
+        actor,
+        operationId,
+      );
+      return progress;
+    },
+  );
+
+  // 5. Get staging questions generated for an operation
+  app.get(
+    "/v1/studio/exam-operations/:operationId/questions",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      const { operationId } = request.params as { operationId: string };
+      if (!isUuid(operationId)) {
+        throw new DomainError("not_found", "عملیات تولید هوشمند آزمون یافت نشد.", { operationId });
+      }
+
+      const query = (request.query as Record<string, string | undefined>) ?? {};
+      let isAccepted: boolean | undefined = undefined;
+      if (query.isAccepted === "true") isAccepted = true;
+      else if (query.isAccepted === "false") isAccepted = false;
+
+      const questions = await studioService.getExamGenerationQuestions(
+        actor,
+        operationId,
+        {
+          taskId: query.taskId,
+          batchId: query.batchId,
+          isAccepted,
+          limit: query.limit ? parseInt(query.limit, 10) : undefined,
+          offset: query.offset ? parseInt(query.offset, 10) : undefined,
+        },
+      );
+      return { questions };
+    },
+  );
+
+  // 5b. Batch review staging questions (accept, reject, or reset to pending_review)
+  app.post(
+    "/v1/studio/exam-operations/:operationId/questions/review",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      const { operationId } = request.params as { operationId: string };
+      if (!isUuid(operationId)) {
+        throw new DomainError("not_found", "عملیات تولید هوشمند آزمون یافت نشد.", { operationId });
+      }
+
+      const body = (request.body as {
+        questionIds?: unknown;
+        decision?: unknown;
+      }) ?? {};
+
+      if (!Array.isArray(body.questionIds) || body.questionIds.length === 0) {
+        throw new DomainError("bad_request", "آرایه شناسه‌های سؤالات باید غیرخالی باشد.");
+      }
+      if (body.questionIds.length > 100) {
+        throw new DomainError("bad_request", "حداکثر ۱۰۰ سؤال در هر درخواست قابل بررسی است.");
+      }
+      for (const qId of body.questionIds) {
+        if (typeof qId !== "string" || !isUuid(qId)) {
+          throw new DomainError("bad_request", "شناسه سؤال نامعتبر است.", { questionId: qId });
+        }
+      }
+
+      if (
+        body.decision !== "accepted" &&
+        body.decision !== "rejected" &&
+        body.decision !== "pending_review"
+      ) {
+        throw new DomainError("bad_request", "وضعیت بازبینی نامعتبر است.");
+      }
+
+      const result = await studioService.reviewExamGenerationQuestions(actor, operationId, {
+        questionIds: body.questionIds as string[],
+        decision: body.decision as StagingQuestionReviewDecision,
+      });
+
+      return result;
+    },
+  );
+
+  // 5c. Atomically transfer accepted staging questions into the authoritative quiz
+  app.post(
+    "/v1/studio/exam-operations/:operationId/questions/transfer",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      const { operationId } = request.params as { operationId: string };
+      if (!isUuid(operationId)) {
+        throw new DomainError("not_found", "عملیات تولید هوشمند آزمون یافت نشد.", { operationId });
+      }
+
+      const body = (request.body as {
+        questionIds?: unknown;
+        quizId?: unknown;
+      }) ?? {};
+
+      if ("quizId" in body && body.quizId !== undefined) {
+        throw new DomainError(
+          "bad_request",
+          "تعیین آزمون مقصد از طریق ورودی مجاز نیست.",
+        );
+      }
+
+      if (!Array.isArray(body.questionIds) || body.questionIds.length === 0) {
+        throw new DomainError("bad_request", "آرایه شناسه‌های سؤالات برای انتقال باید غیرخالی باشد.");
+      }
+      if (body.questionIds.length > 100) {
+        throw new DomainError("bad_request", "حداکثر ۱۰۰ سؤال در هر درخواست قابل انتقال است.");
+      }
+      for (const qId of body.questionIds) {
+        if (typeof qId !== "string" || !isUuid(qId)) {
+          throw new DomainError("bad_request", "شناسه سؤال نامعتبر است.", { questionId: qId });
+        }
+      }
+
+      const result = await studioService.transferExamGenerationQuestions(
+        actor,
+        operationId,
+        body.questionIds as string[],
+      );
+
+      return result;
+    },
+  );
+
+  // 6. Cancel an in-flight operation
+  app.post(
+    "/v1/studio/exam-operations/:operationId/cancel",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      const { operationId } = request.params as { operationId: string };
+      if (!isUuid(operationId)) {
+        throw new DomainError("not_found", "عملیات تولید هوشمند آزمون یافت نشد.", { operationId });
+      }
+
+      const body = (request.body as { reason?: string }) ?? {};
+      const result = await studioService.cancelExamGenerationOperation(
+        actor,
+        operationId,
+        body.reason,
+      );
+      return result;
+    },
+  );
+
+  // 7. Internal / recovery endpoint to re-enqueue pending batches
+  app.post(
+    "/v1/studio/exam-operations/:operationId/reenqueue",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      const { operationId } = request.params as { operationId: string };
+      if (!isUuid(operationId)) {
+        throw new DomainError("not_found", "عملیات مورد نظر یافت نشد.", { operationId });
+      }
+
+      const result = await studioService.reenqueuePendingBatches(
+        actor,
+        operationId,
+      );
+      return result;
     },
   );
 };

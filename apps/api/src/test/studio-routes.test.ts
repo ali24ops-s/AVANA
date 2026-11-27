@@ -13,8 +13,39 @@ import {
   InMemoryMarketingQuizAttemptStore,
   StudioService,
 } from "../modules/studio/index.js";
+import { InMemoryStudioExamStore } from "../modules/studio/studio-exam-store.js";
+import type {
+  StudioExamQueue,
+  StudioExamBatchJobPayload,
+} from "../modules/studio/studio-exam-queue.js";
 import { v1Routes } from "../routes/v1.js";
 import type { FastifyInstance } from "fastify";
+import { asOrganizationId } from "@avana/domain";
+import { generateBoundCsrfToken } from "../modules/identity/csrf.js";
+import crypto from "node:crypto";
+
+class MockStudioExamQueue implements StudioExamQueue {
+  readonly queueName = "studio_exam_batch_generate";
+  public jobs: Array<{
+    name: string;
+    data: StudioExamBatchJobPayload;
+    opts?: { jobId?: string };
+  }> = [];
+
+  async add(
+    name: string,
+    data: StudioExamBatchJobPayload,
+    opts?: { jobId?: string },
+  ): Promise<void> {
+    this.jobs.push({ name, data, opts });
+  }
+
+  async getWaitingCount(): Promise<number> {
+    return this.jobs.length;
+  }
+
+  async close(): Promise<void> {}
+}
 
 describe("Studio & Public Quiz HTTP Routes E2E", () => {
   let app: FastifyInstance;
@@ -25,6 +56,8 @@ describe("Studio & Public Quiz HTTP Routes E2E", () => {
   let quizStore: InMemoryMarketingQuizStore;
   let bankStore: InMemoryMarketingQuestionBankStore;
   let attemptStore: InMemoryMarketingQuizAttemptStore;
+  let examStore: InMemoryStudioExamStore;
+  let examQueue: MockStudioExamQueue;
   let studioService: StudioService;
 
   let adminCookie: string;
@@ -44,7 +77,18 @@ describe("Studio & Public Quiz HTTP Routes E2E", () => {
     quizStore = new InMemoryMarketingQuizStore();
     bankStore = new InMemoryMarketingQuestionBankStore();
     attemptStore = new InMemoryMarketingQuizAttemptStore();
-    studioService = new StudioService(quizStore, bankStore, attemptStore, undefined, orgStore);
+    examStore = new InMemoryStudioExamStore();
+    examQueue = new MockStudioExamQueue();
+    studioService = new StudioService(
+      quizStore,
+      bankStore,
+      attemptStore,
+      undefined,
+      orgStore,
+      undefined,
+      examStore,
+      examQueue,
+    );
 
     // Create platform admin
     const adminUser = await userStore.createUserWithPassword({
@@ -992,6 +1036,982 @@ describe("Studio & Public Quiz HTTP Routes E2E", () => {
       });
       expect(solutionsRes.statusCode).toBe(404);
       expect(solutionsRes.json().error.code).toBe("not_found");
+    });
+  });
+
+  describe("Multi-Chapter AI Exam Generation Routes E2E", () => {
+    let testQuizId: string;
+    const module1 = "00000000-0000-0000-0000-000000000001";
+    const module2 = "00000000-0000-0000-0000-000000000002";
+
+    beforeEach(async () => {
+      const q = await quizStore.create({
+        title: "آزمون چندفصلی فارماکولوژی",
+        status: "draft",
+        settings: {},
+      });
+      testQuizId = q.id;
+    });
+
+    it("creates an exam generation operation successfully with tasks, batches, and queue jobs", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+        payload: {
+          totalQuestions: 10,
+          moduleIds: [module1, module2],
+          difficulty: "hard",
+          instructions: "سؤالات بالینی همراه سناریو بیمار",
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      const data = res.json();
+      expect(data.operation).toBeDefined();
+      expect(data.operation.id).toBeDefined();
+      expect(data.operation.totalRequestedQuestions).toBe(10);
+      expect(data.operation.status).toBe("pending");
+      expect(data.tasks.length).toBe(2);
+      expect(data.batches.length).toBe(2);
+      expect(examQueue.jobs.length).toBe(2);
+      expect(examQueue.jobs[0].data.operationId).toBe(data.operation.id);
+    });
+
+    it("rejects invalid input with 400 bad_request", async () => {
+      // 1. Missing / invalid totalQuestions
+      const res1 = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+        payload: {
+          totalQuestions: 0,
+          moduleIds: [module1],
+        },
+      });
+      expect(res1.statusCode).toBe(400);
+      expect(res1.json().error.code).toBe("bad_request");
+
+      // 2. totalQuestions exceeding 100
+      const res2 = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+        payload: {
+          totalQuestions: 101,
+          moduleIds: [module1],
+        },
+      });
+      expect(res2.statusCode).toBe(400);
+      expect(res2.json().error.code).toBe("bad_request");
+
+      // 3. Empty modules / allocations
+      const res3 = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+        payload: {
+          totalQuestions: 10,
+          moduleIds: [],
+        },
+      });
+      expect(res3.statusCode).toBe(400);
+      expect(res3.json().error.code).toBe("bad_request");
+
+      // 4. Custom chapter allocations sum mismatch
+      const res4 = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+        payload: {
+          totalQuestions: 10,
+          chapterAllocations: [
+            { moduleId: module1, quota: 4 },
+            { moduleId: module2, quota: 4 }, // sum = 8 != 10
+          ],
+        },
+      });
+      expect(res4.statusCode).toBe(400);
+      expect(res4.json().error.code).toBe("bad_request");
+
+      // 5. Duplicate moduleIds in custom allocations
+      const res5 = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+        payload: {
+          totalQuestions: 10,
+          chapterAllocations: [
+            { moduleId: module1, quota: 5 },
+            { moduleId: module1, quota: 5 },
+          ],
+        },
+      });
+      expect(res5.statusCode).toBe(400);
+      expect(res5.json().error.code).toBe("bad_request");
+    });
+
+    it("enforces authentication and forbids unauthorized roles (students)", async () => {
+      // 1. Unauthenticated -> 401
+      const noAuthRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations`,
+        payload: { totalQuestions: 10, moduleIds: [module1] },
+      });
+      expect(noAuthRes.statusCode).toBe(401);
+      expect(noAuthRes.json().error.code).toBe("unauthorized");
+
+      // 2. Student -> 403
+      const studentRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations`,
+        headers: { authorization: `Bearer ${studentCookie}` },
+        payload: { totalQuestions: 10, moduleIds: [module1] },
+      });
+      expect(studentRes.statusCode).toBe(403);
+      expect(studentRes.json().error.code).toBe("forbidden");
+    });
+
+    it("prevents cross-tenant access between organizations and ignores spoofed organizationId", async () => {
+      // Setup Org Alpha and Org Beta
+      const orgAId = "00000000-0000-0000-0000-00000000000a";
+      const orgBId = "00000000-0000-0000-0000-00000000000b";
+
+      const userA = await userStore.createUserWithPassword({
+        email: "adminA-exam@alpha.ir",
+        passwordHash: "hash123",
+      });
+      userA.role = "organization_admin";
+      userStore.insert({ ...userA });
+
+      const userB = await userStore.createUserWithPassword({
+        email: "adminB-exam@beta.ir",
+        passwordHash: "hash123",
+      });
+      userB.role = "organization_admin";
+      userStore.insert({ ...userB });
+
+      await orgStore.createWithAdminMembership({
+        organization: { id: orgAId, name: "Org Alpha", slug: "org-alpha-exam", createdAt: new Date(), updatedAt: new Date() },
+        membership: { id: "mem-a", organizationId: asOrganizationId(orgAId), userId: userA.id, role: "organization_admin", createdAt: new Date(), updatedAt: new Date() },
+        auditEvents: [],
+      });
+
+      await orgStore.createWithAdminMembership({
+        organization: { id: orgBId, name: "Org Beta", slug: "org-beta-exam", createdAt: new Date(), updatedAt: new Date() },
+        membership: { id: "mem-b", organizationId: asOrganizationId(orgBId), userId: userB.id, role: "organization_admin", createdAt: new Date(), updatedAt: new Date() },
+        auditEvents: [],
+      });
+
+      const sessionA = await sessionService.createSession(userA.id);
+      const sessionB = await sessionService.createSession(userB.id);
+
+      // Quiz belongs to Org Alpha
+      const orgAQuiz = await quizStore.create({
+        title: "آزمون سازمان آلفا",
+        organizationId: orgAId,
+        status: "draft",
+        settings: {},
+      });
+
+      // 1. User B (Org Beta) tries to create operation on Org Alpha's quiz -> 403 Forbidden
+      const crossCreateRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${orgAQuiz.id}/exam-operations`,
+        headers: { authorization: `Bearer ${sessionB.sessionToken}` },
+        payload: {
+          totalQuestions: 10,
+          moduleIds: [module1],
+          organizationId: orgBId, // Spoofed organizationId must NOT be trusted
+        },
+      });
+      expect(crossCreateRes.statusCode).toBe(403);
+      expect(crossCreateRes.json().error.code).toBe("forbidden");
+
+      // 2. User A successfully creates operation for Org Alpha
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${orgAQuiz.id}/exam-operations`,
+        headers: { authorization: `Bearer ${sessionA.sessionToken}` },
+        payload: {
+          totalQuestions: 10,
+          moduleIds: [module1],
+        },
+      });
+      expect(createRes.statusCode).toBe(201);
+      const opId = createRes.json().operation.id;
+
+      // 3. User B cannot read active operation of Org Alpha's quiz -> 403
+      const crossActiveRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/quizzes/${orgAQuiz.id}/exam-operations/active`,
+        headers: { authorization: `Bearer ${sessionB.sessionToken}` },
+      });
+      expect(crossActiveRes.statusCode).toBe(403);
+
+      // 4. User B cannot access operation details, progress, or cancel -> 403
+      const crossDetailsRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/exam-operations/${opId}`,
+        headers: { authorization: `Bearer ${sessionB.sessionToken}` },
+      });
+      expect(crossDetailsRes.statusCode).toBe(403);
+
+      const crossProgressRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/exam-operations/${opId}/progress`,
+        headers: { authorization: `Bearer ${sessionB.sessionToken}` },
+      });
+      expect(crossProgressRes.statusCode).toBe(403);
+
+      const crossCancelRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${opId}/cancel`,
+        headers: { authorization: `Bearer ${sessionB.sessionToken}` },
+      });
+      expect(crossCancelRes.statusCode).toBe(403);
+    });
+
+    it("retrieves the active exam generation operation for a quiz", async () => {
+      // 1. Initially no active operation -> returns null
+      const initialRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations/active`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+      });
+      expect(initialRes.statusCode).toBe(200);
+      expect(initialRes.json().operation).toBeNull();
+
+      // 2. Create operation -> returns active operation
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+        payload: { totalQuestions: 10, moduleIds: [module1] },
+      });
+      expect(createRes.statusCode).toBe(201);
+      const opId = createRes.json().operation.id;
+
+      const activeRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations/active`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+      });
+      expect(activeRes.statusCode).toBe(200);
+      expect(activeRes.json().operation).not.toBeNull();
+      expect(activeRes.json().operation.id).toBe(opId);
+      expect(activeRes.json().operation.status).toBe("pending");
+
+      // 3. Mark operation completed in store -> active operation returns null
+      const op = examStore.operations.get(opId)!;
+      op.status = "completed";
+
+      const completedActiveRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations/active`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+      });
+      expect(completedActiveRes.statusCode).toBe(200);
+      expect(completedActiveRes.json().operation).toBeNull();
+    });
+
+    it("retrieves full operation details and sanitizes sensitive errors", async () => {
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+        payload: { totalQuestions: 10, moduleIds: [module1] },
+      });
+      const opId = createRes.json().operation.id;
+
+      // Simulate a raw internal error with sensitive token in a batch
+      const batch = Array.from(examStore.batches.values()).find((b) => b.taskId === createRes.json().tasks[0].id)!;
+      batch.status = "failed";
+      batch.errorCode = "gemini_internal_error";
+      // eslint-disable-next-line no-secrets/no-secrets
+      batch.errorMessage = "Failed request to https://generativelanguage.googleapis.com?key=AIzaSySecret123 with error 500";
+
+      const detailsRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/exam-operations/${opId}`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+      });
+      expect(detailsRes.statusCode).toBe(200);
+      const details = detailsRes.json();
+      expect(details.operation.id).toBe(opId);
+      expect(details.tasks.length).toBeGreaterThan(0);
+      expect(details.batches.length).toBeGreaterThan(0);
+
+      // Verify that sensitive token and internal URL were sanitized
+      const targetBatch = details.batches.find((b: { id: string }) => b.id === batch.id);
+      expect(targetBatch.errorMessage).not.toContain("AIzaSySecret123");
+      expect(targetBatch.errorMessage).not.toContain("googleapis.com");
+      expect(targetBatch.errorMessage).toBe("خطای غیرمنتظره در ارتباط با سرویس هوش مصنوعی.");
+    });
+
+    it("provides a lightweight progress contract for realtime polling", async () => {
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+        payload: { totalQuestions: 10, moduleIds: [module1] },
+      });
+      const opId = createRes.json().operation.id;
+
+      const progressRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/exam-operations/${opId}/progress`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+      });
+
+      expect(progressRes.statusCode).toBe(200);
+      const progress = progressRes.json();
+      expect(progress.operationId).toBe(opId);
+      expect(progress.quizId).toBe(testQuizId);
+      expect(progress.totalRequestedQuestions).toBe(10);
+      expect(progress.totalGeneratedQuestions).toBe(0);
+      expect(progress.progressPercentage).toBe(0);
+      expect(Array.isArray(progress.tasks)).toBe(true);
+      expect(progress.tasks[0].targetCount).toBe(10);
+      // Ensure lightweight payload without raw batches or snapshots
+      expect(progress.batches).toBeUndefined();
+      expect(progress.patternSnapshots).toBeUndefined();
+    });
+
+    it("retrieves and filters staging generated questions", async () => {
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+        payload: { totalQuestions: 10, moduleIds: [module1] },
+      });
+      const opId = createRes.json().operation.id;
+      const taskId = createRes.json().tasks[0].id;
+      const batchId = createRes.json().batches[0].id;
+
+      // Seed staging questions directly into examStore
+      const q1Id = "00000000-0000-0000-0000-000000000101";
+      const q2Id = "00000000-0000-0000-0000-000000000102";
+      examStore.questions.set(q1Id, {
+        id: q1Id,
+        operationId: opId,
+        taskId,
+        batchId,
+        courseId: "00000000-0000-0000-0000-000000000000",
+        moduleId: module1,
+        questionIndex: 1,
+        question: "سؤال اول فارماکولوژی",
+        choices: [
+          { id: "1", text: "گزینه ۱" },
+          { id: "2", text: "گزینه ۲" },
+        ],
+        correctAnswer: { choiceId: "1" },
+        difficulty: "medium",
+        questionType: "multiple_choice",
+        isAccepted: true,
+        createdAt: new Date(),
+      });
+
+      examStore.questions.set(q2Id, {
+        id: q2Id,
+        operationId: opId,
+        taskId,
+        batchId,
+        courseId: "00000000-0000-0000-0000-000000000000",
+        moduleId: module1,
+        questionIndex: 2,
+        question: "سؤال دوم فارماکولوژی (رد شده)",
+        choices: [
+          { id: "1", text: "گزینه ۱" },
+          { id: "2", text: "گزینه ۲" },
+        ],
+        correctAnswer: { choiceId: "2" },
+        difficulty: "hard",
+        questionType: "multiple_choice",
+        isAccepted: false,
+        createdAt: new Date(),
+      });
+
+      // 1. Fetch all questions
+      const allRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/exam-operations/${opId}/questions`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+      });
+      expect(allRes.statusCode).toBe(200);
+      expect(allRes.json().questions.length).toBe(2);
+
+      // 2. Filter by isAccepted=true
+      const acceptedRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/exam-operations/${opId}/questions?isAccepted=true`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+      });
+      expect(acceptedRes.statusCode).toBe(200);
+      expect(acceptedRes.json().questions.length).toBe(1);
+      expect(acceptedRes.json().questions[0].id).toBe(q1Id);
+
+      // 3. Filter by pagination
+      const pageRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/exam-operations/${opId}/questions?limit=1&offset=1`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+      });
+      expect(pageRes.statusCode).toBe(200);
+      expect(pageRes.json().questions.length).toBe(1);
+      expect(pageRes.json().questions[0].id).toBe(q2Id);
+    });
+
+    it("cancels an active operation and prevents cancelling finalized operations", async () => {
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+        payload: { totalQuestions: 10, moduleIds: [module1] },
+      });
+      const opId = createRes.json().operation.id;
+
+      // 1. Cancel in-flight operation -> 200 OK
+      const cancelRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${opId}/cancel`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+        payload: { reason: "توقف توسط ادمین" },
+      });
+      expect(cancelRes.statusCode).toBe(200);
+      expect(cancelRes.json().cancelled).toBe(true);
+
+      const op = examStore.operations.get(opId)!;
+      expect(op.status).toBe("cancelled");
+
+      // 2. Attempting to cancel an already-finalized operation -> 400 Bad Request
+      const secondCancelRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${opId}/cancel`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+      });
+      expect(secondCancelRes.statusCode).toBe(400);
+      expect(secondCancelRes.json().error.code).toBe("bad_request");
+    });
+
+    it("handles non-existent and malformed operation/quiz IDs with 404", async () => {
+      const nonExistentUuid = "00000000-0000-0000-0000-999999999999";
+      const malformedId = "not-a-valid-uuid";
+
+      // Non-existent quiz
+      const res1 = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${nonExistentUuid}/exam-operations`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+        payload: { totalQuestions: 10, moduleIds: [module1] },
+      });
+      expect(res1.statusCode).toBe(404);
+
+      // Malformed quizId
+      const res2 = await app.inject({
+        method: "GET",
+        url: `/v1/studio/quizzes/${malformedId}/exam-operations/active`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+      });
+      expect(res2.statusCode).toBe(404);
+
+      // Non-existent operation
+      const res3 = await app.inject({
+        method: "GET",
+        url: `/v1/studio/exam-operations/${nonExistentUuid}`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+      });
+      expect(res3.statusCode).toBe(404);
+
+      // Malformed operationId on progress
+      const res4 = await app.inject({
+        method: "GET",
+        url: `/v1/studio/exam-operations/${malformedId}/progress`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+      });
+      expect(res4.statusCode).toBe(404);
+    });
+
+    it("re-enqueues pending batches via the internal recovery route", async () => {
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${testQuizId}/exam-operations`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+        payload: { totalQuestions: 10, moduleIds: [module1] },
+      });
+      const opId = createRes.json().operation.id;
+
+      // Clear simulated queue to emulate lost jobs
+      examQueue.jobs = [];
+
+      const reenqueueRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${opId}/reenqueue`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+      });
+      expect(reenqueueRes.statusCode).toBe(200);
+      expect(reenqueueRes.json().reenqueuedCount).toBe(1);
+      expect(examQueue.jobs.length).toBe(1);
+
+      // Calling on a completed operation -> 400
+      examStore.operations.get(opId)!.status = "completed";
+      const invalidReenqueueRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${opId}/reenqueue`,
+        headers: { authorization: `Bearer ${adminCookie}` },
+      });
+      expect(invalidReenqueueRes.statusCode).toBe(400);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 2.2.3 — Staging Question Review & Transfer HTTP Routes E2E
+  // ---------------------------------------------------------------------------
+  describe("Multi-Chapter Exam Staging Review & Transfer Routes (Phase 2.2.3)", () => {
+    const orgIdA = asOrganizationId("11111111-1111-4111-a111-111111111111");
+    const orgIdB = asOrganizationId("22222222-2222-4222-a222-222222222222");
+    const module1 = "33333333-3333-4333-a333-333333333333";
+
+    let orgAdminACookie: string;
+    let orgAdminBCookie: string;
+    let quizAId: string;
+
+    async function seedQuizAndStagedQuestions(count = 3) {
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${quizAId}/exam-operations`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { totalQuestions: count, moduleIds: [module1] },
+      });
+      expect(createRes.statusCode).toBe(201);
+      const { operation, batches } = createRes.json();
+
+      const claim = await examStore.claimBatch(batches[0].id);
+      await examStore.saveBatchQuestionsAndFinalize({
+        batchId: batches[0].id,
+        fencingToken: claim.fencingToken!,
+        questions: Array.from({ length: count }, (_, idx) => ({
+          questionIndex: idx + 1,
+          question: `سؤال مسیر ${idx + 1}`,
+          choices: [
+            { id: "a", text: "گزینه ۱" },
+            { id: "b", text: "گزینه ۲" },
+          ],
+          correctAnswer: { choiceId: "a" },
+          explanation: "توضیح",
+          difficulty: "medium",
+        })),
+      });
+
+      const listRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/exam-operations/${operation.id}/questions`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+      });
+      return {
+        operationId: operation.id as string,
+        questions: listRes.json().questions as Array<{
+          id: string;
+          reviewStatus: string;
+          isAccepted: boolean;
+          transferredQuestionId?: string | null;
+        }>,
+      };
+    }
+
+    beforeEach(async () => {
+      const userA = await userStore.createUserWithPassword({
+        email: "org-a-admin@avana.ir",
+        passwordHash: "hash123",
+      });
+      userA.role = "organization_admin";
+      userStore.insert({ ...userA });
+      await orgStore.createWithAdminMembership({
+        organization: { id: orgIdA, name: "Org A", slug: "org-a", createdAt: new Date(), updatedAt: new Date() },
+        membership: { id: "mem-review-a", organizationId: orgIdA, userId: userA.id, role: "organization_admin", createdAt: new Date(), updatedAt: new Date() },
+        auditEvents: [],
+      });
+      orgAdminACookie = (await sessionService.createSession(userA.id)).sessionToken;
+
+      const userB = await userStore.createUserWithPassword({
+        email: "org-b-admin@avana.ir",
+        passwordHash: "hash123",
+      });
+      userB.role = "organization_admin";
+      userStore.insert({ ...userB });
+      await orgStore.createWithAdminMembership({
+        organization: { id: orgIdB, name: "Org B", slug: "org-b", createdAt: new Date(), updatedAt: new Date() },
+        membership: { id: "mem-review-b", organizationId: orgIdB, userId: userB.id, role: "organization_admin", createdAt: new Date(), updatedAt: new Date() },
+        auditEvents: [],
+      });
+      orgAdminBCookie = (await sessionService.createSession(userB.id)).sessionToken;
+
+      const qRes = await app.inject({
+        method: "POST",
+        url: "/v1/studio/quizzes",
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { title: "آزمون سازمان A", organizationId: orgIdA },
+      });
+      expect(qRes.statusCode).toBe(201);
+      quizAId = qRes.json().quiz.id;
+    });
+
+    it("supports batch accept, reject, and reset to pending_review via /questions/review", async () => {
+      const { operationId, questions } = await seedQuizAndStagedQuestions(3);
+      const [q1, q2, q3] = questions;
+
+      // Batch accept q1 & q2
+      const acceptRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [q1.id, q2.id], decision: "accepted" },
+      });
+      expect(acceptRes.statusCode).toBe(200);
+      expect(acceptRes.json().updatedCount).toBe(2);
+      expect(acceptRes.json().skippedTransferredIds).toEqual([]);
+      expect(acceptRes.json().questions.every((q: { isAccepted: boolean; reviewStatus: string }) => q.isAccepted && q.reviewStatus === "accepted")).toBe(true);
+
+      // Batch reject q2 & q3
+      const rejectRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [q2.id, q3.id], decision: "rejected" },
+      });
+      expect(rejectRes.statusCode).toBe(200);
+      expect(rejectRes.json().updatedCount).toBe(2);
+
+      // Reset q3 to pending_review
+      const resetRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [q3.id], decision: "pending_review" },
+      });
+      expect(resetRes.statusCode).toBe(200);
+      expect(resetRes.json().updatedCount).toBe(1);
+      expect(resetRes.json().questions[0].reviewStatus).toBe("pending_review");
+    });
+
+    it("validates /questions/review inputs (decision, UUIDs, empty array, >100 items, unknown operation, cross-operation)", async () => {
+      const { operationId, questions } = await seedQuizAndStagedQuestions(2);
+
+      // Invalid decision
+      const badDecision = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [questions[0].id], decision: "transferred" },
+      });
+      expect(badDecision.statusCode).toBe(400);
+
+      // Invalid UUID
+      const badUuid = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: ["not-a-uuid"], decision: "accepted" },
+      });
+      expect(badUuid.statusCode).toBe(400);
+
+      // Empty array
+      const emptyArr = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [], decision: "accepted" },
+      });
+      expect(emptyArr.statusCode).toBe(400);
+
+      // > 100 questions
+      const overLimit = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: {
+          questionIds: Array.from({ length: 101 }, () => crypto.randomUUID()),
+          decision: "accepted",
+        },
+      });
+      expect(overLimit.statusCode).toBe(400);
+
+      // Unknown operationId -> 404
+      const missingOp = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${crypto.randomUUID()}/questions/review`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [questions[0].id], decision: "accepted" },
+      });
+      expect(missingOp.statusCode).toBe(404);
+
+      // Question belonging to another operation -> 400
+      const otherOpRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${quizAId}/exam-operations`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { totalQuestions: 1, moduleIds: [module1] },
+      });
+      const otherOpId = otherOpRes.json().operation.id;
+      const crossOpRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${otherOpId}/questions/review`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [questions[0].id], decision: "accepted" },
+      });
+      expect(crossOpRes.statusCode).toBe(400);
+    });
+
+    it("transfers accepted questions, blocks pending/rejected, handles duplicates idempotently, and locks transferred status", async () => {
+      const { operationId, questions } = await seedQuizAndStagedQuestions(3);
+      const [q1, q2, q3] = questions;
+
+      // Accept q1, reject q2, leave q3 pending_review
+      await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [q1.id], decision: "accepted" },
+      });
+      await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [q2.id], decision: "rejected" },
+      });
+
+      // Reject transferring pending_review q3 -> 400
+      const pendingTransfer = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/transfer`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [q3.id] },
+      });
+      expect(pendingTransfer.statusCode).toBe(400);
+
+      // Reject transferring rejected q2 -> 400
+      const rejectedTransfer = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/transfer`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [q2.id] },
+      });
+      expect(rejectedTransfer.statusCode).toBe(400);
+
+      // Reject request supplying quizId in body -> 400
+      const withQuizIdRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/transfer`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [q1.id], quizId: crypto.randomUUID() },
+      });
+      expect(withQuizIdRes.statusCode).toBe(400);
+
+      // Transfer accepted q1 -> 200
+      const okTransfer = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/transfer`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [q1.id] },
+      });
+      expect(okTransfer.statusCode).toBe(200);
+      expect(okTransfer.json().transferredCount).toBe(1);
+      expect(okTransfer.json().alreadyTransferredIds).toEqual([]);
+      expect(okTransfer.json().createdQuestions[0].sourceStagingQuestionId).toBe(q1.id);
+
+      // Retry transfer of q1 (idempotent) -> 200, transferredCount: 0, alreadyTransferredIds: [q1.id]
+      const dupTransfer = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/transfer`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [q1.id] },
+      });
+      expect(dupTransfer.statusCode).toBe(200);
+      expect(dupTransfer.json().transferredCount).toBe(0);
+      expect(dupTransfer.json().alreadyTransferredIds).toEqual([q1.id]);
+      expect(dupTransfer.json().existingTransferredQuestionIds.length).toBe(1);
+
+      // Attempting to review transferred q1 -> skippedTransferredIds: [q1.id]
+      const reviewTransferred = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { questionIds: [q1.id], decision: "rejected" },
+      });
+      expect(reviewTransferred.statusCode).toBe(200);
+      expect(reviewTransferred.json().updatedCount).toBe(0);
+      expect(reviewTransferred.json().skippedTransferredIds).toEqual([q1.id]);
+    });
+
+    it("enforces auth, student block, cross-org isolation, CSRF, and Origin protection", async () => {
+      const { operationId, questions } = await seedQuizAndStagedQuestions(1);
+      const qId = questions[0].id;
+
+      // 1. Unauthenticated -> 401
+      const unauthReview = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        payload: { questionIds: [qId], decision: "accepted" },
+      });
+      expect(unauthReview.statusCode).toBe(401);
+
+      // 2. Student -> 403
+      const studentTransfer = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/transfer`,
+        headers: { authorization: `Bearer ${studentCookie}` },
+        payload: { questionIds: [qId] },
+      });
+      expect(studentTransfer.statusCode).toBe(403);
+
+      // 3. Cross-organization admin -> 403
+      const crossOrgReview = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        headers: { authorization: `Bearer ${orgAdminBCookie}` },
+        payload: { questionIds: [qId], decision: "accepted" },
+      });
+      expect(crossOrgReview.statusCode).toBe(403);
+
+      const crossOrgTransfer = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/transfer`,
+        headers: { authorization: `Bearer ${orgAdminBCookie}` },
+        payload: { questionIds: [qId] },
+      });
+      expect(crossOrgTransfer.statusCode).toBe(403);
+
+      // 4. CSRF protection on cookie-based POST (missing x-csrf-token -> 403)
+      const validCsrf = generateBoundCsrfToken(orgAdminACookie);
+      const missingCsrfRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        headers: {
+          cookie: `avana_session=${orgAdminACookie}; avana_csrf=${validCsrf}`,
+        },
+        payload: { questionIds: [qId], decision: "accepted" },
+      });
+      expect(missingCsrfRes.statusCode).toBe(403);
+
+      // 5. Disallowed Origin header with cookie session -> 403
+      const badOriginRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        headers: {
+          cookie: `avana_session=${orgAdminACookie}; avana_csrf=${validCsrf}`,
+          "x-csrf-token": validCsrf,
+          origin: "https://evil.example.com",
+        },
+        payload: { questionIds: [qId], decision: "accepted" },
+      });
+      expect(badOriginRes.statusCode).toBe(403);
+
+      // 6. Valid cookie + CSRF token -> 200
+      const validCsrfRes = await app.inject({
+        method: "POST",
+        url: `/v1/studio/exam-operations/${operationId}/questions/review`,
+        headers: {
+          cookie: `avana_session=${orgAdminACookie}; avana_csrf=${validCsrf}`,
+          "x-csrf-token": validCsrf,
+        },
+        payload: { questionIds: [qId], decision: "accepted" },
+      });
+      expect(validCsrfRes.statusCode).toBe(200);
+      expect(validCsrfRes.json().updatedCount).toBe(1);
+    });
+
+    it("lists persistent quiz-scoped operation history with validation, filtering, pagination, and tenant isolation (Phase 2.7)", async () => {
+      const { operationId } = await seedQuizAndStagedQuestions(2);
+
+      // Other quiz in same org
+      const otherQuizRes = await app.inject({
+        method: "POST",
+        url: "/v1/studio/quizzes",
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { title: "آزمون ایزوله", organizationId: orgIdA },
+      });
+      const otherQuizId = otherQuizRes.json().quiz.id;
+      await app.inject({
+        method: "POST",
+        url: `/v1/studio/quizzes/${otherQuizId}/exam-operations`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+        payload: { totalQuestions: 1, moduleIds: [module1] },
+      });
+
+      // Success list for quizAId
+      const listRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/quizzes/${quizAId}/exam-operations?limit=10&offset=0`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+      });
+      expect(listRes.statusCode).toBe(200);
+      expect(listRes.json().total).toBe(1);
+      expect(listRes.json().limit).toBe(10);
+      expect(listRes.json().offset).toBe(0);
+      expect(listRes.json().operations[0].id).toBe(operationId);
+      expect(listRes.json().operations[0].stagingStats).toEqual({
+        totalCount: 2,
+        pendingReviewCount: 2,
+        acceptedCount: 0,
+        rejectedCount: 0,
+        transferredCount: 0,
+      });
+
+      // Invalid status -> 400
+      const badStatus = await app.inject({
+        method: "GET",
+        url: `/v1/studio/quizzes/${quizAId}/exam-operations?status=invalid_status`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+      });
+      expect(badStatus.statusCode).toBe(400);
+
+      // Invalid limit (> 50 or 0) -> 400
+      const badLimit = await app.inject({
+        method: "GET",
+        url: `/v1/studio/quizzes/${quizAId}/exam-operations?limit=51`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+      });
+      expect(badLimit.statusCode).toBe(400);
+
+      // Invalid offset (< 0) -> 400
+      const badOffset = await app.inject({
+        method: "GET",
+        url: `/v1/studio/quizzes/${quizAId}/exam-operations?offset=-1`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+      });
+      expect(badOffset.statusCode).toBe(400);
+
+      // Malformed quizId -> 404
+      const badUuid = await app.inject({
+        method: "GET",
+        url: "/v1/studio/quizzes/not-a-uuid/exam-operations",
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+      });
+      expect(badUuid.statusCode).toBe(404);
+
+      // Non-existent quizId -> 404
+      const missingQuiz = await app.inject({
+        method: "GET",
+        url: `/v1/studio/quizzes/${crypto.randomUUID()}/exam-operations`,
+        headers: { authorization: `Bearer ${orgAdminACookie}` },
+      });
+      expect(missingQuiz.statusCode).toBe(404);
+
+      // Student -> 403
+      const studentRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/quizzes/${quizAId}/exam-operations`,
+        headers: { authorization: `Bearer ${studentCookie}` },
+      });
+      expect(studentRes.statusCode).toBe(403);
+
+      // Cross-tenant orgAdminB -> 403
+      const crossTenantRes = await app.inject({
+        method: "GET",
+        url: `/v1/studio/quizzes/${quizAId}/exam-operations`,
+        headers: { authorization: `Bearer ${orgAdminBCookie}` },
+      });
+      expect(crossTenantRes.statusCode).toBe(403);
     });
   });
 });

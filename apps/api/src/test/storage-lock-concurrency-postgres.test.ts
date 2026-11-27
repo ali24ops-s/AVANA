@@ -14,64 +14,38 @@ import { StorageLockCoordinator } from "../modules/documents/storage-lock-coordi
  *
  * If live PostgreSQL is not reachable in the isolated sandbox, gracefully skips.
  */
-function validateTestDatabaseUrl(rawUrl: string | undefined): { valid: boolean; url?: string } {
-  if (!rawUrl || typeof rawUrl !== "string" || rawUrl.trim().length === 0) {
-    return { valid: false };
-  }
-  try {
-    const parsed = new URL(rawUrl.trim());
-    const host = parsed.hostname.toLowerCase();
-    const prohibitedHosts = ["aavana.ir", "api.aavana.ir", "prod", "production", "db.aavana.ir"];
-    if (prohibitedHosts.some((h) => host.includes(h))) {
-      return { valid: false };
-    }
-    return { valid: true, url: parsed.toString() };
-  } catch {
-    return { valid: false };
-  }
-}
+import {
+  assertSafeDestructiveTestOperation,
+  resolveSafePostgresTestUrl,
+} from "./pg-test-guard.js";
 
 describe("Real PostgreSQL: StorageLockCoordinator Across Independent Connections", () => {
-  const candidateUrl =
-    process.env.TEST_DATABASE_URL ||
-    process.env.STAGING_DATABASE_URL ||
-    process.env.DATABASE_URL ||
-    "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
-
-  const validation = validateTestDatabaseUrl(candidateUrl);
-
+  let dbUrl = "";
   let client1: ReturnType<typeof createDbClient> | null = null;
   let client2: ReturnType<typeof createDbClient> | null = null;
   let isConnected = false;
   let testOrgId: string;
 
   beforeAll(async () => {
-    if (!validation.valid || !validation.url) {
-      isConnected = false;
-      return;
-    }
+    dbUrl = resolveSafePostgresTestUrl();
+    client1 = createDbClient(dbUrl);
+    client2 = createDbClient(dbUrl);
 
-    try {
-      client1 = createDbClient(validation.url);
-      client2 = createDbClient(validation.url);
+    await client1.db.execute(sql`SELECT 1;`);
+    await client2.db.execute(sql`SELECT 1;`);
+    isConnected = true;
 
-      await client1.db.execute(sql`SELECT 1;`);
-      await client2.db.execute(sql`SELECT 1;`);
-      isConnected = true;
-
-      testOrgId = randomUUID();
-      await client1.db.insert(organizations).values({
-        id: testOrgId,
-        name: "Storage Lock Test Org",
-        slug: `storage-lock-org-${Date.now()}`,
-      });
-    } catch {
-      isConnected = false;
-    }
+    testOrgId = randomUUID();
+    await client1.db.insert(organizations).values({
+      id: testOrgId,
+      name: "Storage Lock Test Org",
+      slug: `storage-lock-org-${Date.now()}`,
+    });
   });
 
   afterAll(async () => {
     if (client1 && testOrgId) {
+      assertSafeDestructiveTestOperation("storage_lock_cleanup", dbUrl);
       try {
         await client1.db.delete(organizations).where(sql`id = ${testOrgId}`);
       } catch {

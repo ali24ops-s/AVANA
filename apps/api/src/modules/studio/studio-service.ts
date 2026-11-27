@@ -5,8 +5,20 @@ import {
   asOrganizationId,
   asUserId,
   asQuizQuestionId,
+  asQuestionPatternId,
   resolveCorrectChoiceText,
   normalizeQuestionText,
+  distributeQuestionQuotas,
+  splitQuotaIntoBatches,
+  allocateQuestionPatterns,
+  filterExecutableTasks,
+  MIN_TOTAL_QUESTIONS,
+  MAX_TOTAL_QUESTIONS,
+  MAX_BATCH_SIZE,
+  toPersianDigits,
+  type ChapterQuotaAllocation,
+  type StudioExamOperationStatus,
+  type StudioExamPatternSnapshot,
 } from "@avana/domain";
 import type {
   MarketingQuizStore,
@@ -48,9 +60,39 @@ import type {
   BatchAddQuestionItemInput,
   MarketingQuizChoice,
   NormalizedCorrectAnswer,
+  CreateExamGenerationInput,
+  GetGeneratedQuestionsFilters,
 } from "./types.js";
+import {
+  type StudioExamStore,
+  DrizzleStudioExamStore,
+  InMemoryStudioExamStore,
+  type CreatedOperationDetails,
+  type ActiveOperationSummary,
+  type FullOperationDetails,
+  type OperationProgressSummary,
+  type StagingQuestionRecord,
+  type StagingQuestionReviewDecision,
+  type ReviewGeneratedQuestionsResult,
+  type TransferGeneratedQuestionsResult,
+  type ListOperationsByQuizIdResult,
+  type CreateOperationTaskParams,
+  type CreateOperationBatchParams,
+} from "./studio-exam-store.js";
+import {
+  type StudioExamQueue,
+  STUDIO_EXAM_BATCH_JOB_NAME,
+} from "./studio-exam-queue.js";
+import {
+  type QuestionPatternStore,
+  DrizzleQuestionPatternStore,
+  InMemoryQuestionPatternStore,
+} from "../generation/question-patterns-store.js";
 
 export class StudioService {
+  private readonly studioExamStoreInstance?: StudioExamStore;
+  private readonly questionPatternStoreInstance?: QuestionPatternStore;
+
   constructor(
     private readonly quizStore: MarketingQuizStore,
     private readonly questionBankStore: MarketingQuestionBankStore,
@@ -58,7 +100,85 @@ export class StudioService {
     private readonly quizQuestionStore?: QuizQuestionStore,
     private readonly organizationStore?: OrganizationStore,
     private readonly db?: DbClient,
-  ) {}
+    studioExamStore?: StudioExamStore,
+    private readonly studioExamQueue?: StudioExamQueue,
+    questionPatternStore?: QuestionPatternStore,
+  ) {
+    this.studioExamStoreInstance =
+      studioExamStore ?? (db ? new DrizzleStudioExamStore(db) : undefined);
+    if (this.studioExamStoreInstance instanceof InMemoryStudioExamStore) {
+      this.studioExamStoreInstance.setQuizStore(this.quizStore);
+    }
+    this.questionPatternStoreInstance =
+      questionPatternStore ??
+      (db
+        ? new DrizzleQuestionPatternStore(db)
+        : this.studioExamStoreInstance instanceof InMemoryStudioExamStore
+          ? new InMemoryQuestionPatternStore()
+          : undefined);
+  }
+
+  private async loadActiveExamPatternSnapshots(): Promise<StudioExamPatternSnapshot[]> {
+    if (!this.questionPatternStoreInstance) {
+      throw new DomainError(
+        "internal_error",
+        "سرویس الگوهای سؤال برای تولید هوشمند آزمون در دسترس نیست.",
+      );
+    }
+
+    const activePatterns = await this.questionPatternStoreInstance.listPatterns({
+      activeOnly: true,
+      category: "exam",
+    });
+    const examPatterns = activePatterns.filter((p) => p.category === "exam" && p.isActive);
+
+    if (examPatterns.length === 0) {
+      throw new DomainError(
+        "bad_request",
+        "هیچ الگوی امتحانی فعال و معتبری برای تولید سؤال آزمون در سیستم یافت نشد.",
+      );
+    }
+
+    const definitions = (
+      await this.questionPatternStoreInstance.findByIds(
+        examPatterns.map((p) => asQuestionPatternId(p.id)),
+      )
+    ).filter((def) => def.category === "exam" && def.isActive);
+
+    if (definitions.length === 0) {
+      throw new DomainError(
+        "bad_request",
+        "جزئیات الگوهای امتحانی فعال در سیستم یافت نشد.",
+      );
+    }
+
+    return definitions.map((def) => ({
+      patternId: def.id,
+      patternVersion: def.version,
+      title: def.title,
+      category: def.category ?? null,
+      cognitiveLevel: def.cognitiveLevel ?? null,
+      skills: def.skills ?? [],
+      systemInstructions: def.systemInstructions,
+      examples: (def.examples ?? []).map((ex) => ({
+        question: ex.question,
+        choices: ex.choices,
+        correctAnswer: ex.correctAnswer,
+        explanation: ex.explanation ?? null,
+        clinicalContext: ex.clinicalContext ?? null,
+      })),
+    }));
+  }
+
+  private getExamStore(): StudioExamStore {
+    if (!this.studioExamStoreInstance) {
+      throw new DomainError(
+        "internal_error",
+        "سرویس تولید هوشمند آزمون به درستی پیکربندی نشده است (StudioExamStore در دسترس نیست).",
+      );
+    }
+    return this.studioExamStoreInstance;
+  }
 
   private readonly inFlightAttempts = new Map<string, Promise<PublicAttemptResult>>();
 
@@ -2041,5 +2161,555 @@ export class StudioService {
 
     const allQuestions = await this.quizStore.getQuestions(quizId);
     return { questions: allQuestions, addedCount: added.length };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Studio Exam Multi-Chapter AI Generation (Phase 3.2)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Creates a multi-chapter smart exam generation operation with tasks and batches.
+   * Performs authorization, quota validation/distribution, database transactional persistence,
+   * and BullMQ job scheduling.
+   */
+  async createExamGenerationOperation(
+    actor: Actor,
+    quizId: string,
+    input: CreateExamGenerationInput,
+  ): Promise<CreatedOperationDetails> {
+    const examStore = this.getExamStore();
+
+    // 1. Verify Quiz & Access Control
+    const quiz = await this.quizStore.getById(quizId);
+    if (!quiz) {
+      throw new DomainError("not_found", "آزمون مورد نظر یافت نشد.", { quizId });
+    }
+    await this.assertStudioAccess(actor, quiz.organizationId);
+
+    // 2. Validate totalQuestions bounds (1..100)
+    const totalQuestions = input.totalQuestions;
+    if (
+      typeof totalQuestions !== "number" ||
+      !Number.isInteger(totalQuestions) ||
+      Number.isNaN(totalQuestions)
+    ) {
+      throw new DomainError("bad_request", "تعداد کل سؤالات باید یک عدد صحیح معتبر باشد.", {
+        totalQuestions,
+      });
+    }
+    if (totalQuestions < MIN_TOTAL_QUESTIONS) {
+      throw new DomainError(
+        "bad_request",
+        `تعداد کل سؤالات نمی‌تواند کمتر از ${toPersianDigits(MIN_TOTAL_QUESTIONS)} باشد.`,
+        { totalQuestions, min: MIN_TOTAL_QUESTIONS },
+      );
+    }
+    if (totalQuestions > MAX_TOTAL_QUESTIONS) {
+      throw new DomainError(
+        "bad_request",
+        `تعداد کل سؤالات نمی‌تواند بیشتر از ${toPersianDigits(MAX_TOTAL_QUESTIONS)} باشد.`,
+        { totalQuestions, max: MAX_TOTAL_QUESTIONS },
+      );
+    }
+
+    // 3. Resolve and validate chapter allocations
+    let allocations: ChapterQuotaAllocation[] = [];
+    if (Array.isArray(input.chapterAllocations) && input.chapterAllocations.length > 0) {
+      // Validate user-provided custom allocations
+      const seen = new Set<string>();
+      let sum = 0;
+      for (let i = 0; i < input.chapterAllocations.length; i++) {
+        const item = input.chapterAllocations[i];
+        if (!item.moduleId || typeof item.moduleId !== "string" || !item.moduleId.trim()) {
+          throw new DomainError(
+            "bad_request",
+            `شناسه فصل در ردیف ${toPersianDigits(i + 1)} نامعتبر است.`,
+            { index: i },
+          );
+        }
+        const trimmed = item.moduleId.trim();
+        if (seen.has(trimmed)) {
+          throw new DomainError(
+            "bad_request",
+            `شناسه فصل تکراری در درخواست وجود دارد: ${trimmed}`,
+            { duplicateModuleId: trimmed },
+          );
+        }
+        seen.add(trimmed);
+
+        if (
+          typeof item.quota !== "number" ||
+          !Number.isInteger(item.quota) ||
+          item.quota < 1
+        ) {
+          throw new DomainError(
+            "bad_request",
+            `سهمیه سؤالات هر فصل باید یک عدد صحیح حداقل برابر ۱ باشد.`,
+            { moduleId: trimmed, quota: item.quota },
+          );
+        }
+        sum += item.quota;
+        allocations.push({ moduleId: trimmed, quota: item.quota });
+      }
+
+      if (sum !== totalQuestions) {
+        throw new DomainError(
+          "bad_request",
+          `مجموع سهمیه فصول (${toPersianDigits(sum)}) با تعداد کل سؤالات درخواستی (${toPersianDigits(totalQuestions)}) برابر نیست.`,
+          { sum, totalQuestions },
+        );
+      }
+    } else if (Array.isArray(input.moduleIds) && input.moduleIds.length > 0) {
+      // Automatic balanced distribution using domain algorithm
+      allocations = distributeQuestionQuotas(totalQuestions, input.moduleIds);
+    } else {
+      throw new DomainError(
+        "bad_request",
+        "حداقل باید یک فصل برای تولید سؤالات آزمون انتخاب شود.",
+      );
+    }
+
+    // 4. Validate modules exist in DB and resolve courseId for each module
+    const targetModuleIds = allocations.map((a) => a.moduleId);
+    const moduleCourseMap = new Map<string, string>();
+
+    if (this.db) {
+      const foundModules = await this.db
+        .select({ id: modules.id, courseId: modules.courseId })
+        .from(modules)
+        .where(inArray(modules.id, targetModuleIds));
+
+      for (const m of foundModules) {
+        moduleCourseMap.set(m.id, m.courseId);
+      }
+
+      for (const modId of targetModuleIds) {
+        if (!moduleCourseMap.has(modId)) {
+          throw new DomainError("not_found", `فصل با شناسه ${modId} در سیستم یافت نشد.`, {
+            missingModuleId: modId,
+          });
+        }
+      }
+    } else {
+      // Fallback for isolated in-memory testing when db client is not wired
+      const defaultCourseId = input.courseId ?? "00000000-0000-0000-0000-000000000000";
+      for (const modId of targetModuleIds) {
+        moduleCourseMap.set(modId, defaultCourseId);
+      }
+    }
+
+    // 5. Load active question pattern snapshots & build executable tasks and batches
+    if (this.db && !this.studioExamQueue) {
+      throw new DomainError(
+        "internal_error",
+        "صف پردازش آزمون (BullMQ) در سرور پیکربندی نشده است.",
+      );
+    }
+
+    const patternSnapshots = await this.loadActiveExamPatternSnapshots();
+    const executableAllocations = filterExecutableTasks(allocations);
+    const taskParams: CreateOperationTaskParams[] = [];
+    let globalPatternStartIndex = 0;
+
+    for (const alloc of executableAllocations) {
+      const courseId = moduleCourseMap.get(alloc.moduleId)!;
+      const batchSizes = splitQuotaIntoBatches(alloc.quota, MAX_BATCH_SIZE);
+      const batches: CreateOperationBatchParams[] = [];
+
+      for (let i = 0; i < batchSizes.length; i++) {
+        const batchSize = batchSizes[i];
+        const patternAllocations = allocateQuestionPatterns({
+          targetCount: batchSize,
+          patternSnapshots,
+          startIndex: globalPatternStartIndex,
+        });
+        globalPatternStartIndex += batchSize;
+        batches.push({
+          batchIndex: i + 1,
+          targetCount: batchSize,
+          patternAllocations,
+        });
+      }
+
+      taskParams.push({
+        courseId,
+        moduleId: alloc.moduleId,
+        targetQuestionCount: alloc.quota,
+        batches,
+      });
+    }
+
+    // 6. Persist operation, tasks, and batches in Store (inside atomic transaction with conflict check)
+    const created = await examStore.createOperationWithTasksAndBatches({
+      quizId,
+      organizationId: quiz.organizationId,
+      createdBy: actor.userId,
+      totalRequestedQuestions: totalQuestions,
+      config: {
+        difficulty: input.difficulty ?? "medium",
+        instructions: input.instructions ?? "",
+        sampleQuestions: input.sampleQuestions ?? [],
+        allChapterAllocations: allocations,
+        idempotencyKey: input.idempotencyKey,
+      },
+      patternSnapshots,
+      tasks: taskParams,
+    });
+
+    // 7. Enqueue batch jobs to BullMQ Queue (strictly lightweight payloads: entity IDs only)
+    if (this.studioExamQueue) {
+      try {
+        for (const batch of created.batches) {
+          await this.studioExamQueue.add(
+            STUDIO_EXAM_BATCH_JOB_NAME,
+            {
+              operationId: created.operation.id,
+              taskId: batch.taskId,
+              batchId: batch.id,
+            },
+            {
+              jobId: `batch_${batch.id}`,
+            },
+          );
+        }
+      } catch (queueErr) {
+        // Enqueue failed! Auto-cancel the operation so the quiz is not stuck in pending
+        await examStore.cancelOperation(created.operation.id, actor.userId).catch(() => {});
+        throw new DomainError(
+          "internal_error",
+          "خطا در ثبت نوبت‌های پردازش در صف صف‌بندی (BullMQ). عملیات به صورت خودکار لغو شد.",
+          {
+            operationId: created.operation.id,
+            cause: queueErr instanceof Error ? queueErr.message : String(queueErr),
+          },
+        );
+      }
+    }
+
+    return created;
+  }
+
+  /**
+   * Retrieves any active operation (pending or processing) for a given quiz.
+   */
+  async getActiveExamGenerationOperation(
+    actor: Actor,
+    quizId: string,
+  ): Promise<ActiveOperationSummary | null> {
+    const examStore = this.getExamStore();
+    const quiz = await this.quizStore.getById(quizId);
+    if (!quiz) {
+      throw new DomainError("not_found", "آزمون مورد نظر یافت نشد.", { quizId });
+    }
+    await this.assertStudioAccess(actor, quiz.organizationId);
+
+    return await examStore.getActiveOperationByQuizId(quizId);
+  }
+
+  /**
+   * Lists persistent exam generation operation history for a specific quiz with staging stats.
+   * Strictly verifies quiz existence, non-deletion, and tenant/organization access before reading.
+   */
+  async listQuizExamGenerationOperations(
+    actor: Actor,
+    quizId: string,
+    options?: {
+      status?: StudioExamOperationStatus;
+      limit?: number;
+      offset?: number;
+    },
+  ): Promise<ListOperationsByQuizIdResult> {
+    const examStore = this.getExamStore();
+    const quiz = await this.quizStore.getById(quizId);
+    if (!quiz || quiz.deletedAt) {
+      throw new DomainError("not_found", "آزمون مورد نظر یافت نشد.", { quizId });
+    }
+    await this.assertStudioAccess(actor, quiz.organizationId);
+
+    const limit = options?.limit ?? 20;
+    const offset = options?.offset ?? 0;
+
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+      throw new DomainError("bad_request", "تعداد آیتم در هر صفحه باید بین ۱ تا ۵۰ باشد.");
+    }
+    if (!Number.isInteger(offset) || offset < 0) {
+      throw new DomainError("bad_request", "مقدار offset نمی‌تواند منفی باشد.");
+    }
+
+    return await examStore.listOperationsByQuizId({
+      quizId,
+      organizationId: quiz.organizationId,
+      status: options?.status,
+      limit,
+      offset,
+    });
+  }
+
+  /**
+   * Retrieves full details of an operation including chapters, tasks, and batches with sanitized error messages.
+   */
+  async getExamGenerationOperationDetails(
+    actor: Actor,
+    operationId: string,
+  ): Promise<FullOperationDetails> {
+    const examStore = this.getExamStore();
+    const details = await examStore.getOperationById(operationId);
+    if (!details) {
+      throw new DomainError("not_found", "عملیات تولید هوشمند آزمون یافت نشد.", { operationId });
+    }
+    await this.assertStudioAccess(actor, details.operation.organizationId);
+
+    return details;
+  }
+
+  /**
+   * Lightweight progress summary contract for realtime polling.
+   */
+  async getExamGenerationProgress(
+    actor: Actor,
+    operationId: string,
+  ): Promise<OperationProgressSummary> {
+    const examStore = this.getExamStore();
+    const progress = await examStore.getOperationProgress(operationId);
+    if (!progress) {
+      throw new DomainError("not_found", "عملیات تولید هوشمند آزمون یافت نشد.", { operationId });
+    }
+    await this.assertStudioAccess(actor, progress.organizationId);
+
+    return progress;
+  }
+
+  /**
+   * Retrieves staged questions generated for an operation with optional filtering.
+   * Completely isolated from the live quiz questions bank.
+   */
+  async getExamGenerationQuestions(
+    actor: Actor,
+    operationId: string,
+    options?: GetGeneratedQuestionsFilters,
+  ): Promise<StagingQuestionRecord[]> {
+    const examStore = this.getExamStore();
+    const details = await examStore.getOperationById(operationId);
+    if (!details) {
+      throw new DomainError("not_found", "عملیات تولید هوشمند آزمون یافت نشد.", { operationId });
+    }
+    await this.assertStudioAccess(actor, details.operation.organizationId);
+
+    return await examStore.getGeneratedQuestions({
+      operationId,
+      taskId: options?.taskId,
+      batchId: options?.batchId,
+      isAccepted: options?.isAccepted,
+      reviewStatus: options?.reviewStatus,
+      limit: options?.limit,
+      offset: options?.offset,
+    });
+  }
+
+  private async assertOperationAndQuizAccess(
+    actor: Actor,
+    operationId: string,
+  ): Promise<{ examStore: StudioExamStore; details: FullOperationDetails }> {
+    const examStore = this.getExamStore();
+    const details = await examStore.getOperationById(operationId);
+    if (!details) {
+      throw new DomainError("not_found", "عملیات تولید هوشمند آزمون یافت نشد.", {
+        operationId,
+      });
+    }
+    await this.assertStudioAccess(actor, details.operation.organizationId);
+
+    const quiz = await this.quizStore.getById(details.operation.quizId);
+    if (!quiz || quiz.deletedAt) {
+      throw new DomainError("not_found", "آزمون مرتبط با این عملیات یافت نشد.", {
+        quizId: details.operation.quizId,
+      });
+    }
+    await this.assertStudioAccess(actor, quiz.organizationId);
+
+    if (
+      details.operation.organizationId &&
+      quiz.organizationId &&
+      String(details.operation.organizationId) !== String(quiz.organizationId)
+    ) {
+      throw new DomainError(
+        "forbidden",
+        "عدم تطابق مالکیت سازمانی عملیات و آزمون مقصد.",
+      );
+    }
+
+    return { examStore, details };
+  }
+
+  /**
+   * Batch-reviews staged questions (accept, reject, or reset to pending_review).
+   * Enforces operation/organization ownership and preserves transferred questions.
+   */
+  async reviewExamGenerationQuestions(
+    actor: Actor,
+    operationId: string,
+    params: {
+      questionIds: string[];
+      decision: StagingQuestionReviewDecision;
+    },
+  ): Promise<ReviewGeneratedQuestionsResult> {
+    const { examStore } = await this.assertOperationAndQuizAccess(actor, operationId);
+
+    if (!Array.isArray(params.questionIds) || params.questionIds.length === 0) {
+      throw new DomainError("bad_request", "حداقل یک سؤال باید انتخاب شود.");
+    }
+    if (params.questionIds.length > MAX_TOTAL_QUESTIONS) {
+      throw new DomainError(
+        "bad_request",
+        `حداکثر ${toPersianDigits(MAX_TOTAL_QUESTIONS)} سؤال در هر درخواست قابل بررسی است.`,
+      );
+    }
+    if (
+      params.decision !== "accepted" &&
+      params.decision !== "rejected" &&
+      params.decision !== "pending_review"
+    ) {
+      throw new DomainError("bad_request", "وضعیت بازبینی نامعتبر است.", {
+        decision: params.decision,
+      });
+    }
+
+    return await examStore.reviewGeneratedQuestions({
+      operationId,
+      questionIds: params.questionIds,
+      decision: params.decision,
+    });
+  }
+
+  /**
+   * Atomically transfers accepted staged questions into the authoritative quiz from operation.quizId.
+   * Rejects pending_review/rejected questions without implicit acceptance and guarantees idempotency.
+   */
+  async transferExamGenerationQuestions(
+    actor: Actor,
+    operationId: string,
+    questionIds: string[],
+  ): Promise<TransferGeneratedQuestionsResult> {
+    const { examStore } = await this.assertOperationAndQuizAccess(actor, operationId);
+
+    if (!Array.isArray(questionIds) || questionIds.length === 0) {
+      throw new DomainError("bad_request", "حداقل یک سؤال باید برای انتقال انتخاب شود.");
+    }
+    if (questionIds.length > MAX_TOTAL_QUESTIONS) {
+      throw new DomainError(
+        "bad_request",
+        `حداکثر ${toPersianDigits(MAX_TOTAL_QUESTIONS)} سؤال در هر درخواست قابل انتقال است.`,
+      );
+    }
+
+    return await examStore.transferGeneratedQuestionsToQuiz({
+      operationId,
+      questionIds,
+    });
+  }
+
+  /**
+   * Safely cancels an in-flight operation, preserving any already-completed batches.
+   */
+  async cancelExamGenerationOperation(
+    actor: Actor,
+    operationId: string,
+    reason?: string,
+  ): Promise<{ cancelled: boolean; reason?: string }> {
+    const examStore = this.getExamStore();
+    const details = await examStore.getOperationById(operationId);
+    if (!details) {
+      throw new DomainError("not_found", "عملیات تولید هوشمند آزمون یافت نشد.", { operationId });
+    }
+    await this.assertStudioAccess(actor, details.operation.organizationId);
+
+    const hasActiveBatches = details.batches.some(
+      (b) => b.status === "pending" || b.status === "processing",
+    );
+    if (
+      details.operation.status === "completed" ||
+      details.operation.status === "failed" ||
+      details.operation.status === "cancelled" ||
+      (details.operation.status === "partial" && !hasActiveBatches)
+    ) {
+      throw new DomainError(
+        "bad_request",
+        "امکان لغو عملیاتی که به وضعیت نهایی رسیده است وجود ندارد.",
+        { operationId, status: details.operation.status },
+      );
+    }
+
+    const result = await examStore.cancelOperation(operationId, reason);
+    if (!result.cancelled) {
+      throw new DomainError(
+        "bad_request",
+        "امکان لغو این عملیات وجود ندارد.",
+        { operationId, reason: result.reason },
+      );
+    }
+    return result;
+  }
+
+  /**
+   * Re-enqueues pending batches for an active operation that were missed due to queue/network failures.
+   * Uses deterministic jobId (batch_${batch.id}) so it is completely idempotent.
+   */
+  async reenqueuePendingBatches(
+    actor: Actor,
+    operationId: string,
+  ): Promise<{ reenqueuedCount: number; batchIds: string[] }> {
+    const examStore = this.getExamStore();
+    const op = await examStore.getOperationById(operationId);
+    if (!op) {
+      throw new DomainError("not_found", "عملیات مورد نظر یافت نشد.", { operationId });
+    }
+    await this.assertStudioAccess(actor, op.operation.organizationId);
+
+    if (op.operation.status !== "pending" && op.operation.status !== "processing") {
+      throw new DomainError(
+        "bad_request",
+        "تنها عملیات‌های فعال (pending یا processing) قابل زمان‌بندی مجدد هستند.",
+        {
+          operationId,
+          status: op.operation.status,
+        },
+      );
+    }
+
+    if (!this.studioExamQueue) {
+      throw new DomainError("internal_error", "صف پردازش آزمون در دسترس نیست.");
+    }
+
+    const pendingBatches = op.batches.filter((b) => b.status === "pending");
+    const needsPatternRepair =
+      op.operation.patternSnapshots.length === 0 ||
+      pendingBatches.some((b) => b.patternAllocations.length === 0);
+
+    if (needsPatternRepair && pendingBatches.length > 0) {
+      const patternSnapshots = await this.loadActiveExamPatternSnapshots();
+      await examStore.repairPendingOperationPatterns(operationId, patternSnapshots);
+    }
+
+    const reenqueued: string[] = [];
+
+    for (const batch of pendingBatches) {
+      await this.studioExamQueue.add(
+        STUDIO_EXAM_BATCH_JOB_NAME,
+        {
+          operationId: op.operation.id,
+          taskId: batch.taskId,
+          batchId: batch.id,
+        },
+        {
+          jobId: `batch_${batch.id}`,
+        },
+      );
+      reenqueued.push(batch.id);
+    }
+
+    return {
+      reenqueuedCount: reenqueued.length,
+      batchIds: reenqueued,
+    };
   }
 }

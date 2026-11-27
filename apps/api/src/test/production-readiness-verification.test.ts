@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { loadApiConfig } from "../config.js";
 import { createDbClient } from "@avana/database/client";
 import {
@@ -9,7 +9,7 @@ import {
   userSubscriptions,
   userEntitlements,
 } from "@avana/database/schema";
-import { sql, desc, eq } from "drizzle-orm";
+import { sql, desc, eq, inArray } from "drizzle-orm";
 import { createApp } from "../server/createApp.js";
 import { v1Routes } from "../routes/v1.js";
 import { Roles, type Role, type UserId, type OrganizationId } from "@avana/domain";
@@ -33,6 +33,49 @@ import {
 } from "../modules/teacher-platform/stores.js";
 
 describe("Production Readiness & Real Data Verification", () => {
+  const seededUserId = randomUUID();
+  const seededProductIds = [randomUUID(), randomUUID(), randomUUID()];
+
+  beforeAll(async () => {
+    const { resolveSafePostgresTestUrl } = await import("./pg-test-guard.js");
+    const dbUrl = resolveSafePostgresTestUrl();
+    const { db, close } = createDbClient(dbUrl);
+    try {
+      await db.insert(users).values({
+        id: seededUserId,
+        email: `readiness-${seededUserId}@test.avana.ir`,
+        name: "Readiness Test User",
+      });
+      await db.insert(products).values(
+        seededProductIds.map((id, idx) => ({
+          id,
+          code: `readiness-test-prod-${idx + 1}-${seededUserId.slice(0, 8)}`,
+          type: "course",
+          title: `Readiness Test Product ${idx + 1}`,
+          price: 10000 * (idx + 1),
+          active: true,
+        })),
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  afterAll(async () => {
+    const { resolveSafePostgresTestUrl, assertSafeDestructiveTestOperation } = await import(
+      "./pg-test-guard.js"
+    );
+    const dbUrl = resolveSafePostgresTestUrl();
+    assertSafeDestructiveTestOperation("DELETE", dbUrl);
+    const { db, close } = createDbClient(dbUrl);
+    try {
+      await db.delete(products).where(inArray(products.id, seededProductIds));
+      await db.delete(users).where(eq(users.id, seededUserId));
+    } finally {
+      await close();
+    }
+  });
+
   it("1. Verifies Production Store Composition Wiring", async () => {
     const config = loadApiConfig();
     
@@ -61,18 +104,11 @@ describe("Production Readiness & Real Data Verification", () => {
     }
   });
 
-  it("2. Read-Only Query to Database for Exact Production Counts & Records", async (ctx) => {
-    const config = loadApiConfig();
-    let client: ReturnType<typeof createDbClient> | undefined;
-
-    try {
-      client = createDbClient(config.database.url);
-      await client.db.execute(sql`SELECT 1;`);
-    } catch {
-      console.warn("Skipping real DB query test because DB is not reachable in current environment");
-      ctx.skip();
-      return;
-    }
+  it("2. Read-Only Query to Database for Exact Production Counts & Records", async () => {
+    const { resolveSafePostgresTestUrl } = await import("./pg-test-guard.js");
+    const dbUrl = resolveSafePostgresTestUrl();
+    const client = createDbClient(dbUrl);
+    await client.db.execute(sql`SELECT 1;`);
 
     const { db, close } = client;
 
@@ -205,18 +241,11 @@ describe("Production Readiness & Real Data Verification", () => {
     }
   });
 
-  it("3. DrizzleAdminStore Real Query Output Verification", async (ctx) => {
-    const config = loadApiConfig();
-    let client: ReturnType<typeof createDbClient> | undefined;
-
-    try {
-      client = createDbClient(config.database.url);
-      await client.db.execute(sql`SELECT 1;`);
-    } catch {
-      console.warn("Skipping real DB admin query test because DB is not reachable in current environment");
-      ctx.skip();
-      return;
-    }
+  it("3. DrizzleAdminStore Real Query Output Verification", async () => {
+    const { resolveSafePostgresTestUrl } = await import("./pg-test-guard.js");
+    const dbUrl = resolveSafePostgresTestUrl();
+    const client = createDbClient(dbUrl);
+    await client.db.execute(sql`SELECT 1;`);
 
     const { db, close } = client;
     const store = new DrizzleAdminStore(db);
@@ -264,13 +293,11 @@ describe("Production Readiness & Real Data Verification", () => {
       console.log(JSON.stringify(prodsList, null, 2));
       expect(prodsList.length).toBeGreaterThanOrEqual(3);
 
-      // 7. User commerce profile for real user
-      const userProfile = await store.getUserCommerceProfile(
-        "79bda286-08a4-4a16-9340-4106864e0732"
-      );
+      // 7. User commerce profile for seeded test user
+      const userProfile = await store.getUserCommerceProfile(seededUserId);
       console.log("\n=== DrizzleAdminStore.getUserCommerceProfile() ===");
       console.log(JSON.stringify(userProfile, null, 2));
-      expect(userProfile?.user.id).toBe("79bda286-08a4-4a16-9340-4106864e0732");
+      expect(userProfile?.user.id).toBe(seededUserId);
       expect(Array.isArray(userProfile?.orders)).toBe(true);
       expect(Array.isArray(userProfile?.payments)).toBe(true);
     } finally {

@@ -26,49 +26,44 @@ import { StudyService } from "../modules/study/study-service.js";
 import { defaultPolicy } from "@avana/domain";
 
 describe("Live PostgreSQL Exam Flow & Choice Position Verification", () => {
-  const dbUrl = process.env.DATABASE_URL ?? `postgres://${"avana"}:${"avana"}@127.0.0.1:5432/avana?sslmode=disable`;
-
   let client: ReturnType<typeof createDbClient>;
   let isConnected = false;
   let studyService: StudyService;
   let quizQuestionStore: DrizzleQuizQuestionStore;
 
   beforeAll(async () => {
-    try {
-      client = createDbClient(dbUrl);
-      await client.db.execute(sql`SELECT 1;`);
-      isConnected = true;
+    const { resolveSafePostgresTestUrl } = await import("./pg-test-guard.js");
+    const dbUrl = resolveSafePostgresTestUrl();
+    client = createDbClient(dbUrl);
+    await client.db.execute(sql`SELECT 1;`);
+    isConnected = true;
 
-      const quizStore = new DrizzleQuizStore(client.db);
-      quizQuestionStore = new DrizzleQuizQuestionStore(client.db);
-      const quizAttemptStore = new DrizzleQuizAttemptStore(client.db);
-      const flashcardStore = new DrizzleFlashcardStore(client.db);
-      const flashcardReviewStore = new DrizzleFlashcardReviewStore(client.db);
-      const userFlashcardScheduleStore = new DrizzleUserFlashcardScheduleStore(client.db);
-      const moduleStore = new DrizzleModuleStore(client.db);
-      const lessonStore = new DrizzleLessonStore(client.db);
-      const progressStore = new DrizzleProgressStore(client.db);
-      const courseStore = new DrizzleCourseStore(client.db);
+    const quizStore = new DrizzleQuizStore(client.db);
+    quizQuestionStore = new DrizzleQuizQuestionStore(client.db);
+    const quizAttemptStore = new DrizzleQuizAttemptStore(client.db);
+    const flashcardStore = new DrizzleFlashcardStore(client.db);
+    const flashcardReviewStore = new DrizzleFlashcardReviewStore(client.db);
+    const userFlashcardScheduleStore = new DrizzleUserFlashcardScheduleStore(client.db);
+    const moduleStore = new DrizzleModuleStore(client.db);
+    const lessonStore = new DrizzleLessonStore(client.db);
+    const progressStore = new DrizzleProgressStore(client.db);
+    const courseStore = new DrizzleCourseStore(client.db);
 
-      studyService = new StudyService(
-        flashcardStore,
-        flashcardReviewStore,
-        quizStore,
-        quizQuestionStore,
-        quizAttemptStore,
-        moduleStore,
-        lessonStore,
-        progressStore,
-        defaultPolicy,
-        undefined,
-        undefined,
-        userFlashcardScheduleStore,
-        courseStore,
-      );
-    } catch (err) {
-      console.error("Failed to connect to real Postgres DB:", err);
-      isConnected = false;
-    }
+    studyService = new StudyService(
+      flashcardStore,
+      flashcardReviewStore,
+      quizStore,
+      quizQuestionStore,
+      quizAttemptStore,
+      moduleStore,
+      lessonStore,
+      progressStore,
+      defaultPolicy,
+      undefined,
+      undefined,
+      userFlashcardScheduleStore,
+      courseStore,
+    );
   });
 
   afterAll(async () => {

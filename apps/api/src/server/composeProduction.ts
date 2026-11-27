@@ -98,6 +98,13 @@ import { AdminAlertService } from "../observability/admin-alert-service.js";
 import { TelegramOpsBot } from "../observability/telegram-ops-bot.js";
 import { DrizzleTelegramOutboxStore } from "../observability/telegram-outbox-store.js";
 import { TelegramOutboxDispatcher } from "../observability/telegram-outbox-dispatcher.js";
+import {
+  DrizzleAssertionPublishingStore,
+  PocketOutboxDispatcher,
+  BullMqPocketDeliveryQueue,
+  InMemoryPocketDeliveryQueue,
+  type PocketDeliveryQueue,
+} from "../modules/pocket/index.js";
 import { checkWorkerHealth } from "../observability/worker-health-probe.js";
 import { DrizzleErrorStore } from "../observability/drizzle-error-store.js";
 import { ErrorMonitoringService } from "../observability/error-monitoring-service.js";
@@ -154,6 +161,8 @@ import {
   DrizzlePollStore,
   DrizzlePollResponseStore,
 } from "../modules/studio/poll-stores.js";
+import { DrizzleStudioExamStore } from "../modules/studio/studio-exam-store.js";
+import { BullMqStudioExamQueue } from "../modules/studio/studio-exam-queue.js";
 import { LocalStorageProvider } from "../modules/storage/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
@@ -171,6 +180,9 @@ export interface ProductionDependencies {
   telegramOpsBot?: TelegramOpsBot;
   telegramOutboxStore?: DrizzleTelegramOutboxStore;
   telegramOutboxDispatcher?: TelegramOutboxDispatcher;
+  pocketAssertionPublishingStore?: DrizzleAssertionPublishingStore;
+  pocketDeliveryQueue?: PocketDeliveryQueue;
+  pocketOutboxDispatcher?: PocketOutboxDispatcher;
   worker?: Worker;
   presentationRecoveryWorker?: PresentationRecoveryWorker;
   errorStore?: ErrorMonitoringStore;
@@ -523,6 +535,21 @@ export async function composeProduction(
     outboxDispatcher: telegramOutboxDispatcher,
   });
 
+  const pocketAssertionPublishingStore = new DrizzleAssertionPublishingStore(db);
+  const pocketDeliveryQueue: PocketDeliveryQueue = config.redis.url
+    ? new BullMqPocketDeliveryQueue({ connection: { url: config.redis.url } })
+    : new InMemoryPocketDeliveryQueue();
+  const pocketOutboxDispatcher = new PocketOutboxDispatcher({
+    store: pocketAssertionPublishingStore,
+    queue: pocketDeliveryQueue,
+  });
+
+  // Studio Multi-Chapter Exam Generation Store & Queue (BullMQ)
+  const studioExamStore = new DrizzleStudioExamStore(db);
+  const studioExamQueue = new BullMqStudioExamQueue({
+    connection: { url: config.redis.url },
+  });
+
   // Tap AuditService for domain events (e.g. generation.failed, payments, teachers, user registrations)
   auditService.addListener((events) => {
     for (const event of events) {
@@ -774,6 +801,7 @@ export async function composeProduction(
     telegramOutboxDispatcher.start();
     telegramOpsBot.start();
   }
+  pocketOutboxDispatcher.start();
   const referralStore = new DrizzleReferralStore(db);
   let paymentGateway: MockPaymentGateway | ZarinpalPaymentGateway;
   if (
@@ -963,6 +991,10 @@ export async function composeProduction(
     presentationLayoutService,
     pollStore: new DrizzlePollStore(db),
     pollResponseStore: new DrizzlePollResponseStore(db),
+    pocketAssertionPublishingStore,
+    pocketOutboxDispatcher,
+    studioExamStore,
+    studioExamQueue,
     db,
   };
 
@@ -998,7 +1030,10 @@ export async function composeProduction(
   }
 
   let worker: Worker | undefined;
-  if (options?.startWorker ?? (config.nodeEnv !== "test")) {
+  if (
+    options?.startWorker ??
+    (config.nodeEnv !== "test" && process.env.DISABLE_INLINE_WORKER !== "true")
+  ) {
     const adminGenerationService = new GenerationService(
       generatedContentStore,
       generatedContentCitationStore,
@@ -1132,10 +1167,13 @@ export async function composeProduction(
       await worker.close();
     }
     await queue.close();
+    await studioExamQueue.close();
     if (telegramOpsBot) {
       await telegramOpsBot.stop();
     }
     await telegramOutboxDispatcher.stop();
+    await pocketOutboxDispatcher.stop();
+    await pocketDeliveryQueue.close();
     await presentationRecoveryWorker.stop();
     if ("destroy" in adminGateway && typeof adminGateway.destroy === "function") {
       adminGateway.destroy();
@@ -1154,6 +1192,9 @@ export async function composeProduction(
     telegramOpsBot,
     telegramOutboxStore,
     telegramOutboxDispatcher,
+    pocketAssertionPublishingStore,
+    pocketDeliveryQueue,
+    pocketOutboxDispatcher,
     worker,
     presentationRecoveryWorker,
     errorStore,

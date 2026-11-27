@@ -1047,9 +1047,22 @@ export class DrizzleCoursePublicationStore implements CoursePublicationStore {
 
       return toCoursePublicationRecord(row);
     } catch (err: unknown) {
-      const errorMsg = String((err as { message?: string })?.message || "");
-      const errorCode = (err as { code?: string })?.code;
-      if (errorCode === "23505" || errorMsg.includes("idx_course_publications_course_version")) {
+      const errObj = err as {
+        code?: string;
+        constraint?: string;
+        message?: string;
+        cause?: { code?: string; constraint?: string; message?: string };
+      };
+      const errorCode = errObj?.code ?? errObj?.cause?.code;
+      const constraint = errObj?.constraint ?? errObj?.cause?.constraint;
+      const errorMsg = String(errObj?.message || "");
+      const causeMsg = String(errObj?.cause?.message || "");
+      const isCourseVersionConflict =
+        errorCode === "23505" &&
+        (constraint === "idx_course_publications_course_version" ||
+          errorMsg.includes("idx_course_publications_course_version") ||
+          causeMsg.includes("idx_course_publications_course_version"));
+      if (isCourseVersionConflict) {
         throw new DomainError(
           "conflict",
           `یک درخواست انتشار با نسخه ${publication.version} قبلاً ثبت شده است. لطفاً مجدداً تلاش کنید.`,
@@ -1182,7 +1195,7 @@ export class DrizzleCoursePublicationStore implements CoursePublicationStore {
           .set({
             status: "superseded",
             metadata: {
-              ...((pRow.metadata as any) ?? {}),
+              ...((pRow.metadata as Record<string, unknown> | null) ?? {}),
               supersededAt: params.now,
               cancellationReason: params.cancellationReason,
               supersededByUserId: params.actorUserId,
@@ -1204,7 +1217,7 @@ export class DrizzleCoursePublicationStore implements CoursePublicationStore {
           .set({
             status: "unpublished",
             metadata: {
-              ...((publishedRow.metadata as any) ?? {}),
+              ...((publishedRow.metadata as Record<string, unknown> | null) ?? {}),
               unpublishedAt: params.now,
               unpublishedByUserId: params.actorUserId,
               unpublishReason: params.unpublishReason,

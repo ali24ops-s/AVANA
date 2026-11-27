@@ -43,6 +43,14 @@ import { UserSupportPage } from "../pages/account/UserSupportPage.js";
 import { CardToCardPaymentPage } from "../pages/CardToCardPaymentPage.js";
 import { PresentationListPage } from "../pages/presentation/PresentationListPage.js";
 import { PresentationWorkspacePage } from "../pages/presentation/PresentationWorkspacePage.js";
+import {
+  PocketHomePage,
+  PocketExplorerPage,
+  PocketAggregateDetailPage,
+  PocketAssertionDetailPage,
+} from "../pages/pocket/index.js";
+import { PocketReviewerWorkbenchPage } from "../pages/pocket/PocketReviewerWorkbenchPage.js";
+import { PocketReviewerAssertionDetailPage } from "../pages/pocket/PocketReviewerAssertionDetailPage.js";
 
 // Admin Imports
 import { AdminLayout } from "../components/shell/AdminLayout.js";
@@ -93,6 +101,11 @@ import { BlogTagPage } from "../pages/blog/BlogTagPage.js";
 import { AdminBlogListPage } from "../pages/admin/blog/AdminBlogListPage.js";
 import { AdminBlogEditPage } from "../pages/admin/blog/AdminBlogEditPage.js";
 import { AdminBlogPreviewPage } from "../pages/admin/blog/AdminBlogPreviewPage.js";
+import { AdminPocketDashboardPage } from "../pages/admin/pocket/AdminPocketDashboardPage.js";
+import { AdminPocketAssertionsPage } from "../pages/admin/pocket/AdminPocketAssertionsPage.js";
+import { AdminPocketAssertionDetailPage } from "../pages/admin/pocket/AdminPocketAssertionDetailPage.js";
+import { AdminPocketReviewersPage } from "../pages/admin/pocket/AdminPocketReviewersPage.js";
+import { AdminPocketSafetyOverridesPage } from "../pages/admin/pocket/AdminPocketSafetyOverridesPage.js";
 
 // Teacher Platform Imports
 import { TeacherRouteGuard } from "../components/teacher/TeacherRouteGuard.js";
@@ -429,6 +442,35 @@ export const router = createBrowserRouter(
               path: "payment/card-to-card",
               element: <CardToCardPaymentPage />,
             },
+            {
+              path: "pocket",
+              children: [
+                {
+                  index: true,
+                  element: <PocketHomePage />,
+                },
+                {
+                  path: "explorer",
+                  element: <PocketExplorerPage />,
+                },
+                {
+                  path: ":type/:id",
+                  element: <PocketAggregateDetailPage />,
+                },
+                {
+                  path: "assertions/:id",
+                  element: <PocketAssertionDetailPage />,
+                },
+                {
+                  path: "reviewer-workbench",
+                  element: <PocketReviewerWorkbenchPage />,
+                },
+                {
+                  path: "reviewer-workbench/:id",
+                  element: <PocketReviewerAssertionDetailPage />,
+                },
+              ],
+            },
           ],
         },
         // Teacher Platform Routes
@@ -685,6 +727,26 @@ export const router = createBrowserRouter(
             {
               path: "crm/customers/:userId",
               element: <AdminCrmCustomerDetailPage />,
+            },
+            {
+              path: "pocket",
+              element: <AdminPocketDashboardPage />,
+            },
+            {
+              path: "pocket/assertions",
+              element: <AdminPocketAssertionsPage />,
+            },
+            {
+              path: "pocket/assertions/:id",
+              element: <AdminPocketAssertionDetailPage />,
+            },
+            {
+              path: "pocket/reviewers",
+              element: <AdminPocketReviewersPage />,
+            },
+            {
+              path: "pocket/safety-overrides",
+              element: <AdminPocketSafetyOverridesPage />,
             },
             {
               path: "teachers",

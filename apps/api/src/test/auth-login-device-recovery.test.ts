@@ -409,24 +409,16 @@ describe("Auth Login & Device Management Regression Test Suite", () => {
   // 4. Real PostgreSQL Drizzle Integration Test
   // ---------------------------------------------------------------------------
   describe("Real PostgreSQL Database Device Recovery Verification", () => {
-    it("verifies platform_admin device recovery using real PostgreSQL Drizzle stores", async (ctx) => {
+    it("verifies platform_admin device recovery using real PostgreSQL Drizzle stores", async () => {
       const { createDbClient } = await import("@avana/database/client");
       const { sql } = await import("drizzle-orm");
       const { DrizzleDeviceStore, DrizzleSessionStore, DrizzleUserStore } =
         await import("../modules/identity/drizzle-stores.js");
+      const { resolveSafePostgresTestUrl } = await import("./pg-test-guard.js");
 
-      const postgresUrl =
-        process.env.DATABASE_URL ??
-        "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
-
-      let dbClient: ReturnType<typeof createDbClient>;
-      try {
-        dbClient = createDbClient(postgresUrl);
-        await dbClient.db.execute(sql`SELECT 1;`);
-      } catch {
-        ctx.skip();
-        return;
-      }
+      const postgresUrl = resolveSafePostgresTestUrl();
+      const dbClient = createDbClient(postgresUrl);
+      await dbClient.db.execute(sql`SELECT 1;`);
 
       try {
         const pgDeviceStore = new DrizzleDeviceStore(dbClient.db);

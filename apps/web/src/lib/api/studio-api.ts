@@ -1,4 +1,15 @@
-import type { ApiClient } from "./client.js";
+import { createApiClient, getApiBaseUrl, type ApiClient } from "./client.js";
+import type {
+  StudioExamOperationStatus,
+  StudioExamTaskStatus,
+  StudioExamBatchStatus,
+} from "@avana/domain";
+
+export type {
+  StudioExamOperationStatus,
+  StudioExamTaskStatus,
+  StudioExamBatchStatus,
+};
 
 export type MarketingQuizStatus = "draft" | "published" | "disabled";
 
@@ -251,6 +262,233 @@ export interface StudioAiGeneratedQuestion {
   questionType: string;
 }
 
+// ---------------------------------------------------------------------------
+// Multi-Chapter AI Exam Generation Types
+// ---------------------------------------------------------------------------
+
+export interface ChapterQuotaAllocationInput {
+  moduleId: string;
+  quota: number;
+}
+
+export interface CreateExamOperationInput {
+  totalQuestions: number;
+  chapterAllocations?: ChapterQuotaAllocationInput[];
+  moduleIds?: string[];
+  courseId?: string;
+  difficulty?: "easy" | "medium" | "hard";
+  instructions?: string;
+  sampleQuestions?: Array<{ question: string; choices?: string[]; explanation?: string }>;
+  idempotencyKey?: string;
+}
+
+export interface StudioExamOperationTask {
+  id: string;
+  operationId: string;
+  courseId: string;
+  moduleId: string;
+  targetQuestionCount: number;
+  generatedQuestionCount: number;
+  status: StudioExamTaskStatus;
+  retryCount?: number;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface StudioExamOperationBatch {
+  id: string;
+  taskId: string;
+  batchIndex: number;
+  targetCount: number;
+  generatedCount: number;
+  status: StudioExamBatchStatus;
+  patternAllocations: Array<{ patternId: string | null; count: number }>;
+  retryCount?: number;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface StudioExamOperationRecord {
+  id: string;
+  quizId: string;
+  organizationId?: string | null;
+  createdBy?: string | null;
+  totalRequestedQuestions: number;
+  totalGeneratedQuestions: number;
+  status: StudioExamOperationStatus;
+  config: Record<string, unknown>;
+  patternSnapshots?: Array<{ id: string; version: number; [key: string]: unknown }>;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatedExamOperationResponse {
+  operation: StudioExamOperationRecord;
+  tasks: StudioExamOperationTask[];
+  batches: StudioExamOperationBatch[];
+}
+
+export interface ActiveExamOperationSummary {
+  id: string;
+  quizId: string;
+  organizationId?: string | null;
+  totalRequestedQuestions: number;
+  totalGeneratedQuestions: number;
+  status: StudioExamOperationStatus;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ActiveExamOperationResponse {
+  operation: ActiveExamOperationSummary | null;
+}
+
+export interface ExamOperationTaskProgress {
+  taskId: string;
+  moduleId: string;
+  courseId: string;
+  targetCount: number;
+  generatedCount: number;
+  status: StudioExamTaskStatus;
+}
+
+export interface ExamOperationProgressSummary {
+  operationId: string;
+  quizId: string;
+  organizationId?: string | null;
+  status: StudioExamOperationStatus;
+  totalRequestedQuestions: number;
+  totalGeneratedQuestions: number;
+  progressPercentage: number;
+  updatedAt: string;
+  tasks: ExamOperationTaskProgress[];
+}
+
+export interface FullExamOperationDetails {
+  operation: StudioExamOperationRecord;
+  tasks: StudioExamOperationTask[];
+  batches: StudioExamOperationBatch[];
+}
+
+export type StagingQuestionReviewStatus =
+  | "pending_review"
+  | "accepted"
+  | "rejected"
+  | "transferred";
+
+export type StagingQuestionReviewDecision =
+  | "pending_review"
+  | "accepted"
+  | "rejected";
+
+export interface StagingQuestionRecord {
+  id: string;
+  operationId: string;
+  taskId: string;
+  batchId: string;
+  courseId: string;
+  moduleId: string;
+  patternId?: string | null;
+  patternVersion?: number | null;
+  questionIndex: number;
+  question: string;
+  choices: Array<{ id: string; text: string }>;
+  correctAnswer: NormalizedCorrectAnswer | { choiceId: string } | string | unknown;
+  explanation?: string | null;
+  difficulty: string;
+  topic?: string | null;
+  questionType: string;
+  metadata?: Record<string, unknown>;
+  isAccepted: boolean;
+  reviewStatus: StagingQuestionReviewStatus;
+  transferredQuestionId?: string | null;
+  transferredAt?: string | null;
+  createdAt: string;
+}
+
+export interface ReviewExamQuestionsInput {
+  questionIds: string[];
+  decision: StagingQuestionReviewDecision;
+}
+
+export interface ReviewExamQuestionsResponse {
+  updatedCount: number;
+  skippedTransferredIds: string[];
+  questions: StagingQuestionRecord[];
+}
+
+export interface TransferExamQuestionsInput {
+  questionIds: string[];
+}
+
+export interface TransferExamQuestionsResponse {
+  transferredCount: number;
+  alreadyTransferredIds: string[];
+  existingTransferredQuestionIds: string[];
+  createdQuestions: MarketingQuizQuestionSnapshot[];
+}
+
+export interface StagingQuestionStats {
+  totalCount: number;
+  pendingReviewCount: number;
+  acceptedCount: number;
+  rejectedCount: number;
+  transferredCount: number;
+}
+
+export interface ExamOperationHistoryItem {
+  id: string;
+  quizId: string;
+  organizationId?: string | null;
+  status: StudioExamOperationStatus;
+  totalRequestedQuestions: number;
+  totalGeneratedQuestions: number;
+  progressPercentage: number;
+  stagingStats: StagingQuestionStats;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExamOperationHistoryFilterParams {
+  status?: StudioExamOperationStatus;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListQuizExamOperationsResponse {
+  operations: ExamOperationHistoryItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface StagingQuestionsFilterParams {
+  taskId?: string;
+  batchId?: string;
+  isAccepted?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CancelExamOperationResponse {
+  cancelled: boolean;
+  reason?: string;
+}
+
 export function createStudioApi(client: ApiClient) {
   return {
     // Quizzes CRUD
@@ -362,5 +600,94 @@ export function createStudioApi(client: ApiClient) {
       client.get<{ solutions: PublicAttemptSolutionsResult }>(
         `/v1/public/quizzes/attempts/${token}/solutions`,
       ),
+
+    // Multi-Chapter AI Exam Generation
+    createExamOperation: (quizId: string, input: CreateExamOperationInput) =>
+      client.post<CreatedExamOperationResponse>(
+        `/v1/studio/quizzes/${quizId}/exam-operations`,
+        input,
+      ),
+
+    getActiveExamOperation: (quizId: string) =>
+      client.get<ActiveExamOperationResponse>(
+        `/v1/studio/quizzes/${quizId}/exam-operations/active`,
+      ),
+
+    listQuizExamOperations: (
+      quizId: string,
+      params?: ExamOperationHistoryFilterParams,
+    ) => {
+      const queryParams: Record<string, string | number> = {};
+      if (params?.status) queryParams.status = params.status;
+      if (params?.limit !== undefined) queryParams.limit = params.limit;
+      if (params?.offset !== undefined) queryParams.offset = params.offset;
+
+      return client.get<ListQuizExamOperationsResponse>(
+        `/v1/studio/quizzes/${quizId}/exam-operations`,
+        { params: queryParams },
+      );
+    },
+
+    getExamOperationDetails: (operationId: string) =>
+      client.get<FullExamOperationDetails>(
+        `/v1/studio/exam-operations/${operationId}`,
+      ),
+
+    getExamOperationProgress: (operationId: string) =>
+      client.get<ExamOperationProgressSummary>(
+        `/v1/studio/exam-operations/${operationId}/progress`,
+      ),
+
+    getExamOperationQuestions: (
+      operationId: string,
+      params?: StagingQuestionsFilterParams,
+    ) => {
+      const queryParams: Record<string, string | number> = {};
+      if (params?.taskId) queryParams.taskId = params.taskId;
+      if (params?.batchId) queryParams.batchId = params.batchId;
+      if (params?.isAccepted !== undefined) queryParams.isAccepted = String(params.isAccepted);
+      if (params?.limit !== undefined) queryParams.limit = params.limit;
+      if (params?.offset !== undefined) queryParams.offset = params.offset;
+
+      return client.get<{ questions: StagingQuestionRecord[] }>(
+        `/v1/studio/exam-operations/${operationId}/questions`,
+        { params: queryParams },
+      );
+    },
+
+    cancelExamOperation: (operationId: string, reason?: string) =>
+      client.post<CancelExamOperationResponse>(
+        `/v1/studio/exam-operations/${operationId}/cancel`,
+        { reason },
+      ),
+
+    reviewExamOperationQuestions: (
+      operationId: string,
+      questionIds: string[],
+      decision: StagingQuestionReviewDecision,
+    ) =>
+      client.post<ReviewExamQuestionsResponse>(
+        `/v1/studio/exam-operations/${operationId}/questions/review`,
+        { questionIds, decision },
+      ),
+
+    transferExamOperationQuestions: (
+      operationId: string,
+      questionIds: string[],
+    ) =>
+      client.post<TransferExamQuestionsResponse>(
+        `/v1/studio/exam-operations/${operationId}/questions/transfer`,
+        { questionIds },
+      ),
   };
+}
+
+let defaultStudioApi: ReturnType<typeof createStudioApi> | null = null;
+
+export function getStudioApi(): ReturnType<typeof createStudioApi> {
+  if (!defaultStudioApi) {
+    const client = createApiClient({ baseUrl: getApiBaseUrl() });
+    defaultStudioApi = createStudioApi(client);
+  }
+  return defaultStudioApi;
 }

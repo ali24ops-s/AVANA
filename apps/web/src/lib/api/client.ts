@@ -30,6 +30,7 @@ export type RequestOptions = {
   params?: Record<string, unknown>;
   signal?: AbortSignal;
   responseType?: "json" | "blob";
+  conditional?: boolean;
 };
 
 export interface BlobResponse {
@@ -37,6 +38,13 @@ export interface BlobResponse {
   filename?: string;
   contentType: string;
   headers?: Headers;
+}
+
+export interface ConditionalResponse<T> {
+  notModified: boolean;
+  data: T | null;
+  etag?: string;
+  entityVersion?: number;
 }
 
 /**
@@ -245,6 +253,24 @@ export function createApiClient(options: ApiClientOptions) {
       return undefined as T;
     }
 
+    // Handle 304 Not Modified for conditional requests
+    if (opts.conditional && response.status === 304) {
+      const etag =
+        (typeof response.headers?.get === "function"
+          ? response.headers.get("etag")
+          : null) || undefined;
+      const rawVersion =
+        typeof response.headers?.get === "function"
+          ? response.headers.get("x-entity-version")
+          : null;
+      return {
+        notModified: true,
+        data: null,
+        etag,
+        entityVersion: rawVersion ? Number(rawVersion) : undefined,
+      } as unknown as T;
+    }
+
     if (opts.responseType === "blob" && response.ok) {
       const disposition =
         (typeof response.headers?.get === "function"
@@ -336,9 +362,9 @@ export function createApiClient(options: ApiClientOptions) {
           throw new ApiError({
             request_id: requestId,
             error: {
-              code: rawCode as any,
+              code: rawCode as ErrorEnvelope["error"]["code"],
               message: rawMessage,
-              details: anyData.details as any,
+              details: anyData.details as ErrorEnvelope["error"]["details"],
             },
           });
         }
@@ -368,12 +394,39 @@ export function createApiClient(options: ApiClientOptions) {
       });
     }
 
+    if (opts.conditional) {
+      const etag =
+        (typeof response.headers?.get === "function"
+          ? response.headers.get("etag")
+          : null) || undefined;
+      const rawVersion =
+        typeof response.headers?.get === "function"
+          ? response.headers.get("x-entity-version")
+          : null;
+      return {
+        notModified: false,
+        data,
+        etag,
+        entityVersion: rawVersion ? Number(rawVersion) : undefined,
+      } as unknown as T;
+    }
+
     return data as T;
   }
 
   return {
     get<T>(path: string, opts?: Omit<RequestOptions, "method">): Promise<T> {
       return request<T>(path, { ...opts, method: "GET" });
+    },
+    getConditional<T>(
+      path: string,
+      opts?: Omit<RequestOptions, "method" | "conditional">,
+    ): Promise<ConditionalResponse<T>> {
+      return request<ConditionalResponse<T>>(path, {
+        ...opts,
+        method: "GET",
+        conditional: true,
+      });
     },
     post<T>(
       path: string,

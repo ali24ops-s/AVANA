@@ -358,15 +358,25 @@ const FORBIDDEN_CHOICE_REGEX =
 
 // Regex pattern for explanatory & justification markers in Persian options (using Unicode-safe word boundaries)
 const EXPLANATORY_MARKER_REGEX =
-  /(?:[،,;\-–—:\s]|^)(?:به دلیل|زیرا|چون|به علت|ناشی از|در نتیجه|که منجر به|به‌طوری‌که|به طوری که|به منظور|یعنی|به عبارت دیگر|از طریق\s+(?:مهار|تحریک|فعال‌سازی|افزایش|کاهش|مسدود|بلوک|اثر|تأثیر|ایجاد|تخریب|تولید|آزادسازی))(?:[\s،,;\-–—:؛؟?!]|$|[()（）])/iu;
+  /(?:[،,;\-–—:\s]|^)(?:به دلیل|زیرا|چون|به علت|ناشی از|در نتیجه|که منجر به|که باعث|که موجب|به‌طوری‌که|به طوری که|به منظور|یعنی|به عبارت دیگر|جهت\s+(?:پیشگیری|کاهش|افزایش|درمان|بهبود|جلوگیری|ایجاد|تنظیم|کنترل)|از طریق\s+(?:مهار|تحریک|فعال‌سازی|افزایش|کاهش|مسدود|بلوک|اثر|تأثیر|ایجاد|تخریب|تولید|آزادسازی))(?:[\s،,;\-–—:؛؟?!]|$|[()（）])/iu;
 
 // Regex pattern for trailing explanatory tail (used for detection and safe repair)
 const TRAILING_EXPLANATION_REGEX =
-  /(?:[،,;\-–—:\s]+)(?:به دلیل|زیرا|چون|به علت|ناشی از|در نتیجه|که منجر به|به‌طوری‌که|به طوری که|به منظور|یعنی|به عبارت دیگر|از طریق\s+(?:مهار|تحریک|فعال‌سازی|افزایش|کاهش|مسدود|بلوک|اثر|تأثیر|ایجاد|تخریب|تولید|آزادسازی))[\s\S]*$/iu;
+  /(?:[،,;\-–—:\s]+)(?:به دلیل|زیرا|چون|به علت|ناشی از|در نتیجه|که منجر به|که باعث|که موجب|به‌طوری‌که|به طوری که|به منظور|یعنی|به عبارت دیگر|جهت\s+(?:پیشگیری|کاهش|افزایش|درمان|بهبود|جلوگیری|ایجاد|تنظیم|کنترل)|از طریق\s+(?:مهار|تحریک|فعال‌سازی|افزایش|کاهش|مسدود|بلوک|اثر|تأثیر|ایجاد|تخریب|تولید|آزادسازی))[\s\S]*$/iu;
+
+// Regex pattern for trailing/parenthetical illustrative examples
+const PAREN_EXAMPLE_REGEX =
+  /\s*[（(]\s*(?:مانند|نظیر|از جمله|به عنوان مثال|مثلاً|مثلا|e\.g\.|for example)[^）)]+[）)]\s*/iu;
+const TRAILING_EXAMPLE_REGEX =
+  /(?:[،,;\-–—:\s]+)(?:مانند|نظیر|از جمله|به عنوان مثال|مثلاً|مثلا)\s+[\s\S]+$/iu;
+
+// Scientific identifier tokens (e.g. Beta-1, COX-2, B12, SGLT2, ACE, cAMP)
+const SCIENTIFIC_ID_REGEX =
+  /[A-Za-z]+-\d+|\b[A-Za-z]*\d+[A-Za-z0-9-]*\b|\b[A-Z]{2,}(?:-[0-9A-Za-z]+)*\b/g;
 
 // Explanatory punctuation (dashes or colons with qualifying descriptions)
 const EXPLANATORY_PUNCTUATION_REGEX =
-  /(?:\s+[\-–—]\s+|\s*:\s*)[^\s]+/u;
+  /(?:\s+[-–—]\s+|\s*:\s*)[^\s]+/u;
 
 // Synonym markers (e.g. "یا", "مترادف:", "همان", "نام دیگر", "/")
 const SYNONYM_MARKER_REGEX =
@@ -529,10 +539,18 @@ export function detectAnswerLeakage(
   const hasExample = (s: string) => EXAMPLE_MARKER_REGEX.test(s);
   const hasPunctuation = (s: string) => EXPLANATORY_PUNCTUATION_REGEX.test(s);
 
-  // 1. English text asymmetry
+  // 1. English text asymmetry (also catches multi-word / long English parenthetical translations
+  // even when a distractor happens to contain a short acronym like ACE or pH)
+  const hasEnglishTranslationParen = (s: string) =>
+    /[（(][a-zA-Z][a-zA-Z\s.,/\-+]{11,}[）)]/.test(s) ||
+    /[（(][a-zA-Z]{2,}(?:\s+[a-zA-Z]{2,})+[）)]/.test(s);
   const correctHasEnglish = hasEnglish(correctChoiceText);
   const distractorsWithEnglishCount = distractors.filter(hasEnglish).length;
-  const englishAsymmetry = correctHasEnglish && distractorsWithEnglishCount === 0;
+  const correctHasEngTranslation = hasEnglishTranslationParen(correctChoiceText);
+  const distractorsWithEngTranslation = distractors.filter(hasEnglishTranslationParen).length;
+  const englishAsymmetry =
+    (correctHasEnglish && distractorsWithEnglishCount === 0) ||
+    (correctHasEngTranslation && distractorsWithEngTranslation === 0);
   if (englishAsymmetry) {
     leakageReasons.push(
       "Correct choice uniquely contains English terminology while distractors have none (Answer Leakage)",
@@ -1008,38 +1026,133 @@ export function normalizeQuestionOptions(
   const distractors = cleanedChoices.filter((c) => c !== correctChoiceText);
   let candidateCorrectText = correctChoiceText;
   const repairedFields: string[] = hasTypoChanges ? ["sanitized_typographical_glitches"] : [];
+  const strippedEducationalDetails: string[] = [];
+
+  // Guard set for generic Persian nouns where removing a parenthetical/example would destroy scientific specificity
+  const GENERIC_SCIENTIFIC_NOUNS = new Set([
+    "گیرنده", "آنزیم", "ویتامین", "پمپ", "کانال", "دارو", "هورمون", "سلول", "بافت", "پروتئین", "ژن", "عامل", "نوع", "دسته",
+  ]);
+
+  const missingScientificIdInBase = (removedText: string, remainingBase: string): boolean => {
+    const ids = removedText.match(SCIENTIFIC_ID_REGEX) ?? [];
+    return ids.some((id) => !remainingBase.includes(id));
+  };
 
   // Step 1: Trailing Explanation Removal
-  if (TRAILING_EXPLANATION_REGEX.test(candidateCorrectText)) {
+  const trailingExplMatch = candidateCorrectText.match(TRAILING_EXPLANATION_REGEX);
+  if (trailingExplMatch) {
     const trimmed = candidateCorrectText
       .replace(TRAILING_EXPLANATION_REGEX, "")
       .replace(/[،,;\-–—:\s]+$/, "")
       .trim();
-    if (trimmed.length >= 2 && trimmed !== candidateCorrectText && !distractors.includes(trimmed)) {
+    const removedPart = trailingExplMatch[0].replace(/^[،,;\-–—:\s]+/, "").trim();
+    const isBrokenEzafeFragment =
+      /(?:^|\s)(?:و\/یا|و|یا|در|از|با|به|برای|جهت|علائم|نشانه‌های|نشانه\u200cهای|موارد)$/u.test(trimmed) ||
+      (/\S+‌های$/u.test(trimmed) && countWords(trimmed) <= 4);
+    if (
+      trimmed.length >= 2 &&
+      !isBrokenEzafeFragment &&
+      trimmed !== candidateCorrectText &&
+      !distractors.includes(trimmed)
+    ) {
       candidateCorrectText = trimmed;
       repairedFields.push("removed_trailing_explanation");
+      if (removedPart.length >= 3) strippedEducationalDetails.push(removedPart);
+    }
+  }
+
+  // Step 1b: Illustrative Example Removal (e.g. "(مانند امپاگلیفلوزین و داپاگلیفلوزین)" or "، مانند ...")
+  const parenExampleMatch = candidateCorrectText.match(PAREN_EXAMPLE_REGEX);
+  if (parenExampleMatch) {
+    const baseWithoutExample = candidateCorrectText
+      .replace(PAREN_EXAMPLE_REGEX, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const removedExample = parenExampleMatch[0].replace(/^[(\s（]+|[)\s）]+$/g, "").trim();
+    if (
+      baseWithoutExample.length >= 3 &&
+      !GENERIC_SCIENTIFIC_NOUNS.has(baseWithoutExample) &&
+      baseWithoutExample !== candidateCorrectText &&
+      !distractors.includes(baseWithoutExample) &&
+      !missingScientificIdInBase(removedExample, baseWithoutExample)
+    ) {
+      candidateCorrectText = baseWithoutExample;
+      repairedFields.push("removed_illustrative_example");
+      if (removedExample.length >= 3) strippedEducationalDetails.push(removedExample);
+    }
+  } else {
+    const trailingExampleMatch = candidateCorrectText.match(TRAILING_EXAMPLE_REGEX);
+    if (trailingExampleMatch) {
+      const baseWithoutExample = candidateCorrectText
+        .replace(TRAILING_EXAMPLE_REGEX, "")
+        .replace(/[،,;\-–—:\s]+$/, "")
+        .trim();
+      const removedExample = trailingExampleMatch[0].replace(/^[،,;\-–—:\s]+/, "").trim();
+      if (
+        baseWithoutExample.length >= 3 &&
+        !GENERIC_SCIENTIFIC_NOUNS.has(baseWithoutExample) &&
+        baseWithoutExample !== candidateCorrectText &&
+        !distractors.includes(baseWithoutExample) &&
+        !missingScientificIdInBase(removedExample, baseWithoutExample)
+      ) {
+        candidateCorrectText = baseWithoutExample;
+        repairedFields.push("removed_illustrative_example");
+        if (removedExample.length >= 3) strippedEducationalDetails.push(removedExample);
+      }
     }
   }
 
   // Step 2: Exclusive English Parenthetical Removal (when distractors have NO English)
   const distractorsHaveEnglish = distractors.some((d) => /[a-zA-Z]{2,}/.test(d));
-  if (!distractorsHaveEnglish && /[（(][a-zA-Z0-9\s.,/\-+]+[）)]/.test(candidateCorrectText)) {
-    // Check if stripping English loses the ONLY scientific entity (e.g. "گیرنده (Beta-1)" vs "پروپرانولول (Propranolol)")
-    const persianBase = candidateCorrectText.replace(/\s*[（(][a-zA-Z0-9\s.,/\-+]+[）)]\s*/g, " ").trim();
-    // If Persian base is a substantive term (>= 3 chars and not a bare generic noun)
-    if (persianBase.length >= 3 && persianBase !== candidateCorrectText && !distractors.includes(persianBase)) {
+  const englishParenMatch = candidateCorrectText.match(/[（(]([a-zA-Z0-9\s.,/\-+]+)[）)]/);
+  if (!distractorsHaveEnglish && englishParenMatch) {
+    const innerParen = englishParenMatch[1].trim();
+    const persianBase = candidateCorrectText
+      .replace(/\s*[（(][a-zA-Z0-9\s.,/\-+]+[）)]\s*/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    // Guard: NEVER strip scientific codes, receptor/enzyme subtypes, vitamins, or acronyms
+    // unless that exact scientific identifier is already preserved in persianBase.
+    const dropsScientificIdentifier = missingScientificIdInBase(innerParen, persianBase);
+    const isGenericSingleNoun = GENERIC_SCIENTIFIC_NOUNS.has(persianBase);
+
+    if (
+      !dropsScientificIdentifier &&
+      !isGenericSingleNoun &&
+      persianBase.length >= 3 &&
+      persianBase !== candidateCorrectText &&
+      !distractors.includes(persianBase)
+    ) {
       candidateCorrectText = persianBase;
+      // eslint-disable-next-line no-secrets/no-secrets
       repairedFields.push("removed_exclusive_english_parenthetical");
     }
   }
 
   // Step 3: Exclusive Persian Explanatory Parenthetical Removal (when distractors have NO parentheticals)
   const distractorsHaveParenthetical = distractors.some((d) => /[（(][^）)]+[）)]/.test(d));
-  if (!distractorsHaveParenthetical && /[（(][^）)]+[）)]/.test(candidateCorrectText)) {
-    const persianBase = candidateCorrectText.replace(/\s*[（(][^）)]+[）)]\s*/g, " ").trim();
-    if (persianBase.length >= 3 && persianBase !== candidateCorrectText && !distractors.includes(persianBase)) {
+  const anyParenMatch = candidateCorrectText.match(/[（(]([^）)]+)[）)]/);
+  if (!distractorsHaveParenthetical && anyParenMatch) {
+    const innerAny = anyParenMatch[1].trim();
+    const persianBase = candidateCorrectText
+      .replace(/\s*[（(][^）)]+[）)]\s*/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const dropsScientificIdentifier = missingScientificIdInBase(innerAny, persianBase);
+    const isGenericSingleNoun = GENERIC_SCIENTIFIC_NOUNS.has(persianBase);
+
+    if (
+      !dropsScientificIdentifier &&
+      !isGenericSingleNoun &&
+      persianBase.length >= 3 &&
+      persianBase !== candidateCorrectText &&
+      !distractors.includes(persianBase)
+    ) {
       candidateCorrectText = persianBase;
       repairedFields.push("removed_exclusive_parenthetical");
+      if (innerAny.length >= 3 && !/[a-zA-Z]{2,}/.test(innerAny)) {
+        strippedEducationalDetails.push(innerAny);
+      }
     }
   }
 
@@ -1052,10 +1165,24 @@ export function normalizeQuestionOptions(
       c === correctChoiceText ? candidateCorrectText : c,
     );
 
+    let updatedExplanation =
+      typeof baseQuestion.explanation === "string" ? baseQuestion.explanation.trim() : baseQuestion.explanation;
+    if (typeof updatedExplanation === "string" && updatedExplanation.length > 0 && strippedEducationalDetails.length > 0) {
+      const missingDetails = strippedEducationalDetails.filter(
+        (detail) => !updatedExplanation!.includes(detail),
+      );
+      if (missingDetails.length > 0) {
+        const sep = /[.؛!؟]$/.test(updatedExplanation) ? " " : "؛ ";
+        updatedExplanation = `${updatedExplanation}${sep}توضیح تکمیلی: ${missingDetails.join("؛ ")}.`;
+        repairedFields.push("transferred_details_to_explanation");
+      }
+    }
+
     const candidateQuestion: QuestionOptionInput = {
       ...baseQuestion,
       choices: candidateChoices,
       correctAnswer: candidateCorrectText,
+      ...(updatedExplanation !== undefined ? { explanation: updatedExplanation } : {}),
     };
 
     const revalidation = validateQuestionQuality(candidateQuestion, {
@@ -1129,11 +1256,15 @@ export function canonicalizeAndShuffleQuestion<T extends QuestionOptionInput>(
     return { ...question };
   }
 
-  // 2. Resolve authoritative correct choice text BEFORE shuffling
+  // 2. Resolve authoritative correct choice text strictly BEFORE shuffling
   const correctChoiceText = resolveCorrectChoiceText(
     cleanedChoices,
     question.correctAnswer,
+    { strict: true },
   );
+  if (!correctChoiceText) {
+    throw new Error("Correct answer could not be strictly resolved against question choices");
+  }
 
   // 3. Ensure correctChoiceText is in choices
   let distinctChoices = Array.from(new Set(cleanedChoices));

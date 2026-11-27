@@ -948,3 +948,91 @@ export function parsePresentationBatchId(
   return value as PresentationBatchId;
 }
 
+export type StudioExamOperationId = Brand<UUID, "studioExamOperationId">;
+
+export function asStudioExamOperationId(id: UUID): StudioExamOperationId {
+  return id as StudioExamOperationId;
+}
+
+export function isStudioExamOperationId(
+  value: string,
+): value is StudioExamOperationId {
+  return isUUID(value);
+}
+
+export function parseStudioExamOperationId(
+  value: string,
+  fieldName = "studioExamOperationId",
+): StudioExamOperationId {
+  if (!isStudioExamOperationId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as StudioExamOperationId;
+}
+
+export type StudioExamTaskId = Brand<UUID, "studioExamTaskId">;
+
+export function asStudioExamTaskId(id: UUID): StudioExamTaskId {
+  return id as StudioExamTaskId;
+}
+
+export function isStudioExamTaskId(
+  value: string,
+): value is StudioExamTaskId {
+  return isUUID(value);
+}
+
+export function parseStudioExamTaskId(
+  value: string,
+  fieldName = "studioExamTaskId",
+): StudioExamTaskId {
+  if (!isStudioExamTaskId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as StudioExamTaskId;
+}
+
+export type StudioExamBatchId = Brand<UUID, "studioExamBatchId">;
+
+export function asStudioExamBatchId(id: UUID): StudioExamBatchId {
+  return id as StudioExamBatchId;
+}
+
+export function isStudioExamBatchId(
+  value: string,
+): value is StudioExamBatchId {
+  return isUUID(value);
+}
+
+export function parseStudioExamBatchId(
+  value: string,
+  fieldName = "studioExamBatchId",
+): StudioExamBatchId {
+  if (!isStudioExamBatchId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as StudioExamBatchId;
+}
+
+export type StudioExamGeneratedQuestionId = Brand<UUID, "studioExamGeneratedQuestionId">;
+
+export function asStudioExamGeneratedQuestionId(id: UUID): StudioExamGeneratedQuestionId {
+  return id as StudioExamGeneratedQuestionId;
+}
+
+export function isStudioExamGeneratedQuestionId(
+  value: string,
+): value is StudioExamGeneratedQuestionId {
+  return isUUID(value);
+}
+
+export function parseStudioExamGeneratedQuestionId(
+  value: string,
+  fieldName = "studioExamGeneratedQuestionId",
+): StudioExamGeneratedQuestionId {
+  if (!isStudioExamGeneratedQuestionId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as StudioExamGeneratedQuestionId;
+}
+

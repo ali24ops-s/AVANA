@@ -160,6 +160,66 @@
       "import": "./dist/modules/wallet/wallet-service.js",
       "default": "./src/modules/wallet/wallet-service.ts"
     },
+    "./pocket": {
+      "types": "./src/modules/pocket/index.ts",
+      "development": "./src/modules/pocket/index.ts",
+      "import": "./dist/modules/pocket/index.js",
+      "default": "./src/modules/pocket/index.ts"
+    },
+    "./pocket/pocket-event-processor": {
+      "types": "./src/modules/pocket/pocket-event-processor.ts",
+      "development": "./src/modules/pocket/pocket-event-processor.ts",
+      "import": "./dist/modules/pocket/pocket-event-processor.js",
+      "default": "./src/modules/pocket/pocket-event-processor.ts"
+    },
+    "./pocket/pocket-event-handler": {
+      "types": "./src/modules/pocket/pocket-event-handler.ts",
+      "development": "./src/modules/pocket/pocket-event-handler.ts",
+      "import": "./dist/modules/pocket/pocket-event-handler.js",
+      "default": "./src/modules/pocket/pocket-event-handler.ts"
+    },
+    "./pocket/assertion-published-handler": {
+      "types": "./src/modules/pocket/assertion-published-handler.ts",
+      "development": "./src/modules/pocket/assertion-published-handler.ts",
+      "import": "./dist/modules/pocket/assertion-published-handler.js",
+      "default": "./src/modules/pocket/assertion-published-handler.ts"
+    },
+    "./pocket/pocket-delivery-queue": {
+      "types": "./src/modules/pocket/pocket-delivery-queue.ts",
+      "development": "./src/modules/pocket/pocket-delivery-queue.ts",
+      "import": "./dist/modules/pocket/pocket-delivery-queue.js",
+      "default": "./src/modules/pocket/pocket-delivery-queue.ts"
+    },
+    "./pocket/assertion-publishing-store": {
+      "types": "./src/modules/pocket/assertion-publishing-store.ts",
+      "development": "./src/modules/pocket/assertion-publishing-store.ts",
+      "import": "./dist/modules/pocket/assertion-publishing-store.js",
+      "default": "./src/modules/pocket/assertion-publishing-store.ts"
+    },
+    "./pocket/drizzle-assertion-publishing-store": {
+      "types": "./src/modules/pocket/drizzle-assertion-publishing-store.ts",
+      "development": "./src/modules/pocket/drizzle-assertion-publishing-store.ts",
+      "import": "./dist/modules/pocket/drizzle-assertion-publishing-store.js",
+      "default": "./src/modules/pocket/drizzle-assertion-publishing-store.ts"
+    },
+    "./modules/studio/studio-exam-processor": {
+      "types": "./src/modules/studio/studio-exam-processor.ts",
+      "development": "./src/modules/studio/studio-exam-processor.ts",
+      "import": "./dist/modules/studio/studio-exam-processor.js",
+      "default": "./src/modules/studio/studio-exam-processor.ts"
+    },
+    "./modules/studio/studio-exam-queue": {
+      "types": "./src/modules/studio/studio-exam-queue.ts",
+      "development": "./src/modules/studio/studio-exam-queue.ts",
+      "import": "./dist/modules/studio/studio-exam-queue.js",
+      "default": "./src/modules/studio/studio-exam-queue.ts"
+    },
+    "./modules/studio/studio-exam-store": {
+      "types": "./src/modules/studio/studio-exam-store.ts",
+      "development": "./src/modules/studio/studio-exam-store.ts",
+      "import": "./dist/modules/studio/studio-exam-store.js",
+      "default": "./src/modules/studio/studio-exam-store.ts"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

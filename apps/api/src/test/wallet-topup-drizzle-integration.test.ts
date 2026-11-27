@@ -20,13 +20,14 @@ import { loadApiConfig } from "../config.js";
 import { v1Routes } from "../routes/v1.js";
 import { DrizzleUserStore, DrizzleSessionStore } from "../modules/identity/drizzle-stores.js";
 import { generateSessionToken, hashToken } from "../modules/identity/session-service.js";
+import {
+  assertSafeDestructiveTestOperation,
+  resolveSafePostgresTestUrl,
+} from "./pg-test-guard.js";
 
 /* eslint-disable no-secrets/no-secrets */
 describe("Real Postgres DB Integration: Wallet Top-Up & Card-to-Card", () => {
-  const dbUrl =
-    process.env.DATABASE_URL ||
-    "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
-
+  let dbUrl = "";
   let client: ReturnType<typeof createDbClient>;
   let isConnected = false;
   let commerceStore: DrizzleCommerceStore;
@@ -35,31 +36,27 @@ describe("Real Postgres DB Integration: Wallet Top-Up & Card-to-Card", () => {
   let userStore: DrizzleUserStore;
   let sessionStore: DrizzleSessionStore;
   beforeAll(async () => {
-    try {
-      client = createDbClient(dbUrl);
-      await client.db.execute(sql`SELECT 1;`);
-      isConnected = true;
+    dbUrl = resolveSafePostgresTestUrl();
+    client = createDbClient(dbUrl);
+    await client.db.execute(sql`SELECT 1;`);
+    isConnected = true;
 
-      commerceStore = new DrizzleCommerceStore(client.db);
-      walletStore = new DrizzleWalletStore(client.db);
-      userStore = new DrizzleUserStore(client.db);
-      sessionStore = new DrizzleSessionStore(client.db);
+    commerceStore = new DrizzleCommerceStore(client.db);
+    walletStore = new DrizzleWalletStore(client.db);
+    userStore = new DrizzleUserStore(client.db);
+    sessionStore = new DrizzleSessionStore(client.db);
 
-      commerceService = new CommerceService(
-        commerceStore,
-        new MockPaymentGateway(),
-        userStore,
-        undefined,
-        undefined,
-        {
-          enabled: true,
-          destinationCardNumber: "5894631131738239",
-        },
-      );
-    } catch (err) {
-      console.error("Failed to connect to real Postgres DB:", err);
-      isConnected = false;
-    }
+    commerceService = new CommerceService(
+      commerceStore,
+      new MockPaymentGateway(),
+      userStore,
+      undefined,
+      undefined,
+      {
+        enabled: true,
+        destinationCardNumber: "5894631131738239",
+      },
+    );
   });
 
   const createdUserIds: string[] = [];
@@ -85,6 +82,7 @@ describe("Real Postgres DB Integration: Wallet Top-Up & Card-to-Card", () => {
 
   afterAll(async () => {
     if (client) {
+      assertSafeDestructiveTestOperation("wallet_topup_cleanup", dbUrl);
       for (const uId of createdUserIds) {
         await client.db
           .delete(schema.users)

@@ -25,12 +25,13 @@ import {
 } from "@avana/database/schema";
 import { sql, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-
-const postgresUrl =
-  process.env.DATABASE_URL ??
-  `postgres://${"avana"}:${"avana"}@127.0.0.1:5432/avana?sslmode=disable`;
+import {
+  assertSafeDestructiveTestOperation,
+  resolveSafePostgresTestUrl,
+} from "./pg-test-guard.js";
 
 describe("DrizzleAdminStore getAiAnalytics - SQL Aggregation Tests", () => {
+  let postgresUrl = "";
   let dbClient: ReturnType<typeof createDbClient>;
   let store: DrizzleAdminStore;
   let isConnected = false;
@@ -41,18 +42,16 @@ describe("DrizzleAdminStore getAiAnalytics - SQL Aggregation Tests", () => {
   let testUserId: string;
 
   beforeAll(async () => {
-    try {
-      dbClient = createDbClient(postgresUrl);
-      await dbClient.db.execute(sql`SELECT 1;`);
-      isConnected = true;
-      store = new DrizzleAdminStore(dbClient.db);
-    } catch {
-      isConnected = false;
-    }
+    postgresUrl = resolveSafePostgresTestUrl();
+    dbClient = createDbClient(postgresUrl);
+    await dbClient.db.execute(sql`SELECT 1;`);
+    isConnected = true;
+    store = new DrizzleAdminStore(dbClient.db);
   });
 
   afterAll(async () => {
     if (dbClient) {
+      assertSafeDestructiveTestOperation("admin_ai_analytics_close", postgresUrl);
       await dbClient.close().catch(() => {});
     }
   });

@@ -30,48 +30,13 @@ import {
  * - Cleans up all test data (error records and test users) on teardown even if tests fail.
  */
 
-function validateTestDatabaseUrl(rawUrl: string | undefined): { valid: boolean; reason?: string; url?: string } {
-  if (!rawUrl || typeof rawUrl !== "string" || rawUrl.trim().length === 0) {
-    return { valid: false, reason: "No explicit TEST_DATABASE_URL or DATABASE_URL provided." };
-  }
-
-  try {
-    const parsed = new URL(rawUrl.trim());
-    const host = parsed.hostname.toLowerCase();
-    const pathname = parsed.pathname.toLowerCase();
-
-    // Strict Production Guard
-    const prohibitedHosts = ["aavana.ir", "api.aavana.ir", "prod", "production", "db.aavana.ir"];
-    if (prohibitedHosts.some((h) => host.includes(h))) {
-      return { valid: false, reason: `Target host '${host}' is identified as production; execution blocked.` };
-    }
-
-    const isAllowlisted =
-      pathname.includes("test") ||
-      pathname.includes("staging") ||
-      pathname.includes("avana") ||
-      host === "127.0.0.1" ||
-      host === "localhost";
-
-    if (!isAllowlisted) {
-      return { valid: false, reason: `Target database path '${pathname}' is not recognized as test/dev.` };
-    }
-
-    return { valid: true, url: parsed.toString() };
-  } catch (err: unknown) {
-    return { valid: false, reason: `Invalid database URL format: ${String((err as Error)?.message || err)}` };
-  }
-}
+import {
+  assertSafeDestructiveTestOperation,
+  resolveSafePostgresTestUrl,
+} from "./pg-test-guard.js";
 
 describe("Real PostgreSQL: DrizzleErrorStore Integration Suite", () => {
-  const candidateUrl =
-    process.env.TEST_DATABASE_URL ||
-    process.env.STAGING_DATABASE_URL ||
-    process.env.DATABASE_URL ||
-    "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
-
-  const validation = validateTestDatabaseUrl(candidateUrl);
-
+  let dbUrl = "";
   let client: ReturnType<typeof createDbClient> | null = null;
   let isConnected = false;
   let store: DrizzleErrorStore;
@@ -81,61 +46,50 @@ describe("Real PostgreSQL: DrizzleErrorStore Integration Suite", () => {
   let testAdminId: string;
 
   beforeAll(async () => {
-    if (!validation.valid || !validation.url) {
-      console.warn("Skipping real PG tests: database URL validation failed -", validation.reason);
-      isConnected = false;
-      return;
+    dbUrl = resolveSafePostgresTestUrl();
+    client = createDbClient(dbUrl);
+    await client.db.execute(sql`SELECT 1;`);
+
+    // Check if error_groups table exists
+    const tableCheck: any = await client.db.execute(sql`
+      SELECT to_regclass('public.error_groups') as regclass;
+    `);
+    const regclass = tableCheck.rows ? tableCheck.rows[0]?.regclass : tableCheck[0]?.regclass;
+
+    if (!regclass) {
+      throw new Error("error_groups table does not exist in target test database.");
     }
 
-    try {
-      client = createDbClient(validation.url);
-      await client.db.execute(sql`SELECT 1;`);
+    store = new DrizzleErrorStore(client.db);
+    isConnected = true;
 
-      // Check if error_groups table exists
-      const tableCheck: any = await client.db.execute(sql`
-        SELECT to_regclass('public.error_groups') as regclass;
-      `);
-      const regclass = tableCheck.rows ? tableCheck.rows[0]?.regclass : tableCheck[0]?.regclass;
+    // Seed real test users for foreign key constraints in error_group_users & error_admin_notes
+    testUserId = randomUUID();
+    testUser2Id = randomUUID();
+    testAdminId = randomUUID();
 
-      if (!regclass) {
-        console.warn("Skipping real PG tests: error_groups table does not exist in target database.");
-        isConnected = false;
-        return;
-      }
-
-      store = new DrizzleErrorStore(client.db);
-      isConnected = true;
-
-      // Seed real test users for foreign key constraints in error_group_users & error_admin_notes
-      testUserId = randomUUID();
-      testUser2Id = randomUUID();
-      testAdminId = randomUUID();
-
-      await client.db.insert(users).values([
-        {
-          id: testUserId,
-          email: `test_err_u1_${testUserId.slice(0, 8)}@test.local`,
-          name: "Test Error User 1",
-        },
-        {
-          id: testUser2Id,
-          email: `test_err_u2_${testUser2Id.slice(0, 8)}@test.local`,
-          name: "Test Error User 2",
-        },
-        {
-          id: testAdminId,
-          email: `test_err_admin_${testAdminId.slice(0, 8)}@test.local`,
-          name: "Test Error Admin",
-        },
-      ]);
-    } catch (err) {
-      console.warn("Skipping real PG tests: could not connect to PostgreSQL -", (err as Error)?.message);
-      isConnected = false;
-    }
+    await client.db.insert(users).values([
+      {
+        id: testUserId,
+        email: `test_err_u1_${testUserId.slice(0, 8)}@test.local`,
+        name: "Test Error User 1",
+      },
+      {
+        id: testUser2Id,
+        email: `test_err_u2_${testUser2Id.slice(0, 8)}@test.local`,
+        name: "Test Error User 2",
+      },
+      {
+        id: testAdminId,
+        email: `test_err_admin_${testAdminId.slice(0, 8)}@test.local`,
+        name: "Test Error Admin",
+      },
+    ]);
   });
 
   afterAll(async () => {
     if (isConnected && client) {
+      assertSafeDestructiveTestOperation("drizzle_error_store_cleanup", dbUrl);
       try {
         if (createdGroupIds.length > 0) {
           for (const id of createdGroupIds) {

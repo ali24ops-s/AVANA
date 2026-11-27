@@ -1,5 +1,5 @@
 {
-  "build_timestamp": "2026-11-20T20:56:35.234Z",
+  "build_timestamp": "2026-11-27T11:59:19.404Z",
   "migrations": [
     {
       "id": "0001_init",
@@ -824,6 +824,62 @@
       "dist_file": "0106_presentation_generation_operations.js",
       "source_sha256": "ae24369ce1b67e1f732e0568d3b6e3616b0c133e1ef2b4ce1e5c81cf64ccd404",
       "dist_sha256": "4f3d67aa8374b68add1d26887765705358a8baed5d95295c6b2970c6214e7885"
+    },
+    {
+      "id": "0107_pocket_core",
+      "sequence": 107,
+      "source_file": "0107_pocket_core.ts",
+      "dist_file": "0107_pocket_core.js",
+      "source_sha256": "42b7e7467ce35fc7ce97d9d058e244f9524c065585f25fd6a84aab0af81ea9a9",
+      "dist_sha256": "7deb5ba11169953ada5e3464384d4d623502b201451295ffc3e83f415187c686"
+    },
+    {
+      "id": "0108_studio_exam_generation",
+      "sequence": 108,
+      "source_file": "0108_studio_exam_generation.ts",
+      "dist_file": "0108_studio_exam_generation.js",
+      "source_sha256": "118f0120dc104092ec42f047f29dc7c5dd66bab3f24c12f4eb44f7724c9ca15e",
+      "dist_sha256": "e97e290f1b6f132897da8efae9b6499045a3b6fba9b59d344756b4651b7c0297"
+    },
+    {
+      "id": "0109_studio_exam_question_review",
+      "sequence": 109,
+      "source_file": "0109_studio_exam_question_review.ts",
+      "dist_file": "0109_studio_exam_question_review.js",
+      "source_sha256": "5102b50d34b8bf38644595a03a97611616f70864145682d4d66a4ce34f9c2719",
+      "dist_sha256": "cc97a79500d6abd2b63a641914c67130a5a71eb0b33f9d2ee3853b9d61a77261"
+    },
+    {
+      "id": "0110_pocket_verification_chain_integrity",
+      "sequence": 110,
+      "source_file": "0110_pocket_verification_chain_integrity.ts",
+      "dist_file": "0110_pocket_verification_chain_integrity.js",
+      "source_sha256": "894d74b4a63a76e1bb009a890caf001c10a6e03cce3d4b0483d3321303bf3996",
+      "dist_sha256": "b4f5249b8d8be9751c25517b4a1385286a447d7c78af2171c1678c4f660d0d35"
+    },
+    {
+      "id": "0111_pocket_published_root_uniqueness",
+      "sequence": 111,
+      "source_file": "0111_pocket_published_root_uniqueness.ts",
+      "dist_file": "0111_pocket_published_root_uniqueness.js",
+      "source_sha256": "703ab27a4eaacdb420a261f3582c559c16b2c38be1be8050834d619c316dfb35",
+      "dist_sha256": "c8fd79e0e3df9ffa54d471a0f963838d5381e0f55b79716e12080ff7330ba426"
+    },
+    {
+      "id": "0112_pocket_credential_lifecycle",
+      "sequence": 112,
+      "source_file": "0112_pocket_credential_lifecycle.ts",
+      "dist_file": "0112_pocket_credential_lifecycle.js",
+      "source_sha256": "8d038dcdddca493d6680964cba955e800902556baf0cb6d92b99df684c4688ac",
+      "dist_sha256": "e1569b5b1a485cf94296e315134bab067c7fa119b7dcd8d0bdbd6fc80eeae4c9"
+    },
+    {
+      "id": "0113_pocket_conflict_resolution",
+      "sequence": 113,
+      "source_file": "0113_pocket_conflict_resolution.ts",
+      "dist_file": "0113_pocket_conflict_resolution.js",
+      "source_sha256": "dee7a38617841d70264651a123e36e9b96116818de6de720a70c1dc6a45b3f9f",
+      "dist_sha256": "efb8844ab894c51da6aa48c597af3b024d29c7951232debdec701feb6544a00b"
     }
   ]
 }

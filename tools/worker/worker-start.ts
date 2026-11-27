@@ -227,6 +227,7 @@ async function main() {
         ...envData,
         NODE_ENV: "development",
         WORKER_MODE: "true",
+        DISABLE_INLINE_WORKER: "true",
       },
       stdio: ["ignore", "pipe", "pipe"],
       detached: !isWindows,
@@ -237,6 +238,31 @@ async function main() {
 
   pipeWithPrefix(apiChild.stdout, process.stdout, apiPrefix);
   pipeWithPrefix(apiChild.stderr, process.stderr, apiPrefix);
+
+  // 2b. Spawn dedicated BullMQ Worker Process (@avana/worker: generation, pocket, studio_exam_batch_generate)
+  const MAGENTA = "\x1b[35m";
+  const workerPrefix = `${MAGENTA}[worker]${RESET}`;
+  process.stdout.write(`${GREEN}✓${RESET} Spawning Dedicated BullMQ Worker (@avana/worker)...\n`);
+
+  const workerChild = spawn(
+    npmCmd,
+    ["run", "dev", "--workspace=@avana/worker"],
+    {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        ...envData,
+        NODE_ENV: "development",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: !isWindows,
+      shell: isWindows,
+    },
+  );
+  children.push(workerChild);
+
+  pipeWithPrefix(workerChild.stdout, process.stdout, workerPrefix);
+  pipeWithPrefix(workerChild.stderr, process.stderr, workerPrefix);
 
   // 3. Spawn Web Frontend
   const webPrefix = `${GREEN}[web]${RESET}`;
@@ -267,6 +293,13 @@ async function main() {
     if (!isShuttingDown) {
       process.stdout.write(`${RED}[api] exited with code ${code ?? sig}${RESET}\n`);
       shutdown("API EXIT");
+    }
+  });
+
+  workerChild.on("exit", (code, sig) => {
+    if (!isShuttingDown) {
+      process.stdout.write(`${RED}[worker] exited with code ${code ?? sig}${RESET}\n`);
+      shutdown("WORKER EXIT");
     }
   });
 

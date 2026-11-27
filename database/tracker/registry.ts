@@ -104,6 +104,13 @@ import { up as up0103 } from "../migrations/0103_courses_slug_and_backfill.js";
 import { up as up0104 } from "../migrations/0104_polls_and_surveys.js";
 import { up as up0105 } from "../migrations/0105_presentation_slide_payments.js";
 import { up as up0106 } from "../migrations/0106_presentation_generation_operations.js";
+import { up as up0107 } from "../migrations/0107_pocket_core.js";
+import { up as up0108 } from "../migrations/0108_studio_exam_generation.js";
+import { up as up0109 } from "../migrations/0109_studio_exam_question_review.js";
+import { up as up0110 } from "../migrations/0110_pocket_verification_chain_integrity.js";
+import { up as up0111 } from "../migrations/0111_pocket_published_root_uniqueness.js";
+import { up as up0112 } from "../migrations/0112_pocket_credential_lifecycle.js";
+import { up as up0113 } from "../migrations/0113_pocket_conflict_resolution.js";
 
 export const ALL_MIGRATIONS: MigrationDefinition[] = [
   {
@@ -723,5 +730,47 @@ export const ALL_MIGRATIONS: MigrationDefinition[] = [
     sequence: 106,
     up: up0106,
     sourceFile: "0106_presentation_generation_operations.ts",
+  },
+  {
+    id: "0107_pocket_core",
+    sequence: 107,
+    up: up0107,
+    sourceFile: "0107_pocket_core.ts",
+  },
+  {
+    id: "0108_studio_exam_generation",
+    sequence: 108,
+    up: up0108,
+    sourceFile: "0108_studio_exam_generation.ts",
+  },
+  {
+    id: "0109_studio_exam_question_review",
+    sequence: 109,
+    up: up0109,
+    sourceFile: "0109_studio_exam_question_review.ts",
+  },
+  {
+    id: "0110_pocket_verification_chain_integrity",
+    sequence: 110,
+    up: up0110,
+    sourceFile: "0110_pocket_verification_chain_integrity.ts",
+  },
+  {
+    id: "0111_pocket_published_root_uniqueness",
+    sequence: 111,
+    up: up0111,
+    sourceFile: "0111_pocket_published_root_uniqueness.ts",
+  },
+  {
+    id: "0112_pocket_credential_lifecycle",
+    sequence: 112,
+    up: up0112,
+    sourceFile: "0112_pocket_credential_lifecycle.ts",
+  },
+  {
+    id: "0113_pocket_conflict_resolution",
+    sequence: 113,
+    up: up0113,
+    sourceFile: "0113_pocket_conflict_resolution.ts",
   },
 ];

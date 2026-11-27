@@ -20,6 +20,7 @@ import {
   Edit2,
   UserRound,
   FlaskConical,
+  FolderTree,
 } from "lucide-react";
 import { toPersianDigits } from "@avana/domain";
 import type { MindMapChemicalStructure, MindMapNodeChemicalStatus } from "@avana/contracts";
@@ -168,6 +169,10 @@ export const MindMapCustomNode = memo(({ data }: { data: MindMapCustomNodeData }
 
     if (data.isSelected) {
       return `${base} bg-[var(--color-surface)] border-2 border-[#008080] shadow-md ring-2 ring-[#008080]/30`;
+    }
+
+    if (data.nodeRole === "category") {
+      return `${base} bg-teal-50/45 dark:bg-teal-950/20 border-[1.5px] border-[#008080]/75 dark:border-teal-500/75 hover:border-[#008080] shadow-xs`;
     }
 
     if (data.depth === 1) {
@@ -384,8 +389,14 @@ export const MindMapCustomNode = memo(({ data }: { data: MindMapCustomNodeData }
       )}
 
       {/* Node Title: Clean multi-line wrapping with full padding clearance */}
-      <h4 className={typography.title}>
-        {data.title}
+      <h4 className={`${typography.title} flex items-center justify-center gap-1.5`}>
+        {!isRoot && data.nodeRole === "category" && (
+          <FolderTree
+            className="w-3.5 h-3.5 text-[#008080] dark:text-teal-400 shrink-0"
+            aria-label="دسته مرجع"
+          />
+        )}
+        <span>{data.title}</span>
       </h4>
 
       {/* Short Description: full conceptual visibility without truncation */}

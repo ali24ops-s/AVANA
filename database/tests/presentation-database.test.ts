@@ -1,4 +1,3 @@
-/* eslint-disable no-secrets/no-secrets */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { createDbClient } from "../client.js";
 import { sql, eq } from "drizzle-orm";
@@ -12,12 +11,13 @@ import {
   presentationReferences,
 } from "../schema/index.js";
 import { up as runMigration0095 } from "../migrations/0095_presentation_assistant_core.js";
+import {
+  resolveSafeDatabaseTestUrl,
+  assertSafeDestructiveDatabaseTestOp,
+} from "./pg-test-guard.js";
 
 describe("Presentation Assistant Database Invariants", () => {
-  const dbUrl =
-    process.env.DATABASE_URL ||
-    "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
-
+  let dbUrl: string;
   let client: ReturnType<typeof createDbClient>;
   let isConnected = false;
 
@@ -26,14 +26,12 @@ describe("Presentation Assistant Database Invariants", () => {
   const testDocId = randomUUID();
 
   beforeAll(async () => {
-    try {
-      client = createDbClient(dbUrl);
-      await client.db.execute(sql`SELECT 1;`);
-      isConnected = true;
-    } catch {
-      isConnected = false;
-      return;
-    }
+    dbUrl = resolveSafeDatabaseTestUrl("default");
+    assertSafeDestructiveDatabaseTestOp("MIGRATE_AND_ALTER_CONSTRAINTS", dbUrl, "default");
+
+    client = createDbClient(dbUrl);
+    await client.db.execute(sql`SELECT 1;`);
+    isConnected = true;
 
     // PostgreSQL is reachable: ensure migration 0095 is applied with latest constraints
     await runMigration0095(client.db);
@@ -120,6 +118,7 @@ describe("Presentation Assistant Database Invariants", () => {
     if (client) {
       try {
         if (isConnected) {
+          assertSafeDestructiveDatabaseTestOp("DELETE", dbUrl, "default");
           await client.db.delete(organizations).where(eq(organizations.id, testOrgId));
           await client.db.delete(users).where(eq(users.id, testUserId));
         }

@@ -325,6 +325,43 @@ export function adaptToGeminiJsonSchema(jsonSchema: unknown): Record<string, unk
     };
   }
 
+  if (typeKey === "studio_exam_questions") {
+    return {
+      type: "object",
+      properties: {
+        questions: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              questionIndex: { type: "integer" },
+              question: { type: "string" },
+              questionType: { type: "string", enum: ["multiple_choice"] },
+              choices: { type: "array", items: { type: "string" } },
+              correctAnswer: { type: "string" },
+              explanation: { type: "string" },
+              difficulty: {
+                type: "string",
+                enum: ["easy", "medium", "hard"],
+              },
+              category: { type: "string" },
+              topic: { type: "string" },
+            },
+            required: [
+              "questionIndex",
+              "question",
+              "questionType",
+              "choices",
+              "correctAnswer",
+              "explanation",
+            ],
+          },
+        },
+      },
+      required: ["questions"],
+    };
+  }
+
   if (typeKey === "review_summary") {
     return {
       type: "object",
@@ -455,6 +492,112 @@ export function adaptToGeminiJsonSchema(jsonSchema: unknown): Record<string, unk
         },
       },
       required: ["title", "content", "speakerNotes", "citations"],
+    };
+  }
+
+  if (typeKey === "mind_map_skeleton") {
+    const buildSkeletonLevel = (remainingDepth: number): Record<string, unknown> => {
+      const baseProps: Record<string, unknown> = {
+        id: { type: "string" },
+        title: { type: "string" },
+        nodeRole: { type: "string", enum: ["category", "concept"] },
+        category: {
+          type: "string",
+          enum: ["drug", "disease", "cellular_mechanism", "biochemistry", "general"],
+        },
+      };
+      const required = ["id", "title", "nodeRole", "category"];
+      if (remainingDepth > 0) {
+        baseProps.children = {
+          type: "array",
+          items: buildSkeletonLevel(remainingDepth - 1),
+        };
+        required.push("children");
+      }
+      return {
+        type: "object",
+        properties: baseProps,
+        required,
+      };
+    };
+
+    return {
+      type: "object",
+      properties: {
+        root: buildSkeletonLevel(5),
+      },
+      required: ["root"],
+    };
+  }
+
+  if (typeKey === "mind_map_hydration") {
+    return {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              shortDescription: { type: "string" },
+              keyPoints: { type: "array", items: { type: "string" } },
+              examTips: { type: "array", items: { type: "string" } },
+              category: {
+                type: "string",
+                enum: ["drug", "disease", "cellular_mechanism", "biochemistry", "general"],
+              },
+              structuredDetails: {
+                type: "object",
+                properties: {
+                  mechanismOfAction: { type: "string" },
+                  indications: { type: "array", items: { type: "string" } },
+                  drugClass: { type: "string" },
+                  pharmacology: { type: "string" },
+                  adverseEffects: { type: "array", items: { type: "string" } },
+                  contraindications: { type: "array", items: { type: "string" } },
+                  interactions: { type: "array", items: { type: "string" } },
+                  clinicalPearls: { type: "array", items: { type: "string" } },
+                  commonPitfalls: { type: "array", items: { type: "string" } },
+                  relatedConcepts: { type: "array", items: { type: "string" } },
+                },
+              },
+            },
+            required: ["id", "shortDescription", "keyPoints"],
+          },
+        },
+      },
+      required: ["items"],
+    };
+  }
+
+  if (typeKey === "mind_map_coverage") {
+    return {
+      type: "object",
+      properties: {
+        overallCoverageScore: { type: "number" },
+        missingConcepts: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              suggestedParentId: { type: "string" },
+              nodeRole: { type: "string", enum: ["category", "concept"] },
+              category: {
+                type: "string",
+                enum: ["drug", "disease", "cellular_mechanism", "biochemistry", "general"],
+              },
+              shortDescription: { type: "string" },
+              keyPoints: { type: "array", items: { type: "string" } },
+              examTips: { type: "array", items: { type: "string" } },
+            },
+            required: ["title", "suggestedParentId", "nodeRole", "shortDescription"],
+          },
+        },
+        ungroundedNodeIds: { type: "array", items: { type: "string" } },
+      },
+      required: ["overallCoverageScore", "missingConcepts"],
     };
   }
 
@@ -891,6 +1034,19 @@ export class GeminiModelGateway implements ModelGateway {
    * - Zero fallback to Groq or secondary providers.
    */
   async complete(req: CompletionRequest): Promise<CompletionResult> {
+    // 0. Pre-flight check: Abort immediately if signal is already aborted
+    if (req.signal?.aborted) {
+      const reason = req.signal.reason;
+      if (reason instanceof Error) {
+        throw reason;
+      }
+      const abortErr = new Error(
+        typeof reason === "string" ? reason : "Gemini API request was aborted prior to execution",
+      );
+      abortErr.name = "AbortError";
+      throw abortErr;
+    }
+
     // 1. Separate system instructions from conversation contents
     const systemParts: Array<{ text: string }> = [];
     const contents: Array<{
@@ -987,6 +1143,13 @@ export class GeminiModelGateway implements ModelGateway {
         this.timeoutMs,
       );
 
+      const abortListener = () => {
+        attemptController.abort(req.signal?.reason);
+      };
+      if (req.signal) {
+        req.signal.addEventListener("abort", abortListener, { once: true });
+      }
+
       let response: Response;
       let responseText = "";
       let durationMs = 0;
@@ -1008,7 +1171,9 @@ export class GeminiModelGateway implements ModelGateway {
       } catch (fetchErr) {
         clearTimeout(attemptTimer);
         durationMs = Date.now() - startTime;
-        const isTimeout = attemptController.signal.aborted;
+        const isUserAbort = Boolean(req.signal?.aborted);
+        const isTimeout = !isUserAbort && attemptController.signal.aborted;
+
         if (reservationId) {
           if (isTimeout) {
             // Under timeout uncertainty, retain prompt token consumption in rate limiter
@@ -1022,6 +1187,28 @@ export class GeminiModelGateway implements ModelGateway {
             await this.keyPool.releaseReservationAsync(slot.id, reservationId);
           }
         }
+
+        if (isUserAbort) {
+          this.logRequestEvent({
+            event: "error",
+            slotId: slot.id,
+            attempt: attempt + 1,
+            maxAttempts: maxTotalAttempts,
+            geminiMessage: "Gemini API request was aborted by client signal",
+            durationMs,
+            req,
+          });
+          const reason = req.signal?.reason;
+          if (reason instanceof Error) {
+            throw reason;
+          }
+          const abortErr = new Error(
+            typeof reason === "string" ? reason : "Gemini API request was aborted",
+          );
+          abortErr.name = "AbortError";
+          throw abortErr;
+        }
+
         const rawErr = isTimeout
           ? `Gemini API request timed out after ${this.timeoutMs}ms`
           : (fetchErr instanceof Error ? fetchErr.message : String(fetchErr));
@@ -1061,6 +1248,11 @@ export class GeminiModelGateway implements ModelGateway {
             ? `Gemini API request timed out after ${this.timeoutMs}ms`
             : `Gemini API network error: ${sanitizedErr}`,
         );
+      } finally {
+        clearTimeout(attemptTimer);
+        if (req.signal) {
+          req.signal.removeEventListener("abort", abortListener);
+        }
       }
 
       // 3. Handle successful HTTP response (200-299)

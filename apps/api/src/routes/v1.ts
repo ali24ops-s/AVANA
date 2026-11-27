@@ -210,6 +210,41 @@ import {
   type PresentationSlideStore,
   type PresentationReferenceStore,
 } from "../modules/presentation/index.js";
+import {
+  pocketReviewerRoutes,
+  pocketAssertionReviewRoutes,
+  pocketAssertionVerificationRoutes,
+  pocketAssertionPublishingRoutes,
+  pocketAssertionConsumptionRoutes,
+  pocketSearchRoutes,
+  pocketSafetyOverrideRoutes,
+  pocketAdminRoutes,
+  ReviewerService,
+  AssertionReviewService,
+  AssertionVerificationService,
+  AssertionPublishingService,
+  AssertionConsumptionService,
+  PocketSearchService,
+  SafetyOverrideService,
+  PocketAdminService,
+  DrizzleReviewerStore,
+  DrizzleAssertionReviewStore,
+  DrizzleAssertionVerificationStore,
+  DrizzleAssertionPublishingStore,
+  DrizzleAssertionConsumptionStore,
+  DrizzlePocketSearchStore,
+  DrizzleSafetyOverrideStore,
+  DrizzlePocketAdminStore,
+  PocketOutboxDispatcher,
+  type ReviewerStore,
+  type AssertionReviewStore,
+  type AssertionVerificationStore,
+  type AssertionPublishingStore,
+  type AssertionConsumptionStore,
+  type PocketSearchStore,
+  type SafetyOverrideStore,
+  type PocketAdminStore,
+} from "../modules/pocket/index.js";
 
 export interface V1RouteOptions {
   config: IdentityPluginOptions["config"];
@@ -328,6 +363,25 @@ export interface V1RouteOptions {
   presentationReferenceIntegrationService?: PresentationReferenceIntegrationService;
   presentationGenerationOperationStore?: import("../modules/presentation/index.js").PresentationGenerationOperationStore;
   presentationGenerationOperationService?: import("../modules/presentation/index.js").PresentationGenerationOperationService;
+  pocketReviewerStore?: ReviewerStore;
+  pocketReviewerService?: ReviewerService;
+  pocketAssertionReviewStore?: AssertionReviewStore;
+  pocketAssertionReviewService?: AssertionReviewService;
+  pocketAssertionVerificationStore?: AssertionVerificationStore;
+  pocketAssertionVerificationService?: AssertionVerificationService;
+  pocketAssertionPublishingStore?: AssertionPublishingStore;
+  pocketAssertionPublishingService?: AssertionPublishingService;
+  pocketAssertionConsumptionStore?: AssertionConsumptionStore;
+  pocketAssertionConsumptionService?: AssertionConsumptionService;
+  pocketSearchStore?: PocketSearchStore;
+  pocketSearchService?: PocketSearchService;
+  pocketSafetyOverrideStore?: SafetyOverrideStore;
+  pocketSafetyOverrideService?: SafetyOverrideService;
+  pocketAdminStore?: PocketAdminStore;
+  pocketAdminService?: PocketAdminService;
+  pocketOutboxDispatcher?: PocketOutboxDispatcher;
+  studioExamStore?: import("../modules/studio/studio-exam-store.js").StudioExamStore;
+  studioExamQueue?: import("../modules/studio/studio-exam-queue.js").StudioExamQueue;
 }
 
 
@@ -1577,6 +1631,9 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       opts.quizQuestionStore,
       opts.organizationStore,
       effectiveDbForStudio,
+      opts.studioExamStore,
+      opts.studioExamQueue,
+      questionPatternStore,
     );
 
   const studioAiGateway = opts.gateway ?? opts.adminGateway;
@@ -1741,5 +1798,254 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       });
     }
   }
-};
 
+  // ---------------------------------------------------------------------------
+  // Pocket Clinical Reviewer Governance Routes (/v1/pocket/reviewers)
+  // ---------------------------------------------------------------------------
+  if (
+    (opts.db || opts.pocketReviewerStore || opts.pocketReviewerService) &&
+    opts.userStore &&
+    opts.sessionStore &&
+    opts.config
+  ) {
+    const reviewerStore =
+      opts.pocketReviewerStore ??
+      (opts.db ? new DrizzleReviewerStore(opts.db) : undefined);
+
+    const sharedReviewerService =
+      opts.pocketReviewerService ??
+      (reviewerStore
+        ? new ReviewerService({
+            reviewerStore,
+            db: opts.db,
+          })
+        : undefined);
+
+    if (sharedReviewerService) {
+      const reviewerSessionService = new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      );
+
+      await app.register(pocketReviewerRoutes, {
+        reviewerService: sharedReviewerService,
+        sessionService: reviewerSessionService,
+        userStore: opts.userStore,
+      });
+    }
+
+    const assertionReviewStore =
+      opts.pocketAssertionReviewStore ??
+      (opts.db ? new DrizzleAssertionReviewStore(opts.db) : undefined);
+
+    if (assertionReviewStore || opts.pocketAssertionReviewService) {
+      const assertionReviewService =
+        opts.pocketAssertionReviewService ??
+        new AssertionReviewService({
+          assertionReviewStore: assertionReviewStore!,
+          reviewerService: sharedReviewerService,
+          db: opts.db,
+        });
+
+      const assertionSessionService = new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      );
+
+      await app.register(pocketAssertionReviewRoutes, {
+        assertionReviewService,
+        sessionService: assertionSessionService,
+        userStore: opts.userStore,
+      });
+    }
+
+    const assertionVerificationStore =
+      opts.pocketAssertionVerificationStore ??
+      (opts.db ? new DrizzleAssertionVerificationStore(opts.db) : undefined);
+
+    if (
+      (assertionVerificationStore || opts.pocketAssertionVerificationService) &&
+      (assertionReviewStore || opts.pocketAssertionReviewService) &&
+      (reviewerStore || opts.pocketReviewerService)
+    ) {
+      const activeReviewerService =
+        opts.pocketReviewerService ??
+        new ReviewerService({
+          reviewerStore: reviewerStore!,
+          db: opts.db,
+        });
+
+      const activeAssertionReviewStore =
+        opts.pocketAssertionReviewStore ??
+        (opts.db ? new DrizzleAssertionReviewStore(opts.db) : undefined);
+
+      const assertionVerificationService =
+        opts.pocketAssertionVerificationService ??
+        new AssertionVerificationService({
+          verificationStore: assertionVerificationStore!,
+          assertionStore: activeAssertionReviewStore!,
+          reviewerService: activeReviewerService,
+          db: opts.db,
+        });
+
+      const verificationSessionService = new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      );
+
+      await app.register(pocketAssertionVerificationRoutes, {
+        assertionVerificationService,
+        sessionService: verificationSessionService,
+        userStore: opts.userStore,
+      });
+    }
+
+    const assertionPublishingStore =
+      opts.pocketAssertionPublishingStore ??
+      (opts.db ? new DrizzleAssertionPublishingStore(opts.db) : undefined);
+
+    if (
+      (assertionPublishingStore || opts.pocketAssertionPublishingService) &&
+      (assertionReviewStore || opts.pocketAssertionReviewService) &&
+      (assertionVerificationStore || opts.pocketAssertionVerificationService)
+    ) {
+      const activeAssertionReviewStore =
+        opts.pocketAssertionReviewStore ??
+        (opts.db ? new DrizzleAssertionReviewStore(opts.db) : undefined);
+
+      const activeAssertionVerificationStore =
+        opts.pocketAssertionVerificationStore ??
+        (opts.db ? new DrizzleAssertionVerificationStore(opts.db) : undefined);
+
+      const assertionPublishingService =
+        opts.pocketAssertionPublishingService ??
+        new AssertionPublishingService({
+          publishingStore: assertionPublishingStore!,
+          assertionStore: activeAssertionReviewStore!,
+          verificationStore: activeAssertionVerificationStore!,
+          db: opts.db,
+          onPublicationCommitted: opts.pocketOutboxDispatcher
+            ? () => opts.pocketOutboxDispatcher!.trigger()
+            : undefined,
+        });
+
+      const publishingSessionService = new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      );
+
+      await app.register(pocketAssertionPublishingRoutes, {
+        assertionPublishingService,
+        sessionService: publishingSessionService,
+        userStore: opts.userStore,
+      });
+    }
+
+    const assertionConsumptionStore =
+      opts.pocketAssertionConsumptionStore ??
+      (opts.db ? new DrizzleAssertionConsumptionStore(opts.db) : undefined);
+
+    if (assertionConsumptionStore || opts.pocketAssertionConsumptionService) {
+      const assertionConsumptionService =
+        opts.pocketAssertionConsumptionService ??
+        new AssertionConsumptionService({
+          consumptionStore: assertionConsumptionStore!,
+        });
+
+      const consumptionSessionService = new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      );
+
+      await app.register(pocketAssertionConsumptionRoutes, {
+        assertionConsumptionService,
+        sessionService: consumptionSessionService,
+        userStore: opts.userStore,
+      });
+    }
+
+    // Pocket Clinical Search & Discovery Routes (/v1/pocket/search, /discovery, /related)
+    const pocketSearchStore =
+      opts.pocketSearchStore ??
+      (opts.db ? new DrizzlePocketSearchStore(opts.db) : undefined);
+
+    if (pocketSearchStore || opts.pocketSearchService) {
+      const pocketSearchService =
+        opts.pocketSearchService ??
+        new PocketSearchService({
+          searchStore: pocketSearchStore!,
+        });
+
+      const searchSessionService = new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      );
+
+      await app.register(pocketSearchRoutes, {
+        pocketSearchService,
+        sessionService: searchSessionService,
+        userStore: opts.userStore,
+      });
+    }
+
+    // Pocket Safety Override Administrative Routes (/v1/pocket/safety-overrides)
+    const safetyOverrideStore =
+      opts.pocketSafetyOverrideStore ??
+      (opts.db ? new DrizzleSafetyOverrideStore(opts.db) : undefined);
+
+    if (safetyOverrideStore || opts.pocketSafetyOverrideService) {
+      const safetyOverrideService =
+        opts.pocketSafetyOverrideService ??
+        new SafetyOverrideService({
+          safetyOverrideStore: safetyOverrideStore!,
+          db: opts.db,
+        });
+
+      const safetyOverrideSessionService = new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      );
+
+      await app.register(pocketSafetyOverrideRoutes, {
+        safetyOverrideService,
+        sessionService: safetyOverrideSessionService,
+        userStore: opts.userStore,
+      });
+    }
+
+    // Pocket Admin Dashboard Routes (/v1/pocket/admin/summary)
+    const pocketAdminStore =
+      opts.pocketAdminStore ??
+      (opts.db ? new DrizzlePocketAdminStore(opts.db) : undefined);
+
+    if (pocketAdminStore || opts.pocketAdminService) {
+      const reviewerServiceForAdmin =
+        opts.pocketReviewerService ??
+        (reviewerStore
+          ? new ReviewerService({
+              reviewerStore,
+              db: opts.db,
+            })
+          : undefined);
+
+      const pocketAdminService =
+        opts.pocketAdminService ??
+        new PocketAdminService({
+          adminStore: pocketAdminStore!,
+          reviewerService: reviewerServiceForAdmin,
+          verificationStore: assertionVerificationStore,
+        });
+
+      const pocketAdminSessionService = new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      );
+
+      await app.register(pocketAdminRoutes, {
+        pocketAdminService,
+        sessionService: pocketAdminSessionService,
+        userStore: opts.userStore,
+      });
+    }
+  }
+};

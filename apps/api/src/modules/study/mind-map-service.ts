@@ -58,6 +58,18 @@ import {
   enrichMindMapAiBaseChemicalsAsync,
   enrichMindMapChemicalsWithReportAsync,
 } from "./mind-map-chemical-enricher.js";
+import {
+  extractSourceOutline,
+  parseSkeletonResponse,
+  flattenSkeletonToAiBaseNodes,
+  analyzeSkeletonAnomalies,
+  cleanDeterministicSkeletonDefects,
+  buildHydrationBatches,
+  selectRelevantSourceForBatch,
+  type MindMapSkeletonNode,
+  type HydrationNodeResult,
+  type SourceCoverageReport,
+} from "./mind-map-hierarchy.js";
 
 export const PERSONAL_MINDMAP_LEASE_DURATION_MS = 180_000; // 3 minutes
 export const MINDMAP_HEARTBEAT_INTERVAL_MS = 10_000; // 10 seconds
@@ -103,6 +115,7 @@ export interface MindMapSanitizationMetrics {
   depthLimitsFixed: number;
   nodesAccepted: number;
   nodesRejected: number;
+  sanitizationWarnings?: string[];
 }
 
 /**
@@ -1006,9 +1019,15 @@ export class MindMapService {
       if (!resolvedParentId || !usedIds.has(resolvedParentId)) {
         draft.data.parentId = rootNodeId;
         metrics.orphanParentsFixed++;
+        metrics.sanitizationWarnings = metrics.sanitizationWarnings || [];
+        metrics.sanitizationWarnings.push(
+          `orphan_parent:${draft.assignedId}:missing=${rawParentId ?? "null"}`,
+        );
       } else if (resolvedParentId === draft.assignedId) {
         draft.data.parentId = rootNodeId;
         metrics.selfParentsFixed++;
+        metrics.sanitizationWarnings = metrics.sanitizationWarnings || [];
+        metrics.sanitizationWarnings.push(`self_parent:${draft.assignedId}`);
       } else {
         draft.data.parentId = resolvedParentId;
       }
@@ -1027,11 +1046,13 @@ export class MindMapService {
 
       while (currId && currId !== rootNodeId) {
         if (visited.has(currId)) {
-          // Cycle identified! Break by attaching currId to rootNodeId
+          // Cycle identified! Break by attaching currId to rootNodeId with traceable warning
           const cycleNode = draftById.get(currId);
           if (cycleNode) {
             cycleNode.data.parentId = rootNodeId;
             metrics.cyclesFixed++;
+            metrics.sanitizationWarnings = metrics.sanitizationWarnings || [];
+            metrics.sanitizationWarnings.push(`cycle_broken:${currId}`);
           }
           break;
         }
@@ -1042,23 +1063,36 @@ export class MindMapService {
     }
 
     // Step 5: Depth Limit Enforcement (MAX_MINDMAP_DEPTH = 8)
+    // Preserve conceptual branch by attaching to the nearest valid ancestor within depth limit
+    // instead of dumping the node directly onto rootNodeId.
     for (const draft of drafts) {
       if (draft.assignedId === rootNodeId) continue;
-      let depth = 1;
+      const ancestryChain: string[] = [];
       let currId: string | null = draft.assignedId;
-      const ancestry = new Set<string>();
+      const seen = new Set<string>();
 
       while (currId && currId !== rootNodeId) {
-        ancestry.add(currId);
-        depth++;
+        seen.add(currId);
+        ancestryChain.push(currId);
         const currDraft = draftById.get(currId);
         currId = typeof currDraft?.data.parentId === "string" ? currDraft.data.parentId : null;
-        if (!currId || ancestry.has(currId)) break;
+        if (!currId || seen.has(currId)) break;
       }
 
+      // Total depth = ancestryChain.length + 1 (including root)
+      const depth = ancestryChain.length + 1;
       if (depth > MAX_MINDMAP_DEPTH) {
-        draft.data.parentId = rootNodeId;
+        // ancestryChain[0] is self, ancestryChain[1] is parent, ..., ancestryChain[length - 1] is depth-2 child of root
+        // We want a parent whose depth is <= MAX_MINDMAP_DEPTH - 1 (i.e. at most index >= depth - MAX_MINDMAP_DEPTH + 1)
+        const stepsUp = depth - MAX_MINDMAP_DEPTH + 1;
+        const targetAncestor =
+          stepsUp < ancestryChain.length ? ancestryChain[stepsUp] : rootNodeId;
+        draft.data.parentId = targetAncestor;
         metrics.depthLimitsFixed++;
+        metrics.sanitizationWarnings = metrics.sanitizationWarnings || [];
+        metrics.sanitizationWarnings.push(
+          `depth_repaired:${draft.assignedId}:depth=${depth}->parent=${targetAncestor}`,
+        );
       }
     }
 
@@ -1127,10 +1161,10 @@ export class MindMapService {
     const newNodes = newAiBase.nodes;
     const newKeys = new Set(Object.keys(newNodes));
 
-    // Count title occurrences in oldBaseNodes and newNodes for strict 1-to-1 disambiguation
+    // Count normalized title occurrences in oldBaseNodes and newNodes for strict 1-to-1 disambiguation
     const oldTitleCounts = new Map<string, number>();
     for (const oldNode of Object.values(previousBaseNodes)) {
-      const t = (typeof oldNode.title === "string" ? oldNode.title.trim() : "").toLowerCase();
+      const t = normalizePersianText(typeof oldNode.title === "string" ? oldNode.title : "");
       if (!t) continue;
       oldTitleCounts.set(t, (oldTitleCounts.get(t) ?? 0) + 1);
     }
@@ -1138,7 +1172,7 @@ export class MindMapService {
     const newTitleCounts = new Map<string, number>();
     const titleToUniqueNewId = new Map<string, string>();
     for (const [newId, newNode] of Object.entries(newNodes)) {
-      const t = (typeof newNode.title === "string" ? newNode.title.trim() : "").toLowerCase();
+      const t = normalizePersianText(typeof newNode.title === "string" ? newNode.title : "");
       if (!t) continue;
       const count = (newTitleCounts.get(t) ?? 0) + 1;
       newTitleCounts.set(t, count);
@@ -1149,31 +1183,59 @@ export class MindMapService {
       }
     }
 
-    // Matcher: exact ID first, then unique title + structural consistency
+    // Matcher: exact ID first, then unique conceptual title + role/category/structural compatibility.
+    // Changing parent alone (e.g., moving a node under a newly created category) does NOT drop user notes.
     const matchOldToNew = (oldId: string): string | null => {
       if (newKeys.has(oldId)) return oldId;
       const oldNode = previousBaseNodes[oldId];
       if (!oldNode) return null;
-      const t = (typeof oldNode.title === "string" ? oldNode.title.trim() : "").toLowerCase();
+      const t = normalizePersianText(typeof oldNode.title === "string" ? oldNode.title : "");
       if (!t) return null;
 
-      // Only allow title matching if the title appears EXACTLY ONCE in both old and new trees
+      // Only allow title matching if the normalized title appears EXACTLY ONCE in both old and new trees
       if (oldTitleCounts.get(t) === 1 && newTitleCounts.get(t) === 1) {
         const newId = titleToUniqueNewId.get(t);
         if (newId) {
           const newNode = newNodes[newId];
-          // Check structural evidence:
-          // Either both are root children, or their parent titles match, or root IDs match
           const oldParent = oldNode.parentId ? previousBaseNodes[oldNode.parentId] : null;
           const newParent = newNode.parentId ? newNodes[newNode.parentId] : null;
 
           const oldIsRootChild = oldNode.parentId === previousPayload.aiBase?.rootNodeId;
           const newIsRootChild = newNode.parentId === newAiBase.rootNodeId;
 
+          const sameParentTitle = Boolean(
+            oldParent &&
+              newParent &&
+              normalizePersianText(oldParent.title) === normalizePersianText(newParent.title),
+          );
+          const roleCompatible =
+            !oldNode.nodeRole || !newNode.nodeRole || oldNode.nodeRole === newNode.nodeRole;
+          const categoryCompatible =
+            !oldNode.category ||
+            !newNode.category ||
+            oldNode.category === "general" ||
+            newNode.category === "general" ||
+            oldNode.category === newNode.category;
+          const isDependentAttrTitle =
+            /^(مکانیسم|سازوکار|عوارض|اثرات جانبی|موارد مصرف|اندیکاسیون|فارماکوکینتیک|منع مصرف|تداخلات|تشخیص|درمان|نکات پایش)/i.test(
+              t,
+            );
+
+          // Allow cross-parent matching ONLY when:
+          // - both are root children, or both are root, or parent title matches,
+          // - OR the node is NOT a generic dependent attribute and it moved from root/category into a category
+          //   (prevents transferring notes between e.g. Metformin's "عوارض جانبی" and Insulin's "عوارض جانبی").
+          const movedBetweenCategories =
+            !isDependentAttrTitle &&
+            roleCompatible &&
+            categoryCompatible &&
+            (oldIsRootChild || oldParent?.nodeRole === "category" || newParent?.nodeRole === "category");
+
           if (
             (oldIsRootChild && newIsRootChild) ||
             (!oldNode.parentId && !newNode.parentId) ||
-            (oldParent && newParent && oldParent.title.trim().toLowerCase() === newParent.title.trim().toLowerCase())
+            sameParentTitle ||
+            movedBetweenCategories
           ) {
             return newId;
           }
@@ -1932,6 +1994,526 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
   }
 
   /**
+   * Conditional AI Skeleton Repair Pass (Semantic Refiner).
+   * Invoked ONLY when deterministic anomaly detection flags structural defects
+   * (e.g. root spillover, misplaced dependent attributes, artificial categories).
+   * Never guesses scientific links deterministically; delegates grouping to Gemini.
+   */
+  public async repairSkeletonWithAi(
+    skeleton: MindMapSkeletonNode,
+    anomaliesSummary: string[],
+    sourceText: string,
+    correlationId: string,
+    organizationId: OrganizationId,
+    documentId: string | null,
+  ): Promise<MindMapSkeletonNode> {
+    const repairSystemPrompt = `شما معمار ارشد دانش پزشکی و داروشناسی در پلتفرم آوانا (AVANA) هستید.
+اسکلت اولیه یک نقشه مفهومی دارای ایرادات ساختاری و دسته‌بندی است. وظیفه شما بازآرایی سلسله‌مراتبی آن است؛ بدون حذف مفاهیم علمی منبع.
+
+قوانین اصلاح اسکلت:
+۱. خروجی فقط JSON معتبر با کلید ریشه "root" و ساختار تو در تو (children) باشد.
+۲. تمام مفاهیم علمی معتبر موجود در اسکلت فعلی را حفظ کنید و فقط جایگاه والد-فرزندی آن‌ها را اصلاح نمایید.
+۳. دسته‌های مرجع (nodeRole: "category") برای گروه‌بندی مفاهیم هم‌خانواده بسازید تا مفاهیم پراکنده زیر ریشه (root) به زیرمجموعه دسته واقعی خود منتقل شوند.
+۴. ویژگی‌های وابسته مانند «مکانیسم اثر»، «موارد مصرف»، «عوارض جانبی» و «فارماکوکینتیک» نباید در سطح اول زیر ریشه باشند؛ آن‌ها را زیر دارو یا دسته مربوطه قرار دهید.
+۵. از ساختن دسته‌های مصنوعی مانند «سایر موارد» یا «متفرقه» اکیداً خودداری کنید.
+۶. هیچ گره category نباید بدون فرزند رها شود.`;
+
+    const repairUserPrompt = `ایرادات ساختاری شناسایی‌شده:
+${anomaliesSummary.map((a, i) => `${i + 1}. ${a}`).join("\n")}
+
+اسکلت فعلی برای بازآرایی:
+${JSON.stringify({ root: skeleton }, null, 2)}
+
+خلاصه متن منبع برای اطمینان از صحت علمی روابط:
+${sourceText.slice(0, 12_000)}`;
+
+    try {
+      const response = await this.gateway.complete({
+        promptVersion: "2.0-skeleton-repair",
+        correlationId: `${correlationId}_skeleton_repair`,
+        documentId: (documentId ?? correlationId) as DocumentId,
+        organizationId,
+        messages: [
+          { role: "system", content: repairSystemPrompt },
+          { role: "user", content: repairUserPrompt },
+        ],
+        jsonSchema: { type: "mind_map_skeleton" },
+        stage: "review_summary",
+      });
+
+      const parsed = cleanAndParseJson<Record<string, unknown>>(
+        response.text,
+        "mind_map_skeleton_repair",
+      );
+      const repaired = parseSkeletonResponse(parsed);
+      if (repaired && repaired.children.length > 0) {
+        return cleanDeterministicSkeletonDefects(repaired);
+      }
+    } catch {
+      // Safe fallback to original cleaned skeleton
+    }
+    return skeleton;
+  }
+
+  /**
+   * Phase 2: Grounded Content Hydration over a locked skeleton.
+   * Executes token-budgeted batches in parallel with targeted source selection per batch.
+   * - Never swallows batch errors silently.
+   * - Runs a bounded retry ONLY on nodes missing valid shortDescription, preserving successful batches.
+   * - Throws a traceable DomainError if nodes remain without shortDescription after retry.
+   * Strictly preserves tree topology (never alters parentId or structure).
+   */
+  public async hydrateSkeletonNodes(
+    baseTree: { rootNodeId: string; nodes: Record<string, MindMapNodeBase> },
+    sourceText: string,
+    correlationId: string,
+    organizationId: OrganizationId,
+    documentId: string | null,
+    sourceOutline = "",
+  ): Promise<Record<string, MindMapNodeBase>> {
+    const hydratedNodes: Record<string, MindMapNodeBase> = {};
+    for (const [id, node] of Object.entries(baseTree.nodes)) {
+      hydratedNodes[id] = { ...node };
+    }
+
+    const batches = buildHydrationBatches(hydratedNodes, baseTree.rootNodeId, 35, 18_000);
+    const rootChildrenTitles = Object.values(hydratedNodes)
+      .filter((n) => n.parentId === baseTree.rootNodeId)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+      .map((n) => n.title);
+
+    const globalMapOutline = `موضوع مرکزی: «${hydratedNodes[baseTree.rootNodeId]?.title ?? ""}» | محورهای اصلی نقشه: ${rootChildrenTitles.join("، ")}`;
+
+    const hydrationSystemPrompt = `شما استاد ارشد علوم پزشکی و داروشناسی در پلتفرم آوانا (AVANA) هستید.
+ساختار درختی و جایگاه تمام گره‌ها از پیش تثبیت شده است. وظیفه شما **تکمیل عمیق محتوای علمی** برای گره‌های مشخص‌شده بر اساس متن منبع است.
+
+قوانین اکید:
+۱. خروجی فقط یک شیء JSON با ساختار { "items": [ { "id": "...", "shortDescription": "...", "keyPoints": ["..."], "examTips": ["..."], "category": "...", "structuredDetails": { ... } } ] } باشد.
+۲. شناسه (id) هر گره را دقیقاً مطابق لیست ورودی برگردانید. ساختار درخت یا والد گره‌ها را تغییر ندهید.
+۳. توضیح علمی بنیادین (shortDescription):
+   - باید یک توضیح علمی مستقل، دقیق، غنی و خودبسنده (۲ تا ۳ جمله پیوسته) با روابط علت و معلولی، نام آنزیم‌ها، گیرنده‌ها، سوبستراها و پیامدهای بالینی باشد (متناسب با جایگاه گره در ancestorPath).
+   - از عبارات کلیشه‌ای («بسیار مهم است»، «نقش مهمی دارد») اکیداً خودداری کنید.
+   - اگر گره یک دسته (nodeRole: "category") است، نقشه راه مفهومی و وجه اشتراک اعضای آن دسته را تشریح کنید.
+۴. نکات تکمیلی (keyPoints و examTips):
+   - ۱ تا ۲ نکته کلیدی متراکم و غیرتکراری (keyPoints) و در صورت وجود نکته آزمونی/افتراقی (examTips) اضافه کنید.
+   - keyPoints نباید تکرار shortDescription باشد.
+۵. فیلد structuredDetails را فقط در صورت وجود شواهد مستقیم در منبع و متناسب با ماهیت مفهوم پر کنید.
+۶. وفاداری کامل به منبع: از هرگونه دوز فرضی یا اطلاعات خارج از منبع خودداری کنید.`;
+
+    const batchErrors: Array<{ batchIndex: number; error: string }> = [];
+
+    const applyHydrationItems = (results: HydrationNodeResult[]) => {
+      for (const item of results) {
+        if (!item || typeof item.id !== "string") continue;
+        const target = hydratedNodes[item.id];
+        if (!target) continue;
+
+        if (typeof item.shortDescription === "string" && item.shortDescription.trim().length > 0) {
+          target.shortDescription = item.shortDescription.trim().slice(0, 600);
+        }
+
+        if (Array.isArray(item.keyPoints)) {
+          const validKeys = item.keyPoints
+            .filter(
+              (k): k is string =>
+                typeof k === "string" &&
+                k.trim().length >= 6 &&
+                !isDuplicateOfNodeContent(k, target) &&
+                !isClicheEducationalContent(k),
+            )
+            .map((k) => k.trim());
+          if (validKeys.length > 0) {
+            target.keyPoints = validKeys.slice(0, 4);
+          }
+        }
+
+        if (Array.isArray(item.examTips)) {
+          const validTips = item.examTips
+            .filter(
+              (t): t is string =>
+                typeof t === "string" &&
+                t.trim().length >= 6 &&
+                !isDuplicateOfNodeContent(t, target) &&
+                !isClicheEducationalContent(t),
+            )
+            .map((t) => t.trim());
+          if (validTips.length > 0) {
+            target.examTips = validTips.slice(0, 3);
+          }
+        }
+
+        if (typeof item.category === "string" && item.category.trim().length > 0) {
+          target.category = item.category.trim() as MindMapNodeBase["category"];
+        }
+
+        if (item.structuredDetails) {
+          const cleanSd = cleanStructuredDetails(item.structuredDetails);
+          if (cleanSd) {
+            target.structuredDetails = cleanSd;
+          }
+        }
+      }
+    };
+
+    const runBatch = async (batch: (typeof batches)[number], isRetry = false) => {
+      const relevantSource = selectRelevantSourceForBatch(
+        sourceText,
+        batch.nodes,
+        sourceOutline,
+        22_000,
+      );
+
+      const userPrompt = `نمای کلی نقشه مفهومی: ${globalMapOutline}
+شاخه‌های این بسته: ${batch.branchSummary || "عمومی"}
+
+متن معتبر منبع آموزشی:
+${relevantSource}
+
+لیست گره‌های نیازمند تکمیل علمی (به همراه مسیر سلسله‌مراتبی کامل ancestorPath):
+${JSON.stringify(batch.nodes, null, 2)}
+
+لطفاً محتوای علمی تمام ${batch.nodes.length} گره فوق را در قالب { "items": [...] } تولید کنید:`;
+
+      try {
+        const response = await this.gateway.complete({
+          promptVersion: isRetry ? "2.0-hydration-retry" : "2.0-hydration",
+          correlationId: `${correlationId}_hydrate_${isRetry ? "retry_" : ""}${batch.batchIndex}`,
+          documentId: (documentId ?? correlationId) as DocumentId,
+          organizationId,
+          messages: [
+            { role: "system", content: hydrationSystemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          jsonSchema: { type: "mind_map_hydration" },
+          stage: "review_summary",
+        });
+
+        const parsed = cleanAndParseJson<{
+          items?: HydrationNodeResult[];
+          nodesContent?: Record<string, HydrationNodeResult>;
+        }>(response.text, "mind_map_hydration");
+
+        const results: HydrationNodeResult[] = Array.isArray(parsed.items)
+          ? parsed.items
+          : parsed.nodesContent && typeof parsed.nodesContent === "object"
+            ? Object.entries(parsed.nodesContent).map(([id, val]) => ({ ...val, id: val.id || id }))
+            : [];
+
+        applyHydrationItems(results);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        batchErrors.push({ batchIndex: batch.batchIndex, error: msg });
+      }
+    };
+
+    await Promise.all(batches.map((b) => runBatch(b, false)));
+
+    // Check for any nodes lacking valid shortDescription after initial hydration
+    const hasValidShortDesc = (n: MindMapNodeBase): boolean =>
+      typeof n.shortDescription === "string" && n.shortDescription.trim().length >= 8;
+
+    const incompleteIds = Object.keys(hydratedNodes).filter(
+      (id) => id !== baseTree.rootNodeId && !hasValidShortDesc(hydratedNodes[id]),
+    );
+
+    if (incompleteIds.length > 0) {
+      // Bounded retry ONLY for incomplete nodes (preserves all already hydrated batches)
+      const incompleteNodesSubset: Record<string, MindMapNodeBase> = {};
+      for (const id of Object.keys(hydratedNodes)) {
+        // Keep full tree for ancestor lookup, but build batches only for incomplete nodes
+        incompleteNodesSubset[id] = hydratedNodes[id];
+      }
+      const allBatchesForLookup = buildHydrationBatches(incompleteNodesSubset, baseTree.rootNodeId, 20, 14_000);
+      const incompleteSet = new Set(incompleteIds);
+      const retryInputs = allBatchesForLookup
+        .flatMap((b) => b.nodes)
+        .filter((n) => incompleteSet.has(n.id));
+
+      for (let i = 0; i < retryInputs.length; i += 20) {
+        const slice = retryInputs.slice(i, i + 20);
+        await runBatch(
+          {
+            batchIndex: i / 20,
+            nodes: slice,
+            estimatedPromptChars: JSON.stringify(slice).length,
+            branchSummary: "تکمیل گره‌های ناقص",
+          },
+          true,
+        );
+      }
+    }
+
+    const stillIncomplete = Object.keys(hydratedNodes).filter(
+      (id) => id !== baseTree.rootNodeId && !hasValidShortDesc(hydratedNodes[id]),
+    );
+
+    if (stillIncomplete.length > 0) {
+      const errDetail = batchErrors.map((e) => `batch#${e.batchIndex}:${e.error}`).join("; ");
+      throw new DomainError(
+        "unprocessable",
+        `تکمیل محتوای علمی برای ${stillIncomplete.length} گره با خطا مواجه شد (${stillIncomplete.slice(0, 5).join(", ")})${errDetail ? ` | ${errDetail}` : ""}`,
+      );
+    }
+
+    return hydratedNodes;
+  }
+
+  /**
+   * Independent Source Coverage Validation Pass.
+   * Verifies:
+   * - Missing essential concepts (never inserts empty categories).
+   * - Ungrounded nodes (`ungroundedNodeIds`): conservatively re-grounds from source or logs traceable warnings
+   *   without ever deleting or fabricating nodes.
+   */
+  public async validateSourceCoverage(
+    aiBase: MindMapAiBase,
+    sourceText: string,
+    correlationId: string,
+    organizationId: OrganizationId,
+    documentId: string | null,
+    sourceOutline = "",
+  ): Promise<{
+    nodes: Record<string, MindMapNodeBase>;
+    coverageScore: number;
+    addedCount: number;
+    ungroundedCount: number;
+    ungroundedWarnings: string[];
+    suggestedCategories: string[];
+  }> {
+    const updatedNodes: Record<string, MindMapNodeBase> = { ...aiBase.nodes };
+    const currentCount = Object.keys(updatedNodes).length;
+
+    const compactSummary = Object.values(updatedNodes).map((n) => ({
+      id: n.id,
+      parentId: n.parentId,
+      title: n.title,
+      nodeRole: n.nodeRole ?? "concept",
+      shortDescription: (n.shortDescription || "").slice(0, 140),
+    }));
+
+    const coverageSystemPrompt = `شما ناظر ارشد کیفیت علمی نقشه مفهومی در آوانا (AVANA) هستید.
+وظیفه شما ممیزی پوشش علمی نقشه تولیدشده در برابر متن منبع است:
+۱. بررسی کنید آیا مفاهیم اصلی و روابط علمی مهم منبع در نقشه حضور دارند و اطلاعاتی هنگام تولید حذف نشده‌اند؟
+۲. فقط اگر مفهوم کلیدی یا داروی مهمی از متن منبع **کاملاً جا افتاده است**، آن را در آرایه "missingConcepts" با ذکر "suggestedParentId" معتبر (از شناسه‌های موجود در نقشه) اضافه کنید.
+۳. از اضافه کردن مفاهیم جزئی، تکراری یا تورم بی‌رویه درخت اکیداً خودداری کنید (حداکثر ۶ مورد واقعی).
+۴. اگر گرهی اطلاعات خارج از منبع یا ادعای نامستند دارد، شناسه آن را در "ungroundedNodeIds" گزارش کنید.
+۵. خروجی فقط JSON با ساختار { "overallCoverageScore": 0..100, "missingConcepts": [...], "ungroundedNodeIds": [...] } باشد.`;
+
+    const coverageUserPrompt = `متن منبع آموزشی:
+${selectRelevantSourceForBatch(
+  sourceText,
+  Object.values(updatedNodes).map((n) => ({ title: n.title, ancestorPath: [n.title] })),
+  sourceOutline,
+  22_000,
+)}
+
+خلاصه نقشه مفهومی فعلی (${currentCount} گره):
+${JSON.stringify(compactSummary, null, 2)}`;
+
+    let coverageScore = 100;
+    let addedCount = 0;
+    const ungroundedWarnings: string[] = [];
+    const suggestedCategories: string[] = [];
+    const validUngroundedIds: string[] = [];
+
+    try {
+      const response = await this.gateway.complete({
+        promptVersion: "2.0-coverage",
+        correlationId: `${correlationId}_coverage`,
+        documentId: (documentId ?? correlationId) as DocumentId,
+        organizationId,
+        messages: [
+          { role: "system", content: coverageSystemPrompt },
+          { role: "user", content: coverageUserPrompt },
+        ],
+        jsonSchema: { type: "mind_map_coverage" },
+        stage: "review_summary",
+      });
+
+      const report = cleanAndParseJson<SourceCoverageReport>(response.text, "mind_map_coverage");
+      if (typeof report.overallCoverageScore === "number") {
+        coverageScore = Math.max(0, Math.min(100, report.overallCoverageScore));
+      }
+
+      // 1. Process ungroundedNodeIds conservatively (never delete or blindly overwrite)
+      if (Array.isArray(report.ungroundedNodeIds)) {
+        const seenUngrounded = new Set<string>();
+        for (const rawUid of report.ungroundedNodeIds) {
+          if (typeof rawUid !== "string" || !rawUid.trim()) continue;
+          const uid = rawUid.trim();
+          if (seenUngrounded.has(uid)) continue;
+          seenUngrounded.add(uid);
+
+          if (!updatedNodes[uid]) {
+            ungroundedWarnings.push(`unknown_ungrounded_id:${uid}`);
+          } else if (uid !== aiBase.rootNodeId) {
+            validUngroundedIds.push(uid);
+          }
+        }
+
+        if (validUngroundedIds.length > 0 && validUngroundedIds.length <= 6) {
+          // Attempt conservative re-grounding from relevant source sections
+          try {
+            const regroundNodes = validUngroundedIds.map((id) => ({
+              id,
+              title: updatedNodes[id].title,
+              nodeRole: updatedNodes[id].nodeRole ?? "concept",
+              category: updatedNodes[id].category,
+              parentId: updatedNodes[id].parentId,
+              parentTitle: updatedNodes[id].parentId
+                ? updatedNodes[updatedNodes[id].parentId!]?.title ?? null
+                : null,
+              ancestorPath: [updatedNodes[id].title],
+              siblingTitles: [],
+            }));
+            const relevantSrc = selectRelevantSourceForBatch(
+              sourceText,
+              regroundNodes,
+              sourceOutline,
+              16_000,
+            );
+            const regroundResp = await this.gateway.complete({
+              promptVersion: "2.0-hydration-reground",
+              correlationId: `${correlationId}_reground`,
+              documentId: (documentId ?? correlationId) as DocumentId,
+              organizationId,
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    "فقط بر اساس متن منبع ارائه‌شده، shortDescription و keyPoints گره‌های زیر را با وفاداری کامل بازنویسی کن تا هیچ ادعای خارج از منبع نداشته باشند. خروجی JSON با ساختار { \"items\": [{ \"id\": \"...\", \"shortDescription\": \"...\", \"keyPoints\": [\"...\"] }] } باشد.",
+                },
+                {
+                  role: "user",
+                  content: `متن منبع:\n${relevantSrc}\n\nگره‌ها:\n${JSON.stringify(regroundNodes, null, 2)}`,
+                },
+              ],
+              jsonSchema: { type: "mind_map_hydration" },
+              stage: "review_summary",
+            });
+            const regroundParsed = cleanAndParseJson<{ items?: HydrationNodeResult[] }>(
+              regroundResp.text,
+              "mind_map_hydration",
+            );
+            if (Array.isArray(regroundParsed.items)) {
+              for (const item of regroundParsed.items) {
+                if (
+                  item?.id &&
+                  updatedNodes[item.id] &&
+                  typeof item.shortDescription === "string" &&
+                  item.shortDescription.trim().length >= 8
+                ) {
+                  updatedNodes[item.id] = {
+                    ...updatedNodes[item.id],
+                    shortDescription: item.shortDescription.trim().slice(0, 600),
+                  };
+                  ungroundedWarnings.push(`regrounded_node:${item.id}`);
+                }
+              }
+            }
+          } catch {
+            for (const uid of validUngroundedIds) {
+              ungroundedWarnings.push(`ungrounded_node_flagged:${uid}`);
+            }
+          }
+        } else {
+          for (const uid of validUngroundedIds) {
+            ungroundedWarnings.push(`ungrounded_node_flagged:${uid}`);
+          }
+        }
+      }
+
+      // 2. Process missingConcepts (NEVER insert empty category nodes!)
+      if (Array.isArray(report.missingConcepts)) {
+        const existingTitlesNorm = new Set(
+          Object.values(updatedNodes).map((n) => normalizePersianText(n.title)),
+        );
+
+        const getDepth = (nodeId: string): number => {
+          let d = 1;
+          let curr = updatedNodes[nodeId]?.parentId;
+          const seen = new Set<string>();
+          while (curr && !seen.has(curr)) {
+            seen.add(curr);
+            d++;
+            curr = updatedNodes[curr]?.parentId ?? null;
+          }
+          return d;
+        };
+
+        const looksLikeCategoryHeader = (title: string): boolean =>
+          /^(داروهای|بیماری‌های|انواع|دسته‌بندی|گروه|کلاس|عوارض کلی|مباحث)/i.test(title.trim());
+
+        for (const mc of report.missingConcepts.slice(0, 6)) {
+          if (Object.keys(updatedNodes).length >= 118) break;
+          if (!mc || typeof mc.title !== "string" || !mc.title.trim()) continue;
+          const cleanTitle = mc.title.trim().slice(0, 120);
+          if (existingTitlesNorm.has(normalizePersianText(cleanTitle))) continue;
+
+          // If coverage suggests a category without children, never insert an empty category.
+          let resolvedRole: NonNullable<MindMapNodeBase["nodeRole"]> = "concept";
+          if (mc.nodeRole === "category") {
+            if (looksLikeCategoryHeader(cleanTitle)) {
+              suggestedCategories.push(cleanTitle);
+              continue;
+            }
+            // Atomic concept mistakenly tagged as category -> safely treat as concept
+            resolvedRole = "concept";
+          }
+
+          const parentId =
+            typeof mc.suggestedParentId === "string" && updatedNodes[mc.suggestedParentId]
+              ? mc.suggestedParentId
+              : aiBase.rootNodeId;
+
+          if (getDepth(parentId) >= MAX_MINDMAP_DEPTH) continue;
+
+          const slug = `cov_${addedCount + 1}_${Date.now().toString(36).slice(-4)}`;
+          let newId = `node_${slug}`;
+          let c = 2;
+          while (updatedNodes[newId]) {
+            newId = `node_${slug}_${c++}`;
+          }
+
+          updatedNodes[newId] = {
+            id: newId,
+            parentId,
+            title: cleanTitle,
+            shortDescription:
+              typeof mc.shortDescription === "string"
+                ? mc.shortDescription.trim().slice(0, 600)
+                : "",
+            keyPoints: Array.isArray(mc.keyPoints)
+              ? mc.keyPoints.filter((k): k is string => typeof k === "string").slice(0, 3)
+              : [],
+            examTips: Array.isArray(mc.examTips)
+              ? mc.examTips.filter((t): t is string => typeof t === "string").slice(0, 2)
+              : [],
+            examples: [],
+            sourceReferences: [],
+            sortOrder: Object.values(updatedNodes).filter((n) => n.parentId === parentId).length,
+            nodeRole: resolvedRole,
+            category: mc.category ?? "general",
+          };
+          existingTitlesNorm.add(normalizePersianText(cleanTitle));
+          addedCount++;
+        }
+      }
+    } catch {
+      // Coverage check is non-fatal; preserve hydrated nodes
+    }
+
+    return {
+      nodes: updatedNodes,
+      coverageScore,
+      addedCount,
+      ungroundedCount: validUngroundedIds.length,
+      ungroundedWarnings,
+      suggestedCategories,
+    };
+  }
+
+  /**
    * Generates (or regenerates) an Interactive AI Mind Map for a chapter.
    */
   async generateMindMap(
@@ -2142,191 +2724,64 @@ ${JSON.stringify(candidateNodesSummary, null, 2)}`;
         }
       }
 
-      const systemPrompt = `شما موتور تخصصی طراحی نقشه‌های مفهومی عمیق، علمی و چندسطحی (Deep Multi-Level Concept Maps) در پلتفرم علوم پزشکی و داروشناسی آوانا (AVANA) هستید.
-وظیفه شما استخراج نقشه مفهومی غنی، ساختارمند و با معماری سلسله‌مراتبی معنادار از کل به جزء بر اساس متن آموزشی منبع است.
+      const sourceOutline = extractSourceOutline(source.sourceText);
 
-اصول و قواعد الزامی ساختار درختی:
-۱. خروجی فقط و فقط یک شیء JSON معتبر منطبق بر اسکیمای مشخص‌شده باشد (بدون هیچ متن توضیحی قبل یا بعد از JSON). سقف فنی کل گره‌های نقشه حداکثر ۱۲۰ گره است، بنابراین بر روی مفاهیم ساختاری و آموزشی باارزش متمرکز شوید.
-۲. ساختار شامل یک گره ریشه (rootNodeId: "root") و دیکشنری nodes است.
-۳. ساختاردهی کلان و سلسله‌مراتبی از کل به جزء (Hierarchical Educational Decomposition):
-   شما باید ابتدا ساختار آموزشی موضوع را تحلیل کرده و محورها و دسته‌های کلان مفهومی را شناسایی کنید.
-   - گره‌های هم‌موضوع را هرگز به صورت انبوه و مسطح مستقیماً به ریشه (root) متصل نکنید. مفاهیمی که زیرمجموعه یک حوزه درمانی، تشخیصی، پاتوفیزیولوژی، داروشناسی یا مکانیسمی مشترک هستند، باید ابتدا زیر یک گره دسته‌بندی واسط با شناسه والد مشخص ("parentId") قرار گیرند، و سپس زیرشاخه‌ها و مفاهیم اتمیک به عنوان فرزندان آن دسته تعریف شوند.
-   - برای هر گره دسته‌بندی که نقش هاب ساختاری و چتر مفهومی برای چند گره زیرمجموعه دارد، فیلد "nodeRole": "category" را درج کنید. برای مفاهیم مشخص مقدار "nodeRole": "concept" درج شود.
-   - جلوگیری از تجمیع دسته‌های مستقل (No Compound Category Nodes): دو یا چند دسته یا زیرگروه علمی مستقل را هرگز در یک عنوان واحد با «و» یا ویرگول ادغام نکنید (مانند «آلکالوئیدهای وینکا و تاکسان‌ها» که یک ساختار نامطلوب است؛ این دو باید دو گره مجزا با شناسه‌های مستقل باشند: یکی «آلکالوئیدهای وینکا» و دیگری «تاکسان‌ها»، و هر کدام به داروهای مشخص خود در متن منبع منشعب شوند).
-   - انشعاب الزامی دسته‌ها به مفاهیم مشخص (No Terminal Category Nodes): هرگاه یک گره نماینده مجموعه‌ای از چند مفهوم مستقل باشد (Category یا Subcategory)، در صورت ذکر اعضا در متن منبع، نباید بدون انشعاب زیرمجموعه‌هایش به عنوان انتهای شاخه (Leaf Node) رها شود:
-     * رده دارویی کلان (Category) ← زیرگروه‌های دارویی (Subcategory) ← داروهای مشخص (Concept Nodes) ← ابعاد ضروری (Detail Nodes)
-     * گروه بیماری‌ها (Category) ← انواع بیماری (Subcategory) ← بیماری مشخص (Concept)
-     * مسیر متابولیک (Category) ← مراحل اصلی (Subcategory) ← آنزیم‌ها یا واسطه‌های مشخص (Concept)
-   - ساختار باید منعطف و کاملاً متناسب با موضوع و محتوای منبع طراحی شود (نه یک taxonomy صلب). در صورت وجود فقط یک مفهوم برای یک دسته در متن منبع، تنها همان یک مفهوم تولید شود و شاخه مصنوعی یا خارج از منبع اضافه نشود.
-   - مفاهیم واقعاً مستقل: اگر مفهومی در منبع وجود دارد که ماهیتاً مستقل است و به هیچ دسته مشترکی تعلق ندارد (مانند تعریف کلی موضوع، یا یک نکته کلینیکی خاص)، آن را مستقل نگه دارید و مستقیماً با "parentId": "root" متصل کنید. هیچ سقف عددی صلب یا اجباری برای فرزندان ریشه وجود ندارد و نباید دسته‌های مصنوعی مانند «سایر موارد» یا «متفرقه» ساخته شوند.
-   - از ایجاد دسته‌بندی بیش‌ازحد و لایه‌های زائد که عمق را بدون محتوای علمی افزایش می‌دهند خودداری کنید (سقف مجاز عمق ۸ است، عمق مطلوب بین ۳ الی ۶ سطح است).
-۴. تفکیک ساختاری شاخه‌ها و نقش مکمل محتوای تکمیلی (keyPoints و examTips):
-   - هر مفهوم مستقل یا دارای انشعاب علمی (مانند مکانیسم اثر، گیرنده‌ها و مسیرهای بیوشیمیایی، کاربردهای بالینی، یا عوارض جانبی و نکات پایش) حتماً باید یک گره مستقل (Child Node) با شناسه مجزا باشد. هرگز مفاهیم ساختاری و شاخه‌های علمی را درون فیلد keyPoints یک گره فشرده نکنید؛ درخت باید به طور عمیق و سلسله‌مراتبی منشعب شود.
-   - نقش مکمل (و نه جایگزین) محتوای تکمیلی: فیلدهای keyPoints و examTips مکمل تحلیلی توضیح اصلی هستند، نه جایگزین آن. منع تکرار نباید هرگز به حذف اطلاعات علمی ضروری، روابط علت و معلولی، نام آنزیم‌ها، گیرنده‌ها، سوبستراها یا کوفاکتورها از shortDescription منجر شود.
-   - ارزش افزوده واقعی نکات تکمیلی:
-     * گره‌های ریشه و دسته‌بندی (nodeRole: "category"): نقشه راه یادگیری، روابط کلان مفهومی، و خطاهای رایج درک ارتباط مفاهیم.
-     * گره‌های نهادی و مفهومی (داروها، بیماری‌ها، پدیده‌ها): مرواریدهای بالینی، ترجیحات دارویی، تمایزهای ظریف با موارد مشابه، تله‌های تشخیصی.
-     * گره‌های پایانی (Leaves): نکات طلایی آزمونی، استثناها، شرایط احتیاط یا منع مصرف، خطاهای رایج داوطلبان.
-   - معیار تکمیل محتوا: وجود حداقل یک نکته تکمیلی معتبر در فیلد مناسب (keyPoints یا examTips یا structuredDetails) متناسب با ظرفیت آموزشی مفهوم؛ نیازی به پر کردن اجباری و تصنعی تمام فیلدها برای همه گره‌ها نیست.
-   - منع اکید کلی‌گویی و عبارات عامیانه: از عبارات مبهم مانند «بسیار مهم است»، «نقش مهمی ایفا می‌کند»، «کاربردهای فراوانی دارد» خودداری کنید.
-   - وفاداری کامل و عدم هذیان: تمام اطلاعات دارویی، مکانیسم‌ها و نکات باید مستند به متن منبع باشند. از تولید اطلاعات ساختگی یا دوزهای غیرمستند اکیداً بپرهیزید.
-۵. عنوان، توضیح علمی بنیادین (shortDescription) و نقش گره‌ها:
-   - عنوان هر گره (title) بسیار کوتاه، واضح، علمی و قابل مرور در یک نگاه باشد (۱ الی ۴ کلمه). نام‌های ژنریک و اصطلاحات علمی حفظ شوند.
-   - توضیح علمی بنیادین (shortDescription) - قلب آموزشی گره:
-     * shortDescription باید یک توضیح علمی مستقل، عمیق، غنی و خودبسنده باشد؛ نه صرفاً یک برچسب، تعریف لغوی یا تیتر تلگرافی.
-     * برای مفاهیم علمی، مکانیسم‌ها، آنزیم‌ها، گیرنده‌ها، مسیرهای بیوشیمیایی و فرآیندهای پاتوفیزیولوژیک، حتماً جزئیات ضروری (شامل روابط علت و معلولی، پیش‌سازها، سوبستراها، محصولات، کوفاکتورها/کوآنزیم‌ها، اندامک درگیر و پیامدهای عملکردی) در خودِ shortDescription تشریح شوند.
-     * طول و عمق توضیح باید متناسب با پیچیدگی مفهوم باشد: برای مفاهیم چندمرحله‌ای یا مرکب، از ۲ الی ۳ جمله علمی دقیق و پیوسته استفاده کنید و از تقلیل دادن آن به یک عبارت تک‌خطی ناقص بپرهیزید. در مفاهیم ساده و بدیهی، از اطناب غیرضروری خودداری کنید.
-     * تمام گره‌های جدید درخت باید توضیحات اختصاصی، علمی و مستقل خود را داشته باشند و نباید توضیح گره والد در گره‌های فرزند عیناً تکرار شود.
-   - فیلد category ("drug" | "disease" | "cellular_mechanism" | "biochemistry" | "general") برای تمام گره‌های مفهومی متناسب با ماهیت علمی درج شود.
-   - فیلد nodeRole: برای گره‌های دسته‌بندی مقدار "category" و برای سایر گره‌های مفهومی مقدار "concept" (یا عدم درج).
-   - فیلد semanticGroup اختیاری است و می‌تواند برای مشخص کردن تم مشترک شاخه‌ها استفاده شود، اما رابطه واقعی والد و فرزندی منحصراً با parentId تعیین می‌شود.
-۶. وفاداری کامل به منبع (Strict Grounding):
-   تمام گره‌ها، داروها و مکانیسم‌ها باید مستند به متن منبع باشند. از وارد کردن هرگونه اطلاعات ساختگی، فرضی یا خارج از منبع اکیداً خودداری کنید.
-   اگر منبع فاقد اطلاعات عمیق‌تر برای یک شاخه است، شاخه در همان سطح اطلاعات موجود متوقف شود.
-۷. معیار توقف اتمیک و مدیریت هوشمند بودجه گره‌ها:
-   در سطح مفاهیم اتمیک متوقف شوید. تعداد کل گره‌ها باید متناسب با حجم، گستردگی و پیچیدگی علمی متن منبع باشد (معمولاً بین ۲۵ الی ۶۰ گره برای مباحث کوچک و تا ۷۵ الی ۹۰ گره برای مباحث چندبخشی و گسترده، با سقف فنی ۱۲۰ گره). از فشرده‌سازی غیرمنطقی یا هرس زودهنگام شاخه‌ها که مانع رسیدن درخت از دسته‌بندی‌ها به مفاهیم مشخص می‌شود خودداری کنید، و همزمان از خرد کردن بی‌مورد و غیرعلمی جملات ساده نیز بپرهیزید تا از سقف مجاز ۱۲۰ گره فراتر نرود.
-۸. شناسه پایدار معنایی:
-   برای هر گره شناسه انگلیسی معنادار بسازید به فرمت: node_<concept_slug> (شناسه ریشه باید "root" باشد).
-۹. تمام گره‌ها (به جز root) باید والد معتبر (parentId) داشته باشند. ایجاد هرگونه حلقه (Cycle) یا گره بدون والد اکیداً ممنوع است.
-۱۰. هیچ گره‌ای نباید شناسه خودش را به عنوان والد قرار دهد (node.parentId !== node.id). شناسه والد باید متعلق به گره بالادست آن مفهوم باشد.`;
+      const systemPrompt = `شما معمار ارشد دانش پزشکی و داروشناسی در پلتفرم آوانا (AVANA) هستید.
+وظیفه شما در این مرحله، طراحی **اسکلت سلسله‌مراتبی و دسته‌بندی مفهومی (Hierarchical Skeleton)** نقشه ذهنی از کل به جزء بر اساس متن منبع است (بدون نگارش پاراگراف‌های توضیحی).
+
+اصول و قوانین الزامی معماری درخت:
+۱. خروجی فقط و فقط یک شیء JSON معتبر با کلید ریشه "root" و ساختار تو در تو (children) باشد. سقف فنی کل گره‌ها ۱۲۰ گره است (عمق مطلوب ۳ الی ۶ سطح).
+۲. فرآیند طراحی از کل به جزء (Hierarchical-First Decomposition):
+   - ابتدا موضوع مرکزی ("root") را مشخص کنید.
+   - محورها و دسته‌های کلان مرجع را در سطح اول زیر "root" بسازید (متناسب با ماهیت موضوع؛ معمولاً ۳ الی ۷ محور اصلی، بدون سقف عددی صلب و بدون دسته‌های مصنوعی مثل «سایر موارد»).
+   - تمام مفاهیم هم‌خانواده (مانند داروهای یک رده، بیماری‌های یک گروه، یا عوارض هم‌جنس) را زیر یک باکس مرجع مشترک با "nodeRole": "category" قرار دهید. هرگز مفاهیم هم‌خانواده را به صورت مسطح مستقیماً به "root" متصل نکنید.
+   - ویژگی‌های وابسته مانند «مکانیسم اثر»، «موارد مصرف»، «عوارض جانبی» و «فارماکوکینتیک» هرگز نباید در سطح اول زیر ریشه رها شوند (مگر کل سرفصل منحصراً درباره یک داروی منفرد باشد)؛ جایگاه آن‌ها زیر گره دارو یا دسته مربوطه است.
+   - دو دسته مستقل را در یک عنوان با «و» ادغام نکنید؛ برای هر کدام گره مجزا بسازید.
+   - هیچ گره "category" نباید بدون فرزند (Leaf) رها شود.
+۳. تمایز نقش‌ها ("nodeRole"):
+   - "category": باکس مرجع و چتر دسته‌بندی برای گروه‌بندی چند زیرشاخه (مثل «گلوکوکورتیکوئیدها»، «عوارض سیستمیک»).
+   - "concept": مفهوم مشخص و اتمیک (مثل «پردنیزولون»، «مکانیسم اثر»، «بیماری آدیسون»).
+۴. عناوین ("title") کوتاه، علمی و گویا (۱ تا ۴ کلمه) باشند و شناسه‌ها ("id") به فرمت انگلیسی node_<slug> تولید شوند.
+۵. وفاداری کامل به منبع: فقط مفاهیم مستند به متن منبع را در ساختار بگنجانید.`;
 
       const userPrompt = `موضوع سرفصل آموزشی: «${moduleTitle}»
 نوع منبع: ${source.sourceType === "reference_document" ? "فایل مرجع اصلی سرفصل" : "درسنامه‌های تدوین‌شده سرفصل"}
-
+${sourceOutline ? `\nساختار خام سرفصل‌های منبع:\n${sourceOutline}\n` : ""}
 متن معتبر آموزشی منبع:
 ${source.sourceText}
 
-لطفاً نقشه مفهومی عمیق، جامع، دسته‌بندی‌شده و چندسطحی سرفصل را در قالب JSON زیر با رعایت عمق کامل علمی در توضیحات اصلی (shortDescription)، روابط دقیق والد و فرزند (parentId)، عناوین کوتاه، تفکیک شاخه‌های مفهومی، و محتوای تکمیلی اختصاصی متناسب با نقش هر گره تولید کنید:
+لطفاً اسکلت سلسله‌مراتبی تو در تو (Nested Tree) نقشه مفهومی را در قالب JSON زیر تولید کنید:
 {
-  "rootNodeId": "root",
-  "nodes": {
-    "root": {
-      "id": "root",
-      "parentId": null,
-      "title": "${moduleTitle}",
-      "shortDescription": "نقشه مفهومی جامع سرفصل هورمون‌های قشر آدرنال، ساختار بیوشیمیایی، مکانیسم‌های سلولی، کاربردهای بالینی و داروشناسی آگونیست‌ها و آنتاگونیست‌ها.",
-      "category": "general",
-      "keyPoints": ["نمای کلی پیوندهای مفهومی و سلسله‌مراتبی سرفصل بر اساس منبع آموزشی"],
-      "examTips": ["تمرکز ویژه بر تمایزهای پاتوفیزیولوژیک و فارماکوتراپی در آزمون‌های جامع"]
-    },
-    "node_treatment": {
-      "id": "node_treatment",
-      "parentId": "root",
-      "title": "رویکردهای درمانی",
-      "shortDescription": "راهبردهای دارویی شامل هورمون‌تراپی جایگزینی با مینرالوکورتیکوئیدهای صناعی جهت جبران نارسایی آدرنال، و درمان با آنتاگونیست‌های گیرنده آلدوسترون در نارسایی قلبی و هایپرتانسیون.",
-      "nodeRole": "category",
-      "category": "general",
-      "keyPoints": ["تقسیم‌بندی به دو شاخه اصلی فارماکولوژیک: آگونیست‌ها (فلودروکورتیزون) و آنتاگونیست‌ها (اسپیرونولاکتون و اپلرنون)"]
-    },
-    "node_mineralocorticoids": {
-      "id": "node_mineralocorticoids",
-      "parentId": "node_treatment",
-      "title": "مینرالوکورتیکوئیدها",
-      "shortDescription": "هورمون‌های استروئیدی با نقش حیاتی در تنظیم اسمولالیته مایعات، هموستاز سدیم و پتاسیم، و کنترل فشار خون شریانی از طریق اثر بر لوله‌های انتهایی و مجاری جمع‌کننده قشری کلیه.",
-      "nodeRole": "category",
-      "category": "drug",
-      "keyPoints": ["آلدوسترون هورمون طبیعی اصلی است که ترشح آن در زونا گلومرولوزا عمدتاً توسط آنژیوتانسین II و پتاسیم سرم تنظیم می‌شود و نه ACTH."]
-    },
-    "node_fludrocortisone": {
-      "id": "node_fludrocortisone",
-      "parentId": "node_mineralocorticoids",
-      "title": "فلودروکورتیزون",
-      "shortDescription": "مینرالوکورتیکوئید صناعی پرقدرت با اثر مینرالوکورتیکوئیدی بیش از ۱۰۰ برابر کورتیزول و فعالیت گلوکوکورتیکوئیدی اندک؛ آگونیست قدرتمند گیرنده‌های درون‌سلولی MR کلیه که بازجذب فعال سدیم و آب را تحریک می‌کند.",
-      "category": "drug",
-      "keyPoints": ["داروی انتخابی خوراکی خط اول در درمان جایگزینی نارسایی اولیه کورتکس آدرنال (بیماری آدیسون) و درمان هیپوتانسیون ارتوستاتیک شدید."],
-      "examTips": ["تفاوت فارماکولوژیک بارز با گلوکوکورتیکوئیدها: میل ترکیبی بسیار بالا به MR و عدم ایجاد اثرات سرکوب ایمنی سیستمیک."]
-    },
-    "node_fludro_mechanism": {
-      "id": "node_fludro_mechanism",
-      "parentId": "node_fludrocortisone",
-      "title": "مکانیسم اثر سلولی",
-      "shortDescription": "نفوذ به سلول‌های اصلی (Principal cells) در توبول انتهایی و مجاری جمع‌کننده کلیه، اتصال به گیرنده‌های سیتوپلاسمی MR، انتقال کمپلکس لیگاند-گیرنده به هسته سلول و القای رونویسی ژن‌های پروتئین‌های ناقل یونی.",
-      "category": "cellular_mechanism",
-      "keyPoints": ["تحریک رونویسی mRNA برای سنتز کانال‌های یونی غشای لومینال و پمپ‌های غشای پایه‌ای-جانبی طی چند ساعت."]
-    },
-    "node_fludro_na_reabsorp": {
-      "id": "node_fludro_na_reabsorp",
-      "parentId": "node_fludro_mechanism",
-      "title": "بازجذب سدیم و آب",
-      "shortDescription": "افزایش بیان و باز ماندن کانال‌های سدیمی اپیتلیالی (ENaC) در غشای لومینال همراه با فعال‌سازی پمپ Na+/K+ ATPase در غشای قاعده پستانداران، که منجر به بازجذب فعال سدیم، کشش اسمزی آب و انبساط حجم پلاسما می‌شود.",
-      "category": "cellular_mechanism",
-      "keyPoints": ["ایجاد پتانسیل الکتریکی منفی در لومن لوله‌های جمع‌کننده که نیروی محرکه دفع کاتیون‌ها را فراهم می‌سازد."]
-    },
-    "node_fludro_k_excretion": {
-      "id": "node_fludro_k_excretion",
-      "parentId": "node_fludro_mechanism",
-      "title": "دفع پتاسیم و پروتون",
-      "shortDescription": "به دنبال بازجذب سدیم و افزایش گرادیان الکتروشیمیایی منفی لومن، ترشح فعال یون پتاسیم از کانال‌های ROMK و خروج یون هیدروژن توسط پمپ H+-ATPase سلول‌های اینترکالیت به ادرار افزایش می‌یابد.",
-      "category": "cellular_mechanism",
-      "examTips": ["خطر بروز آلکالوز متابولیک هیپوکالمیک شدید در مصرف دوزهای بالاتر از نیاز بالینی."]
-    },
-    "node_fludro_uses": {
-      "id": "node_fludro_uses",
-      "parentId": "node_fludrocortisone",
-      "title": "کاربردهای بالینی",
-      "shortDescription": "درمان جایگزینی مادام‌العمر در نارسایی اولیه قشر آدرنال (بیماری آدیسون) جهت بازگرداندن فشار خون و پیشگیری از هایپرکالمی و شوک هیپوولمیک، و درمان هیپوتانسیون ارتوستاتیک شدید ناشی از نارسایی اتونوم.",
-      "category": "disease",
-      "keyPoints": ["در نارسایی ثانویه آدرنال به ندرت نیاز است زیرا ترشح آلدوسترون وابسته به محور رنین-آنژیوتانسین سالم باقی مانده است."]
-    },
-    "node_fludro_adverse": {
-      "id": "node_fludro_adverse",
-      "parentId": "node_fludrocortisone",
-      "title": "عوارض جانبی و پایش",
-      "shortDescription": "پیامدهای ناشی از احتباس مفرط آب و سدیم شامل هیپرتانسیون سیستمیک، ادم محیطی و نارسایی احتقانی قلب، همراه با افت سطح پتاسیم سرم، ضعف عضلانی و آریتمی‌های قلبی ناشی از هیپوکالمی.",
-      "category": "drug",
-      "keyPoints": ["پایش منظم فشار خون، وزن بدن و سطح الکترولیت‌های سرم (سدیم و پتاسیم) در تمام طول دوره درمان الزامی است."]
-    },
-    "node_antagonists": {
-      "id": "node_antagonists",
-      "parentId": "node_treatment",
-      "title": "آنتاگونیست‌های آلدوسترون",
-      "shortDescription": "داروهای مسدودکننده رقابتی گیرنده مینرالوکورتیکوئید در نفرون دیستال؛ مهار بازجذب سدیم و جلوگیری از اتلاف پتاسیم (دیورتیک‌های نگه‌دارنده پتاسیم) با اثرات ضدفیبروتیک بافت میوکارد.",
-      "nodeRole": "category",
-      "category": "drug",
-      "keyPoints": ["کاهش معنادار مورتالیتی در نارسایی مزمن قلبی با کسر تخلیه کاهش‌یافته (HFrEF) و بهبود پیامد پس از انفارکتوس میوکارد."]
-    },
-    "node_spironolactone": {
-      "id": "node_spironolactone",
-      "parentId": "node_antagonists",
-      "title": "اسپیرونولاکتون",
-      "shortDescription": "مهارکننده رقابتی غیراختصاصی گیرنده آلدوسترون در توبول انتهایی با اثرات همزمان آنتاگونیستی بر گیرنده‌های آندروژن و مهار سنتز تستوسترون؛ مانع از احتباس سدیم شده و ترشح پتاسیم به ادرار را مسدود می‌سازد.",
-      "nodeRole": "concept",
-      "category": "drug",
-      "keyPoints": ["دیورتیک نگه‌دارنده پتاسیم و مهارکننده فیبروز قلبی در بیماران مبتلا به هایپرآلدوسترونیسم و نارسایی قلبی."],
-      "examTips": ["به دلیل اثرات آنتی‌آندروژنیک می‌تواند منجر به ژنیکوماستی دردناک در مردان و بهبود هیرسوتیسم در زنان شود؛ در صورت بروز عوارض، اپلرنون جایگزین انتخابی است."],
-      "structuredDetails": {
-        "clinicalPearls": ["کاهش معنادار مورتالیتی در نارسایی قلبی با کسر تخلیه کاهش‌یافته (HFrEF)"],
-        "commonPitfalls": ["منع مصرف همزمان با مکمل‌های پتاسیم یا احتیاط شدید با مهارکننده‌های ACE/ARB به علت خطر هایپرکالمی کشنده"]
+  "root": {
+    "id": "root",
+    "title": "${moduleTitle}",
+    "nodeRole": "category",
+    "category": "general",
+    "children": [
+      {
+        "id": "node_glucocorticoids",
+        "title": "گلوکوکورتیکوئیدها",
+        "nodeRole": "category",
+        "category": "drug",
+        "children": [
+          {
+            "id": "node_prednisolone",
+            "title": "پردنیزولون",
+            "nodeRole": "concept",
+            "category": "drug",
+            "children": [
+              {
+                "id": "node_prednisolone_moa",
+                "title": "مکانیسم اثر",
+                "nodeRole": "concept",
+                "category": "cellular_mechanism",
+                "children": []
+              }
+            ]
+          }
+        ]
       }
-    },
-    "node_eplerenone": {
-      "id": "node_eplerenone",
-      "parentId": "node_antagonists",
-      "title": "اپلرنون",
-      "shortDescription": "آنتاگونیست بسیار اختصاصی گیرنده مینرالوکورتیکوئید با میل ترکیبی ناچیز به گیرنده‌های آندروژن و پروژسترون؛ کاهش بازجذب سدیم و کنترل فشار خون بدون ایجاد عوارض هورمونی سیستمیک نظیر ژنیکوماستی.",
-      "nodeRole": "concept",
-      "category": "drug",
-      "keyPoints": ["جایگزین انتخابی اسپیرونولاکتون در بیماران مبتلا به نارسایی قلبی که دچار عوارض آنتی‌آندروژنیک شده‌اند."],
-      "examTips": ["به دلیل اختصاصی بودن بالا برای گیرنده MR، عوارض جنسی در مردان ایجاد نمی‌کند اما خطر هایپرکالمی آن مشابه اسپیرونولاکتون است."]
-    },
-    "node_pathology": {
-      "id": "node_pathology",
-      "parentId": "root",
-      "title": "پاتولوژی و اختلالات بالینی",
-      "shortDescription": "سندرم‌های ناشی از تخریب یا نقص عملکرد قشر غده فوق کلیه با تظاهرات برهم خوردن بالانس آب و الکترولیت‌ها، افت فشار خون و اختلالات هورمونی سیستمیک.",
-      "nodeRole": "category",
-      "category": "disease",
-      "keyPoints": ["لزوم تفکیک نارسایی اولیه آدرنال از نارسایی ثانویه ناشی از اختلال محور هیپوتالاموس-هیپوفیز"]
-    },
-    "node_addisons_disease": {
-      "id": "node_addisons_disease",
-      "parentId": "node_pathology",
-      "title": "نارسایی اولیه آدرنال (آدیسون)",
-      "shortDescription": "تخریب دوطرفه قشر غده آدرنال ناشی از پدیده‌های خودایمنی یا عفونی، همراه با کمبود همزمان آلدوسترون و کورتیزول که به هیپوناترمی، هایپرکالمی، کاهش شدید حجم پلاسما، افت فشار خون و کلاپس عروقی منجر می‌گردد.",
-      "category": "disease",
-      "keyPoints": ["هایپرپیگمانتاسیون پوست و مخاط ناشی از تولید بیش از حد ACTH و پیش‌ساز POMC در پاسخ به فقدان فیدبک منفی."],
-      "examTips": ["در نارسایی اولیه سطح رنین پلاسما شدیداً بالا و آلدوسترون پایین است؛ درمان جایگزینی روزانه با فلودروکورتیزون در کنار هیدروکورتیزون حیاتی است."]
-    }
+    ]
   }
 }`;
 
@@ -2360,7 +2815,7 @@ ${source.sourceText}
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        jsonSchema: { type: "mind_map" },
+        jsonSchema: { type: "mind_map_skeleton" },
         stage: "review_summary",
       });
       const geminiDuration = Date.now() - geminiStartTime;
@@ -2399,59 +2854,175 @@ ${source.sourceText}
       // 8. STAGE: MIND_MAP_VALIDATED
       currentStage = "MIND_MAP_VALIDATED";
       stageStart = Date.now();
-      const { sanitized, metrics } = this.sanitizeAiMindMapTree(parsed, "root");
-      const validatedAiBase = validateMindMapAiBase(sanitized);
 
-      this.emitLifecycle({
-        timestamp: new Date().toISOString(),
-        stage: "MIND_MAP_VALIDATED",
-        correlationId: cid,
-        moduleId: resolvedModuleId,
-        courseId,
-        userId: actor.userId,
-        durationMs: Date.now() - stageStart,
-        status: "SUCCESS",
-        details: {
-          nodeCount: Object.keys(validatedAiBase.nodes).length,
-          rootNodeId: validatedAiBase.rootNodeId,
-          sanitization: metrics,
-        },
-      });
-
-      // Stage 2: Progressive Expansion (Batched Deepening)
-      // Evaluate if candidate entities exist with genuine scientific value, incompleteness, and source grounding
-      const candidateNodes = this.findCandidatesForExpansion(
-        validatedAiBase.nodes,
-        validatedAiBase.rootNodeId,
-        source.sourceText,
+      const isNestedSkeleton = Boolean(
+        parsed &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed) &&
+          parsed.root &&
+          typeof parsed.root === "object" &&
+          !parsed.nodes,
       );
 
-      let effectiveAiBase = validatedAiBase;
-      const initialNodeCount = Object.keys(validatedAiBase.nodes).length;
+      let effectiveAiBase: MindMapAiBase;
 
-      // Execute Stage 2 ONLY if candidate nodes genuinely warrant expansion and tree budget allows (< 105)
-      // Main criterion: presence of important and incomplete scientific nodes, not an arbitrary 60-node gate
-      if (candidateNodes.length > 0 && initialNodeCount < 105) {
-        try {
-          const deepenedNodes = await this.expandBranchesBatched(
-            actor,
-            resolvedModuleId,
-            documentId,
-            organizationId,
-            cid,
-            candidateNodes,
-            validatedAiBase,
+      if (isNestedSkeleton) {
+        // === HIERARCHICAL-FIRST PIPELINE (Skeleton -> Refiner -> Flattener -> Hydration -> Coverage) ===
+        let skeleton = parseSkeletonResponse(parsed);
+        if (!skeleton) {
+          throw new DomainError("unprocessable", "ساختار اسکلت مایندمپ قابل پردازش نیست.");
+        }
+
+        skeleton = cleanDeterministicSkeletonDefects(skeleton);
+        const anomalyReport = analyzeSkeletonAnomalies(skeleton);
+
+        if (anomalyReport.needsAiRepair) {
+          skeleton = await this.repairSkeletonWithAi(
+            skeleton,
+            anomalyReport.anomalies.map((a) => a.detail),
             source.sourceText,
+            cid,
+            organizationId,
+            documentId,
           );
+        }
 
-          if (Object.keys(deepenedNodes).length > initialNodeCount) {
-            effectiveAiBase = {
-              ...validatedAiBase,
-              nodes: deepenedNodes,
-            };
+        const flattened = flattenSkeletonToAiBaseNodes(skeleton, moduleTitle);
+        const rawAiBase = {
+          rootNodeId: flattened.rootNodeId,
+          generatedAt: new Date().toISOString(),
+          model:
+            typeof (response as unknown as Record<string, unknown>).model === "string"
+              ? ((response as unknown as Record<string, unknown>).model as string)
+              : "gemini-3.5-flash-lite",
+          nodes: flattened.nodes,
+        };
+
+        const validatedSkeletonBase = validateMindMapAiBase(rawAiBase);
+
+        this.emitLifecycle({
+          timestamp: new Date().toISOString(),
+          stage: "MIND_MAP_VALIDATED",
+          correlationId: cid,
+          moduleId: resolvedModuleId,
+          courseId,
+          userId: actor.userId,
+          durationMs: Date.now() - stageStart,
+          status: "SUCCESS",
+          details: {
+            pipeline: "hierarchical-first",
+            nodeCount: Object.keys(validatedSkeletonBase.nodes).length,
+            rootNodeId: validatedSkeletonBase.rootNodeId,
+            anomaliesDetected: anomalyReport.anomalies.length,
+            repairedWithAi: anomalyReport.needsAiRepair,
+            flatteningMetrics: flattened.metrics,
+          },
+        });
+
+        // Phase 2: Token-budgeted parallel Content Hydration
+        const hydratedNodes = await this.hydrateSkeletonNodes(
+          validatedSkeletonBase,
+          source.sourceText,
+          cid,
+          organizationId,
+          documentId,
+          sourceOutline,
+        );
+
+        effectiveAiBase = {
+          ...validatedSkeletonBase,
+          nodes: hydratedNodes,
+        };
+
+        // Phase 2.5: Independent Source Coverage Validation
+        const coverageResult = await this.validateSourceCoverage(
+          effectiveAiBase,
+          source.sourceText,
+          cid,
+          organizationId,
+          documentId,
+          sourceOutline,
+        );
+
+        if (coverageResult.ungroundedWarnings.length > 0 || coverageResult.suggestedCategories.length > 0) {
+          this.emitLifecycle({
+            timestamp: new Date().toISOString(),
+            stage: "MIND_MAP_VALIDATED",
+            correlationId: cid,
+            moduleId: resolvedModuleId,
+            courseId,
+            userId: actor.userId,
+            durationMs: 0,
+            status: "SUCCESS",
+            details: {
+              pipeline: "source-coverage",
+              coverageScore: coverageResult.coverageScore,
+              addedCount: coverageResult.addedCount,
+              ungroundedCount: coverageResult.ungroundedCount,
+              ungroundedWarnings: coverageResult.ungroundedWarnings,
+              suggestedCategories: coverageResult.suggestedCategories,
+            },
+          });
+        }
+
+        effectiveAiBase = {
+          ...effectiveAiBase,
+          nodes: coverageResult.nodes,
+        };
+      } else {
+        // === LEGACY FLAT JSON FALLBACK (e.g. direct flat mock or fallback response) ===
+        const { sanitized, metrics } = this.sanitizeAiMindMapTree(parsed, "root");
+        const validatedAiBase = validateMindMapAiBase(sanitized);
+
+        this.emitLifecycle({
+          timestamp: new Date().toISOString(),
+          stage: "MIND_MAP_VALIDATED",
+          correlationId: cid,
+          moduleId: resolvedModuleId,
+          courseId,
+          userId: actor.userId,
+          durationMs: Date.now() - stageStart,
+          status: "SUCCESS",
+          details: {
+            pipeline: "legacy-flat",
+            nodeCount: Object.keys(validatedAiBase.nodes).length,
+            rootNodeId: validatedAiBase.rootNodeId,
+            sanitization: metrics,
+          },
+        });
+
+        // Stage 2: Progressive Expansion (Batched Deepening)
+        const candidateNodes = this.findCandidatesForExpansion(
+          validatedAiBase.nodes,
+          validatedAiBase.rootNodeId,
+          source.sourceText,
+        );
+
+        effectiveAiBase = validatedAiBase;
+        const initialNodeCount = Object.keys(validatedAiBase.nodes).length;
+
+        if (candidateNodes.length > 0 && initialNodeCount < 105) {
+          try {
+            const deepenedNodes = await this.expandBranchesBatched(
+              actor,
+              resolvedModuleId,
+              documentId,
+              organizationId,
+              cid,
+              candidateNodes,
+              validatedAiBase,
+              source.sourceText,
+            );
+
+            if (Object.keys(deepenedNodes).length > initialNodeCount) {
+              effectiveAiBase = {
+                ...validatedAiBase,
+                nodes: deepenedNodes,
+              };
+            }
+          } catch {
+            // Graceful fallback to Stage 1 nodes
           }
-        } catch {
-          // Graceful fallback to Stage 1 nodes
         }
       }
 

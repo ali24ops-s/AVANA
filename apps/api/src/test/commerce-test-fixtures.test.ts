@@ -8,12 +8,13 @@ import { seedTestCommerceData } from "../../../../scripts/seed-test-commerce-dat
 import { cleanupTestCommerceData } from "../../../../scripts/cleanup-test-commerce-data.js";
 import * as schema from "../../../../database/schema/index.js";
 import { eq, sql } from "drizzle-orm";
-
-const connectionString =
-  process.env.DATABASE_URL ||
-  "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
+import {
+  assertSafeDestructiveTestOperation,
+  resolveSafePostgresTestUrl,
+} from "./pg-test-guard.js";
 
 describe("Isolated Test Commerce Dataset Verification Suite", () => {
+  let connectionString = "";
   let dbClientObj: ReturnType<typeof createDbClient>;
   let db: ReturnType<typeof createDbClient>["db"];
   let commerceStore: DrizzleCommerceStore;
@@ -26,40 +27,38 @@ describe("Isolated Test Commerce Dataset Verification Suite", () => {
   let isConnected = false;
 
   beforeAll(async () => {
-    try {
-      dbClientObj = createDbClient(connectionString);
-      db = dbClientObj.db;
-      await db.execute(sql`SELECT 1;`);
-      isConnected = true;
+    connectionString = resolveSafePostgresTestUrl();
+    dbClientObj = createDbClient(connectionString);
+    db = dbClientObj.db;
+    await db.execute(sql`SELECT 1;`);
+    isConnected = true;
 
-      commerceStore = new DrizzleCommerceStore(db);
-      adminStore = new DrizzleAdminStore(db);
-      entitlementService = new EntitlementService({ commerceStore });
+    commerceStore = new DrizzleCommerceStore(db);
+    adminStore = new DrizzleAdminStore(db);
+    entitlementService = new EntitlementService({ commerceStore });
 
-      // Seed test commerce dataset (idempotent)
-      await seedTestCommerceData(db);
+    assertSafeDestructiveTestOperation("commerce_test_fixtures_seed", connectionString);
+    // Seed test commerce dataset (idempotent)
+    await seedTestCommerceData(db);
 
-      // Fetch test users
-      const testUsers = await db.query.users.findMany({
-        where: (u, { like }) => like(u.email, "commerce-test-%"),
-      });
+    // Fetch test users
+    const testUsers = await db.query.users.findMany({
+      where: (u, { like }) => like(u.email, "commerce-test-%"),
+    });
 
-      for (const u of testUsers) {
-        userMap.set(u.email, u);
-      }
-
-      const courseProduct = await db.query.products.findFirst({
-        where: eq(schema.products.code, "test_prod_course_pharmacology"),
-      });
-      const packProduct = await db.query.products.findFirst({
-        where: eq(schema.products.code, "test_prod_pack_pharmacokinetics"),
-      });
-
-      targetCourseId = courseProduct?.targetId ?? "";
-      targetPackId = packProduct?.targetId ?? "";
-    } catch {
-      isConnected = false;
+    for (const u of testUsers) {
+      userMap.set(u.email, u);
     }
+
+    const courseProduct = await db.query.products.findFirst({
+      where: eq(schema.products.code, "test_prod_course_pharmacology"),
+    });
+    const packProduct = await db.query.products.findFirst({
+      where: eq(schema.products.code, "test_prod_pack_pharmacokinetics"),
+    });
+
+    targetCourseId = courseProduct?.targetId ?? "";
+    targetPackId = packProduct?.targetId ?? "";
   });
 
   beforeEach((ctx) => {

@@ -52,3 +52,4 @@ export * from "./presentation.js";
 export * from "./presentation-layout.js";
 export * from "./crm.js";
 export * from "./course-slug.js";
+export * from "./studio-exam-generation.js";

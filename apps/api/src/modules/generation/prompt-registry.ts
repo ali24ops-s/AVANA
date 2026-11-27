@@ -2508,6 +2508,60 @@ export function buildFlashcardBatchGenerationUserPrompt(
 // 4. Single-Session Multiple-Choice Quiz Generation
 // ---------------------------------------------------------------------------
 
+export const MCQ_LANGUAGE_REQUIREMENT_PROMPT = [
+  `MANDATORY LANGUAGE & SCIENTIFIC FORMATTING REQUIREMENT:`,
+  `- Generate all outputs (questions, choices, and explanations) entirely in natural, fluent, high-standard academic Persian (زبان فارسی روان و استاندارد علمی).`,
+  `- Write all gene names, protein symbols, hormones, enzyme acronyms, receptors, and drug abbreviations (e.g. 'COX-2', 'cAMP', 'ACE', 'Beta-1', 'SGLT2') as standard PLAIN TEXT without markdown backticks or LaTeX \\text{...}.`,
+  `- Use standard LaTeX math notation ONLY for genuine mathematical, pharmacokinetic, or chemical expressions (e.g. $T_4$, $Ca^{2+}$, $\\alpha_1$, $V_d = \\frac{\\text{Dose}}{C_0}$), and double-escape backslashes in JSON.`,
+  `- NEVER use emojis, stickers, or graphical icons anywhere in questions, choices, or explanations.`,
+].join("\n");
+
+export const QUIZ_DISTRACTOR_ENGINEERING_LINES = [
+  `- ONE QUESTION = ONE PRIMARY LEARNING POINT: Each question must test exactly one focused learning point, fact, mechanism, clinical choice, or distinction. Avoid omnibus questions that merge unrelated concepts.`,
+  `- SOURCE GROUNDING: Ground each question, correct choice, distractors, and explanation in factual details from the provided SOURCE CHUNKS and the full session lesson.`,
+  `- COGNITIVE DEPTH & CATEGORIES: Assign a realistic "category" matching the learning point:`,
+  `  * mechanism_discrimination: Differentiating closely related receptor subtypes, enzyme pathways, cellular targets, or biochemical actions.`,
+  `  * clinical_reasoning: Selecting preferred pharmacotherapy based on patient presentation, comorbidities, or clinical scenarios.`,
+  `  * adverse_effect_differential: Distinguishing characteristic vs rare toxicities between congener drugs or classes.`,
+  `  * contraindication_nuance: Identifying true absolute vs relative contraindications.`,
+  `  * pharmacokinetic_comparison: Half-life differences, prodrug activation, route of elimination, volume of distribution.`,
+  `  * application: High-yield clinical facts, first-line indications, and clinical guidelines.`,
+  `  * recall: Core definitions, terminology, and high-yield baseline facts.`,
+  `- REAL DIFFICULTY DISTRIBUTION: Aim for an approximate distribution of 30% easy, 50% medium, 20% hard:`,
+  `  * "easy": Direct fundamental facts, basic definitions, and standard first-line indications.`,
+  `  * "medium": Comparative knowledge, mechanism-to-effect connections, and standard clinical applications.`,
+  `  * "hard": Fine discrimination between same-class drugs, subtle contraindications, or multi-factor vignettes. Hardness MUST come from knowledge discrimination and reasoning, NOT confusing wording, ambiguity, or trick phrasing.`,
+  `- MANDATORY ANTI-BIAS & ANTI-LEAKAGE RULES (CRITICAL):`,
+  `  The correct answer MUST NOT be identifiable by formatting, length, wording richness, parenthetical content, English terminology, abbreviation, or explanatory detail alone.`,
+  `  Do not make the correct option more informative, more specific, more explanatory, or more terminology-rich than the distractors. Do not add English equivalents, abbreviations, synonyms, parenthetical explanations, scientific names, or clarifying phrases exclusively to the correct option. Any such formatting or terminology must either be applied consistently across comparable options or omitted when unnecessary.`,
+  `  1. Strict Length & Granularity Parity: Correct answer and distractors must be virtually identical in character length, grammatical structure, syntax, and depth. Never make the correct answer conspicuously longer or more detailed than distractors.`,
+  `  2. Absolute Prohibition of Inline Explanations and Exclusive Qualifiers: NEVER append explanations, justifications, mechanisms, qualifiers, or phrases like "به دلیل...", "زیرا...", "ناشی از...", "به منظور...", "از طریق...", "بدون ایجاد...", "با اثر..." exclusively inside the choice text of the correct answer. Put ALL justifications strictly into the "explanation" field.`,
+  `  3. Natural Terminology without Artificial English Padding: Do not artificially append English translations or annotations to distractors solely to pad length. If English terminology is not essential for testing the medical concept, omit it completely from all options (prefer clean, pure Persian terminology). If English terminology, Latin names, or abbreviations (e.g. receptor subtypes, standard drug names) are genuinely needed for accurate scientific identification, use them consistently across all 4 choices or omit them from all choices. NEVER attach an English equivalent only to the correct option.`,
+  `  4. Uniform Parentheticals & Synonyms: NEVER use parenthetical clarifications "(...)" or synonyms ("یا ...") exclusively on the correct choice.`,
+  `  5. Equal Specificity: If distractors are single entity names (e.g. single drugs), the correct answer must be a single entity name. Distractors and correct answer must operate at the exact same granularity level.`,
+  `  6. No Lazy Giveaways: NEVER use "همه موارد", "هیچ‌کدام", "گزینه ۱ و ۲", or placeholder text like "گزینه انحرافی". Every option must be a substantive domain entity or concept.`,
+  `  7. Randomize Choice Position: Distribute the correct answer naturally and randomly across all 4 positions (A, B, C, D).`,
+  `- CONCISE EDUCATIONAL EXPLANATION: Provide a clear, focused Persian explanation detailing why the correct choice is right and why distractors are wrong. Keep it concise, educational, and avoid repeating the question stem verbatim.`,
+  `- DUPLICATION CONTROL: Internally compare all questions before outputting. Do not generate duplicate or near-duplicate questions.`,
+] as const;
+
+export const QUIZ_FEW_SHOT_EXAMPLE = {
+  question:
+    "در بیمار مبتلا به پرفشاری خون همراه با برونکواسپاسم، کدام بتابلاکر به دلیل کاردیوسلکتیویتی بالا بر گیرنده Beta-1 اولویت دارد؟",
+  questionType: "multiple_choice" as const,
+  difficulty: "hard" as const,
+  category: "clinical_reasoning",
+  choices: [
+    "پروپرانولول (Propranolol)",
+    "کارودیلول (Carvedilol)",
+    "بیزوپرولول (Bisoprolol)",
+    "تیمولول (Timolol)",
+  ],
+  correctAnswer: "بیزوپرولول (Bisoprolol)",
+  explanation:
+    "بیزوپرولول یک بتابلاکر اختصاصی گیرنده Beta-1 است و کمترین تحریک برونکواسپاسم در مجاری تنفسی (Beta-2) را ایجاد می‌کند. پروپرانولول و تیمولول غیرانتخابی هستند و کارودیلول گیرنده‌های آلفا و بتا را همزمان مسدود می‌کند.",
+};
+
 export const QUIZ_GENERATION_SYSTEM_PROMPT =
   "You produce structured JSON multiple-choice quiz questions. Return ONLY valid JSON matching the schema. In all JSON strings (question, choices, correctAnswer, explanation), properly escape LaTeX backslashes (e.g. \\\\Delta, \\\\alpha, \\\\frac, \\\\ce{...}, \\\\rightarrow) and escape internal double quotes (\\\") or use Persian quotation marks (« »). Do not output markdown code fences or conversational text.";
 

@@ -46,8 +46,9 @@ const securityPluginImpl: FastifyPluginAsync<SecurityPluginOptions> = async (
       "X-CSRF-Token",
       "X-Device-Type",
       "x-device-type",
+      "If-None-Match",
     ],
-    exposedHeaders: ["X-Request-Id"],
+    exposedHeaders: ["X-Request-Id", "ETag", "X-Entity-Version"],
   });
 
   // 3. Rate limiting (global for general API endpoints)

@@ -13,6 +13,7 @@ import { recoverIndeterminateCommit } from "../tracker/commit-recovery.js";
 import { evaluateMigrationEvidence } from "../tracker/evidence-manifest.js";
 import { executeStatefulMigrations } from "../tracker/runner.js";
 import { runEvidenceBaseline } from "../tracker/baseline.js";
+import { ALL_MIGRATIONS } from "../tracker/registry.js";
 import type { MigrationDefinition } from "../tracker/types.js";
 
 describe("AVANA Migration Tracking System Unit & Integration Tests", () => {
@@ -84,7 +85,7 @@ describe("AVANA Migration Tracking System Unit & Integration Tests", () => {
       expect(hash1).toHaveLength(64);
     });
 
-    it("resolves build manifest containing all 103 migrations across cwd and path scenarios", () => {
+    it("resolves build manifest containing all migrations across cwd and path scenarios", () => {
       const databaseDir = process.cwd().endsWith("database")
         ? process.cwd()
         : path.join(process.cwd(), "database");
@@ -93,25 +94,52 @@ describe("AVANA Migration Tracking System Unit & Integration Tests", () => {
         : process.cwd();
       const distDir = path.join(databaseDir, "dist");
 
+      const expectedCount = ALL_MIGRATIONS.length;
+      const firstId = ALL_MIGRATIONS[0]?.id;
+      const lastId = ALL_MIGRATIONS[expectedCount - 1]?.id;
+
       // 1. From database directory
       const manifestFromDb = resolveBuildManifest(databaseDir);
-      expect(manifestFromDb.migrations.length).toBe(103);
-      expect(manifestFromDb.migrations[0].id).toBe("0001_init");
-      expect(manifestFromDb.migrations[102].id).toBe("0106_presentation_generation_operations");
+      expect(manifestFromDb.migrations.length).toBe(expectedCount);
+      expect(manifestFromDb.migrations[0].id).toBe(firstId);
+      expect(manifestFromDb.migrations[expectedCount - 1].id).toBe(lastId);
+      expect(manifestFromDb.migrations.map((m) => m.id)).toEqual(
+        ALL_MIGRATIONS.map((m) => m.id),
+      );
+
+      // Verify all Pocket and Studio Exam migrations are present in order without duplicates
+      const expectedNewIds = [
+        "0107_pocket_core",
+        "0108_studio_exam_generation",
+        "0109_studio_exam_question_review",
+        "0110_pocket_verification_chain_integrity",
+        "0111_pocket_published_root_uniqueness",
+        "0112_pocket_credential_lifecycle",
+        "0113_pocket_conflict_resolution",
+      ];
+      for (const id of expectedNewIds) {
+        expect(manifestFromDb.migrations.some((m) => m.id === id)).toBe(true);
+      }
+      expect(new Set(manifestFromDb.migrations.map((m) => m.id)).size).toBe(expectedCount);
+      for (let i = 1; i < manifestFromDb.migrations.length; i++) {
+        expect(manifestFromDb.migrations[i].sequence).toBeGreaterThan(
+          manifestFromDb.migrations[i - 1].sequence,
+        );
+      }
 
       // 2. From monorepo root
       const manifestFromRoot = resolveBuildManifest(monorepoRoot);
-      expect(manifestFromRoot.migrations.length).toBe(103);
-      expect(manifestFromRoot.migrations[0].id).toBe("0001_init");
-      expect(manifestFromRoot.migrations[102].id).toBe("0106_presentation_generation_operations");
+      expect(manifestFromRoot.migrations.length).toBe(expectedCount);
+      expect(manifestFromRoot.migrations[0].id).toBe(firstId);
+      expect(manifestFromRoot.migrations[expectedCount - 1].id).toBe(lastId);
 
       // 3. From dist directory
       const manifestFromDist = resolveBuildManifest(distDir);
-      expect(manifestFromDist.migrations.length).toBe(103);
+      expect(manifestFromDist.migrations.length).toBe(expectedCount);
 
       // 4. Without passing baseDir (independent of process.cwd())
       const manifestDefault = resolveBuildManifest();
-      expect(manifestDefault.migrations.length).toBe(103);
+      expect(manifestDefault.migrations.length).toBe(expectedCount);
 
       // 5. Throws clear error if path does not exist
       expect(() => resolveBuildManifest("/non/existent/manifest/path")).toThrow(

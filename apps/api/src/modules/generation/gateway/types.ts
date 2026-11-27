@@ -67,6 +67,8 @@ export type CompletionRequest = {
   documentId: DocumentId;
   /** Stage of generation lifecycle (e.g. "planning", "lesson", "flashcard", "quiz", "review_summary"). */
   stage?: string;
+  /** Optional cancellation signal to abort downstream HTTP network requests. */
+  signal?: AbortSignal;
 };
 
 /**

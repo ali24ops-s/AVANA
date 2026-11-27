@@ -52,14 +52,13 @@ function validateTestDatabaseUrl(rawUrl: string | undefined): {
   }
 }
 
+import {
+  assertSafeDestructiveTestOperation,
+  resolveSafePostgresTestUrl,
+} from "./pg-test-guard.js";
+
 describe("Real PostgreSQL: Presentation Billing Concurrency & Recovery Locking", () => {
-  const candidateUrl =
-    process.env.TEST_DATABASE_URL ||
-    process.env.STAGING_DATABASE_URL ||
-    process.env.DATABASE_URL;
-
-  const validation = validateTestDatabaseUrl(candidateUrl);
-
+  let dbUrl = "";
   let client1: ReturnType<typeof createDbClient> | null = null;
   let client2: ReturnType<typeof createDbClient> | null = null;
   let isConnected = false;
@@ -70,60 +69,51 @@ describe("Real PostgreSQL: Presentation Billing Concurrency & Recovery Locking",
   let testSlideId: string;
 
   beforeAll(async () => {
-    if (!validation.valid || !validation.url) {
-      isConnected = false;
-      return;
-    }
+    dbUrl = resolveSafePostgresTestUrl();
+    client1 = createDbClient(dbUrl);
+    client2 = createDbClient(dbUrl);
 
-    try {
-      client1 = createDbClient(validation.url);
-      client2 = createDbClient(validation.url);
+    await client1.db.execute(sql`SELECT 1;`);
+    await client2.db.execute(sql`SELECT 1;`);
+    isConnected = true;
 
-      await client1.db.execute(sql`SELECT 1;`);
-      await client2.db.execute(sql`SELECT 1;`);
-      isConnected = true;
+    // Seed minimal relational entities for foreign key integrity
+    testUserId = randomUUID();
+    testOrgId = randomUUID();
+    testProjectId = randomUUID();
+    testSlideId = randomUUID();
 
-      // Seed minimal relational entities for foreign key integrity
-      testUserId = randomUUID();
-      testOrgId = randomUUID();
-      testProjectId = randomUUID();
-      testSlideId = randomUUID();
+    await client1.db.insert(users).values({
+      id: testUserId,
+      email: `pg-test-${Date.now()}@avana.ir`,
+      passwordHash: "test_hash",
+      name: "PG Test User",
+    });
 
-      await client1.db.insert(users).values({
-        id: testUserId,
-        email: `pg-test-${Date.now()}@avana.ir`,
-        passwordHash: "test_hash",
-        fullName: "PG Test User",
-      });
+    await client1.db.insert(organizations).values({
+      id: testOrgId,
+      name: "PG Test Org",
+      slug: `pg-test-org-${Date.now()}`,
+    });
 
-      await client1.db.insert(organizations).values({
-        id: testOrgId,
-        name: "PG Test Org",
-        slug: `pg-test-org-${Date.now()}`,
-      });
+    await client1.db.insert(presentationProjects).values({
+      id: testProjectId,
+      organizationId: testOrgId,
+      ownerUserId: testUserId,
+      title: "PG Concurrency Project",
+    });
 
-      await client1.db.insert(presentationProjects).values({
-        id: testProjectId,
-        organizationId: testOrgId,
-        ownerUserId: testUserId,
-        title: "PG Concurrency Project",
-      });
-
-      await client1.db.insert(presentationSlides).values({
-        id: testSlideId,
-        projectId: testProjectId,
-        slideIndex: 1,
-        title: "Slide 1",
-      });
-    } catch {
-      isConnected = false;
-      client1 = null;
-      client2 = null;
-    }
+    await client1.db.insert(presentationSlides).values({
+      id: testSlideId,
+      projectId: testProjectId,
+      slideIndex: 1,
+      title: "Slide 1",
+    });
   });
 
   afterAll(async () => {
     if (!isConnected || !client1) return;
+    assertSafeDestructiveTestOperation("presentation_recovery_cleanup", dbUrl);
     try {
       await client1.db.execute(
         sql`DELETE FROM presentation_generation_operations WHERE project_id = ${testProjectId};`,
@@ -179,6 +169,11 @@ describe("Real PostgreSQL: Presentation Billing Concurrency & Recovery Locking",
     // Exactly one must succeed, and one must be rejected with conflict by PostgreSQL engine
     expect(fulfilled.length).toBe(1);
     expect(rejected.length).toBe(1);
+
+    // Clean up active operation on testSlideId before the next test
+    await client1.db.execute(
+      sql`DELETE FROM presentation_generation_operations WHERE slide_id = ${testSlideId};`,
+    );
   });
 
   it("Real PG: Atomic lease locking in claimStaleOperation across independent connections grants lock to exactly one worker", async () => {

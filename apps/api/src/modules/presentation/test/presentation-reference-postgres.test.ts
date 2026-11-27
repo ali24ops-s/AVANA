@@ -18,12 +18,13 @@ import {
 import {
   DrizzlePresentationReferenceStore,
 } from "../drizzle-presentation-store.js";
+import {
+  assertSafeDestructiveTestOperation,
+  resolveSafePostgresTestUrl,
+} from "../../../test/pg-test-guard.js";
 
 describe("DrizzlePresentationReferenceStore PostgreSQL Integration", () => {
-  const dbUrl =
-    process.env.DATABASE_URL ||
-    "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
-
+  let dbUrl = "";
   let client: ReturnType<typeof createDbClient>;
   let refStore: DrizzlePresentationReferenceStore;
   let isConnected = false;
@@ -32,31 +33,29 @@ describe("DrizzlePresentationReferenceStore PostgreSQL Integration", () => {
   const testUserId = randomUUID();
 
   beforeAll(async () => {
-    try {
-      client = createDbClient(dbUrl);
-      await client.db.execute(sql`SELECT 1;`);
-      isConnected = true;
-      refStore = new DrizzlePresentationReferenceStore(client.db);
+    dbUrl = resolveSafePostgresTestUrl();
+    client = createDbClient(dbUrl);
+    await client.db.execute(sql`SELECT 1;`);
+    isConnected = true;
+    refStore = new DrizzlePresentationReferenceStore(client.db);
 
-      // Seed organization and user
-      await client.db.insert(organizations).values({
-        id: testOrgId,
-        name: "Pres Ref Postgres Org",
-        slug: `pres-ref-pg-${Date.now()}`,
-      });
+    // Seed organization and user
+    await client.db.insert(organizations).values({
+      id: testOrgId,
+      name: "Pres Ref Postgres Org",
+      slug: `pres-ref-pg-${Date.now()}`,
+    });
 
-      await client.db.insert(users).values({
-        id: testUserId,
-        email: `pres-ref-pg-${Date.now()}@avana.local`,
-        name: "Pres Ref User",
-      });
-    } catch {
-      isConnected = false;
-    }
+    await client.db.insert(users).values({
+      id: testUserId,
+      email: `pres-ref-pg-${Date.now()}@avana.local`,
+      name: "Pres Ref User",
+    });
   });
 
   afterAll(async () => {
     if (client) {
+      assertSafeDestructiveTestOperation("presentation_reference_cleanup", dbUrl);
       // Clean up test data
       await client.db
         .delete(organizations)

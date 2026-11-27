@@ -19,6 +19,7 @@ export interface MarketingQuizQuestionSnapshot {
   marketingQuizId: string;
   sourceQuestionId?: string | null;
   sourceBankQuestionId?: string | null;
+  sourceStagingQuestionId?: string | null;
   question: string;
   choices: MarketingQuizChoice[];
   correctAnswer: NormalizedCorrectAnswer | { choiceId: string } | string;
@@ -336,5 +337,30 @@ export interface BatchAddQuestionItemInput {
 
 export interface BatchAddQuestionsInput {
   items: BatchAddQuestionItemInput[];
+}
+
+export interface ChapterQuotaInput {
+  moduleId: string;
+  quota: number;
+}
+
+export interface CreateExamGenerationInput {
+  totalQuestions: number;
+  chapterAllocations?: ChapterQuotaInput[];
+  moduleIds?: string[];
+  courseId?: string;
+  difficulty?: "easy" | "medium" | "hard";
+  instructions?: string;
+  sampleQuestions?: Array<{ question: string; choices?: string[]; explanation?: string }>;
+  idempotencyKey?: string;
+}
+
+export interface GetGeneratedQuestionsFilters {
+  taskId?: string;
+  batchId?: string;
+  isAccepted?: boolean;
+  reviewStatus?: "pending_review" | "accepted" | "rejected" | "transferred";
+  limit?: number;
+  offset?: number;
 }
 

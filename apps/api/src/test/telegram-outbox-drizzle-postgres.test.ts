@@ -4,47 +4,45 @@ import { sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { telegramOutbox } from "@avana/database/schema";
 import { DrizzleTelegramOutboxStore } from "../observability/telegram-outbox-store.js";
+import {
+  assertSafeDestructiveTestOperation,
+  resolveSafePostgresTestUrl,
+} from "./pg-test-guard.js";
 
 /* eslint-disable no-secrets/no-secrets */
 describe("Real PostgreSQL Integration: DrizzleTelegramOutboxStore", () => {
-  const dbUrl =
-    process.env.DATABASE_URL ||
-    "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
-
+  let dbUrl = "";
   let client: ReturnType<typeof createDbClient> | null = null;
   let isConnectedAndMigrated = false;
   let store: DrizzleTelegramOutboxStore;
   const createdRecordIds: string[] = [];
 
   beforeAll(async () => {
-    try {
-      client = createDbClient(dbUrl);
-      await client.db.execute(sql`SELECT 1;`);
+    dbUrl = resolveSafePostgresTestUrl();
+    client = createDbClient(dbUrl);
+    await client.db.execute(sql`SELECT 1;`);
 
-      // Verify table telegram_outbox exists in the current database
-      const checkResult = await client.db.execute(sql`
-        SELECT 1 FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'telegram_outbox';
-      `);
+    // Verify table telegram_outbox exists in the current database
+    const checkResult = await client.db.execute(sql`
+      SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = 'telegram_outbox';
+    `);
 
-      const rows: unknown[] = Array.isArray(checkResult)
-        ? checkResult
-        : (((checkResult as { rows?: unknown[] })?.rows ?? []) as unknown[]);
+    const rows: unknown[] = Array.isArray(checkResult)
+      ? checkResult
+      : (((checkResult as { rows?: unknown[] })?.rows ?? []) as unknown[]);
 
-      if (rows.length > 0) {
-        isConnectedAndMigrated = true;
-        store = new DrizzleTelegramOutboxStore(client.db);
-      } else {
-        // Table not yet migrated
-        isConnectedAndMigrated = false;
-      }
-    } catch {
-      isConnectedAndMigrated = false;
+    if (rows.length === 0) {
+      throw new Error("Table telegram_outbox does not exist in target test database.");
     }
+
+    isConnectedAndMigrated = true;
+    store = new DrizzleTelegramOutboxStore(client.db);
   });
 
   afterAll(async () => {
     if (client && isConnectedAndMigrated) {
+      assertSafeDestructiveTestOperation("telegram_outbox_cleanup", dbUrl);
       for (const id of createdRecordIds) {
         await client.db
           .delete(telegramOutbox)

@@ -13,13 +13,15 @@ import {
 import { PollService } from "../modules/studio/poll-service.js";
 import { studioPollRoutes } from "../modules/studio/studio-poll-routes.js";
 import { publicPollRoutes } from "../modules/studio/public-poll-routes.js";
+import {
+  assertSafeDestructiveTestOperation,
+  resolveSafePostgresTestUrl,
+} from "./pg-test-guard.js";
 
 const TEST_DB_NAME = "avana_poll_e2e_test_pg";
-const DB_URL =
-  process.env.DATABASE_URL ||
-  `postgres://ops@localhost:5432/${TEST_DB_NAME}?sslmode=disable`;
 
 describe("End-to-End Operational Testing: Marketing Studio Polls & Surveys", () => {
+  let dbUrl = "";
   let pool: pg.Pool;
   let db: ReturnType<typeof drizzle>;
   let pollStore: DrizzlePollStore;
@@ -43,15 +45,9 @@ describe("End-to-End Operational Testing: Marketing Studio Polls & Surveys", () 
 
   beforeAll(async () => {
     // 1. Strict Database Guard: Ensure we NEVER touch the main or production database!
-    const parsedUrl = new URL(DB_URL);
-    const databaseName = parsedUrl.pathname.replace(/^\//, "");
-    if (databaseName !== TEST_DB_NAME) {
-      throw new Error(
-        `CRITICAL GUARD FAILED: Expected test database ${TEST_DB_NAME}, but connected to "${databaseName}". Execution aborted immediately!`,
-      );
-    }
+    dbUrl = resolveSafePostgresTestUrl(process.env, "poll_e2e");
 
-    pool = new pg.Pool({ connectionString: DB_URL });
+    pool = new pg.Pool({ connectionString: dbUrl });
     db = drizzle(pool);
 
     // Verify DB connectivity
@@ -137,6 +133,8 @@ describe("End-to-End Operational Testing: Marketing Studio Polls & Surveys", () 
 
   afterAll(async () => {
     // Isolated Cleanup: Delete ONLY created polls and test user in finally block
+    if (!pool) return;
+    assertSafeDestructiveTestOperation("poll_e2e_cleanup", dbUrl, "poll_e2e");
     try {
       if (createdPollIds.length > 0) {
         for (const pollId of createdPollIds) {

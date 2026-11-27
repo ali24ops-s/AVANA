@@ -17,9 +17,13 @@ import {
 } from "@avana/database/schema";
 import { DrizzleCrmStore, InMemoryCrmStore } from "../modules/admin/crm/crm-store.js";
 import { validateSegmentRules, type SegmentFilterRule } from "@avana/domain";
+import {
+  assertSafeDestructiveTestOperation,
+  resolveSafePostgresTestUrl,
+} from "./pg-test-guard.js";
 
 describe("Real PostgreSQL Integration & SQL vs InMemory Parity (DrizzleCrmStore)", () => {
-  const explicitDbUrl = "postgres://ops@localhost:5432/avana_crm_test_pg?sslmode=disable";
+  let explicitDbUrl = "";
 
   let client: ReturnType<typeof createDbClient>;
   let drizzleStore: DrizzleCrmStore;
@@ -45,6 +49,7 @@ describe("Real PostgreSQL Integration & SQL vs InMemory Parity (DrizzleCrmStore)
   let tagRiskId: string;
 
   beforeAll(async () => {
+    explicitDbUrl = resolveSafePostgresTestUrl(process.env, "crm");
     client = createDbClient(explicitDbUrl);
 
     // 1. Database Safety Verification: Ensure we are strictly on avana_crm_test_pg
@@ -320,6 +325,8 @@ describe("Real PostgreSQL Integration & SQL vs InMemory Parity (DrizzleCrmStore)
 
   afterAll(async () => {
     // Targeted, isolated cleanup of strictly created IDs
+    if (!client) return;
+    assertSafeDestructiveTestOperation("crm_postgres_cleanup", explicitDbUrl, "crm");
     try {
       if (createdSegmentIds.length > 0) {
         await client.db.delete(crmSegments).where(inArray(crmSegments.id, createdSegmentIds));

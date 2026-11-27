@@ -80,9 +80,9 @@ async function main(): Promise<void> {
 
   void app.register(v1Routes, v1Options);
 
-  // Boot inline generation worker in dev mode only if not already composed
+  // Boot inline generation worker in dev mode only if not already composed and not disabled
   let worker: ReturnType<typeof createGenerationWorker> | null = composedWorker ?? null;
-  if (!worker) {
+  if (!worker && process.env.DISABLE_INLINE_WORKER !== "true") {
     try {
       if (v1Options.generatedContentStore && v1Options.generationJobStore) {
       const adminGateway = v1Options.adminGateway ?? v1Options.gateway!;

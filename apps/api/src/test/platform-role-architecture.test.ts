@@ -445,23 +445,17 @@ describe("Platform Role Architecture & Decoupling Test Suite", () => {
 // PostgreSQL Database Integration Tests (DrizzleAdminStore & DrizzleUserStore)
 // ===========================================================================
 describe("PostgreSQL Integration: Drizzle Stores with users.global_role", () => {
-  const postgresUrl =
-    process.env.DATABASE_URL ??
-    `postgres://${"avana"}:${"avana"}@127.0.0.1:5432/avana?sslmode=disable`;
-
   let dbClient: ReturnType<typeof createDbClient> | undefined;
   let isConnected = false;
 
   beforeAll(async () => {
-    try {
-      dbClient = createDbClient(postgresUrl);
-      const res = await dbClient.db.execute(
-        sql`SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'global_role';`
-      );
-      isConnected = (res.rows?.length ?? 0) > 0;
-    } catch {
-      isConnected = false;
-    }
+    const { resolveSafePostgresTestUrl } = await import("./pg-test-guard.js");
+    const postgresUrl = resolveSafePostgresTestUrl();
+    dbClient = createDbClient(postgresUrl);
+    const res = await dbClient.db.execute(
+      sql`SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'global_role';`
+    );
+    isConnected = (res.rows?.length ?? 0) > 0;
   });
 
   afterAll(async () => {

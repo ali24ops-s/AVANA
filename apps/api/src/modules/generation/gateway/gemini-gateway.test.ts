@@ -844,4 +844,122 @@ describe("Gemini Structured Output (adaptToGeminiJsonSchema)", () => {
       expect(genConfig.maxOutputTokens).toBe(2048);
     });
   });
+
+  describe("AbortSignal & Request Cancellation (Phase 3.1 Hardening)", () => {
+    it("aborts immediately before network call if signal is already aborted", async () => {
+      const mockFetch = vi.fn();
+      const gateway = new GeminiModelGateway({
+        apiKey: FAKE_API_KEY,
+        fetchFn: mockFetch as unknown as typeof fetch,
+      });
+
+      const controller = new AbortController();
+      const customAbortReason = new Error("operation_cancelled_by_user");
+      controller.abort(customAbortReason);
+
+      await expect(
+        gateway.complete(makeRequest({ signal: controller.signal })),
+      ).rejects.toThrow("operation_cancelled_by_user");
+
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("aborts HTTP fetch mid-request when signal is triggered and never retries", async () => {
+      const controller = new AbortController();
+      let fetchCalledCount = 0;
+
+      const mockFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+        fetchCalledCount++;
+        // Simulate in-flight HTTP request waiting on socket
+        return new Promise<Response>((_, reject) => {
+          if (init?.signal) {
+            init.signal.addEventListener("abort", () => {
+              const abortErr = new Error("This operation was aborted");
+              abortErr.name = "AbortError";
+              reject(abortErr);
+            });
+          }
+        });
+      });
+
+      const gateway = new GeminiModelGateway({
+        apiKey: FAKE_API_KEY,
+        fetchFn: mockFetch as unknown as typeof fetch,
+      });
+
+      const completionPromise = gateway.complete(
+        makeRequest({ signal: controller.signal }),
+      );
+
+      // Trigger user abort while HTTP fetch is pending
+      setTimeout(() => {
+        controller.abort(new Error("heartbeat_lease_expired"));
+      }, 20);
+
+      await expect(completionPromise).rejects.toThrow("heartbeat_lease_expired");
+
+      // Verify no retry loops occurred on abort!
+      expect(fetchCalledCount).toBe(1);
+    });
+
+    it("distinguishes internal timeout from user abort signal", async () => {
+      const mockFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+        return new Promise<Response>((_, reject) => {
+          if (init?.signal) {
+            init.signal.addEventListener("abort", () => {
+              const abortErr = new Error("Timeout occurred");
+              abortErr.name = "AbortError";
+              reject(abortErr);
+            });
+          }
+        });
+      });
+
+      const gateway = new GeminiModelGateway({
+        apiKey: FAKE_API_KEY,
+        fetchFn: mockFetch as unknown as typeof fetch,
+        timeoutMs: 30, // short timeout for testing
+      });
+
+      const controller = new AbortController(); // NOT aborted!
+
+      await expect(
+        gateway.complete(makeRequest({ signal: controller.signal })),
+      ).rejects.toThrow(/timed out after 30ms/);
+
+      expect(controller.signal.aborted).toBe(false);
+    });
+
+    it("removes abort event listener upon completion to prevent memory leaks", async () => {
+      const controller = new AbortController();
+      const addSpy = vi.spyOn(controller.signal, "addEventListener");
+      const removeSpy = vi.spyOn(controller.signal, "removeEventListener");
+
+      const mockFetch = vi.fn(async () => makeSuccessResponse());
+
+      const gateway = new GeminiModelGateway({
+        apiKey: FAKE_API_KEY,
+        fetchFn: mockFetch as unknown as typeof fetch,
+      });
+
+      await gateway.complete(makeRequest({ signal: controller.signal }));
+
+      expect(addSpy).toHaveBeenCalledWith("abort", expect.any(Function), { once: true });
+      expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+    });
+
+    it("works completely backwards-compatible when signal is omitted", async () => {
+      const mockFetch = vi.fn(async () => makeSuccessResponse());
+
+      const gateway = new GeminiModelGateway({
+        apiKey: FAKE_API_KEY,
+        fetchFn: mockFetch as unknown as typeof fetch,
+      });
+
+      const res = await gateway.complete(makeRequest({ signal: undefined }));
+      expect(res.text).toBeDefined();
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+  });
 });
+

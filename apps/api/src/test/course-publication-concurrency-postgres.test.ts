@@ -28,48 +28,13 @@ import { DrizzleCoursePublicationStore } from "../modules/courses/drizzle-stores
  *
  * If live PostgreSQL is not reachable in the isolated sandbox, gracefully skips.
  */
-function validateTestDatabaseUrl(rawUrl: string | undefined): { valid: boolean; reason?: string; url?: string } {
-  if (!rawUrl || typeof rawUrl !== "string" || rawUrl.trim().length === 0) {
-    return { valid: false, reason: "No explicit TEST_DATABASE_URL or DATABASE_URL provided." };
-  }
-
-  try {
-    const parsed = new URL(rawUrl.trim());
-    const host = parsed.hostname.toLowerCase();
-    const pathname = parsed.pathname.toLowerCase();
-
-    // Strict Production Guard
-    const prohibitedHosts = ["aavana.ir", "api.aavana.ir", "prod", "production", "db.aavana.ir"];
-    if (prohibitedHosts.some((h) => host.includes(h))) {
-      return { valid: false, reason: `Target host '${host}' is identified as production; execution blocked.` };
-    }
-
-    const isAllowlisted =
-      pathname.includes("test") ||
-      pathname.includes("staging") ||
-      pathname.includes("avana") ||
-      host === "127.0.0.1" ||
-      host === "localhost";
-
-    if (!isAllowlisted) {
-      return { valid: false, reason: `Target database path '${pathname}' is not recognized as test/dev.` };
-    }
-
-    return { valid: true, url: parsed.toString() };
-  } catch (err: unknown) {
-    return { valid: false, reason: `Invalid database URL format: ${String((err as Error)?.message || err)}` };
-  }
-}
+import {
+  assertSafeDestructiveTestOperation,
+  resolveSafePostgresTestUrl,
+} from "./pg-test-guard.js";
 
 describe("Real PostgreSQL: Course Publication Concurrency & Unique Versioning", () => {
-  const candidateUrl =
-    process.env.TEST_DATABASE_URL ||
-    process.env.STAGING_DATABASE_URL ||
-    process.env.DATABASE_URL ||
-    "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
-
-  const validation = validateTestDatabaseUrl(candidateUrl);
-
+  let dbUrl = "";
   let client1: ReturnType<typeof createDbClient> | null = null;
   let client2: ReturnType<typeof createDbClient> | null = null;
   let isConnected = false;
@@ -82,46 +47,38 @@ describe("Real PostgreSQL: Course Publication Concurrency & Unique Versioning", 
   const createdCourseIds: string[] = [];
 
   beforeAll(async () => {
-    if (!validation.valid || !validation.url) {
-      console.warn("Skipping real PG concurrency tests: database URL validation failed -", validation.reason);
-      isConnected = false;
-      return;
-    }
+    dbUrl = resolveSafePostgresTestUrl();
+    client1 = createDbClient(dbUrl);
+    client2 = createDbClient(dbUrl);
 
-    try {
-      client1 = createDbClient(validation.url);
-      client2 = createDbClient(validation.url);
+    await client1.db.execute(sql`SELECT 1;`);
+    await client2.db.execute(sql`SELECT 1;`);
+    isConnected = true;
 
-      await client1.db.execute(sql`SELECT 1;`);
-      await client2.db.execute(sql`SELECT 1;`);
-      isConnected = true;
+    store1 = new DrizzleCoursePublicationStore(client1.db);
+    store2 = new DrizzleCoursePublicationStore(client2.db);
 
-      store1 = new DrizzleCoursePublicationStore(client1.db);
-      store2 = new DrizzleCoursePublicationStore(client2.db);
+    // Seed test tenant & actor
+    testOrgId = randomUUID();
+    testUserId = randomUUID();
 
-      // Seed test tenant & actor
-      testOrgId = randomUUID();
-      testUserId = randomUUID();
+    await client1.db.insert(organizations).values({
+      id: testOrgId,
+      name: "Concurrency Test Org",
+      slug: `conc-org-${Date.now()}`,
+    });
 
-      await client1.db.insert(organizations).values({
-        id: testOrgId,
-        name: "Concurrency Test Org",
-        slug: `conc-org-${Date.now()}`,
-      });
-
-      await client1.db.insert(users).values({
-        id: testUserId,
-        email: `conc-user-${Date.now()}@avana.test`,
-        passwordHash: "dummy-hash",
-      });
-    } catch (err) {
-      console.warn("PostgreSQL not accessible in test environment, skipping real PG integration tests:", (err as Error)?.message || err);
-      isConnected = false;
-    }
+    await client1.db.insert(users).values({
+      id: testUserId,
+      name: "Concurrency Test User",
+      email: `conc-user-${Date.now()}@avana.test`,
+      passwordHash: "dummy-hash",
+    });
   });
 
   afterAll(async () => {
     if (isConnected && client1) {
+      assertSafeDestructiveTestOperation("course_publication_concurrency_cleanup", dbUrl);
       try {
         for (const cid of createdCourseIds) {
           await client1.db.delete(coursePublications).where(eq(coursePublications.courseId, cid));

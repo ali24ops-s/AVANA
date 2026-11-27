@@ -160,6 +160,18 @@ describe("Question Option Shuffling & Invariant Validation (Domain)", () => {
       };
       expect(canonicalizeAndShuffleQuestion(empty)).toEqual(empty);
     });
+
+    it("throws an error instead of silently falling back to choices[0] when correctAnswer cannot be resolved", () => {
+      const mismatched = {
+        question: "مکانیسم اثر متوپرولول چیست؟",
+        choices: ["مهار Beta-1", "تحریک Beta-2", "مهار Alpha-1", "تحریک M2"],
+        correctAnswer: "پاسخ نامرتبط وجود ندارد",
+      };
+
+      expect(() => canonicalizeAndShuffleQuestion(mismatched)).toThrow(
+        /strictly resolved/i,
+      );
+    });
   });
 
   describe("4. validateQuestionIntegrity", () => {
@@ -860,6 +872,38 @@ describe("Question Option Shuffling & Invariant Validation (Domain)", () => {
 
       expect(res.valid).toBe(true);
       expect(res.errors).toHaveLength(0);
+    });
+
+    it("detects multi-word English parenthetical translation leakage even when a distractor has a short acronym", () => {
+      const q = {
+        question: "مکانیسم اثر داروی اول چیست؟",
+        choices: [
+          "پرفشاری خون اولیه (Primary Essential Hypertension)",
+          "مهار آنزیم ACE",
+          "تغییر pH ادرار",
+          "افزایش کلسیم سرم",
+        ],
+        correctAnswer: "پرفشاری خون اولیه (Primary Essential Hypertension)",
+      };
+      const leakage = detectAnswerLeakage(q);
+      expect(leakage.hasLeakage).toBe(true);
+      expect(leakage.features.englishAsymmetry).toBe(true);
+    });
+
+    it("detects inline explanatory clauses using 'جهت پیشگیری' or 'که باعث'", () => {
+      const q = {
+        question: "اقدام صحیح هنگام تغییر دارو از انالاپریل به ARNI چیست؟",
+        choices: [
+          "فاصله ۳۶ ساعته جهت پیشگیری از آنژیوادم",
+          "شروع هم‌زمان دارو",
+          "قطع ناگهانی دیورتیک",
+          "افزایش دوز بتابلاکر",
+        ],
+        correctAnswer: "فاصله ۳۶ ساعته جهت پیشگیری از آنژیوادم",
+      };
+      const leakage = detectAnswerLeakage(q);
+      expect(leakage.hasLeakage).toBe(true);
+      expect(leakage.features.explanatoryClauseAsymmetry).toBe(true);
     });
   });
 });

@@ -14,6 +14,8 @@ process.env.NODE_ENV = process.env.NODE_ENV || "development";
 import { loadWorkerConfig, type WorkerConfig } from "./config.js";
 import { composeWorker } from "./compose.js";
 import { createGenerationWorker } from "./processors/generation-processor.js";
+import { createPocketEventWorker } from "./processors/pocket-processor.js";
+import { createStudioExamWorker, BullMqStudioExamQueue } from "./processors/studio-exam-processor.js";
 
 export function validateWorkerConfig(config: WorkerConfig): void {
   if (config.generation.aiProvider === "mock") {
@@ -74,12 +76,42 @@ async function main(): Promise<void> {
     );
   }
 
+  const studioExamQueue = new BullMqStudioExamQueue({
+    connection: { url: config.redis.url },
+  });
+
+  try {
+    if (deps.studioExamStore && typeof deps.studioExamStore.reconcileStaleBatches === "function") {
+      const studioRecon = await deps.studioExamStore.reconcileStaleBatches({
+        queue: studioExamQueue,
+      });
+      if (studioRecon.recoveredBatchesCount > 0 || studioRecon.reenqueuedBatchesCount > 0) {
+        process.stdout.write(
+          `[worker] Startup recovery reconciled ${studioRecon.recoveredBatchesCount} stale batch(es) and re-enqueued ${studioRecon.reenqueuedBatchesCount} pending batch(es)\n`,
+        );
+      }
+    }
+  } catch (err) {
+    process.stderr.write(
+      `[worker] Startup studio exam recovery warning: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
+
   // Periodic background reconciliation (every 5 minutes)
   const reconcileInterval = setInterval(async () => {
     try {
       await deps.recoveryService.reconcileAllStale();
     } catch {
       // background reconciliation error suppressed
+    }
+    try {
+      if (deps.studioExamStore && typeof deps.studioExamStore.reconcileStaleBatches === "function") {
+        await deps.studioExamStore.reconcileStaleBatches({
+          queue: studioExamQueue,
+        });
+      }
+    } catch {
+      // background studio exam reconciliation error suppressed
     }
   }, 300_000);
 
@@ -129,10 +161,66 @@ async function main(): Promise<void> {
     );
   });
 
+  const pocketWorker = createPocketEventWorker(
+    { url: config.redis.url },
+    {
+      store: deps.pocketPublishingStore,
+      handlerRegistry: deps.pocketHandlerRegistry,
+      logger: (msg) => process.stdout.write(`${msg}\n`),
+    },
+  );
+
+  pocketWorker.on("ready", () => {
+    process.stdout.write(
+      `[worker] Pocket event delivery worker ready (queue="pocket_event_delivery").\n`,
+    );
+  });
+  pocketWorker.on("error", (err) => {
+    process.stderr.write(`[worker] Pocket worker error: ${String(err)}\n`);
+  });
+
+  const studioExamWorker = createStudioExamWorker(
+    { url: config.redis.url },
+    {
+      store: deps.studioExamStore,
+      gateway: deps.adminGateway,
+      logger: (msg) => process.stdout.write(`${msg}\n`),
+    },
+  );
+
+  studioExamWorker.on("ready", () => {
+    process.stdout.write(
+      `[worker] Studio exam batch generation worker ready (queue="studio_exam_batch_generate", redis="${config.redis.url.replace(/\/\/([^:@]+):([^@]+)@/, "//$1:***@")}").\n`,
+    );
+  });
+  studioExamWorker.on("active", (job) => {
+    process.stdout.write(
+      `[worker] Studio exam ACTIVE: Processing job ${job.id} (batchId=${String(job.data?.batchId ?? "")})\n`,
+    );
+  });
+  studioExamWorker.on("completed", (job) => {
+    process.stdout.write(
+      `[worker] Studio exam COMPLETED: Job ${job.id} succeeded.\n`,
+    );
+  });
+  studioExamWorker.on("failed", (job, err) => {
+    process.stderr.write(
+      `[worker] Studio exam FAILED: Job ${job?.id} failed: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  });
+  studioExamWorker.on("error", (err) => {
+    process.stderr.write(`[worker] Studio exam worker error: ${String(err)}\n`);
+  });
+
   const shutdown = async () => {
     process.stdout.write("[worker] Shutting down...\n");
     clearInterval(reconcileInterval);
-    await worker.close();
+    await Promise.allSettled([
+      worker.close(),
+      pocketWorker.close(),
+      studioExamWorker.close(),
+      studioExamQueue.close(),
+    ]);
     await deps.close();
     process.exit(0);
   };

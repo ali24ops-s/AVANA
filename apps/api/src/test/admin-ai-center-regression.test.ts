@@ -125,14 +125,9 @@ describe("Admin AI Center Regression Tests", () => {
   });
 
   test("Database schema integrity: DrizzleAdminStore.listGenerationJobs succeeds against Postgres schema with 0075 columns", async () => {
-    const config = loadApiConfig();
-    const dbUrl = process.env.DATABASE_URL || config.database?.url || "postgresql://localhost:5432/avana";
-    let dbClient;
-    try {
-      dbClient = createDbClient(dbUrl);
-    } catch {
-      return;
-    }
+    const { resolveSafePostgresTestUrl } = await import("./pg-test-guard.js");
+    const dbUrl = resolveSafePostgresTestUrl();
+    const dbClient = createDbClient(dbUrl);
 
     try {
       const store = new DrizzleAdminStore(dbClient.db);

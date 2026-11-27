@@ -4,15 +4,21 @@ import { executeStatefulMigrations } from "../tracker/runner.js";
 import { tryAcquireAdvisoryLock, releaseAdvisoryLock } from "../tracker/advisory-lock.js";
 import { recoverIndeterminateCommit } from "../tracker/commit-recovery.js";
 import type { MigrationDefinition } from "../tracker/types.js";
+import {
+  resolveSafeDatabaseTestUrl,
+  assertSafeDestructiveDatabaseTestOp,
+} from "./pg-test-guard.js";
 
 const { Client } = pg;
-const TEST_DB_URL = "postgres://avana:avana@127.0.0.1:5432/avana_test_tracker_isolated";
 
 describe("Live PostgreSQL Operational Test Suite on Isolated DB", () => {
   let mainClient: pg.Client;
+  let testDbUrl: string;
 
   beforeAll(async () => {
-    mainClient = new Client({ connectionString: TEST_DB_URL });
+    testDbUrl = resolveSafeDatabaseTestUrl("tracker_isolated");
+    assertSafeDestructiveDatabaseTestOp("DROP_TEST_TABLES", testDbUrl, "tracker_isolated");
+    mainClient = new Client({ connectionString: testDbUrl });
     await mainClient.connect();
     // Clean tables inside isolated test database
     await mainClient.query("DROP TABLE IF EXISTS test_table_alpha CASCADE;");
@@ -40,7 +46,7 @@ describe("Live PostgreSQL Operational Test Suite on Isolated DB", () => {
     };
 
     const runResult = await executeStatefulMigrations([testMigration1], {
-      connectionString: TEST_DB_URL,
+      connectionString: testDbUrl,
     });
 
     expect(runResult.applied).toEqual(["0001_test_init"]);
@@ -82,7 +88,7 @@ describe("Live PostgreSQL Operational Test Suite on Isolated DB", () => {
     };
 
     const runResult = await executeStatefulMigrations([testMigration1], {
-      connectionString: TEST_DB_URL,
+      connectionString: testDbUrl,
     });
 
     expect(runResult.applied).toEqual([]);
@@ -111,7 +117,7 @@ describe("Live PostgreSQL Operational Test Suite on Isolated DB", () => {
 
     await expect(
       executeStatefulMigrations([failingMigration], {
-        connectionString: TEST_DB_URL,
+        connectionString: testDbUrl,
       })
     ).rejects.toThrow("Deliberate failure during test migration 0002");
 
@@ -139,8 +145,8 @@ describe("Live PostgreSQL Operational Test Suite on Isolated DB", () => {
   });
 
   it("Step 6 & 7: Concurrent execution of two runners on separate real PostgreSQL connections", async () => {
-    const conn1 = new Client({ connectionString: TEST_DB_URL });
-    const conn2 = new Client({ connectionString: TEST_DB_URL });
+    const conn1 = new Client({ connectionString: testDbUrl });
+    const conn2 = new Client({ connectionString: testDbUrl });
     await conn1.connect();
     await conn2.connect();
 
@@ -156,7 +162,7 @@ describe("Live PostgreSQL Operational Test Suite on Isolated DB", () => {
       // Runner 2 attempting full migration fails cleanly with locked error
       await expect(
         executeStatefulMigrations([], {
-          connectionString: TEST_DB_URL,
+          connectionString: testDbUrl,
           injectedClient: conn2,
         })
       ).rejects.toThrow(/Another migration runner is actively executing/);
@@ -176,7 +182,7 @@ describe("Live PostgreSQL Operational Test Suite on Isolated DB", () => {
   });
 
   it("Step 8 (Crash / Lock Holding Recovery): Recovery keeps state indeterminate while Session 1 holds lock, then resolves after release", async () => {
-    const session1 = new Client({ connectionString: TEST_DB_URL });
+    const session1 = new Client({ connectionString: testDbUrl });
     await session1.connect();
 
     try {
@@ -187,7 +193,7 @@ describe("Live PostgreSQL Operational Test Suite on Isolated DB", () => {
       // Session 2 initiates commit recovery for an uncommitted migration
       const dummyTicket = "00000000-0000-0000-0000-000000009999";
       const recoveryResult1 = await recoverIndeterminateCommit(
-        { connectionString: TEST_DB_URL, maxRetries: 1, retryDelayMs: 10 },
+        { connectionString: testDbUrl, maxRetries: 1, retryDelayMs: 10 },
         "0003_test_zombie",
         dummyTicket,
         1
@@ -206,7 +212,7 @@ describe("Live PostgreSQL Operational Test Suite on Isolated DB", () => {
 
       // Session 2 retries recovery now that Session 1 has terminated
       const recoveryResult2 = await recoverIndeterminateCommit(
-        { connectionString: TEST_DB_URL, maxRetries: 3, retryDelayMs: 50 },
+        { connectionString: testDbUrl, maxRetries: 3, retryDelayMs: 50 },
         "0003_test_zombie",
         dummyTicket,
         1

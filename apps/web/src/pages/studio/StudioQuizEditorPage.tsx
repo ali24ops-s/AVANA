@@ -15,10 +15,6 @@ import {
   ChevronRight,
   Trash2,
   Edit2,
-  Filter,
-  RotateCcw,
-  Layers,
-  BookOpen,
   Eye,
   AlertTriangle,
 } from "lucide-react";
@@ -37,7 +33,6 @@ import {
   LoadingState,
   Button,
   Badge,
-  Card,
   Progress,
   Dialog,
   DialogHeader,
@@ -45,8 +40,26 @@ import {
   DialogFooter,
 } from "../../components/ui/index.js";
 import { useAuth } from "../../providers/AuthProvider.js";
-import { toPersianDigits, formatPersianOf } from "@avana/domain";
+import { toPersianDigits } from "@avana/domain";
 import { RichContent } from "../../components/markdown/MarkdownRenderer.js";
+import { StudioMultiChapterExamSection } from "../../components/studio/exam-generation/index.js";
+
+function toBatchCorrectAnswer(
+  correctAnswer: UnifiedQuestionBankItem["correctAnswer"],
+): { choiceId: string } | string | undefined {
+  if (typeof correctAnswer === "string") {
+    return correctAnswer;
+  }
+  if (
+    correctAnswer &&
+    typeof correctAnswer === "object" &&
+    "choiceId" in correctAnswer &&
+    typeof correctAnswer.choiceId === "string"
+  ) {
+    return { choiceId: correctAnswer.choiceId };
+  }
+  return undefined;
+}
 
 /**
  * Resolves whether a choice is marked as correct given diverse formats:
@@ -237,8 +250,8 @@ export function StudioQuizEditorPage() {
       setCtaDescription((q.settings?.ctaDescription as string) || "");
       setCtaButtonText((q.settings?.ctaButtonText as string) || "");
       setCtaUrl((q.settings?.ctaUrl as string) || "");
-    } catch (err) {
-      console.error("Failed to load quiz", err);
+    } catch {
+      // Quiz load failure is handled by empty quiz state UI
     } finally {
       setIsLoading(false);
     }
@@ -310,8 +323,7 @@ export function StudioQuizEditorPage() {
 
     try {
       await studioApi.reorderQuestions(quiz.id, orderedIds);
-    } catch (err) {
-      console.error("Failed to persist question reordering", err);
+    } catch {
       loadQuiz();
     }
   };
@@ -428,8 +440,8 @@ export function StudioQuizEditorPage() {
     try {
       const res = await studioApi.getQuestionBankSources();
       setBankSources(res);
-    } catch (err) {
-      console.error("Failed to load question bank sources", err);
+    } catch {
+      // Sources filter list remains optional if endpoint fails
     }
   }, [studioApi]);
 
@@ -452,8 +464,8 @@ export function StudioQuizEditorPage() {
         });
         setUnifiedBankQuestions(res.questions || []);
         setUnifiedBankTotal(res.total || 0);
-      } catch (err) {
-        console.error("Failed to search question bank", err);
+      } catch {
+        // Bank search failure leaves current results unchanged
       } finally {
         setIsUnifiedBankLoading(false);
       }
@@ -489,7 +501,9 @@ export function StudioQuizEditorPage() {
       if (!quiz?.questions || quiz.questions.length === 0) return false;
       return quiz.questions.some(
         (q) =>
-          ((q as any).sourceId && item.sourceId && (q as any).sourceId === item.sourceId) ||
+          (item.sourceId &&
+            (q.sourceQuestionId === item.sourceId ||
+              q.sourceBankQuestionId === item.sourceId)) ||
           q.question.trim().toLowerCase() === item.question.trim().toLowerCase()
       );
     },
@@ -534,7 +548,7 @@ export function StudioQuizEditorPage() {
         sourceId: q.sourceId,
         question: q.question,
         choices: q.choices,
-        correctAnswer: q.correctAnswer as any,
+        correctAnswer: toBatchCorrectAnswer(q.correctAnswer),
         explanation: q.explanation || undefined,
         difficulty: q.difficulty,
         topic: q.topic || undefined,
@@ -561,8 +575,8 @@ export function StudioQuizEditorPage() {
       setIsBankLoading(true);
       const res = await studioApi.listQuestionBank({ search: bankSearch.trim() || undefined, limit: 20 });
       setBankItems(res.questions || []);
-    } catch (err) {
-      console.error("Failed to load bank questions", err);
+    } catch {
+      // Bank list failure leaves current items unchanged
     } finally {
       setIsBankLoading(false);
     }
@@ -755,6 +769,14 @@ export function StudioQuizEditorPage() {
                 </Button>
               </div>
             </div>
+
+            {/* Multi-Chapter AI Exam Generation & Staging Review Section */}
+            <StudioMultiChapterExamSection
+              quizId={quiz.id}
+              quizTitle={quiz.title}
+              studioApi={studioApi}
+              onQuestionsTransferred={loadQuiz}
+            />
 
             {/* Questions List */}
             {(!quiz.questions || quiz.questions.length === 0) ? (

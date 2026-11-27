@@ -17,6 +17,8 @@ import {
   uniqueIndex,
   index,
   check,
+  bigint,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -4613,6 +4615,10 @@ export const marketingQuizQuestions = pgTable(
       () => marketingQuestionBank.id,
       { onDelete: "set null" },
     ),
+    sourceStagingQuestionId: uuid("source_staging_question_id").references(
+      (): AnyPgColumn => studioExamGeneratedQuestions.id,
+      { onDelete: "set null" },
+    ),
     question: text("question").notNull(),
     choices: jsonb("choices").$type<Array<{ id: string; text: string }>>().notNull(),
     correctAnswer: jsonb("correct_answer").$type<{ choiceId: string } | string>().notNull(),
@@ -4633,6 +4639,9 @@ export const marketingQuizQuestions = pgTable(
       table.marketingQuizId,
       table.sortOrder,
     ),
+    stagingSourceUniqueIdx: uniqueIndex("uq_marketing_quiz_q_staging_source")
+      .on(table.sourceStagingQuestionId)
+      .where(sql`${table.sourceStagingQuestionId} IS NOT NULL`),
   }),
 );
 
@@ -4873,3 +4882,1212 @@ export type NewPollAnswerOptionRecord = typeof pollAnswerOptions.$inferInsert;
 
 
 
+
+// ---------------------------------------------------------------------------
+// AVANA Pocket — Phase 1: Database Foundation
+// ---------------------------------------------------------------------------
+
+// 1. Sources & Guidelines
+export const pocketSources = pgTable(
+  "pocket_sources",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    code: varchar("code", { length: 100 }).notNull().unique(),
+    title: varchar("title", { length: 500 }).notNull(),
+    publisher: varchar("publisher", { length: 255 }).notNull(),
+    sourceType: varchar("source_type", { length: 50 }).notNull(),
+    editionOrVersion: varchar("edition_or_version", { length: 50 }).notNull(),
+    publicationDate: date("publication_date"),
+    validUntilDate: date("valid_until_date"),
+    doi: varchar("doi", { length: 255 }),
+    canonicalUrl: text("canonical_url"),
+    licenseType: varchar("license_type", { length: 50 }).notNull().default("pending_legal_review"),
+    reproductionAllowed: boolean("reproduction_allowed").notNull().default(false),
+    displayScope: varchar("display_scope", { length: 50 }).notNull().default("citation_pointer_only"),
+    storageScope: varchar("storage_scope", { length: 50 }).notNull().default("metadata_only"),
+    lastAuditedAt: timestamp("last_audited_at", { withTimezone: true }).defaultNow().notNull(),
+    auditStatus: varchar("audit_status", { length: 30 }).notNull().default("pending_legal_review"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    codeIdx: uniqueIndex("idx_pocket_sources_code").on(table.code),
+    typeIdx: index("idx_pocket_sources_type").on(table.sourceType),
+    statusIdx: index("idx_pocket_sources_status").on(table.auditStatus),
+  }),
+);
+
+// 2. Entity Version Registry (Redis Monotonic Coherence)
+export const pocketEntityVersionRegistry = pgTable(
+  "pocket_entity_version_registry",
+  {
+    aggregateType: varchar("aggregate_type", { length: 32 }).notNull(),
+    aggregateId: varchar("aggregate_id", { length: 64 }).notNull(),
+    currentVersion: bigint("current_version", { mode: "number" }).notNull().default(1),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.aggregateType, table.aggregateId], name: "pk_pocket_version_reg" }),
+  }),
+);
+
+// 3. Standard Unit Conversions (Decision-03: Mass & Volume)
+export const pocketStandardUnitConversions = pgTable(
+  "pocket_standard_unit_conversions",
+  {
+    sourceUnit: varchar("source_unit", { length: 16 }).notNull(),
+    targetUnit: varchar("target_unit", { length: 16 }).notNull(),
+    factor: numeric("factor", { precision: 18, scale: 8 }).notNull(),
+    isReversible: boolean("is_reversible").notNull().default(true),
+    dimension: varchar("dimension", { length: 16 }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.sourceUnit, table.targetUnit], name: "pk_pocket_std_unit_conv" }),
+    checkPositive: check("chk_pocket_factor_positive", sql`${table.factor} > 0`),
+  }),
+);
+
+// 4. Reliable Outbox
+export const pocketOutbox = pgTable(
+  "pocket_outbox",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    aggregateType: varchar("aggregate_type", { length: 32 }).notNull(),
+    aggregateId: varchar("aggregate_id", { length: 64 }).notNull(),
+    eventType: varchar("event_type", { length: 64 }).notNull(),
+    payload: jsonb("payload").notNull(),
+    status: varchar("status", { length: 32 }).notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(5),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow().notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    leaseToken: varchar("lease_token", { length: 64 }),
+    lastError: varchar("last_error", { length: 1000 }),
+    globalEpoch: bigint("global_epoch", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+  },
+  (table) => ({
+    pollIdx: index("idx_pocket_outbox_poll").on(table.status, table.nextAttemptAt),
+    expiredLeaseIdx: index("idx_pocket_outbox_expired_leases").on(table.leaseExpiresAt),
+  }),
+);
+
+// 5. Clinical Reviewer Credentials (Decision-01)
+export const pocketClinicalReviewerCredentials = pgTable(
+  "pocket_clinical_reviewer_credentials",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+    medicalLicenseNumber: varchar("medical_license_number", { length: 64 }).notNull(),
+    specialty: varchar("specialty", { length: 128 }).notNull(),
+    licensingAuthority: varchar("licensing_authority", { length: 128 }).notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+    suspensionReason: text("suspension_reason"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: uuid("revoked_by").references(() => users.id, { onDelete: "restrict" }),
+    revocationReason: text("revocation_reason"),
+    grantedBy: uuid("granted_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+    grantedAt: timestamp("granted_at", { withTimezone: true }).defaultNow().notNull(),
+    licenseExpiresAt: timestamp("license_expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    activeReviewerIdx: uniqueIndex("uq_pocket_active_reviewer").on(table.userId).where(sql`${table.isActive} = true`),
+    lookupIdx: index("idx_pocket_reviewer_lookup").on(table.userId, table.isActive),
+  }),
+);
+
+// 5b. Clinical Reviewer Credential Lifecycle Events (Append-Only)
+export const pocketReviewerCredentialEvents = pgTable(
+  "pocket_reviewer_credential_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    credentialId: uuid("credential_id")
+      .notNull()
+      .references(() => pocketClinicalReviewerCredentials.id, { onDelete: "restrict" }),
+    actorUserId: uuid("actor_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    eventType: varchar("event_type", { length: 32 }).notNull(),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    eventTypeCheck: check(
+      "chk_pocket_cred_event_type",
+      sql`${table.eventType} IN ('granted', 'suspended', 'reactivated', 'revoked')`,
+    ),
+    lookupIdx: index("idx_pocket_cred_events_lookup").on(table.credentialId, table.createdAt, table.id),
+  }),
+);
+
+// 6. Drugs (Core Pillar 1)
+export const pocketDrugs = pgTable(
+  "pocket_drugs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    slug: varchar("slug", { length: 255 }).notNull().unique(),
+    genericNameEn: varchar("generic_name_en", { length: 255 }).notNull(),
+    genericNameFa: varchar("generic_name_fa", { length: 255 }).notNull(),
+    brandNames: jsonb("brand_names").$type<string[]>().notNull().default([]),
+    drugClass: varchar("drug_class", { length: 255 }).notNull(),
+    mechanismOfAction: text("mechanism_of_action").notNull(),
+    standardAdultDoseText: text("standard_adult_dose_text"),
+    pediatricDoseText: text("pediatric_dose_text"),
+    therapeuticMonitoringText: text("therapeutic_monitoring_text"),
+    counselingPoints: text("counseling_points"),
+    toxicityAndOverdoseText: text("toxicity_and_overdose_text"),
+    organizationId: uuid("organization_id").notNull().default("00000000-0000-0000-0000-000000000001"),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    versionNumber: integer("version_number").notNull().default(1),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    slugIdx: uniqueIndex("idx_pocket_drugs_slug").on(table.slug),
+    nameEnIdx: index("idx_pocket_drugs_name_en").on(table.genericNameEn),
+    statusIdx: index("idx_pocket_drugs_status").on(table.status),
+  }),
+);
+
+// 7. Diseases (Core Pillar 2)
+export const pocketDiseases = pgTable(
+  "pocket_diseases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    slug: varchar("slug", { length: 255 }).notNull().unique(),
+    titleEn: varchar("title_en", { length: 255 }).notNull(),
+    titleFa: varchar("title_fa", { length: 255 }).notNull(),
+    icd10Code: varchar("icd10_code", { length: 30 }),
+    definition: text("definition").notNull(),
+    etiology: text("etiology"),
+    pathophysiology: text("pathophysiology"),
+    prognosis: text("prognosis"),
+    clinicalPearls: text("clinical_pearls"),
+    organizationId: uuid("organization_id").notNull().default("00000000-0000-0000-0000-000000000001"),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    versionNumber: integer("version_number").notNull().default(1),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    slugIdx: uniqueIndex("idx_pocket_diseases_slug").on(table.slug),
+    titleEnIdx: index("idx_pocket_diseases_title_en").on(table.titleEn),
+    statusIdx: index("idx_pocket_diseases_status").on(table.status),
+  }),
+);
+
+// 8. Treatments (Core Pillar 3)
+export const pocketTreatments = pgTable(
+  "pocket_treatments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    slug: varchar("slug", { length: 255 }).notNull().unique(),
+    titleEn: varchar("title_en", { length: 255 }).notNull(),
+    titleFa: varchar("title_fa", { length: 255 }).notNull(),
+    treatmentType: varchar("treatment_type", { length: 50 }).notNull().default("pharmacological"),
+    nonPharmacologicalApproach: text("non_pharmacological_approach"),
+    pharmacologicalStrategy: text("pharmacological_strategy").notNull(),
+    efficacyMonitoring: text("efficacy_monitoring").notNull(),
+    safetyMonitoring: text("safety_monitoring").notNull(),
+    guidelineSummary: text("guideline_summary"),
+    organizationId: uuid("organization_id").notNull().default("00000000-0000-0000-0000-000000000001"),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    versionNumber: integer("version_number").notNull().default(1),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    slugIdx: uniqueIndex("idx_pocket_treatments_slug").on(table.slug),
+    statusIdx: index("idx_pocket_treatments_status").on(table.status),
+  }),
+);
+
+// 9. Emergencies (Core Pillar 4)
+export const pocketEmergencies = pgTable(
+  "pocket_emergencies",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    slug: varchar("slug", { length: 255 }).notNull().unique(),
+    titleEn: varchar("title_en", { length: 255 }).notNull(),
+    titleFa: varchar("title_fa", { length: 255 }).notNull(),
+    conditionType: varchar("condition_type", { length: 50 }).notNull(),
+    immediateTriageGuidance: text("immediate_triage_guidance").notNull(),
+    referralAndEscalationCriteria: text("referral_and_escalation_criteria").notNull(),
+    organizationId: uuid("organization_id").notNull().default("00000000-0000-0000-0000-000000000001"),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    versionNumber: integer("version_number").notNull().default(1),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    slugIdx: uniqueIndex("idx_pocket_emergencies_slug").on(table.slug),
+    condIdx: index("idx_pocket_emergencies_cond").on(table.conditionType),
+    statusIdx: index("idx_pocket_emergencies_status").on(table.status),
+  }),
+);
+
+// 10. Draft Sessions
+export const pocketDraftSessions = pgTable(
+  "pocket_draft_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    title: varchar("title", { length: 255 }).notNull(),
+    baseReleaseVersion: integer("base_release_version").notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    createdBy: uuid("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+    reviewedBy: uuid("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewNotes: text("review_notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    statusIdx: index("idx_pocket_draft_status").on(table.status),
+  }),
+);
+
+// 11. Draft Changes
+export const pocketDraftChanges = pgTable(
+  "pocket_draft_changes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id").notNull().references(() => pocketDraftSessions.id, { onDelete: "cascade" }),
+    targetTable: varchar("target_table", { length: 100 }).notNull(),
+    targetRecordId: uuid("target_record_id").notNull(),
+    action: varchar("action", { length: 20 }).notNull(),
+    payload: jsonb("payload").$type<{
+      before?: Record<string, unknown>;
+      after?: Record<string, unknown>;
+      patch?: Record<string, unknown>;
+    }>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    sessionRecordIdx: uniqueIndex("idx_pocket_draft_change_record").on(table.sessionId, table.targetTable, table.targetRecordId),
+  }),
+);
+
+// 12. Releases
+export const pocketReleases = pgTable(
+  "pocket_releases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    versionNumber: integer("version_number").notNull().unique(),
+    parentReleaseId: uuid("parent_release_id").references((): AnyPgColumn => pocketReleases.id, { onDelete: "restrict" }),
+    draftSessionId: uuid("draft_session_id").references(() => pocketDraftSessions.id, { onDelete: "set null" }),
+    schemaVersion: integer("schema_version").notNull().default(1),
+    manifestChecksum: varchar("manifest_checksum", { length: 64 }).notNull(),
+    manifest: jsonb("manifest").notNull(),
+    changesSummary: jsonb("changes_summary").notNull(),
+    isRollback: boolean("is_rollback").notNull().default(false),
+    restoredFromVersion: integer("restored_from_version"),
+    publishedBy: uuid("published_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+    publishedAt: timestamp("published_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    versionIdx: uniqueIndex("idx_pocket_releases_version").on(table.versionNumber),
+  }),
+);
+
+// 13. Scientific Assertions (Immutable physical versions under conceptual root)
+export const pocketScientificAssertions = pgTable(
+  "pocket_scientific_assertions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    assertionRootId: uuid("assertion_root_id").notNull(),
+    versionNumber: integer("version_number").notNull().default(1),
+    previousVersionId: uuid("previous_version_id").references((): AnyPgColumn => pocketScientificAssertions.id, { onDelete: "set null" }),
+    drugId: uuid("drug_id").references(() => pocketDrugs.id, { onDelete: "cascade" }),
+    diseaseId: uuid("disease_id").references(() => pocketDiseases.id, { onDelete: "cascade" }),
+    treatmentId: uuid("treatment_id").references(() => pocketTreatments.id, { onDelete: "cascade" }),
+    emergencyId: uuid("emergency_id").references(() => pocketEmergencies.id, { onDelete: "cascade" }),
+    assertionType: varchar("assertion_type", { length: 50 }).notNull(),
+    assertionKey: varchar("assertion_key", { length: 150 }).notNull(),
+    statementText: text("statement_text").notNull(),
+    jurisdiction: varchar("jurisdiction", { length: 50 }).notNull().default("global"),
+    targetPopulation: varchar("target_population", { length: 100 }).notNull().default("general_adult"),
+    clinicalSetting: varchar("clinical_setting", { length: 100 }).notNull().default("all"),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    releaseId: uuid("release_id").references(() => pocketReleases.id, { onDelete: "restrict" }),
+    validUntilDate: date("valid_until_date"),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    arcCheck: check(
+      "chk_pocket_assertion_arc",
+      sql`num_nonnulls(${table.drugId}, ${table.diseaseId}, ${table.treatmentId}, ${table.emergencyId}) = 1`,
+    ),
+    uqRootVersion: uniqueIndex("uq_assertion_root_version").on(table.assertionRootId, table.versionNumber),
+    uqPublishedRoot: uniqueIndex("uq_pocket_published_assertion_root")
+      .on(table.assertionRootId)
+      .where(sql`${table.status} = 'published'`),
+    uqAssertionDrug: uniqueIndex("uq_assertion_drug").on(table.id, table.drugId),
+    uqAssertionDisease: uniqueIndex("uq_assertion_disease").on(table.id, table.diseaseId),
+    uqAssertionTreatment: uniqueIndex("uq_assertion_treatment").on(table.id, table.treatmentId),
+    uqAssertionEmergency: uniqueIndex("uq_assertion_emergency").on(table.id, table.emergencyId),
+    statusIdx: index("idx_pocket_assertion_status").on(table.status),
+    releaseIdx: index("idx_pocket_assertion_release").on(table.releaseId),
+  }),
+);
+
+// 14. Assertion Citations
+export const pocketAssertionCitations = pgTable(
+  "pocket_assertion_citations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    assertionId: uuid("assertion_id").notNull().references(() => pocketScientificAssertions.id, { onDelete: "cascade" }),
+    sourceId: uuid("source_id").notNull().references(() => pocketSources.id, { onDelete: "restrict" }),
+    locationReference: text("location_reference").notNull(),
+    sourceSnapshotUrl: text("source_snapshot_url"),
+    sourceContentHash: varchar("source_content_hash", { length: 64 }),
+    accessedAt: date("accessed_at").notNull(),
+    evidenceGrade: varchar("evidence_grade", { length: 50 }),
+    verifiedByUserId: uuid("verified_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }).defaultNow().notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    assertionSourceIdx: index("idx_pocket_cit_assertion_source").on(table.assertionId, table.sourceId),
+    statusIdx: index("idx_pocket_cit_status").on(table.status),
+  }),
+);
+
+// 15. Assertion Verifications (Human Review Sign-Off)
+export const pocketAssertionVerifications = pgTable(
+  "pocket_assertion_verifications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    assertionId: uuid("assertion_id").notNull().references(() => pocketScientificAssertions.id, { onDelete: "restrict" }),
+    reviewerUserId: uuid("reviewer_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+    verificationAction: varchar("verification_action", { length: 50 }).notNull(),
+    clinicalReviewNotes: text("clinical_review_notes").notNull(),
+    parentVerificationId: uuid("parent_verification_id"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }).defaultNow().notNull(),
+    verificationSeq: bigint("verification_seq", { mode: "number" }),
+  },
+  (table) => ({
+    uqVerificationNode: uniqueIndex("uq_assertion_verification_node").on(table.id, table.assertionId),
+    uqVerificationTriad: uniqueIndex("uq_assertion_verification_triad").on(
+      table.id,
+      table.assertionId,
+      table.reviewerUserId,
+    ),
+    fkParentSameAssertionReviewer: foreignKey({
+      name: "fk_verif_parent_same_assertion_reviewer",
+      columns: [table.parentVerificationId, table.assertionId, table.reviewerUserId],
+      foreignColumns: [table.id, table.assertionId, table.reviewerUserId],
+    }).onDelete("restrict"),
+    uqSingleChild: uniqueIndex("uq_pocket_verif_single_child")
+      .on(table.parentVerificationId)
+      .where(sql`${table.parentVerificationId} IS NOT NULL`),
+    uqSingleRootPerReviewer: uniqueIndex("uq_pocket_verif_single_root_per_reviewer")
+      .on(table.assertionId, table.reviewerUserId)
+      .where(sql`${table.parentVerificationId} IS NULL`),
+    idxLatestLookup: index("idx_pocket_verif_latest_lookup").on(
+      table.assertionId,
+      table.reviewerUserId,
+      table.verifiedAt.desc(),
+      table.id.desc(),
+    ),
+    chkNoSelfParent: check(
+      "chk_pocket_verif_no_self_parent",
+      sql`${table.parentVerificationId} IS NULL OR ${table.parentVerificationId} <> ${table.id}`,
+    ),
+  }),
+);
+
+// 16. Clinical Conflicts
+export const pocketClinicalConflicts = pgTable(
+  "pocket_clinical_conflicts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    conflictSubject: varchar("conflict_subject", { length: 255 }).notNull(),
+    assertionAId: uuid("assertion_a_id").notNull().references(() => pocketScientificAssertions.id, { onDelete: "cascade" }),
+    assertionBId: uuid("assertion_b_id").notNull().references(() => pocketScientificAssertions.id, { onDelete: "cascade" }),
+    discrepancyDescription: text("discrepancy_description").notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("active_discrepancy"),
+    recordedByUserId: uuid("recorded_by_user_id").references(() => users.id, { onDelete: "restrict" }),
+    resolvedByUserId: uuid("resolved_by_user_id").references(() => users.id, { onDelete: "restrict" }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolutionNotes: text("resolution_notes"),
+    resolutionSeq: bigint("resolution_seq", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    conflictPairIdx: index("idx_pocket_conflict_pair").on(table.assertionAId, table.assertionBId),
+    conflictStatusCheck: check(
+      "chk_pocket_conflict_status",
+      sql`${table.status} IN ('active_discrepancy', 'resolved', 'dismissed')`,
+    ),
+    conflictDistinctAssertionsCheck: check(
+      "chk_pocket_conflict_distinct_assertions",
+      sql`${table.assertionAId} <> ${table.assertionBId}`,
+    ),
+    activeConflictPairIdx: uniqueIndex("uq_pocket_active_conflict_pair")
+      .on(
+        sql`LEAST(${table.assertionAId}, ${table.assertionBId})`,
+        sql`GREATEST(${table.assertionAId}, ${table.assertionBId})`,
+      )
+      .where(sql`${table.status} = 'active_discrepancy'`),
+  }),
+);
+
+// 17. Assertion Publication Audit Log
+export const pocketAssertionAuditLog = pgTable(
+  "pocket_assertion_audit_log",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    assertionId: uuid("assertion_id").notNull().references(() => pocketScientificAssertions.id, { onDelete: "restrict" }),
+    actorUserId: uuid("actor_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+    action: varchar("action", { length: 32 }).notNull(),
+    previousStatus: varchar("previous_status", { length: 32 }),
+    newStatus: varchar("new_status", { length: 32 }).notNull(),
+    clinicalNotes: text("clinical_notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    auditLogAssertionIdx: index("idx_pocket_assertion_audit_assertion").on(table.assertionId, table.createdAt),
+  }),
+);
+
+// 18. Drug Dosing Rules
+export const pocketDrugDosingRules = pgTable(
+  "pocket_drug_dosing_rules",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    drugId: uuid("drug_id").notNull().references(() => pocketDrugs.id, { onDelete: "cascade" }),
+    assertionId: uuid("assertion_id").notNull(),
+    diseaseId: uuid("disease_id").references(() => pocketDiseases.id, { onDelete: "restrict" }),
+    regimenStage: varchar("regimen_stage", { length: 50 }).notNull(),
+    administrationModality: varchar("administration_modality", { length: 50 }).notNull(),
+    dosingBasis: varchar("dosing_basis", { length: 30 }).notNull().default("fixed"),
+    doseAmountMin: numeric("dose_amount_min", { precision: 12, scale: 4 }).notNull(),
+    doseAmountMax: numeric("dose_amount_max", { precision: 12, scale: 4 }),
+    doseUnit: varchar("dose_unit", { length: 30 }).notNull(),
+    perWeightUnit: varchar("per_weight_unit", { length: 20 }),
+    perBsaUnit: varchar("per_bsa_unit", { length: 20 }),
+    targetAucValue: numeric("target_auc_value", { precision: 6, scale: 2 }),
+    gfrCapMlMin: numeric("gfr_cap_ml_min", { precision: 6, scale: 2 }),
+    infusionRateValueMin: numeric("infusion_rate_value_min", { precision: 10, scale: 4 }),
+    infusionRateValueMax: numeric("infusion_rate_value_max", { precision: 10, scale: 4 }),
+    infusionRateUnit: varchar("infusion_rate_unit", { length: 50 }),
+    dilutionMinConcentrationMgMl: numeric("dilution_min_conc_mg_ml", { precision: 10, scale: 4 }),
+    dilutionMaxConcentrationMgMl: numeric("dilution_max_conc_mg_ml", { precision: 10, scale: 4 }),
+    compatibleDiluents: jsonb("compatible_diluents").$type<string[]>().default(["D5W", "NS"]),
+    route: varchar("route", { length: 50 }).notNull(),
+    frequency: varchar("frequency", { length: 50 }).notNull(),
+    scheduleType: varchar("schedule_type", { length: 30 }).notNull().default("standard"),
+    cycleDaysOn: integer("cycle_days_on"),
+    cycleDaysOff: integer("cycle_days_off"),
+    prnMinIntervalHours: numeric("prn_min_interval_hours", { precision: 5, scale: 2 }),
+    prnMaxDosesPer24h: integer("prn_max_doses_per_24h"),
+    prnMaxDailyAmount: numeric("prn_max_daily_amount", { precision: 12, scale: 4 }),
+    maxSingleDoseAmount: numeric("max_single_dose_amount", { precision: 12, scale: 4 }),
+    maxDailyDoseAmount: numeric("max_daily_dose_amount", { precision: 12, scale: 4 }),
+    titrationStepAmount: numeric("titration_step_amount", { precision: 12, scale: 4 }),
+    titrationIntervalDays: integer("titration_interval_days"),
+    titrationTargetDose: numeric("titration_target_dose", { precision: 12, scale: 4 }),
+    treatmentDurationDaysMin: integer("treatment_duration_days_min"),
+    treatmentDurationDaysMax: integer("treatment_duration_days_max"),
+    populationTier: varchar("population_tier", { length: 50 }).notNull().default("adult"),
+    pregnancyTrimester: varchar("pregnancy_trimester", { length: 50 }).notNull().default("all"),
+    lactationCompatibility: varchar("lactation_compatibility", { length: 50 }).notNull().default("compatible"),
+    ageMonthsMin: integer("age_months_min"),
+    ageYearsMax: integer("age_years_max"),
+    weightKgMin: numeric("weight_kg_min", { precision: 6, scale: 2 }),
+    weightKgMax: numeric("weight_kg_max", { precision: 6, scale: 2 }),
+    instructionsPersian: text("instructions_persian").notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    uqDosingRuleTriad: uniqueIndex("uq_pocket_dosing_rule_triad").on(table.id, table.drugId, table.assertionId),
+    fkDosingAssertionDrug: foreignKey({
+      columns: [table.assertionId, table.drugId],
+      foreignColumns: [pocketScientificAssertions.id, pocketScientificAssertions.drugId],
+      name: "fk_dosing_rule_assertion_drug_match",
+    }).onDelete("restrict"),
+    chkDoseMagnitudes: check(
+      "chk_pocket_dose_magnitudes",
+      sql`${table.doseAmountMin} > 0 AND (${table.doseAmountMax} IS NULL OR ${table.doseAmountMax} >= ${table.doseAmountMin}) AND (${table.maxSingleDoseAmount} IS NULL OR ${table.maxSingleDoseAmount} >= ${table.doseAmountMin}) AND (${table.maxDailyDoseAmount} IS NULL OR (${table.maxSingleDoseAmount} IS NOT NULL AND ${table.maxDailyDoseAmount} >= ${table.maxSingleDoseAmount}))`,
+    ),
+    drugIdx: index("idx_pocket_dosing_drug").on(table.drugId),
+    statusIdx: index("idx_pocket_dosing_status").on(table.status),
+  }),
+);
+
+// 19. Drug Renal Adjustments
+export const pocketDrugRenalAdjustments = pgTable(
+  "pocket_drug_renal_adjustments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    dosingRuleId: uuid("dosing_rule_id").notNull(),
+    drugId: uuid("drug_id").notNull(),
+    assertionId: uuid("assertion_id").notNull(),
+    metricType: varchar("metric_type", { length: 30 }).notNull().default("crcl"),
+    tierMinMlMin: numeric("tier_min_ml_min", { precision: 6, scale: 2 }).notNull(),
+    tierMaxMlMin: numeric("tier_max_ml_min", { precision: 6, scale: 2 }).notNull(),
+    dialysisSetting: varchar("dialysis_setting", { length: 30 }).notNull().default("none"),
+    adjustmentType: varchar("adjustment_type", { length: 50 }).notNull(),
+    adjustedDoseAmount: numeric("adjusted_dose_amount", { precision: 12, scale: 4 }),
+    adjustedDoseUnit: varchar("adjusted_dose_unit", { length: 30 }),
+    adjustedFrequency: varchar("adjusted_frequency", { length: 50 }),
+    percentageOfNormalDose: numeric("percentage_of_normal_dose", { precision: 5, scale: 2 }),
+    dialysisSupplementNotes: text("dialysis_supplement_notes"),
+    clinicalGuidancePersian: text("clinical_guidance_persian").notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    fkParentDosingTriad: foreignKey({
+      columns: [table.dosingRuleId, table.drugId, table.assertionId],
+      foreignColumns: [pocketDrugDosingRules.id, pocketDrugDosingRules.drugId, pocketDrugDosingRules.assertionId],
+      name: "fk_renal_adj_parent_triad",
+    }).onDelete("cascade"),
+    chkRenalRangeValid: check(
+      "chk_renal_range_valid",
+      sql`${table.tierMinMlMin} < ${table.tierMaxMlMin} AND ${table.tierMinMlMin} >= 0`,
+    ),
+    ruleMetricTierUnique: uniqueIndex("uq_renal_rule_metric_tier").on(
+      table.dosingRuleId,
+      table.metricType,
+      table.tierMinMlMin,
+      table.tierMaxMlMin,
+      table.dialysisSetting,
+    ),
+    statusIdx: index("idx_pocket_renal_status").on(table.status),
+  }),
+);
+
+// 20. Drug Hepatic Adjustments
+export const pocketDrugHepaticAdjustments = pgTable(
+  "pocket_drug_hepatic_adjustments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    dosingRuleId: uuid("dosing_rule_id").notNull(),
+    drugId: uuid("drug_id").notNull(),
+    assertionId: uuid("assertion_id").notNull(),
+    childPughClass: varchar("child_pugh_class", { length: 20 }).notNull(),
+    adjustmentAction: varchar("adjustment_action", { length: 50 }).notNull(),
+    percentageDoseReduction: numeric("percentage_dose_reduction", { precision: 5, scale: 2 }),
+    clinicalGuidancePersian: text("clinical_guidance_persian").notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    fkParentDosingTriad: foreignKey({
+      columns: [table.dosingRuleId, table.drugId, table.assertionId],
+      foreignColumns: [pocketDrugDosingRules.id, pocketDrugDosingRules.drugId, pocketDrugDosingRules.assertionId],
+      name: "fk_hepatic_adj_parent_triad",
+    }).onDelete("cascade"),
+    chkHepaticReduction: check(
+      "chk_pocket_hepatic_reduction",
+      sql`${table.percentageDoseReduction} >= 0.00 AND ${table.percentageDoseReduction} <= 100.00`,
+    ),
+    uqRuleChildPugh: uniqueIndex("uq_hepatic_rule_child_pugh").on(table.dosingRuleId, table.childPughClass),
+    statusIdx: index("idx_pocket_hepatic_status").on(table.status),
+  }),
+);
+
+// 21. Drug Safety Profiles
+export const pocketDrugSafetyProfiles = pgTable(
+  "pocket_drug_safety_profiles",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    drugId: uuid("drug_id").notNull().references(() => pocketDrugs.id, { onDelete: "cascade" }),
+    assertionId: uuid("assertion_id").notNull(),
+    profileType: varchar("profile_type", { length: 50 }).notNull(),
+    clinicalTerm: varchar("clinical_term", { length: 255 }).notNull(),
+    meddraCode: varchar("meddra_code", { length: 50 }),
+    severity: varchar("severity", { length: 30 }),
+    incidencePercentageMin: numeric("incidence_pct_min", { precision: 5, scale: 2 }),
+    incidencePercentageMax: numeric("incidence_pct_max", { precision: 5, scale: 2 }),
+    clinicalManagementNotes: text("clinical_management_notes"),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    fkSafetyAssertionDrug: foreignKey({
+      columns: [table.assertionId, table.drugId],
+      foreignColumns: [pocketScientificAssertions.id, pocketScientificAssertions.drugId],
+      name: "fk_safety_assertion_drug",
+    }).onDelete("restrict"),
+    drugTypeIdx: index("idx_pocket_safety_drug_type").on(table.drugId, table.profileType),
+    statusIdx: index("idx_pocket_safety_status").on(table.status),
+  }),
+);
+
+// 22. Emergency Steps
+export const pocketEmergencySteps = pgTable(
+  "pocket_emergency_steps",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    emergencyId: uuid("emergency_id").notNull().references(() => pocketEmergencies.id, { onDelete: "cascade" }),
+    assertionId: uuid("assertion_id").notNull(),
+    stepOrder: integer("step_order").notNull(),
+    actionTitle: varchar("action_title", { length: 255 }).notNull(),
+    actionDetails: text("action_details").notNull(),
+    targetTimeWindowMinutes: integer("target_time_window_minutes"),
+    isCriticalImmediate: boolean("is_critical_immediate").notNull().default(false),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    fkEmergencyStepAssertion: foreignKey({
+      columns: [table.assertionId, table.emergencyId],
+      foreignColumns: [pocketScientificAssertions.id, pocketScientificAssertions.emergencyId],
+      name: "fk_emergency_step_assertion",
+    }).onDelete("restrict"),
+    stepOrderUnique: uniqueIndex("idx_pocket_em_steps_order").on(table.emergencyId, table.stepOrder),
+    statusIdx: index("idx_pocket_em_steps_status").on(table.status),
+  }),
+);
+
+// 23. Emergency Medications
+export const pocketEmergencyMedications = pgTable(
+  "pocket_emergency_medications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    emergencyId: uuid("emergency_id").notNull().references(() => pocketEmergencies.id, { onDelete: "cascade" }),
+    drugId: uuid("drug_id").notNull().references(() => pocketDrugs.id, { onDelete: "cascade" }),
+    assertionId: uuid("assertion_id").notNull(),
+    stepOrder: integer("step_order").notNull().default(1),
+    doseAmount: numeric("dose_amount", { precision: 10, scale: 2 }).notNull(),
+    doseUnit: varchar("dose_unit", { length: 30 }).notNull(),
+    route: varchar("route", { length: 50 }).notNull(),
+    administrationRate: varchar("administration_rate", { length: 100 }),
+    dilutionInstructions: text("dilution_instructions"),
+    maxEmergencyDose: text("max_emergency_dose"),
+    criticalPrecautions: text("critical_precautions"),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    fkEmergencyMedAssertion: foreignKey({
+      columns: [table.assertionId, table.emergencyId],
+      foreignColumns: [pocketScientificAssertions.id, pocketScientificAssertions.emergencyId],
+      name: "fk_emergency_med_assertion",
+    }).onDelete("restrict"),
+    emergencyDrugIdx: index("idx_pocket_em_meds").on(table.emergencyId, table.drugId),
+    statusIdx: index("idx_pocket_em_meds_status").on(table.status),
+  }),
+);
+
+// 24. Drug Interactions
+export const pocketDrugInteractions = pgTable(
+  "pocket_drug_interactions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    drugAId: uuid("drug_a_id").notNull().references(() => pocketDrugs.id, { onDelete: "cascade" }),
+    drugBId: uuid("drug_b_id").notNull().references(() => pocketDrugs.id, { onDelete: "cascade" }),
+    assertionId: uuid("assertion_id").notNull().references(() => pocketScientificAssertions.id, { onDelete: "restrict" }),
+    precipitantDrugId: uuid("precipitant_drug_id").references(() => pocketDrugs.id, { onDelete: "cascade" }),
+    objectDrugId: uuid("object_drug_id").references(() => pocketDrugs.id, { onDelete: "cascade" }),
+    severity: varchar("severity", { length: 30 }).notNull(),
+    mechanismType: varchar("mechanism_type", { length: 50 }),
+    clinicalConsequencePersian: text("clinical_consequence_persian").notNull(),
+    managementActionPersian: text("management_action_persian").notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    orderedPairIdx: uniqueIndex("idx_pocket_interaction_ordered_pair").on(table.drugAId, table.drugBId, table.assertionId),
+    checkCanonicalOrder: check("chk_interaction_canonical_order", sql`${table.drugAId} < ${table.drugBId}`),
+    checkDistinctPrecipitantObject: check(
+      "chk_distinct_precipitant_object",
+      sql`${table.precipitantDrugId} IS NULL OR ${table.objectDrugId} IS NULL OR ${table.precipitantDrugId} <> ${table.objectDrugId}`,
+    ),
+    statusIdx: index("idx_pocket_interaction_status").on(table.status),
+  }),
+);
+
+// 25. Drug-Disease Links
+export const pocketDrugDiseaseLinks = pgTable(
+  "pocket_drug_disease_links",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    drugId: uuid("drug_id").notNull().references(() => pocketDrugs.id, { onDelete: "cascade" }),
+    diseaseId: uuid("disease_id").notNull().references(() => pocketDiseases.id, { onDelete: "cascade" }),
+    assertionId: uuid("assertion_id").references(() => pocketScientificAssertions.id, { onDelete: "restrict" }),
+    relationshipType: varchar("relationship_type", { length: 30 }).notNull(),
+    clinicalNotes: text("clinical_notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    ddUnique: uniqueIndex("idx_pocket_dd_link_unique").on(table.drugId, table.diseaseId, table.relationshipType),
+    drugIdx: index("idx_pocket_dd_drug").on(table.drugId),
+    diseaseIdx: index("idx_pocket_dd_disease").on(table.diseaseId),
+  }),
+);
+
+// 26. Disease-Treatment Links
+export const pocketDiseaseTreatmentLinks = pgTable(
+  "pocket_disease_treatment_links",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    diseaseId: uuid("disease_id").notNull().references(() => pocketDiseases.id, { onDelete: "cascade" }),
+    treatmentId: uuid("treatment_id").notNull().references(() => pocketTreatments.id, { onDelete: "cascade" }),
+    lineOfTherapy: varchar("line_of_therapy", { length: 30 }).notNull(),
+    isStandardOfCare: boolean("is_standard_of_care").notNull().default(true),
+    clinicalNotes: text("clinical_notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    dtUnique: uniqueIndex("idx_pocket_dt_link_unique").on(table.diseaseId, table.treatmentId),
+  }),
+);
+
+// 27. Treatment Drugs
+export const pocketTreatmentDrugs = pgTable(
+  "pocket_treatment_drugs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    treatmentId: uuid("treatment_id").notNull().references(() => pocketTreatments.id, { onDelete: "cascade" }),
+    drugId: uuid("drug_id").notNull().references(() => pocketDrugs.id, { onDelete: "cascade" }),
+    assertionId: uuid("assertion_id").references(() => pocketScientificAssertions.id, { onDelete: "restrict" }),
+    lineOfTherapy: varchar("line_of_therapy", { length: 30 }).notNull(),
+    priorityOrder: integer("priority_order").notNull().default(1),
+    dosingSummary: text("dosing_summary").notNull(),
+    clinicalNotes: text("clinical_notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    tdIdx: index("idx_pocket_td_pair").on(table.treatmentId, table.drugId),
+  }),
+);
+
+// 28. Search Aliases
+export const pocketSearchAliases = pgTable(
+  "pocket_search_aliases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    drugId: uuid("drug_id").references(() => pocketDrugs.id, { onDelete: "cascade" }),
+    diseaseId: uuid("disease_id").references(() => pocketDiseases.id, { onDelete: "cascade" }),
+    emergencyId: uuid("emergency_id").references(() => pocketEmergencies.id, { onDelete: "cascade" }),
+    rawAlias: varchar("raw_alias", { length: 255 }).notNull(),
+    normalizedAlias: varchar("normalized_alias", { length: 255 }).notNull(),
+    aliasType: varchar("alias_type", { length: 50 }).notNull(),
+    language: varchar("language", { length: 10 }).notNull().default("en"),
+    priorityWeight: integer("priority_weight").notNull().default(100),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    arcCheck: check(
+      "chk_pocket_alias_arc",
+      sql`num_nonnulls(${table.drugId}, ${table.diseaseId}, ${table.emergencyId}) = 1`,
+    ),
+    normIdx: index("idx_pocket_alias_norm").on(table.normalizedAlias),
+  }),
+);
+
+// 29. User Notes
+export const pocketUserNotes = pgTable(
+  "pocket_user_notes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    drugId: uuid("drug_id").references(() => pocketDrugs.id, { onDelete: "cascade" }),
+    diseaseId: uuid("disease_id").references(() => pocketDiseases.id, { onDelete: "cascade" }),
+    treatmentId: uuid("treatment_id").references(() => pocketTreatments.id, { onDelete: "cascade" }),
+    emergencyId: uuid("emergency_id").references(() => pocketEmergencies.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 255 }),
+    contentMarkdown: text("content_markdown").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    arcCheck: check(
+      "chk_pocket_notes_arc",
+      sql`num_nonnulls(${table.drugId}, ${table.diseaseId}, ${table.treatmentId}, ${table.emergencyId}) <= 1`,
+    ),
+    userCreatedIdx: index("idx_pocket_notes_user_created").on(table.userId, table.createdAt),
+  }),
+);
+
+// 30. User Favorites
+export const pocketUserFavorites = pgTable(
+  "pocket_user_favorites",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    drugId: uuid("drug_id").references(() => pocketDrugs.id, { onDelete: "cascade" }),
+    diseaseId: uuid("disease_id").references(() => pocketDiseases.id, { onDelete: "cascade" }),
+    treatmentId: uuid("treatment_id").references(() => pocketTreatments.id, { onDelete: "cascade" }),
+    emergencyId: uuid("emergency_id").references(() => pocketEmergencies.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    arcCheck: check(
+      "chk_pocket_fav_arc",
+      sql`num_nonnulls(${table.drugId}, ${table.diseaseId}, ${table.treatmentId}, ${table.emergencyId}) = 1`,
+    ),
+    userFavIdx: index("idx_pocket_fav_user").on(table.userId),
+  }),
+);
+
+// 31. User History
+export const pocketUserHistory = pgTable(
+  "pocket_user_history",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    drugId: uuid("drug_id").references(() => pocketDrugs.id, { onDelete: "cascade" }),
+    diseaseId: uuid("disease_id").references(() => pocketDiseases.id, { onDelete: "cascade" }),
+    treatmentId: uuid("treatment_id").references(() => pocketTreatments.id, { onDelete: "cascade" }),
+    emergencyId: uuid("emergency_id").references(() => pocketEmergencies.id, { onDelete: "cascade" }),
+    viewedAt: timestamp("viewed_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    arcCheck: check(
+      "chk_pocket_history_arc",
+      sql`num_nonnulls(${table.drugId}, ${table.diseaseId}, ${table.treatmentId}, ${table.emergencyId}) = 1`,
+    ),
+    userTimeIdx: index("idx_pocket_history_user_time").on(table.userId, table.viewedAt),
+  }),
+);
+
+// 32. Safety Overrides (Live State)
+export const pocketSafetyOverrides = pgTable(
+  "pocket_safety_overrides",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    targetEntityType: varchar("target_entity_type", { length: 50 }).notNull(),
+    targetEntityId: uuid("target_entity_id").notNull(),
+    actionState: varchar("action_state", { length: 50 }).notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    currentEventId: uuid("current_event_id"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    uqSingleActiveOverride: uniqueIndex("uq_single_active_override")
+      .on(table.targetEntityType, table.targetEntityId)
+      .where(sql`${table.isActive} = true`),
+    targetLookupIdx: index("idx_safety_override_lookup").on(table.targetEntityType, table.targetEntityId, table.isActive),
+  }),
+);
+
+// 33. Safety Override Events (Append-Only)
+export const pocketSafetyOverrideEvents = pgTable(
+  "pocket_safety_override_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    overrideId: uuid("override_id").notNull().references(() => pocketSafetyOverrides.id, { onDelete: "cascade" }),
+    eventType: varchar("event_type", { length: 50 }).notNull(),
+    targetEntityType: varchar("target_entity_type", { length: 50 }).notNull(),
+    targetEntityId: uuid("target_entity_id").notNull(),
+    actorUserId: uuid("actor_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+    reason: text("reason").notNull(),
+    previousState: varchar("previous_state", { length: 50 }),
+    newState: varchar("new_state", { length: 50 }).notNull(),
+    eventTimestamp: timestamp("event_timestamp", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    overrideEventsIdx: index("idx_override_events_override_id").on(table.overrideId, table.eventTimestamp),
+  }),
+);
+
+// Export Pocket TypeScript Inferred Types
+export type PocketSourceRecord = typeof pocketSources.$inferSelect;
+export type NewPocketSourceRecord = typeof pocketSources.$inferInsert;
+export type PocketEntityVersionRegistryRecord = typeof pocketEntityVersionRegistry.$inferSelect;
+export type NewPocketEntityVersionRegistryRecord = typeof pocketEntityVersionRegistry.$inferInsert;
+export type PocketStandardUnitConversionRecord = typeof pocketStandardUnitConversions.$inferSelect;
+export type NewPocketStandardUnitConversionRecord = typeof pocketStandardUnitConversions.$inferInsert;
+export type PocketOutboxRecord = typeof pocketOutbox.$inferSelect;
+export type NewPocketOutboxRecord = typeof pocketOutbox.$inferInsert;
+export type PocketClinicalReviewerCredentialRecord = typeof pocketClinicalReviewerCredentials.$inferSelect;
+export type NewPocketClinicalReviewerCredentialRecord = typeof pocketClinicalReviewerCredentials.$inferInsert;
+export type PocketDrugRecord = typeof pocketDrugs.$inferSelect;
+export type NewPocketDrugRecord = typeof pocketDrugs.$inferInsert;
+export type PocketDiseaseRecord = typeof pocketDiseases.$inferSelect;
+export type NewPocketDiseaseRecord = typeof pocketDiseases.$inferInsert;
+export type PocketTreatmentRecord = typeof pocketTreatments.$inferSelect;
+export type NewPocketTreatmentRecord = typeof pocketTreatments.$inferInsert;
+export type PocketEmergencyRecord = typeof pocketEmergencies.$inferSelect;
+export type NewPocketEmergencyRecord = typeof pocketEmergencies.$inferInsert;
+export type PocketDraftSessionRecord = typeof pocketDraftSessions.$inferSelect;
+export type NewPocketDraftSessionRecord = typeof pocketDraftSessions.$inferInsert;
+export type PocketDraftChangeRecord = typeof pocketDraftChanges.$inferSelect;
+export type NewPocketDraftChangeRecord = typeof pocketDraftChanges.$inferInsert;
+export type PocketReleaseRecord = typeof pocketReleases.$inferSelect;
+export type NewPocketReleaseRecord = typeof pocketReleases.$inferInsert;
+export type PocketScientificAssertionRecord = typeof pocketScientificAssertions.$inferSelect;
+export type NewPocketScientificAssertionRecord = typeof pocketScientificAssertions.$inferInsert;
+export type PocketAssertionCitationRecord = typeof pocketAssertionCitations.$inferSelect;
+export type NewPocketAssertionCitationRecord = typeof pocketAssertionCitations.$inferInsert;
+export type PocketAssertionVerificationRecord = typeof pocketAssertionVerifications.$inferSelect;
+export type NewPocketAssertionVerificationRecord = typeof pocketAssertionVerifications.$inferInsert;
+export type PocketClinicalConflictRecord = typeof pocketClinicalConflicts.$inferSelect;
+export type NewPocketClinicalConflictRecord = typeof pocketClinicalConflicts.$inferInsert;
+export type PocketAssertionAuditLogRecord = typeof pocketAssertionAuditLog.$inferSelect;
+export type NewPocketAssertionAuditLogRecord = typeof pocketAssertionAuditLog.$inferInsert;
+export type PocketDrugDosingRuleRecord = typeof pocketDrugDosingRules.$inferSelect;
+export type NewPocketDrugDosingRuleRecord = typeof pocketDrugDosingRules.$inferInsert;
+export type PocketDrugRenalAdjustmentRecord = typeof pocketDrugRenalAdjustments.$inferSelect;
+export type NewPocketDrugRenalAdjustmentRecord = typeof pocketDrugRenalAdjustments.$inferInsert;
+export type PocketDrugHepaticAdjustmentRecord = typeof pocketDrugHepaticAdjustments.$inferSelect;
+export type NewPocketDrugHepaticAdjustmentRecord = typeof pocketDrugHepaticAdjustments.$inferInsert;
+export type PocketDrugSafetyProfileRecord = typeof pocketDrugSafetyProfiles.$inferSelect;
+export type NewPocketDrugSafetyProfileRecord = typeof pocketDrugSafetyProfiles.$inferInsert;
+export type PocketEmergencyStepRecord = typeof pocketEmergencySteps.$inferSelect;
+export type NewPocketEmergencyStepRecord = typeof pocketEmergencySteps.$inferInsert;
+export type PocketEmergencyMedicationRecord = typeof pocketEmergencyMedications.$inferSelect;
+export type NewPocketEmergencyMedicationRecord = typeof pocketEmergencyMedications.$inferInsert;
+export type PocketDrugInteractionRecord = typeof pocketDrugInteractions.$inferSelect;
+export type NewPocketDrugInteractionRecord = typeof pocketDrugInteractions.$inferInsert;
+export type PocketDrugDiseaseLinkRecord = typeof pocketDrugDiseaseLinks.$inferSelect;
+export type NewPocketDrugDiseaseLinkRecord = typeof pocketDrugDiseaseLinks.$inferInsert;
+export type PocketDiseaseTreatmentLinkRecord = typeof pocketDiseaseTreatmentLinks.$inferSelect;
+export type NewPocketDiseaseTreatmentLinkRecord = typeof pocketDiseaseTreatmentLinks.$inferInsert;
+export type PocketTreatmentDrugRecord = typeof pocketTreatmentDrugs.$inferSelect;
+export type NewPocketTreatmentDrugRecord = typeof pocketTreatmentDrugs.$inferInsert;
+export type PocketSearchAliasRecord = typeof pocketSearchAliases.$inferSelect;
+export type NewPocketSearchAliasRecord = typeof pocketSearchAliases.$inferInsert;
+export type PocketUserNoteRecord = typeof pocketUserNotes.$inferSelect;
+export type NewPocketUserNoteRecord = typeof pocketUserNotes.$inferInsert;
+export type PocketUserFavoriteRecord = typeof pocketUserFavorites.$inferSelect;
+export type NewPocketUserFavoriteRecord = typeof pocketUserFavorites.$inferInsert;
+export type PocketUserHistoryRecord = typeof pocketUserHistory.$inferSelect;
+export type NewPocketUserHistoryRecord = typeof pocketUserHistory.$inferInsert;
+export type PocketSafetyOverrideRecord = typeof pocketSafetyOverrides.$inferSelect;
+export type NewPocketSafetyOverrideRecord = typeof pocketSafetyOverrides.$inferInsert;
+export type PocketSafetyOverrideEventRecord = typeof pocketSafetyOverrideEvents.$inferSelect;
+export type NewPocketSafetyOverrideEventRecord = typeof pocketSafetyOverrideEvents.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Studio Exam Generation Module (Migration 0108 - Multi-Chapter AI Operations)
+// ---------------------------------------------------------------------------
+
+export const studioExamGenerationOperations = pgTable(
+  "studio_exam_generation_operations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    quizId: uuid("quiz_id")
+      .notNull()
+      .references(() => marketingQuizzes.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").references(
+      () => organizations.id,
+      { onDelete: "cascade" },
+    ),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    totalRequestedQuestions: integer("total_requested_questions").notNull(),
+    totalGeneratedQuestions: integer("total_generated_questions")
+      .notNull()
+      .default(0),
+    status: varchar("status", { length: 30 }).notNull().default("pending"),
+    config: jsonb("config")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    patternSnapshots: jsonb("pattern_snapshots")
+      .$type<Array<Record<string, unknown>>>()
+      .notNull()
+      .default([]),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    quizIdx: index("idx_studio_exam_ops_quiz").on(table.quizId),
+    statusIdx: index("idx_studio_exam_ops_status").on(table.status),
+    orgCreatedIdx: index("idx_studio_exam_ops_org_created").on(
+      table.organizationId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export const studioExamGenerationTasks = pgTable(
+  "studio_exam_generation_tasks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    operationId: uuid("operation_id")
+      .notNull()
+      .references(() => studioExamGenerationOperations.id, {
+        onDelete: "cascade",
+      }),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    moduleId: uuid("module_id")
+      .notNull()
+      .references(() => modules.id, { onDelete: "cascade" }),
+    targetQuestionCount: integer("target_question_count").notNull(),
+    generatedQuestionCount: integer("generated_question_count")
+      .notNull()
+      .default(0),
+    status: varchar("status", { length: 30 }).notNull().default("pending"),
+    retryCount: integer("retry_count").notNull().default(0),
+    errorCode: varchar("error_code", { length: 100 }),
+    errorMessage: text("error_message"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    opModuleUniqueIdx: uniqueIndex("uq_studio_exam_tasks_op_module").on(
+      table.operationId,
+      table.moduleId,
+    ),
+    opStatusIdx: index("idx_studio_exam_tasks_op_status").on(
+      table.operationId,
+      table.status,
+    ),
+    moduleIdx: index("idx_studio_exam_tasks_module").on(table.moduleId),
+  }),
+);
+
+export const studioExamGenerationBatches = pgTable(
+  "studio_exam_generation_batches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => studioExamGenerationTasks.id, { onDelete: "cascade" }),
+    batchIndex: integer("batch_index").notNull(),
+    targetCount: integer("target_count").notNull(),
+    generatedCount: integer("generated_count").notNull().default(0),
+    status: varchar("status", { length: 30 }).notNull().default("pending"),
+    patternAllocations: jsonb("pattern_allocations")
+      .$type<Array<Record<string, unknown>>>()
+      .notNull()
+      .default([]),
+    retryCount: integer("retry_count").notNull().default(0),
+    errorCode: varchar("error_code", { length: 100 }),
+    errorMessage: text("error_message"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    taskIndexUniqueIdx: uniqueIndex("uq_studio_exam_batches_task_index").on(
+      table.taskId,
+      table.batchIndex,
+    ),
+    taskStatusIdx: index("idx_studio_exam_batches_task_status").on(
+      table.taskId,
+      table.status,
+    ),
+  }),
+);
+
+export const studioExamGeneratedQuestions = pgTable(
+  "studio_exam_generated_questions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    operationId: uuid("operation_id")
+      .notNull()
+      .references(() => studioExamGenerationOperations.id, {
+        onDelete: "cascade",
+      }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => studioExamGenerationTasks.id, { onDelete: "cascade" }),
+    batchId: uuid("batch_id")
+      .notNull()
+      .references(() => studioExamGenerationBatches.id, {
+        onDelete: "cascade",
+      }),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    moduleId: uuid("module_id")
+      .notNull()
+      .references(() => modules.id, { onDelete: "cascade" }),
+    patternId: uuid("pattern_id").references(() => questionPatterns.id, {
+      onDelete: "set null",
+    }),
+    patternVersion: integer("pattern_version"),
+    questionIndex: integer("question_index").notNull(),
+    question: text("question").notNull(),
+    choices: jsonb("choices").notNull(),
+    correctAnswer: jsonb("correct_answer").notNull(),
+    explanation: text("explanation"),
+    difficulty: varchar("difficulty", { length: 20 })
+      .notNull()
+      .default("medium"),
+    topic: varchar("topic", { length: 255 }),
+    questionType: varchar("question_type", { length: 50 })
+      .notNull()
+      .default("multiple_choice"),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    isAccepted: boolean("is_accepted").notNull().default(false),
+    reviewStatus: varchar("review_status", { length: 32 })
+      .notNull()
+      .default("pending_review"),
+    transferredQuestionId: uuid("transferred_question_id").references(
+      () => marketingQuizQuestions.id,
+      { onDelete: "set null" },
+    ),
+    transferredAt: timestamp("transferred_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    batchQuestionIndexUniqueIdx: uniqueIndex("uq_studio_gen_q_batch_index").on(
+      table.batchId,
+      table.questionIndex,
+    ),
+    opIdx: index("idx_studio_gen_q_op").on(table.operationId),
+    taskIdx: index("idx_studio_gen_q_task").on(table.taskId),
+    batchIdx: index("idx_studio_gen_q_batch").on(table.batchId),
+    moduleIdx: index("idx_studio_gen_q_module").on(table.moduleId),
+    opReviewStatusIdx: index("idx_studio_gen_q_op_review_status").on(
+      table.operationId,
+      table.reviewStatus,
+    ),
+  }),
+);
+
+export type StudioExamGenerationOperationRecord =
+  typeof studioExamGenerationOperations.$inferSelect;
+export type NewStudioExamGenerationOperationRecord =
+  typeof studioExamGenerationOperations.$inferInsert;
+
+export type StudioExamGenerationTaskRecord =
+  typeof studioExamGenerationTasks.$inferSelect;
+export type NewStudioExamGenerationTaskRecord =
+  typeof studioExamGenerationTasks.$inferInsert;
+
+export type StudioExamGenerationBatchRecord =
+  typeof studioExamGenerationBatches.$inferSelect;
+export type NewStudioExamGenerationBatchRecord =
+  typeof studioExamGenerationBatches.$inferInsert;
+
+export type StudioExamGeneratedQuestionDbRecord =
+  typeof studioExamGeneratedQuestions.$inferSelect;
+export type NewStudioExamGeneratedQuestionDbRecord =
+  typeof studioExamGeneratedQuestions.$inferInsert;

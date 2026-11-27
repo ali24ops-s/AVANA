@@ -21,46 +21,13 @@ import { WalletService } from "../modules/wallet/wallet-service.js";
  * If live PostgreSQL is not reachable, gracefully marks as skipped (UNRUN in sandbox).
  */
 /* eslint-disable no-secrets/no-secrets */
-function validateTestDatabaseUrl(rawUrl: string | undefined): { valid: boolean; reason?: string; url?: string } {
-  if (!rawUrl || typeof rawUrl !== "string" || rawUrl.trim().length === 0) {
-    return { valid: false, reason: "No explicit STAGING_DATABASE_URL or TEST_DATABASE_URL provided." };
-  }
-
-  try {
-    const parsed = new URL(rawUrl.trim());
-    const host = parsed.hostname.toLowerCase();
-    const pathname = parsed.pathname.toLowerCase();
-
-    // 1. Strict Prohibited Hosts (Production Guard)
-    const prohibitedHosts = ["aavana.ir", "api.aavana.ir", "prod", "production", "db.aavana.ir"];
-    if (prohibitedHosts.some((h) => host.includes(h))) {
-      return { valid: false, reason: `Target host '${host}' is identified as production; execution blocked.` };
-    }
-
-    // 2. Strict Allowlist: Database name must contain 'test' or 'staging'
-    const isAllowlistedDb = pathname.includes("test") || pathname.includes("staging");
-    if (!isAllowlistedDb) {
-      return {
-        valid: false,
-        reason: `Target database path '${pathname}' does not match allowlist (must contain 'test' or 'staging').`,
-      };
-    }
-
-    return { valid: true, url: parsed.toString() };
-  } catch (err: unknown) {
-    return { valid: false, reason: `Invalid database URL format: ${String((err as Error)?.message || err)}` };
-  }
-}
+import {
+  assertSafeDestructiveTestOperation,
+  resolveSafePostgresTestUrl,
+} from "./pg-test-guard.js";
 
 describe("Staging PostgreSQL Integration: Promotion Concurrency & Quota Race", () => {
-  // Only permit explicit, validated staging or test database URLs
-  const candidateUrl =
-    process.env.STAGING_DATABASE_URL ||
-    process.env.TEST_DATABASE_URL ||
-    (process.env.ALLOW_INTEGRATION_TESTS === "true" ? process.env.DATABASE_URL : undefined);
-
-  const validation = validateTestDatabaseUrl(candidateUrl);
-
+  let dbUrl = "";
   let client: ReturnType<typeof createDbClient>;
   let isConnected = false;
   let promotionService: PromotionService;
@@ -72,27 +39,19 @@ describe("Staging PostgreSQL Integration: Promotion Concurrency & Quota Race", (
   const testPromoCode = `RACE_STAGING_${Date.now()}`;
 
   beforeAll(async () => {
-    if (!validation.valid || !validation.url) {
-      isConnected = false;
-      return;
-    }
+    dbUrl = resolveSafePostgresTestUrl();
+    client = createDbClient(dbUrl);
+    await client.db.execute(sql`SELECT 1;`);
+    isConnected = true;
 
-    try {
-      client = createDbClient(validation.url);
-      await client.db.execute(sql`SELECT 1;`);
-      isConnected = true;
-
-      const walletStore = new DrizzleWalletStore(client.db);
-      walletService = new WalletService(walletStore);
-      promotionService = new PromotionService(client.db, walletService);
-    } catch {
-      isConnected = false;
-    }
+    const walletStore = new DrizzleWalletStore(client.db);
+    walletService = new WalletService(walletStore);
+    promotionService = new PromotionService(client.db, walletService);
   });
 
   afterAll(async () => {
     if (!isConnected || !client) return;
-
+    assertSafeDestructiveTestOperation("staging_promotion_concurrency_cleanup", dbUrl);
     try {
       if (testPromoId) {
         await client.db.delete(schema.promotionRedemptions).where(eq(schema.promotionRedemptions.promotionId, testPromoId));

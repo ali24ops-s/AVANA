@@ -46,12 +46,13 @@ import { DrizzleGeneratedContentStore } from "../modules/generation/drizzle-stor
 import { ReviewService } from "../modules/generation/review-service.js";
 import { OfficialContentService } from "../modules/admin/official-content-service.js";
 import { CourseDraftService } from "../modules/courses/course-draft-service.js";
+import {
+  assertSafeDestructiveTestOperation,
+  resolveSafePostgresTestUrl,
+} from "./pg-test-guard.js";
 
 describe("Real PostgreSQL: Course Drafts, Atomic Publish & Rollback Lifecycle", () => {
-  const dbUrl =
-    process.env.DATABASE_URL ||
-    "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
-
+  let dbUrl = "";
   let client: ReturnType<typeof createDbClient>;
   let isConnected = false;
 
@@ -76,8 +77,8 @@ describe("Real PostgreSQL: Course Drafts, Atomic Publish & Rollback Lifecycle", 
   let actor: Actor;
 
   beforeAll(async () => {
-    try {
-      client = createDbClient(dbUrl);
+    dbUrl = resolveSafePostgresTestUrl();
+    client = createDbClient(dbUrl);
       await client.db.execute(sql`SELECT 1;`);
       isConnected = true;
 
@@ -165,17 +166,15 @@ describe("Real PostgreSQL: Course Drafts, Atomic Publish & Rollback Lifecycle", 
         undefined,
         draftService,
       );
-    } catch (err) {
-      console.warn("PostgreSQL not accessible, skipping real PG integration tests:", err);
-      isConnected = false;
-    }
   });
 
   afterAll(async () => {
     if (isConnected && client) {
+      assertSafeDestructiveTestOperation("course_draft_real_postgres_cleanup", dbUrl);
       try {
         await client.db.delete(organizations).where(eq(organizations.id, testOrgId));
         await client.db.delete(users).where(eq(users.id, testUserId));
+        await client.close();
       } catch {
         // Ignore cleanup error
       }
